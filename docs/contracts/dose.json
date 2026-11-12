@@ -1,0 +1,15 @@
+{
+  "contract": "martian-mappers.dose.v1",
+  "status": "example",
+  "note": "Example dose budget. Galactic cosmic-ray dose rate hardly changes over a short walk; do not invent a spatial radiation map of rocks.",
+  "baseline_rate_mSv_per_day": 0.64,
+  "baseline_uncertainty_mSv_per_day": 0.12,
+  "baseline_source": "Hassler et al., Science 2014, Curiosity RAD first ~300 sols, Gale elevation about -4.4 km MOLA",
+  "baseline_url": "https://www.science.org/doi/10.1126/science.1244797",
+  "eva_duration_h_placeholder": 1.6,
+  "duration_note": "Taken from the example route's placeholder walking time. Label as a placeholder.",
+  "dose_estimate_mSv": 0.043,
+  "dose_formula": "baseline_rate_mSv_per_day * (eva_duration_h_placeholder / 24)",
+  "rad_tables_sol_range_available": "planning check: RAD RDR archive through Sol 4843 as of 11 Nov 2026 (covers boxwork Sols 4534–4700). Parse into this file after 14 Nov if time.",
+  "shielding_note": "Habitat or rover vs open ground matters more than horizontal position. A sky-view factor raster is stretch only and must be labelled illustrative."
+}

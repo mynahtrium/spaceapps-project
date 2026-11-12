@@ -1,5 +1,9 @@
 # pipeline/
 
-Python + GDAL preprocessing will live here **after 14 November 2026**.
+Python + GDAL (and later data-service) code will live in the owned subfolders **after 14 November 2026**.
 
-No application code in this folder yet. Starting the build early may disqualify the team. See AGENTS.md and the skills `data-fetching`, `dem-to-slope`, and `routing`.
+- `terrain/` — Backend 1
+- `routing/` — Backend 2
+- `data/` — Backend 3
+
+No application code in this folder yet. Starting the build early may disqualify the team. See [ROADMAP.md](../ROADMAP.md) and [docs/roles/](../docs/roles/).

@@ -5,7 +5,7 @@ description: How to log AI / SI-tool use in docs/AI_USE.md for the NASA Space Ap
 
 # Log AI / SI-tool use
 
-The [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) requires each submission to describe how "SI tools" (AI tools) were used. Keep the log in [docs/AI_USE.md](../../docs/AI_USE.md) while you work — do not try to reconstruct it at the end.
+The [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) requires each submission to describe how "SI tools" (AI tools) were used. Keep the log in [docs/AI_USE.md](../../docs/AI_USE.md) while you work — do not try to reconstruct it at the end. Everyone adds their own rows. **Tester 1** keeps the log tidy and turns it into the submission paragraph at hours 40–44 (see [docs/roles/tester-1.md](../../docs/roles/tester-1.md)).
 
 ## When to log
 

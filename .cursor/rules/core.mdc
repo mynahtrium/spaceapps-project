@@ -1,16 +1,23 @@
 ---
-description: Core Martian Mappers project rules — privacy, secrets, no early build, AI log, citations
+description: Core Martian Mappers project rules — privacy, secrets, no early build, AI log, citations, folder ownership
 alwaysApply: true
 ---
 
 # Core rules
 
-Follow [AGENTS.md](../../AGENTS.md). This is team Martian Mappers' NASA Space Apps 2026 repo (`nasathingamajig`).
+Follow [AGENTS.md](../../AGENTS.md) and [ROADMAP.md](../../ROADMAP.md). This is team Martian Mappers' NASA Space Apps 2026 repo (`nasathingamajig`).
 
-- **No application code and no project data pipeline before 14 November 2026.** Do not add `.py`, `.js`, `.ts`, notebooks, or `package.json` dependency installs until then. Documentation, tool installs, and role decisions are fine. Starting the build early may disqualify the team. Confirm in the Project Submission Guide (expected 13 November).
+- **No application code and no project data pipeline before 14 November 2026.** Do not add `.py`, `.js`, `.ts`, notebooks, or `package.json` dependency installs until then. Documentation, tool installs, practice PRs, and role decisions are fine. Starting the build early may disqualify the team. Confirm in the Project Submission Guide (expected 13 November).
 - **No secrets.** Never commit `.env`, API keys, tokens, or credentials. The NASA API key exists only as the environment variable `NASA_API_KEY` (placeholder name in `.env.example`).
 - **Log all AI / "SI tool" use** in `docs/AI_USE.md` (date, tool, what for, what was kept or changed). The submission must describe this.
 - **No photos, video, voices, or likenesses of under-18s** in the demo or submission. Prefer screen recording plus captions.
 - **Cite data sources** and fetch dates. Do not invent facts. Mark unchecked items **UNVERIFIED**. The official Resources tab and judging guide arrive 13 November (**UNVERIFIED** until re-checked).
-- Keep this repository **private**. Do not make it public and do not connect Vercel or other hosting/billing integrations.
-- After 14 November: put raw downloads in gitignored `data/raw/`; write only small derived products to `data/processed/`; use a Mars radius (3,389.5 km mean, or 3,396.19 km equatorial from the DTM labels) for distances.
+- Keep this repository **private**. Do not make it public and do not connect Vercel or other hosting/billing integrations. Do not force-push `main`.
+- **Stay in owned folders** (see ROADMAP.md §2 and `docs/roles/`). Open small PRs; a bug tester reviews before merge ([docs/GITHUB_WORKFLOW.md](../../docs/GITHUB_WORKFLOW.md)).
+- After 14 November: put raw downloads in gitignored `data/raw/`; write only small derived products to `data/processed/`; use a Mars radius (3,389.5 km mean, or 3,396.19 km equatorial from the DTM labels) for distances. Load processed JSON first, then fall back to `docs/contracts/`.
+
+## Product decisions (12 November 2026)
+
+- Site: Gale / Mount Sharp. Science goal: ancient lake sediments and habitability / organics in mudstones; boxwork is a bonus stop.
+- Web app: MapLibre planner sends the route to a 3D first-person helmet HUD (three.js heightmap by default). WebXR is stretch only.
+- HUD MUST fields: distance, slope, next stop, suit O₂. O₂ and walk time are illustrative placeholders and must be labelled. Slope limits are lunar stand-ins. Do not invent a spatial radiation map of rocks.

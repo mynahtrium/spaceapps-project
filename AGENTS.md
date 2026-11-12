@@ -2,19 +2,23 @@
 
 Team **Martian Mappers**, [NASA Space Apps Challenge 2026](https://www.spaceappschallenge.org/) (hackathon 14–15 November 2026).
 
-This repository is the Gale crater / Mount Sharp **boxwork Marswalk planner** for the official challenge [Interplanetary Survival Guide: Martian Map](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/) (Intermediate; last published 28 October 2026). The recommended concept is **Concept A: "Boxwork Field Day"** — a layered, integrated map that helps an explorer plan and carry out a short Marswalk at the boxwork unit (Altadena member) on lower Mount Sharp, the example science goal named in the challenge text.
+This repository is a Gale crater / Mount Sharp **Marswalk planner** for the official challenge [Interplanetary Survival Guide: Martian Map](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/) (Intermediate; last published 28 October 2026).
+
+**Decisions on 12 November 2026:** stay at **Gale / Mount Sharp** (Curiosity). The primary science goal is **ancient lake sediments and habitability / biosignature potential (organics in mudstones)**. The boxwork unit (Altadena member) is a **bonus stop**, not the only target. The product is a **web app**: a 2D [MapLibre](https://maplibre.org/maplibre-gl-js/docs/) planner map **sends the route** to a **3D first-person terrain view** with a **helmet HUD**. VR / WebXR is **stretch only**. The team is six people (three backend, one frontend, two bug testers), new to GitHub and to map / 3D work, registered with a guardian, aiming to win in a full 48 hours.
+
+The hour-by-hour plan, folder ownership, and interface contracts are in [ROADMAP.md](./ROADMAP.md). Role sheets: [docs/roles/](./docs/roles/). Beginner Git: [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md). Example JSON: [docs/contracts/](./docs/contracts/).
 
 **Research and planning only until 14 November 2026.** A local event's challenge post (seen as a search snippet, not confirmed on the official page) says starting the build early can lead to disqualification. Confirm in the Project Submission Guide, which the [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) says is published on 13 November. The official **Resources tab is empty until Friday 13 November** (**UNVERIFIED** until re-checked then). The official **judging guide also appears 13 November** (**UNVERIFIED** criteria).
 
-This file is the project guide for coding agents and teammates. `CLAUDE.md` points here. Related instruction files live in `.cursor/rules/` and `skills/*/SKILL.md`.
+This file is the project guide for coding agents and teammates (data sources, design rules, and constraints). `CLAUDE.md` points here. Related instruction files live in `.cursor/rules/` and `skills/*/SKILL.md`.
 
-## Concept A — site and science goal
+## Site and science goal (Gale / Mount Sharp)
 
 - **Site:** boxwork unit (Altadena member) on lower Mount Sharp, Gale crater (Curiosity). Curiosity entered it on Sol 4534 (May 2025) at about 4.80°S, 137.39°E, and was at about 4.83°S, 137.39°E on Sol 5070 (10 November 2026), from NASA's waypoint file. Orbital mapping shows boxwork exposed for about 14 km west of the traverse. [Siebach et al. overview](https://hal.science/hal-05494691)
-- **Science goal:** why did groundwater harden some ridges? Plan a short walk with three stops: ridge top, ridge wall, hollow. Curiosity found ridges ~5 m wide and hollows 10–20 m across and 1–2 m deep; ridges rich in phyllosilicates, hollows containing siderite. [Altadena Member paper](https://doi.org/10.2110/sepmmisc.26.066) · [NASA press release](https://www.nasa.gov/missions/mars-science-laboratory/curiosity-rover/nasas-curiosity-mars-rover-starts-unpacking-boxwork-formations/)
+- **Science goal (12 November 2026 decision):** plan a short walk whose **primary** stops support **ancient lake sediments and habitability / biosignature potential (organics in mudstones)**. The boxwork unit is a **bonus stop**. Curiosity's boxwork work remains useful context: ridges ~5 m wide and hollows 10–20 m across and 1–2 m deep; ridges rich in phyllosilicates, hollows containing siderite. [Altadena Member paper](https://doi.org/10.2110/sepmmisc.26.066) · [NASA press release](https://www.nasa.gov/missions/mars-science-laboratory/curiosity-rover/nasas-curiosity-mars-rover-starts-unpacking-boxwork-formations/). Exact lake-sediment outcrop names and coordinates are **not locked in this file** — choose them against official NASA / Curiosity sources and the 13 November Resources tab (**UNVERIFIED** until then), inside the DTM footprint already checked below. Do not invent outcrop IDs or mineral detections.
 - **Terrain:** HiRISE 1 m DTMs cover the site. [DTEEC_019698](https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG) covers 4.73–5.04°S, 137.31–137.44°E (includes the traverse). [DTEEC_001488](https://hirise-pds.lpl.arizona.edu/PDS/DTM/PSP/ORB_001400_001499/PSP_001488_1750_PSP_001752_1750/DTEEC_001488_1750_001752_1750_U02.IMG) covers 4.72–4.95°S, 137.24–137.35°E (west of the traverse). That DTM comes from stereo pair PSP_001752_1750 (10 December 2006). NASA's boxwork picture [PIA26306](https://science.nasa.gov/photojournal/hirise-views-mount-sharps-boxwork/) is dated the same day; a [search result](https://www.uahirise.org/PSP_001752_1750) ties PIA26306 to that observation. Confirm in [HiView](https://www.uahirise.org/hiview/) that the boxwork is inside the footprint before committing.
-- **Framing caveat:** Gale is a rover site, not a human landing candidate. Frame the product as "if a crew visited where Curiosity found boxwork".
-- **Backup:** Concept B, Jezero crater / Perseverance "Delta Front Walk", if the boxwork is not inside the DTM footprint. Concept C (Protonilus Mensae ice-access route) is harder and has no rover ground truth.
+- **Framing caveat:** Gale is a rover site, not a human landing candidate. Frame the product as "if a crew visited where Curiosity studied Mount Sharp."
+- **Backup:** Jezero crater / Perseverance only if the locked Mount Sharp stops cannot be placed inside the DTM footprint (unlikely given DTEEC_019698). Concept C (Protonilus Mensae) remains a poor fit (no rover ground truth).
 
 Indicative (not validated) terrain notes from the 11 November 2026 planning check: in a 1 km × 7.4 km strip of DTEEC_019698 (about 4.79–4.81°S), 32% of valid 1 m pixels were steeper than 20° and 46% steeper than 15° (median 14°). The 1 m DTM under-reads local slope versus rover-reported tilts (4–10° under the rover vs 9–17° reported at four boxwork Sols — a steady offset, so relative slopes are still usable, but add a safety margin and say so). About a quarter of that sampled strip had no-data pixels (shares above are on valid pixels only). The 1 m DTM barely resolves 5 m ridges — use the 25 cm orthophoto to see them.
 
@@ -60,13 +64,13 @@ Practical notes from the 11 November 2026 check:
 
 ## Stack (planned, starting 14 November)
 
-- **Preprocessing:** Python plus GDAL command-line tools, with `rasterio`, `numpy`, `scikit-image`, `shapely` / `geopandas`. Output only small files: cropped slope/hazard PNG tiles, route GeoJSON, a few JSON tables.
-- **Web map:** a static [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) or [Leaflet](https://leafletjs.com/reference.html) map. Base layers come from Mars Trek WMTS (CTX, THEMIS, MOLA). Local layers: HiRISE orthophoto tiles made with `gdal2tiles`, a hazard overlay, the route, and stops. No application server.
-- **Panels (planned):** elevation/slope profile (Chart.js), rover POV photo for the nearest Sol, dose/time card, space-weather banner.
-- **Hosting:** static files only. Pre-download and cache everything the demo needs so it works offline. Size target: under ~100 MB of static files.
-- Stretch only: a full-screen "visor" HUD CSS view; [CesiumJS](https://cesium.com/) 3D if someone already knows it (otherwise skip).
-
-Display format: the challenge allows a habitat display, a tablet app, or a helmet HUD. Suggested start: a tablet-style web app first, HUD as a wow feature.
+- **Preprocessing:** Python plus GDAL command-line tools, with `rasterio`, `numpy`, `scikit-image`, `shapely` / `geopandas`. Output only small files: cropped slope/hazard previews, route GeoJSON, a few JSON tables, a height preview for the 3D view.
+- **2D planner:** a static [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) map (Leaflet only if MapLibre fails). Base layers from Mars Trek WMTS (CTX, THEMIS, MOLA). Local layers: HiRISE / hazard / route / stops. The planner **sends the route** to the 3D view (`mm:set-route`; see [ROADMAP.md](./ROADMAP.md) §3).
+- **3D + helmet HUD (MUST):** first-person terrain, default [three.js](https://threejs.org/) heightmap. [CesiumJS](https://cesium.com/) only if Frontend 1 already knows it. MUST HUD fields: distance, slope, next stop, suit O₂ (O₂ is an illustrative placeholder).
+- **Optional APIs:** Backends may add thin local endpoints, but **static JSON fallbacks are required** (`data/processed/` first, then `docs/contracts/`).
+- **Panels (SHOULD):** elevation/slope profile, rover POV at stops, dose/time card, DONKI space-weather banner, weather / thermal toggles.
+- **Hosting:** static files plus optional local API. Pre-download and cache everything the demo needs so it works offline. Size target: under ~100 MB of static files.
+- **Stretch only (hours 32–40):** WebXR headset mode; paired rover path. Nothing new after hour 40.
 
 ## Slope / hazard cost map and routing
 
@@ -74,8 +78,8 @@ Display format: the challenge allows a habitat display, a tablet app, or a helme
 2. Slope with `gdaldem slope` (see [gdaldem](https://gdal.org/en/stable/programs/gdaldem.html)); roughness / TRI with `gdaldem roughness` or `TRI`.
 3. Obstacles: treat no-data cells and slope above the limit as blocked. Add ridge walls and boulder fields from the 25 cm orthophoto (simple bright/dark texture or edge density, or hand-drawn polygons for the demo). Automatic boulder detection is a stretch.
 4. Suggested cost per cell (tune on the real data): `cost = step_length × (1 + (slope / 10°)² + k_rough × roughness)`; `cost = ∞` if slope > limit.
-5. Search: 8-neighbour **Dijkstra / A\*** on the grid. Python has [`skimage.graph.route_through_array`](https://scikit-image.org/docs/stable/api/skimage.graph.html), which does this in a few lines. Run it between stops: landing/habitat point → ridge top → ridge wall → hollow → back.
-6. Output: route as GeoJSON, plus a profile (distance vs elevation vs slope) and totals (distance, climb, time, dose).
+5. Search: 8-neighbour **Dijkstra / A\*** on the grid. Python has [`skimage.graph.route_through_array`](https://scikit-image.org/docs/stable/api/skimage.graph.html), which does this in a few lines. Run it between stops: habitat / start → lake-sediment / mudstone stops → boxwork bonus → back. Always also write a static `route.json` so the demo works if a routing API is down.
+6. Output: route as GeoJSON, plus a profile (distance vs elevation vs slope), totals (distance, climb, placeholder time), and HUD telemetry samples. Dose is produced by Backend 3 from the duration.
 
 Slope limits are **illustrative lunar numbers**, not a Mars-specific limit (none was found in the planning note). NASA's [Exploration EVA Concept of Operations](https://www.nasa.gov/wp-content/uploads/2020/01/topic_1-_eva_lunar_surface_concept_of_operations.pdf) describes astronauts walking up/down/across a slope of up to 20° and traverses of up to 2 km away from the lander, with EVAs of up to 8 hours (6±2 h typical); Apollo 15 crossed ~17° slopes. A published traverse planner ([LPSC 2023 abstract 1413](https://www.hou.usra.edu/meetings/lpsc2023/pdf/1413.pdf)) used Dijkstra on a 5 m raster, minimising cumulative slope with a penalised 15° per-pixel threshold, and treated 2 km as a walking-EVA radius. Mars gravity and suit weight differ, so say these are stand-ins. Suggested colours: green ≤ 10°, amber 10–15°, red 15–20°, blocked > 20°, with a toggle for the stricter 15° limit. Walking-speed formulas (for example Tobler's hiking function) are Earth hiking assumptions and must be labelled as placeholders.
 
@@ -89,19 +93,28 @@ Over a ~10 km walk the galactic cosmic-ray dose rate hardly changes with place; 
 
 ## Planned repo layout
 
+Folder **ownership** (do not edit someone else's tree): [ROADMAP.md](./ROADMAP.md) §2.
+
 ```
-data/raw/          # downloaded originals; gitignored, never commit
-data/processed/    # cropped tiles, GeoJSON, small JSON tables (from 14 Nov)
-pipeline/          # Python + GDAL preprocessing (no application code until 14 Nov)
-web/               # static MapLibre or Leaflet app (no application code until 14 Nov)
-docs/              # notes, sources, presentation
-docs/AI_USE.md     # required SI / AI-use log for the submission
-AGENTS.md          # this file
-CLAUDE.md          # short pointer for Claude Code
+data/raw/                     # originals; gitignored, never commit
+data/processed/terrain/       # Backend 1
+data/processed/routing/       # Backend 2
+data/processed/science/       # Backend 3
+pipeline/terrain|routing|data # Backends 1, 2, 3 (no application code until 14 Nov)
+web/planner|hud|shared        # Frontend 1 (no application code until 14 Nov)
+docs/contracts/               # example JSON shapes (sample data, not code)
+docs/roles/                   # one sheet per person
+docs/testing/                 # Tester 1
+docs/demo/                    # Tester 2
+docs/GITHUB_WORKFLOW.md
+docs/AI_USE.md
+ROADMAP.md
+AGENTS.md
+CLAUDE.md
 README.md
-.env.example       # placeholder names only (NASA_API_KEY=)
-skills/            # agent skill instructions (scaffolding, not app code)
-.cursor/rules/     # Cursor project rules
+.env.example
+skills/                       # includes hud-3d
+.cursor/rules/
 ```
 
 ## Conventions
@@ -115,6 +128,8 @@ skills/            # agent skill instructions (scaffolding, not app code)
 - The challenge text suggests "at least three kinds of data" and space weather; those are suggestions, not hard rules. Aim for 3+ data types from 3+ missions anyway (for example HiRISE image + DTM slope [MRO]; THEMIS thermal [Odyssey]; CRISM spectral [MRO]; Curiosity REMS/RAD [MSL]; DONKI space weather).
 - Time frame may be a past period, a predicted future period, or none (stable topography/geology).
 - Rover point-of-view images are encouraged so the explorer knows what to expect.
+- Suit O₂ and walking time on the HUD are **illustrative placeholders** and must be labelled as such.
+- Work only in owned folders; open small PRs; a bug tester reviews before merge ([docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md)).
 
 ## How to run (planned, from 14 November)
 
@@ -123,8 +138,8 @@ Nothing in `pipeline/` or `web/` is built yet. After 14 November 2026:
 1. Install Python 3, GDAL (with OpenJPEG for JP2), and either a current Node toolchain or a simple static file server for `web/`.
 2. Copy `.env.example` to `.env` and set `NASA_API_KEY` (free key from [api.nasa.gov](https://api.nasa.gov/); never commit it).
 3. Download the listed products into `data/raw/` (see `skills/data-fetching/SKILL.md`). Do not start this data pipeline before 14 November.
-4. Run the forthcoming preprocessing steps to write `data/processed/` (see `skills/dem-to-slope/SKILL.md` and `skills/routing/SKILL.md`).
-5. Serve `web/` as static files, pointed at local processed layers plus cached Trek tiles (see `skills/map-ui/SKILL.md`). Cache everything needed for an offline demo. Stay under ~100 MB of static files if possible.
+4. Run the forthcoming Backend 1–3 steps to write `data/processed/terrain/`, `routing/`, and `science/` (see the skills and [ROADMAP.md](./ROADMAP.md)).
+5. Serve `web/` as static files. The planner (`skills/map-ui`) loads processed JSON then falls back to `docs/contracts/`. The 3D HUD (`skills/hud-3d`) receives the route from the planner. Cache Trek tiles and DONKI JSON for an offline demo. Stay under ~100 MB of static files if possible. A live API is optional and must not be required on stage.
 6. Log all AI / "SI tool" use in `docs/AI_USE.md` as you work (see `skills/ai-use-log/SKILL.md`).
 
 ## Rules (must follow)
@@ -139,28 +154,25 @@ Nothing in `pipeline/` or `web/` is built yet. After 14 November 2026:
 
 ## 48-hour plan (after kickoff)
 
-Roles (adapt to team size): data prep (DTM / CRISM / rover tables) · routing / hazards · web front-end · story / design / video + disclosure log. Everyone reads the 13 November guides.
+The detailed hour-by-hour plan, dependencies, contracts, definitions of done, and fallbacks are in [ROADMAP.md](./ROADMAP.md). Summary of the 12 November 2026 timing:
 
-- **Hours 0–6:** confirm the boxwork is inside the DTM footprint in HiView; download the DTM, ortho and rover files; crop to ~2 km × 2 km around the walk.
-- **Hours 6–18:** slope / roughness rasters, cost map, first route between 3 stops; web map with base layers and the route.
-- **Hours 18–30:** add CRISM mineral overlay, THEMIS, rover traverse + tilt check, POV photos by Sol; dose budget and DONKI banner.
-- **Hours 30–40:** polish (legend, 15°/20° toggle, route stats, "why this route" panel, tablet layout). Freeze features.
-- **Hours 40–48:** demo script, 30-second video, project description including the SI-tools disclosure, submission, backup screen recording.
+- **Pre-14 November:** accounts, practice PR, installs, NASA API key in a local `.env`, read the 13 November Resources tab and judging guide (**UNVERIFIED** until then), lock stops on paper / HiView. No application code.
+- **Hours 0–16 MUST:** terrain + slope, a safe route, 3D first-person view, basic HUD (distance, slope, next stop, suit O₂).
+- **Hours 16–32 SHOULD:** radiation dose budget, DONKI banner, POV photos at stops, weather / thermal layers.
+- **Hours 32–40 STRETCH:** WebXR, paired rover mode. **Nothing new after hour 40.**
+- **Hours 40–44:** freeze, 30-second video, slides. **Hours 44–48:** submit early, keep a backup recording.
 
-**MVP (must have):** a web map with at least 3 data types from 3+ missions; a hazard map (slope + no-data + obstacles) and a route that avoids it between 3 stops, with distance / climb / time; a rover POV photo for each stop; a dose estimate and a space-weather banner; a plain-language legend and a source list.
-
-**Should have:** CRISM mineral layer for science stops; REMS temperature by time of day (choose a cooler EVA window); 15° vs 20° slope toggle; compare the planned route against Curiosity's real path.
-
-**Stretch:** HUD visor view; "rover-assisted EVA" reusing Curiosity's known-safe path as a precursor route; paired-astronaut split route; automatic boulder detection; sky-view factor; predicted-conditions slider; a second site (Jezero) using the same pipeline to show it generalises.
-
-**Presentation reminders:** 30-second video with no under-18 faces or voices (screen recording + captions + music). Be honest on slides. Past-year judging categories (impact, creativity, validity, relevance, presentation) are **UNVERIFIED** for 2026 — confirm in this year's guide on 13 November.
+**Presentation reminders:** 30-second video with no under-18 faces or voices (screen recording + captions + music). Be honest on slides (lunar slope stand-in, DTM under-reads tilt, radiation is a time problem, O₂ and walk time are placeholders). Past-year judging categories (impact, creativity, validity, relevance, presentation) are **UNVERIFIED** for 2026 — confirm in this year's guide on 13 November.
 
 ## Open questions for the team
 
-- Is Concept A the pick? (Backup: B.)
-- Team size and roles? Who has a guardian to register / accompany them at the event?
-- Which local event or virtual event? (Start times set the 48-hour clock.)
-- Tablet app, habitat display, or helmet HUD as the main format? (Suggestion: tablet-style web app first.)
+Answered on 12 November 2026: Gale / Mount Sharp with a lake-sediment science goal and boxwork as a bonus stop; web app with 3D HUD fed by a MapLibre planner (WebXR stretch only); six people in the roles in [docs/roles/](./docs/roles/); registered with a guardian.
+
+Still open:
+
+- Exact locked outcrop names and coordinates (choose against official NASA sources and the 13 November Resources tab; must sit inside DTEEC_019698).
+- Which local or virtual event? (Start times set the 48-hour clock.)
+- Who is assigned to each of the six roles (add GitHub usernames in [docs/team/ROSTER.md](./docs/team/ROSTER.md))?
 
 ## Sources (checked 11 November 2026)
 

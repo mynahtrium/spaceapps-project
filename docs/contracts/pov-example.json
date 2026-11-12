@@ -1,0 +1,14 @@
+{
+  "contract": "martian-mappers.pov.v1",
+  "status": "example",
+  "note": "Placeholder for a cached Curiosity Navcam or Mastcam still at a stop. Do not commit large image dumps; a few small JPEGs in data/processed/science/ are enough. The raw-image feed is undocumented and may change; do not use api.nasa.gov/mars-photos (404 as of 11 Nov 2026).",
+  "stop_id": "stop-boxwork-bonus",
+  "sol": 4553,
+  "sol_note": "Sol 4553 is a published 'back to the boxwork' blog sol and is used here only as an example hook. Pick the nearest real Sol to each locked stop after 14 Nov.",
+  "camera": "Navcam (example)",
+  "image_relpath": "data/processed/science/pov/stop-boxwork-bonus.jpg",
+  "feed_url_example": "https://mars.nasa.gov/rss/api/?feed=raw_images&category=msl&feedtype=json&num=2&page=0&order=sol+desc",
+  "credit": "NASA / JPL-Caltech / MSSS (confirm the exact credit on the image page)",
+  "missing": false,
+  "missing_label": "No cached rover image for this stop yet."
+}

@@ -1,12 +1,12 @@
 ---
-description: Data fetching, DEM-to-slope, routing, and map UI conventions (apply when working on those areas)
+description: Data fetching, DEM-to-slope, routing, planner map, and 3D HUD conventions
 alwaysApply: false
-globs: data/**,pipeline/**,web/**,skills/**
+globs: data/**,pipeline/**,web/**,skills/**,docs/contracts/**
 ---
 
-# Data, routing, and map conventions
+# Data, routing, planner, and HUD conventions
 
-Read the matching skill in `skills/` and the data-layer table in [AGENTS.md](../../AGENTS.md).
+Read the matching skill in `skills/`, the owner's sheet in `docs/roles/`, [ROADMAP.md](../../ROADMAP.md), and the data-layer table in [AGENTS.md](../../AGENTS.md).
 
 - Do not start downloads or processing before 14 November 2026.
 - Prefer official PDS / ODE / Mars Trek / api.nasa.gov sources listed in AGENTS.md. Re-check the official Resources tab on 13 November.
@@ -15,4 +15,7 @@ Read the matching skill in `skills/` and the data-layer table in [AGENTS.md](../
 - Do not rely on `api.nasa.gov/mars-photos` (404 as of 11 November 2026). Traverse and raw-image feeds are undocumented and may change.
 - Slope limits (15° / 20°) are illustrative lunar numbers, not a Mars-specific limit. Label them as stand-ins. The 1 m HiRISE DTM under-reads rover-reported tilt.
 - Do not invent a spatial "radiation map" of rocks. Use a time-based dose budget (RAD baseline × EVA duration) plus a DONKI WSA-Enlil banner for Mars arrivals.
-- Web app is static only (MapLibre or Leaflet). No application server.
+- Suit O₂ is an illustrative linear placeholder, not a validated Mars suit model. Label it.
+- Static JSON fallbacks are required (`data/processed/` then `docs/contracts/`). A live API is optional and must not be required on stage.
+- Planner (MapLibre, `web/planner/`) sends the route to the 3D HUD (`web/hud/`, `skills/hud-3d`) via `mm:set-route`. WebXR is stretch only (hours 32–40). Nothing new after hour 40.
+- Science goal: lake sediments / habitability at Mount Sharp; boxwork is a bonus stop. Example coordinates in `docs/contracts/` are placeholders, not locked outcrops.

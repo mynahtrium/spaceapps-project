@@ -7,7 +7,7 @@ description: Turn a HiRISE (or other) Mars DTM into slope, roughness, and hazard
 
 Do **not** write pipeline code or process project DTMs before 14 November 2026. This skill is instructions only.
 
-See the design in [AGENTS.md](../../AGENTS.md) § slope / hazard cost map. Inputs come from `skills/data-fetching`. Outputs feed `skills/routing`.
+See the design in [AGENTS.md](../../AGENTS.md) and [ROADMAP.md](../../ROADMAP.md). Role: [docs/roles/backend-1-terrain.md](../../docs/roles/backend-1-terrain.md). Inputs come from `skills/data-fetching`. Outputs (`data/processed/terrain/`, contract [cost-map.json](../../docs/contracts/cost-map.json)) feed `skills/routing` and the 3D HUD height preview (`skills/hud-3d`).
 
 ## Goals
 

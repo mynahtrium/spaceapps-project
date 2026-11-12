@@ -1,0 +1,34 @@
+{
+  "contract": "martian-mappers.cost-map.v1",
+  "status": "example",
+  "note": "Placeholder metadata and a tiny toy grid. Not a processed HiRISE product. Replace with data/processed/terrain/cost-map.json after 14 Nov 2026.",
+  "crs": "mars-geographic-planetocentric",
+  "mars_radius_km": 3389.5,
+  "mars_radius_equatorial_km": 3396.19,
+  "cell_size_m": 5,
+  "grid": { "ncols": 5, "nrows": 4, "row_major": "north_to_south" },
+  "bounds": { "west_lon_deg": 137.385, "south_lat_deg": -4.805, "east_lon_deg": 137.395, "north_lat_deg": -4.796 },
+  "dtm_product_id_planned": "DTEEC_019698_1750_019988_1750_U01",
+  "resample_note": "Planning check: averaging 1 m DTM to 5 m reduced the share of >20° pixels from 32% to 26% on one test strip. Indicative only.",
+  "slope_limit_deg": 20,
+  "slope_limit_strict_deg": 15,
+  "slope_limit_note": "Illustrative lunar stand-ins (EVA ConOps up to 20°; LPSC 2023 #1413 used a 15° penalty). No Mars-specific limit was found. Say so in the UI.",
+  "slope_classes": [
+    { "id": "green", "max_deg": 10, "meaning": "preferred" },
+    { "id": "amber", "min_deg": 10, "max_deg": 15, "meaning": "caution" },
+    { "id": "red", "min_deg": 15, "max_deg": 20, "meaning": "steep" },
+    { "id": "blocked", "min_deg": 20, "meaning": "impassable in this setting, plus no-data" }
+  ],
+  "cost_formula": "step_length * (1 + (slope_deg / 10)^2 + k_rough * roughness); cost is blocked if slope > limit or cell is no-data or an obstacle",
+  "k_rough_example": 0.05,
+  "tilt_validation_note": "A 1 m HiRISE DTM under-read rover-reported tilt in the 11 Nov 2026 planning check (about 4–10° under the rover vs 9–17° reported). Add a margin and say so.",
+  "preview_png_relpath": "data/processed/terrain/slope-preview.png",
+  "example_cost_row_major": [
+    1.1, 1.2, 1.4, 9e99, 2.0,
+    1.2, 1.3, 1.6, 2.2, 2.4,
+    1.4, 1.5, 1.8, 2.1, 2.6,
+    1.6, 1.8, 2.0, 2.3, 3.0
+  ],
+  "blocked_sentinel": 9e99,
+  "units": { "cost": "relative", "slope": "degrees" }
+}

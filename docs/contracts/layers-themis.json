@@ -1,0 +1,19 @@
+{
+  "contract": "martian-mappers.layer-themis.v1",
+  "status": "example",
+  "note": "Metadata only. Frontend should prefer cached tiles for the demo bbox. Capabilities were checked on 11 Nov 2026 (tile fetch 200 PNG).",
+  "kind": "thermal",
+  "mission": "Odyssey THEMIS",
+  "day": {
+    "name": "THEMIS Day IR",
+    "capabilities_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml",
+    "approx_resolution_m": 100
+  },
+  "night": {
+    "name": "THEMIS Night IR",
+    "capabilities_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml",
+    "approx_resolution_m": 100
+  },
+  "cached_tiles_relpath": "data/processed/science/tiles/themis/",
+  "legend_note": "Relative day/night infrared brightness. Do not over-claim surface mineralogy from THEMIS alone."
+}

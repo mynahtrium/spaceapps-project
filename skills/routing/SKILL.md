@@ -7,11 +7,11 @@ description: Build a slope and hazard cost map and run A* or Dijkstra between Ma
 
 Do **not** write routing code before 14 November 2026. This skill is instructions only.
 
-Inputs: slope, roughness, and hazard rasters from `skills/dem-to-slope`. Output: a route GeoJSON, an elevation/slope profile, and totals (distance, climb, time, dose) for the web map (`skills/map-ui`).
+Inputs: slope, roughness, and hazard rasters from `skills/dem-to-slope` (`data/processed/terrain/`). Output: `stops.json`, `route.json`, and HUD telemetry in `data/processed/routing/` for the MapLibre planner (`skills/map-ui`) and the 3D HUD (`skills/hud-3d`). Role sheet: [docs/roles/backend-2-routing.md](../../docs/roles/backend-2-routing.md). Contracts: [docs/contracts/](../../docs/contracts/).
 
-## Stops (Concept A)
+## Stops (locked 12 November 2026 goal)
 
-Landing / habitat point → **ridge top** → **ridge wall** → **hollow** → back. Science goal: why did groundwater harden some ridges? Curiosity describes ridges ~5 m wide and hollows 10–20 m across and 1–2 m deep. Pick stops on the 25 cm ortho, not only on the 1 m DTM.
+Habitat / start → **lake-sediment / mudstone stops** (habitability and organics / biosignature potential) → **boxwork bonus** (Altadena member) → back. Exact outcrop names and coordinates must be locked against official NASA / Curiosity sources and the 13 November Resources tab, and must sit inside DTEEC_019698. The example points in `docs/contracts/stops.json` are **placeholders**, not chosen outcrops. Pick final stops on the 25 cm ortho as well as the 1 m DTM.
 
 ## Cost map (suggestion; tune on real data)
 
@@ -43,9 +43,10 @@ Export the path as GeoJSON (Mars lat/lon, same tile scheme as the web map).
 
 ## Outputs
 
-- Route GeoJSON and stop points
+- `stops.json` and route GeoJSON (`route.json`) in the contract shapes, plus a **static fallback** even if a routing API exists
 - Profile: distance vs elevation vs slope
-- Totals: distance, climb, placeholder time, dose estimate
-- Optional: a comparison line against Curiosity's real traverse ([MSL traverse](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_traverse.json))
+- Totals: distance, climb, placeholder time (dose comes from Backend 3)
+- `hud-telemetry.json` samples, including illustrative suit O₂ (linear with elapsed / planned time, labelled as a placeholder)
+- Optional: a comparison line against Curiosity's real traverse ([MSL traverse](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_traverse.json)) — stretch / paired rover mode
 
-Keep outputs small and in `data/processed/`. Never commit cost rasters as `*.tif` unless the team later decides a tiny preview belongs in-repo.
+Keep outputs small and in `data/processed/routing/`. Never commit cost rasters as `*.tif`.

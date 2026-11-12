@@ -1,0 +1,20 @@
+{
+  "contract": "martian-mappers.weather.v1",
+  "status": "example",
+  "note": "Placeholder REMS-shaped weather for a cooler EVA window. Not real parsed REMS rows. Fill from the REMS archive after 14 Nov 2026.",
+  "instrument": "Curiosity REMS",
+  "archive_url": "https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/",
+  "sol_range_available_as_of_2026-11-11": "through Sol 4843 (latest folder 4710–4843 in the planning check)",
+  "recommended_eva_window_note": "Prefer a cooler time of day once real air and ground temperatures are parsed. This example window is fictional.",
+  "site": "Gale / Mount Sharp (example)",
+  "samples": [
+    { "local_true_solar_time": "06:30", "air_temp_C": -80, "ground_temp_C": -85, "is_example": true },
+    { "local_true_solar_time": "09:00", "air_temp_C": -60, "ground_temp_C": -40, "is_example": true },
+    { "local_true_solar_time": "15:00", "air_temp_C": -20, "ground_temp_C": 0, "is_example": true }
+  ],
+  "chosen_window": {
+    "local_true_solar_time_start": "06:30",
+    "local_true_solar_time_end": "09:00",
+    "reason": "Example cooler morning window — replace with real REMS once parsed."
+  }
+}

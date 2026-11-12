@@ -1,0 +1,12 @@
+{
+  "contract": "martian-mappers.layer-crism.v1",
+  "status": "example",
+  "note": "Metadata only. 8 CRISM MTRDR products overlap the DTEEC_001488 footprint (ODE query, 11 Nov 2026 planning check). Product IDs and browse bands must be filled from ODE after 14 Nov. If CRISM processing is too hard, skip this layer and say so.",
+  "kind": "spectral",
+  "mission": "MRO CRISM",
+  "ode_rest": "https://oderest.rsl.wustl.edu/",
+  "pds_geosciences": "https://pds-geosciences.wustl.edu/missions/mro/crism.htm",
+  "products": [],
+  "overlay_relpath": "data/processed/science/tiles/crism/",
+  "legend_note": "Show only mapped browse bands you can cite. Do not invent mineral detections."
+}

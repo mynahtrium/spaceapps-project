@@ -1,0 +1,55 @@
+{
+  "contract": "martian-mappers.route.v1",
+  "status": "example",
+  "note": "Placeholder line near the example stops. Not a computed hazard-avoiding route. Replace with data/processed/routing/route.json after 14 Nov 2026.",
+  "crs": "mars-geographic-planetocentric",
+  "mars_radius_km": 3389.5,
+  "slope_limit_deg": 20,
+  "slope_limit_note": "Illustrative lunar stand-in. Not a Mars-specific limit.",
+  "route_id": "eva-example-001",
+  "stop_order": ["stop-habitat", "stop-mudstone-a", "stop-mudstone-b", "stop-boxwork-bonus", "stop-habitat"],
+  "type": "Feature",
+  "properties": {
+    "id": "eva-example-001",
+    "distance_m": 1280,
+    "climb_m": 18,
+    "descent_m": 17,
+    "duration_min_placeholder": 96,
+    "duration_note": "Placeholder duration using an Earth hiking assumption (for example Tobler). Label it as such in the UI."
+  },
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [137.388, -4.798],
+      [137.389, -4.7988],
+      [137.39, -4.8],
+      [137.3908, -4.8008],
+      [137.3915, -4.8015],
+      [137.3922, -4.8022],
+      [137.393, -4.803],
+      [137.391, -4.801],
+      [137.389, -4.799],
+      [137.388, -4.798]
+    ]
+  },
+  "legs": [
+    { "from": "stop-habitat", "to": "stop-mudstone-a", "distance_m": 280 },
+    { "from": "stop-mudstone-a", "to": "stop-mudstone-b", "distance_m": 220 },
+    { "from": "stop-mudstone-b", "to": "stop-boxwork-bonus", "distance_m": 240 },
+    { "from": "stop-boxwork-bonus", "to": "stop-habitat", "distance_m": 540 }
+  ],
+  "profile": [
+    { "s_m": 0, "elev_m": -4408, "slope_deg": 3.0 },
+    { "s_m": 280, "elev_m": -4402, "slope_deg": 6.5 },
+    { "s_m": 500, "elev_m": -4396, "slope_deg": 8.0 },
+    { "s_m": 740, "elev_m": -4390, "slope_deg": 9.5 },
+    { "s_m": 1280, "elev_m": -4408, "slope_deg": 4.0 }
+  ],
+  "totals": {
+    "distance_m": 1280,
+    "climb_m": 18,
+    "descent_m": 17,
+    "duration_min_placeholder": 96,
+    "dose_mSv_see": "docs/contracts/dose.json"
+  }
+}

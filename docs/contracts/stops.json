@@ -1,0 +1,56 @@
+{
+  "contract": "martian-mappers.stops.v1",
+  "status": "example",
+  "note": "EXAMPLE coordinates near Curiosity's published Mount Sharp traverse (about 4.80°S, 137.39°E). Not locked science outcrops. Replace after the team locks stops against official NASA sources and writes data/processed/routing/stops.json.",
+  "crs": "mars-geographic-planetocentric",
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-habitat",
+        "name": "Habitat / EVA start (example)",
+        "kind": "habitat",
+        "science_summary": "Illustrative start on flatter ground, not a landing-site claim. Gale is a rover site, not a human landing candidate.",
+        "is_example": true
+      },
+      "geometry": { "type": "Point", "coordinates": [137.388, -4.798] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-mudstone-a",
+        "name": "Lake-sediment mudstone A (example)",
+        "kind": "lake_sediment",
+        "science_summary": "Placeholder for a mudstone / ancient-lake-sediment stop supporting the habitability and organics science goal. Cite the official outcrop when locked.",
+        "sol_hint": null,
+        "is_example": true
+      },
+      "geometry": { "type": "Point", "coordinates": [137.39, -4.8] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-mudstone-b",
+        "name": "Lake-sediment contact B (example)",
+        "kind": "lake_sediment",
+        "science_summary": "Placeholder second sediment or contact stop. Do not invent mineral IDs.",
+        "sol_hint": null,
+        "is_example": true
+      },
+      "geometry": { "type": "Point", "coordinates": [137.3915, -4.8015] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-boxwork-bonus",
+        "name": "Boxwork bonus (example)",
+        "kind": "boxwork_bonus",
+        "science_summary": "Bonus stop at the Altadena member boxwork (ridges and hollows). Primary goal remains lake sediments / habitability, not only 'why did groundwater harden the ridges'.",
+        "sol_hint": 4534,
+        "is_example": true
+      },
+      "geometry": { "type": "Point", "coordinates": [137.393, -4.803] }
+    }
+  ]
+}

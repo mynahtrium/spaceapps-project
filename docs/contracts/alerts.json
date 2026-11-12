@@ -1,0 +1,25 @@
+{
+  "contract": "martian-mappers.alerts.v1",
+  "status": "example",
+  "source": "DONKI WSAEnlilSimulations (cached)",
+  "source_urls": [
+    "https://api.nasa.gov/",
+    "https://ccmc.gsfc.nasa.gov/tools/DONKI/"
+  ],
+  "note": "Example drawn from the 11 Nov 2026 planning check (a May 2025 query found a Mars arrival in an Enlil impactList). Replace with a cached window for the demo. Use a personal NASA_API_KEY in a gitignored .env; never commit a key. The FLR endpoint returned 404 in that check; CME/SEP/GST worked.",
+  "queried_at": null,
+  "cache_relpath": "data/processed/science/donki-cache.json",
+  "alerts": [
+    {
+      "id": "example-enlil-2025-05",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2025-05-08T12:00:00Z",
+      "is_example": true
+    }
+  ],
+  "banner": {
+    "level": "info",
+    "text": "Cached WSA-Enlil run lists a predicted Mars arrival at 2025-05-08 12:00Z (example from the planning check). Not a live forecast until replaced with a demo cache."
+  }
+}

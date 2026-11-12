@@ -1,51 +1,52 @@
 ---
 name: map-ui
-description: Build the static MapLibre or Leaflet Marswalk map on Mars Trek tiles, with hazard, route, rover POV, dose, and DONKI panels. Use when working on the web UI.
+description: Build the static MapLibre planner map on Mars Trek tiles and send the chosen route to the 3D helmet HUD. Use when working on the 2D planner, layers, or the planner-to-HUD bridge.
 ---
 
-# Map UI
+# Map UI (2D planner)
 
 Do **not** write application code in `web/` before 14 November 2026. This skill is instructions only.
 
-The product is a **static** [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) or [Leaflet](https://leafletjs.com/reference.html) web map. No application server. Suggested format: a tablet-style web app first; a helmet-HUD visor view is a stretch.
+The 12 November 2026 team decision: this MapLibre planner is how the crew **picks and inspects** a route. The main immersive display is the 3D first-person HUD (`skills/hud-3d`). The planner **sends the route** to that view (`mm:set-route` or `web/shared/` helper). Format is a web app; WebXR is stretch only and lives in the 3D view, not here.
+
+Role sheet: [docs/roles/frontend-1-hud.md](../../docs/roles/frontend-1-hud.md). Contracts: [docs/contracts/README.md](../../docs/contracts/README.md). Timing: [ROADMAP.md](../../ROADMAP.md).
 
 ## Base layers
 
 Pull CTX, THEMIS (day/night), and MOLA shaded relief from [Mars Trek WMTS](https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=mars). Capabilities URLs are listed in [AGENTS.md](../../AGENTS.md) and `skills/data-fetching/SKILL.md`.
 
-Pre-download and **cache the tiles needed for the demo bbox** so the map works offline. Size target: under ~100 MB of static files for the whole demo.
+Pre-download and **cache the tiles needed for the demo bbox** so the map works offline. Size target: under ~100 MB of static files for the whole demo (planner + HUD + caches). If Trek is unreachable, show Backend 1's slope / ortho preview as the base map.
 
 ## Local layers (from the pipeline, after 14 November)
 
-- HiRISE 25 cm orthophoto tiles (`gdal2tiles`)
+- HiRISE 25 cm orthophoto tiles (`gdal2tiles`) or a cropped preview
 - Slope / hazard overlay with a legend (green ≤ 10°, amber 10–15°, red 15–20°, blocked > 20°)
-- Route GeoJSON and the three science stops
-- Curiosity traverse (optional comparison)
-- CRISM mineral overlay (should-have)
+- Route GeoJSON and locked science stops (lake-sediment / mudstone stops plus a boxwork bonus; habitat start)
+- Curiosity traverse (optional comparison, stretch / paired rover)
+- THEMIS (SHOULD) and CRISM (if Backend 3 delivers it)
 
-## Panels
+## Planner behaviour (MUST)
 
-- Elevation / slope profile along the route (Chart.js is the planned library)
-- Rover point-of-view photo for the nearest Sol at each stop ([MSL raw image feed](https://mars.nasa.gov/rss/api/?feed=raw_images&category=msl&feedtype=json&num=2&page=0&order=sol+desc); cache images)
-- Dose / time card: dose ≈ RAD baseline × placeholder EVA duration. Baseline: about **0.64 ± 0.12 mSv/day** ([Hassler et al., Science 2014](https://www.science.org/doi/10.1126/science.1244797)), plus real RAD tables for the relevant Sols
-- Space-weather banner from cached DONKI WSA-Enlil runs that list Mars in `impactList`
+- Show stops and the current route from `data/processed/routing/` with fallback to `docs/contracts/`.
+- A clear control (for example "Start EVA") fires `mm:set-route` with the `route` object and `along_m = 0`.
+- Do not require a live routing API. If `POST /api/route` exists, use it only to replace the line, and fall back to the last static `route.json` on failure.
+
+## Other panels (SHOULD, hours 16–32)
+
+- Elevation / slope profile along the route
+- Rover point-of-view still for the selected stop
+- Dose / time card and space-weather banner (also on the HUD)
+- REMS weather / cooler EVA window note
 - Plain-language legend and a source list with fetch dates
-- Toggle for the stricter 15° slope limit vs 20°
+- Optional toggle for the stricter 15° slope limit vs 20°
 
 ## Coordinate and honesty rules
 
-- Mars web maps use Mars lat/lon on the same tile scheme as Earth. Distances must use a Mars radius (3,389.5 km mean, or 3,396.19 km equatorial in the DTM labels). [ATS Mars Atlas notes](https://labs.allthingsspatial.io/about/mars-atlas/).
+- Mars web maps use Mars lat/lon on the same tile scheme as Earth. GeoJSON is **lon, lat**. Distances must use a Mars radius (3,389.5 km mean, or 3,396.19 km equatorial in the DTM labels). [ATS Mars Atlas notes](https://labs.allthingsspatial.io/about/mars-atlas/).
 - Label slope limits as **illustrative lunar stand-ins**. Note that the 1 m DTM under-reads rover-reported tilt.
-- Do not draw a fake spatial "radiation map" of rocks. Radiation is mostly a time and shielding problem.
-- Walking time is a placeholder if it uses an Earth hiking formula.
+- Do not draw a fake spatial "radiation map" of rocks. Walking time is a placeholder if it uses an Earth hiking formula.
 - No photos, video, voices, or likenesses of under-18s in the demo or any screen recording.
 
-## Stretch (only after the MVP works)
+## MVP (MUST at hour 16) vs later
 
-- Full-screen "visor" HUD CSS view with route arrow, slope readout, and a mini-map over a rover panorama
-- [CesiumJS](https://cesium.com/) 3D — skip unless someone already knows it
-- Predicted-conditions slider; paired-astronaut split route; sky-view factor overlay
-
-## MVP checklist
-
-Web map with at least 3 data types from 3+ missions; hazard map and a route that avoids it between 3 stops, with distance / climb / time; rover POV at each stop; dose estimate and space-weather banner; legend and sources.
+MUST: planner shows the route and sends it to a working 3D HUD (distance, slope, next stop, placeholder O₂). SHOULD adds dose, DONKI, POV, weather/thermal. Stretch (after hour 32, off the planner's critical path): paired rover path, sliders. Nothing new after hour 40.
