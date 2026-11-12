@@ -141,16 +141,34 @@ If the bad change is only on your branch and was never merged, you may abandon t
 
 Never commit `.env`, API keys, `data/raw/`, or large `.tif` / `.IMG` / JP2 files. The NASA key is only `NASA_API_KEY` in a local `.env`. If a key might have been pushed, tell a tester immediately, assume it is leaked, and request a new key. Testers will reject PRs that contain secrets.
 
-## 11. Day-of-event cheat sheet
+## 11. Session start and end (short version)
+
+The full checklist is in [AGENTS.md](../AGENTS.md). In Git terms:
+
+**Start:** `git checkout main && git pull`. Read [BOARD.md](./coordination/BOARD.md), [HANDOFFS.md](./coordination/HANDOFFS.md), the latest [AGENT_LOG.md](./coordination/AGENT_LOG.md) entries, and all [docs/team/profiles/](./team/profiles/). First session: run the [onboarding interview](./team/profiles/README.md) before any other work. Claim a board task, then `git checkout -b ROLE/short-topic`.
+
+**End:** test; append AGENT_LOG with `Commit: this commit` (optional helper: `scripts/log-entry.sh`); update the board and any handoff; commit; merge `main` into your branch; push; open a PR for a tester. At a 6-hour mark, also append [STANDUP.md](./coordination/STANDUP.md).
+
+Optional commit reminder, once per clone:
+
+```bash
+git config commit.template .gitmessage
+```
+
+## 12. Day-of-event cheat sheet
 
 ```bash
 git checkout main && git pull
+# read BOARD, HANDOFFS, AGENT_LOG, profiles; first session: interview first
 git checkout -b ROLE/short-topic
-# ...do work only in your folders...
-git add PATH && git commit -m "MESSAGE"
+# claim the task on docs/coordination/BOARD.md, then work only in your folders
+# append docs/coordination/AGENT_LOG.md (Commit: this commit)
+# optional: scripts/log-entry.sh >> docs/coordination/AGENT_LOG.md
+git add PATH docs/coordination/AGENT_LOG.md
+git commit -m "A short sentence of what this change does"
 git checkout main && git pull && git checkout ROLE/short-topic && git merge main
 git push -u origin ROLE/short-topic
 # open a PR, wait for a tester, then start the next small branch from a fresh main
 ```
 
-More detail on timing and handoffs: [ROADMAP.md](../ROADMAP.md). Role prompts and checklists: [docs/roles/](./roles/).
+More detail on timing: [ROADMAP.md](../ROADMAP.md). Role prompts: [docs/roles/](./roles/).

@@ -6,6 +6,10 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md) data-la
 
 **No application code and no project data pipeline before 14 November 2026.** You may request a personal [api.nasa.gov](https://api.nasa.gov/) key before then and store it only in a local gitignored `.env`.
 
+
+## Session start and end
+
+Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
 ## Responsibilities
 
 - Cache small JSON and a few images so the demo works offline.
@@ -13,6 +17,8 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md) data-la
 - DONKI: **WSAEnlilSimulations**, look for `"Mars"` in `impactList`. CME/SEP/GST also worked in the 11 November 2026 check; FLR returned 404. Never use NASA's shared demo key.
 - POV: undocumented MSL raw-image feed; do not use `api.nasa.gov/mars-photos` (404 in that check).
 - Cite sources and fetch dates. Do not invent mineral detections or weather values.
+
+- By hour 32, copy frozen dose, alerts, weather, layer, and POV fixtures into `data/demo/` for demo-safe mode (Frontend 1 owns the loader). Those copies must not require a network call.
 
 ## Owned folders
 
@@ -72,6 +78,8 @@ Rules: If today is before 14 November 2026, do not write application code or sta
 Do not invent science values. Mark gaps UNVERIFIED. Do not build a spatial radiation map of rocks. DONKI: use WSAEnlilSimulations and Mars in impactList; cache JSON. Do not call api.nasa.gov/mars-photos (404 as of 11 Nov 2026). Prefer small cached files for an offline demo. Official Resources tab and judging guide (13 Nov) were UNVERIFIED until re-checked.
 
 Site: Gale / Mount Sharp. Science goal: ancient lake sediments / habitability (organics in mudstones); boxwork is a bonus stop.
+
+First session: interview your human before other work (docs/team/profiles/README.md). At every session start, read BOARD, HANDOFFS, the latest AGENT_LOG entries, and all profiles. Claim a board task before starting. Append docs/coordination/AGENT_LOG.md in the same commit (Commit: this commit).
 
 Task: [DESCRIBE THE TASK]
 ```

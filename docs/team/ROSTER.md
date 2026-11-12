@@ -2,6 +2,8 @@
 
 Add your **GitHub username** next to your role in a practice pull request before 14 November 2026 (see [docs/GITHUB_WORKFLOW.md](../GITHUB_WORKFLOW.md)). Docs only — no application code in that PR.
 
+On your first agent session, complete the [onboarding interview](./profiles/README.md) and add `docs/team/profiles/<firstname-or-nickname>.md`. First name or nickname only — no phone, email, address, school name, or other personal data.
+
 Team: six people, registered with a guardian, NASA Space Apps 2026, Martian Mappers.
 
 | Role | Sheet | GitHub username |

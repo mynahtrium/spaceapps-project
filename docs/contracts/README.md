@@ -19,4 +19,14 @@ After 14 November 2026, backends write real (still small) files under `data/proc
 
 Planner → HUD in the browser: event `mm:set-route` with a `route` object (see [ROADMAP.md](../../ROADMAP.md) §3).
 
-If you change a field name, update this folder, `data/processed/` (once it exists), the roadmap table, and tell Frontend 1 and both testers in the same PR.
+If you change a field name, meaning, or file, you must in the **same PR**:
+
+1. Update the example JSON in this folder, and after 14 November any matching `data/processed/` and `data/demo/` fixtures.
+2. Add a row to [CHANGES.md](./CHANGES.md).
+3. Notify the **owning role**, **Frontend 1**, and **both testers** with a [handoff](../coordination/HANDOFFS.md) and a question on [BOARD.md](../coordination/BOARD.md) (or a clearly ticked PR checklist that they acknowledge).
+
+Do not silently rename fields. The same rule is in [AGENTS.md](../../AGENTS.md).
+
+## Demo-safe fixtures
+
+Demo-safe mode (`DEMO_SAFE=1` or `?demo=1`) must load **only** bundled files from [data/demo/](../../data/demo/README.md) — the same field names as these contracts, frozen for the stage machine, with **no network, NASA, or DONKI calls**. This is a **spec** until 14 November (no application code in this folder). Frontend 1 owns the loader; backends own the fixture files; Tester 1 checks that the network stays quiet. See [ROADMAP.md](../../ROADMAP.md) and board task SHOULD-07.

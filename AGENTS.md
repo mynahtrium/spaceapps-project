@@ -6,11 +6,11 @@ This repository is a Gale crater / Mount Sharp **Marswalk planner** for the offi
 
 **Decisions on 12 November 2026:** stay at **Gale / Mount Sharp** (Curiosity). The primary science goal is **ancient lake sediments and habitability / biosignature potential (organics in mudstones)**. The boxwork unit (Altadena member) is a **bonus stop**, not the only target. The product is a **web app**: a 2D [MapLibre](https://maplibre.org/maplibre-gl-js/docs/) planner map **sends the route** to a **3D first-person terrain view** with a **helmet HUD**. VR / WebXR is **stretch only**. The team is six people (three backend, one frontend, two bug testers), new to GitHub and to map / 3D work, registered with a guardian, aiming to win in a full 48 hours.
 
-The hour-by-hour plan, folder ownership, and interface contracts are in [ROADMAP.md](./ROADMAP.md). Role sheets: [docs/roles/](./docs/roles/). Beginner Git: [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md). Example JSON: [docs/contracts/](./docs/contracts/).
+The hour-by-hour plan, folder ownership, and interface contracts are in [ROADMAP.md](./ROADMAP.md). Role sheets: [docs/roles/](./docs/roles/). Beginner Git: [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md). Example JSON: [docs/contracts/](./docs/contracts/). Coordination: [docs/coordination/BOARD.md](./docs/coordination/BOARD.md), [HANDOFFS.md](./docs/coordination/HANDOFFS.md), [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md), [STANDUP.md](./docs/coordination/STANDUP.md). Decisions: [docs/DECISIONS.md](./docs/DECISIONS.md). Judging (UNVERIFIED until 13 Nov): [docs/JUDGING_CHECKLIST.md](./docs/JUDGING_CHECKLIST.md).
 
 **Research and planning only until 14 November 2026.** A local event's challenge post (seen as a search snippet, not confirmed on the official page) says starting the build early can lead to disqualification. Confirm in the Project Submission Guide, which the [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) says is published on 13 November. The official **Resources tab is empty until Friday 13 November** (**UNVERIFIED** until re-checked then). The official **judging guide also appears 13 November** (**UNVERIFIED** criteria).
 
-This file is the project guide for coding agents and teammates (data sources, design rules, and constraints). `CLAUDE.md` points here. Related instruction files live in `.cursor/rules/` and `skills/*/SKILL.md`.
+This file is the **single source of truth** for coding agents and teammates (data sources, design rules, and constraints). [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md), and `.cursor/rules/` are short pointers **to this file**. For Grok and DeepSeek, see [docs/coordination/LOADING_AGENTS_MD.md](./docs/coordination/LOADING_AGENTS_MD.md). Skills live in `skills/*/SKILL.md`.
 
 ## Site and science goal (Gale / Mount Sharp)
 
@@ -108,9 +108,15 @@ docs/testing/                 # Tester 1
 docs/demo/                    # Tester 2
 docs/GITHUB_WORKFLOW.md
 docs/AI_USE.md
+docs/coordination/            # board, handoffs, agent log, standup
+docs/team/profiles/           # first-name or nickname only; no personal data
+docs/DECISIONS.md
+docs/JUDGING_CHECKLIST.md     # UNVERIFIED until 13 Nov
+data/demo/                    # demo-safe fixtures (after 14 Nov)
 ROADMAP.md
 AGENTS.md
 CLAUDE.md
+GEMINI.md
 README.md
 .env.example
 skills/                       # includes hud-3d
@@ -130,6 +136,8 @@ skills/                       # includes hud-3d
 - Rover point-of-view images are encouraged so the explorer knows what to expect.
 - Suit O₂ and walking time on the HUD are **illustrative placeholders** and must be labelled as such.
 - Work only in owned folders; open small PRs; a bug tester reviews before merge ([docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md)).
+- Claim a board task before starting ([docs/coordination/BOARD.md](./docs/coordination/BOARD.md)). Append [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md) **in the same commit** (Commit field: `this commit`). Stand up every 6 hours during the event ([STANDUP.md](./docs/coordination/STANDUP.md)).
+- Contract field changes need a row in [docs/contracts/CHANGES.md](./docs/contracts/CHANGES.md) and a notice to the owner, Frontend 1, and both testers ([HANDOFFS.md](./docs/coordination/HANDOFFS.md) + a board question).
 
 ## How to run (planned, from 14 November)
 
@@ -140,17 +148,44 @@ Nothing in `pipeline/` or `web/` is built yet. After 14 November 2026:
 3. Download the listed products into `data/raw/` (see `skills/data-fetching/SKILL.md`). Do not start this data pipeline before 14 November.
 4. Run the forthcoming Backend 1–3 steps to write `data/processed/terrain/`, `routing/`, and `science/` (see the skills and [ROADMAP.md](./ROADMAP.md)).
 5. Serve `web/` as static files. The planner (`skills/map-ui`) loads processed JSON then falls back to `docs/contracts/`. The 3D HUD (`skills/hud-3d`) receives the route from the planner. Cache Trek tiles and DONKI JSON for an offline demo. Stay under ~100 MB of static files if possible. A live API is optional and must not be required on stage.
-6. Log all AI / "SI tool" use in `docs/AI_USE.md` as you work (see `skills/ai-use-log/SKILL.md`).
+6. Append [docs/coordination/AGENT_LOG.md](./docs/coordination/AGENT_LOG.md) in the same commit as the work (Commit: `this commit`). Tester 1 rolls that log into [docs/AI_USE.md](./docs/AI_USE.md) for the submission (see `skills/ai-use-log/SKILL.md`).
 
 ## Rules (must follow)
 
-1. **No application code and no project data pipeline before 14 November 2026.** Reading, tool installs, choosing roles, and documentation are fine. Starting the build early may disqualify the team. Confirm in the Project Submission Guide (expected 13 November).
-2. **No secrets.** The NASA API key lives only in the environment variable `NASA_API_KEY` (and a local, gitignored `.env`). `.env.example` may contain placeholder names only.
-3. **Log all AI use** in `docs/AI_USE.md`. The official FAQ requires each submission to describe how "SI tools" were used.
-4. **No photos, video, voices or likenesses of under-18s** in the demo or submission. Prefer screen recording plus captions (or an adult / synthetic voice if the 13 November guide allows). The FAQ also says under-18 participants must be registered by a parent or guardian and accompanied by one at the event.
+1. **No application code and no project data pipeline before 14 November 2026.** Reading, tool installs, choosing roles, documentation, practice PRs, and onboarding interviews are fine. Starting the build early may disqualify the team. Confirm in the Project Submission Guide (expected 13 November).
+2. **No secrets.** The NASA API key lives only in the environment variable `NASA_API_KEY` (and a local, gitignored `.env`). `.env.example` may contain placeholder names only (including the planned `DEMO_SAFE` flag).
+3. **Log every change** in [docs/coordination/AGENT_LOG.md](./docs/coordination/AGENT_LOG.md) **in the same commit** as the work. Write `this commit` in the Commit field; do not amend or force-push just to add a hash (see that file). Tester 1 uses this log to keep [docs/AI_USE.md](./docs/AI_USE.md) complete for the submission. The official FAQ requires each submission to describe how "SI tools" were used.
+4. **No photos, video, voices or likenesses of under-18s** in the demo or submission. Prefer screen recording plus captions (or an adult / synthetic voice if the 13 November guide allows). The FAQ also says under-18 participants must be registered by a parent or guardian and accompanied by one at the event. Profiles may contain a **first name or nickname only** — no phone numbers, emails, addresses, school names, or other personal data.
 5. **Cite data sources** in the product and the submission. Keep the sources list.
 6. **Keep this repository private.** Do not make it public and do not connect hosting, billing, or deployment integrations from this scaffolding.
-7. Re-read the official challenge, FAQ, Resources tab, Project Submission Guide, and judging guide when they are available on 13 November. Do not treat past-year judging categories as confirmed for 2026.
+7. Re-read the official challenge, FAQ, Resources tab, Project Submission Guide, and judging guide when they are available on 13 November. Do not treat past-year judging categories as confirmed for 2026. Update [docs/JUDGING_CHECKLIST.md](./docs/JUDGING_CHECKLIST.md) (board task PRE-06).
+8. **Claim a task** on [docs/coordination/BOARD.md](./docs/coordination/BOARD.md) before starting work. Follow the session checklist below.
+
+## Session start and end
+
+Do this at **every** agent session (mirrored briefly in [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md) and the role sheets).
+
+**Start**
+
+1. `git checkout main && git pull` (then create or update your branch; do not work on `main` after 14 November).
+2. Read [BOARD.md](./docs/coordination/BOARD.md), [HANDOFFS.md](./docs/coordination/HANDOFFS.md), the latest [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md) entries, and **all** [docs/team/profiles/](./docs/team/profiles/) (except you may skip `_TEMPLATE.md`).
+3. **First session** with this human: run the onboarding interview in [docs/team/profiles/README.md](./docs/team/profiles/README.md) **before any other work**, and write their profile (first name or nickname only; no personal data).
+4. Claim a task on the board (`todo` → `doing`, add first name or nickname and agent tool).
+5. Work only in owned folders, on a `ROLE/short-topic` branch.
+
+**End**
+
+6. Test, or review docs, in line with the task.
+7. Append an **AGENT_LOG** entry (Commit: `this commit`). Update BOARD, and write a handoff or contract CHANGES row if needed. If the event clock is at a 6-hour mark, append [STANDUP.md](./docs/coordination/STANDUP.md) (Done / Next / Blocked).
+8. Commit, push, and open a PR for a tester. Do not merge your own PR.
+
+## Standup (every 6 hours)
+
+During the hackathon, at hours 0, 6, 12, 18, 24, 30, 36, and 42, each role appends three lines to [docs/coordination/STANDUP.md](./docs/coordination/STANDUP.md): **Done**, **Next**, **Blocked**. If you miss a slot, catch up at the next session.
+
+## Contract changes
+
+If you change a field name, meaning, or file under `docs/contracts/`, you must, in the **same PR**: (1) update the example JSON, (2) add a row to [docs/contracts/CHANGES.md](./docs/contracts/CHANGES.md), and (3) notify the owning role, Frontend 1, and both testers with a [handoff](./docs/coordination/HANDOFFS.md) and a [board question](./docs/coordination/BOARD.md). Do not silently rename fields. After 14 November also update any matching `data/processed/` and `data/demo/` fixtures.
 
 ## 48-hour plan (after kickoff)
 

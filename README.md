@@ -15,9 +15,10 @@ This repository is still **documentation and scaffolding only**. There is no app
 | Anyone on the team | This README, then **[ROADMAP.md](./ROADMAP.md)** and **[docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md)** |
 | Your assigned role | **[docs/roles/](./docs/roles/)** (one sheet each, including a ready-to-paste AI prompt) |
 | Wiring data between people | **[docs/contracts/](./docs/contracts/)** (example JSON; sample data, not computed products) |
-| An AI coding agent | **[AGENTS.md](./AGENTS.md)** or **[CLAUDE.md](./CLAUDE.md)** |
+| An AI coding agent | **[AGENTS.md](./AGENTS.md)** (single source of truth). Short pointers: [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md). Grok / DeepSeek: [docs/coordination/LOADING_AGENTS_MD.md](./docs/coordination/LOADING_AGENTS_MD.md) |
+| Coordinating the six people | [BOARD.md](./docs/coordination/BOARD.md), [HANDOFFS.md](./docs/coordination/HANDOFFS.md), [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md), [STANDUP.md](./docs/coordination/STANDUP.md), [docs/DECISIONS.md](./docs/DECISIONS.md) |
 
-Add your GitHub username in a practice PR on [docs/team/ROSTER.md](./docs/team/ROSTER.md) before 14 November.
+Add your GitHub username in a practice PR on [docs/team/ROSTER.md](./docs/team/ROSTER.md) before 14 November. First agent session: onboarding interview into [docs/team/profiles/](./docs/team/profiles/) (first name or nickname only; no personal data).
 
 ## Do not start the build before 14 November 2026
 
@@ -43,7 +44,8 @@ data/processed/terrain|routing|science
 pipeline/terrain|routing|data  # no code until 14 Nov
 web/planner|hud|shared         # no code until 14 Nov
 docs/contracts/  docs/roles/  docs/testing/  docs/demo/
-ROADMAP.md   docs/GITHUB_WORKFLOW.md   docs/AI_USE.md
+docs/coordination/   docs/team/profiles/   data/demo/
+ROADMAP.md   docs/GITHUB_WORKFLOW.md   docs/AI_USE.md   docs/DECISIONS.md
 ```
 
 ## How to run (planned, from 14 November)

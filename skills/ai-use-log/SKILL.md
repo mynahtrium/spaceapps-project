@@ -5,7 +5,7 @@ description: How to log AI / SI-tool use in docs/AI_USE.md for the NASA Space Ap
 
 # Log AI / SI-tool use
 
-The [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) requires each submission to describe how "SI tools" (AI tools) were used. Keep the log in [docs/AI_USE.md](../../docs/AI_USE.md) while you work — do not try to reconstruct it at the end. Everyone adds their own rows. **Tester 1** keeps the log tidy and turns it into the submission paragraph at hours 40–44 (see [docs/roles/tester-1.md](../../docs/roles/tester-1.md)).
+The [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) requires each submission to describe how "SI tools" (AI tools) were used. Keep the short disclosure log in [docs/AI_USE.md](../../docs/AI_USE.md). Keep the detailed, append-only change trail in [docs/coordination/AGENT_LOG.md](../../docs/coordination/AGENT_LOG.md) (**mandatory**, same commit as the work, Commit field: `this commit`). Everyone adds their own AI_USE rows when the tool or purpose is new. **Tester 1** reads AGENT_LOG, keeps AI_USE complete, and turns it into the submission paragraph at hours 40–44 (see [docs/roles/tester-1.md](../../docs/roles/tester-1.md)).
 
 ## When to log
 

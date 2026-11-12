@@ -65,6 +65,16 @@ When the planner has a route (from `route.json` or a recompute), Frontend 1 send
 
 Coordinates in every example file are **placeholders** near the published traverse, not chosen science outcrops.
 
+### Demo-safe mode (spec only until 14 November)
+
+By **hour 32** the web app must support a **demo-safe** switch so the stage demo works with no venue network and no live NASA or DONKI calls.
+
+- **On:** environment variable `DEMO_SAFE=1`, or the URL query `?demo=1`. Either one is enough. (Placeholder name also listed in `.env.example`. Do not implement the flag before 14 November.)
+- **Behaviour:** load **only** bundled fixtures from [`data/demo/`](./data/demo/README.md) (and other files already shipped with the static app). No fetches to PDS, Mars Trek, api.nasa.gov, DONKI, raw-image feeds, or any other network host. If a fixture is missing, show an honest empty state — still no network.
+- **Owner:** Frontend 1 implements the flag and loader. Backends 1–3 drop a small frozen copy of their contract-shaped JSON (and a few previews or POV stills) into `data/demo/`. Tester 1 verifies, as a checklist item, that demo-safe mode makes no network calls. Board task **SHOULD-07**.
+- Until fixtures exist, `docs/contracts/` is the shape reference, not a live demo-safe bundle.
+
+
 ## 4. Dependencies
 
 ```mermaid
@@ -97,8 +107,8 @@ No project code, no `package.json` install in this repo, no notebooks, no pipeli
 
 | Who | Tasks |
 |---|---|
-| All | Create a GitHub account; get added to this private repo; install Git, Python 3, and a code editor; read [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md); complete **one practice PR** (add your GitHub username to [docs/team/ROSTER.md](./docs/team/ROSTER.md)); read AGENTS.md, this roadmap, and your role sheet; start logging AI use in `docs/AI_USE.md`. |
-| All, on 13 Nov | Read the official Resources tab, Project Submission Guide, and judging guide (**UNVERIFIED** until they appear). Adjust this plan if the guide requires it; do not start coding. |
+| All | Create a GitHub account; get added to this private repo; install Git, Python 3, and a code editor; read [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md); complete **one practice PR** (add your GitHub username to [docs/team/ROSTER.md](./docs/team/ROSTER.md)); first agent session: onboarding interview into [docs/team/profiles/](./docs/team/profiles/); read AGENTS.md, this roadmap, and your role sheet; log work in [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md). |
+| All, on 13 Nov | Read the official Resources tab, Project Submission Guide, and judging guide (**UNVERIFIED** until they appear). Testers update [docs/JUDGING_CHECKLIST.md](./docs/JUDGING_CHECKLIST.md) (board PRE-06). Adjust this plan if the guide requires it; do not start coding. |
 | B1 | Install GDAL with OpenJPEG; run `gdalinfo --formats` on your machine (not on project data); skim [gdaldem](https://gdal.org/en/stable/programs/gdaldem.html) and the PDS driver notes in AGENTS.md. |
 | B2 | Understand A\* / Dijkstra at a high level; read the route contract; sit with the team to **lock stop candidates** on HiView / official maps (write ids and reasons in a notes issue or on paper — not application code). |
 | B3 | Request a free personal key at [api.nasa.gov](https://api.nasa.gov/) and store it only in a local `.env` (never commit it, never paste it into chat). Do not begin the project DONKI/REMS pipeline yet. |
@@ -131,7 +141,7 @@ MUST is frozen except for bug fixes. New work goes on branches and can be hidden
 |---|---|---|---|---|---|
 | **16–22** | Optional: 15° / 20° mask as a second layer for the planner toggle. Stay available for terrain bugs. | Optional: toggle the route at 15° vs 20°. Compare a trace against Curiosity's traverse JSON if time. | **Dose budget** from RAD baseline × duration (and real RAD tables for relevant Sols if parsed). **DONKI** banner from cached WSA-Enlil Mars arrivals. Write `dose.json` and `alerts.json`. | Dose card + space-weather banner on the HUD and/or planner. Fail safe: hide the banner if the file is missing. | SHOULD test plan starts. Check numbers against the cited baseline and the cached alert note. |
 | **22–28** | Help with ortho tiles if F1 still needs a texture. | Hook "recompute" only if the MUST route stays the default when the API fails. | **POV photos** for each stop (cached JPEGs + `pov/*.json`). **Weather** (REMS temperature by time of day — pick a cooler EVA window). | Click-a-stop shows a rover POV still. Weather / time-of-day note on the planner. | Check each stop has a photo, or an honest "no image" state. |
-| **28–32** | Spare / bugfix. | Spare / bugfix. | **THEMIS** (and CRISM if ready) layer metadata for the planner. If CRISM is too hard, skip and say so; THEMIS tiles from Trek plus a legend still count as a thermal layer. | Toggle THEMIS (and CRISM if present) on the 2D planner. Legend and source list visible. | **SHOULD sign-off**. Anything incomplete is dropped or labelled "not in demo." |
+| **28–32** | Spare / bugfix. Help freeze a tiny `data/demo/` copy of the cost preview. | Spare / bugfix. Help freeze route/stops/telemetry fixtures into `data/demo/`. | **THEMIS** (and CRISM if ready) layer metadata for the planner. If CRISM is too hard, skip and say so; THEMIS tiles from Trek plus a legend still count as a thermal layer. Freeze science fixtures into `data/demo/`. | Toggle THEMIS (and CRISM if present) on the 2D planner. Legend and source list visible. **Ship demo-safe mode** (`DEMO_SAFE=1` / `?demo=1`). | **SHOULD sign-off**, including the **demo-safe network-off check**. Anything incomplete is dropped or labelled "not in demo." |
 
 ### Hours 32–40 — STRETCH only (VR, paired rover)
 
@@ -172,6 +182,7 @@ No new stretch after hour 40. If MUST or SHOULD is still shaky, **do not start s
 - DONKI / WSA-Enlil banner from **cached** JSON.
 - Rover POV still at each stop, or an honest empty state.
 - At least one weather or thermal product on the planner (REMS and/or THEMIS). CRISM if it made it.
+- **Demo-safe mode** works: `DEMO_SAFE=1` or `?demo=1` loads only `data/demo/` fixtures and makes no network, NASA, or DONKI calls (tester-verified).
 - 15° / 20° toggle is nice but not required to pass SHOULD.
 
 ### STRETCH (hour 40)
@@ -193,7 +204,7 @@ No new stretch after hour 40. If MUST or SHOULD is still shaky, **do not start s
 | GDAL / JP2 / huge DTM fails | Windowed reads; 5 m resample; a smaller crop; last resort: a tiny height PNG already in `data/processed/terrain/` and the contract cost-map. |
 | Router crashes or is slow | Ship a **precomputed static** `route.json` (solver output or carefully drawn on the hazard map). Keep the API optional. |
 | API process dies mid-demo | Frontend already uses static files. No live API required on stage. |
-| Trek tiles need internet | Cache the demo bbox offline; if cache is incomplete, use the ortho / slope preview as the only base map. |
+| Trek tiles need internet | Cache the demo bbox offline; if cache is incomplete, use the ortho / slope preview as the only base map. By hour 32, use **demo-safe mode** (`?demo=1` / `DEMO_SAFE=1`) so the stage machine never needs the network. |
 | DONKI key or rate limit | Cached `alerts.json` from a prep-day or hour-0 fetch. Never use the shared demo key. |
 | Raw-image feed changes or 404 | Pre-cached JPEGs in `data/processed/science/` (small, a few images only). |
 | three.js / 3D too slow or too hard | Lower-resolution heightmap; shorter far-clip; or a first-person walk along a textured "ribbon" of the route. Last resort: HUD overlay on a scripted camera path / stills, still driven by `route.json`. CesiumJS only if already known — do not learn it during hours 0–16. |
@@ -210,4 +221,5 @@ No new stretch after hour 40. If MUST or SHOULD is still shaky, **do not start s
 2. This file, §2–§7.
 3. [docs/contracts/README.md](./docs/contracts/README.md) and the JSON for your outputs.
 4. [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md).
-5. [AGENTS.md](./AGENTS.md) for data links, slope and radiation rules, and sources.
+5. [AGENTS.md](./AGENTS.md) for data links, slope and radiation rules, sources, and the session / log rules.
+6. [docs/coordination/BOARD.md](./docs/coordination/BOARD.md) and the latest [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md) entries.

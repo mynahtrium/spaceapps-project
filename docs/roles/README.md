@@ -12,3 +12,5 @@ One page per person. Each sheet has responsibilities, phase tasks, owned folders
 | Bug tester 2 — demo, video, slides | [tester-2.md](./tester-2.md) |
 
 Timing and contracts: [ROADMAP.md](../../ROADMAP.md). Git: [docs/GITHUB_WORKFLOW.md](../GITHUB_WORKFLOW.md). Roster (practice PR): [docs/team/ROSTER.md](../team/ROSTER.md).
+
+Session start: [AGENTS.md](../../AGENTS.md) checklist, [BOARD.md](../coordination/BOARD.md), [profiles](../team/profiles/).

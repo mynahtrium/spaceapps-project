@@ -6,11 +6,17 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [docs/
 
 **No application code before 14 November 2026.**
 
+
+## Session start and end
+
+Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
 ## Responsibilities
 
 - Download (after kickoff) the HiRISE DTM and 25 cm ortho for the locked Mount Sharp walk, crop to ~2 km × 2 km, resample to 2–5 m, compute slope and roughness, build the cost / hazard map, write a small height or slope preview the frontend can load.
 - Validate slope against Curiosity waypoint `tilt` and record the known DTM under-read.
 - Keep products small. Never commit `data/raw/`, `.env`, or bulky `*.tif` / `.IMG` / JP2.
+
+- By hour 32, copy a small frozen cost-map / preview fixture into `data/demo/` for demo-safe mode (Frontend 1 owns the loader).
 
 ## Owned folders (do not edit other trees)
 
@@ -69,6 +75,8 @@ Rules: If today is before 14 November 2026, do not write application code (.py/.
 Site: Gale / Mount Sharp. Stay inside HiRISE DTM DTEEC_019698 coverage. Science goal: ancient lake sediments / habitability (organics in mudstones); boxwork is a bonus stop. Slope limits 15°/20° are lunar stand-ins. The 1 m DTM under-reads rover tilt — say so. Use a Mars radius for any distances.
 
 After 14 Nov, work in small git branches (backend-1/short-topic), open a small PR, and wait for a bug tester to review. Prefer GDAL command-line (gdaldem slope, roughness, gdalwarp -r average) and write only small products. If the full DTM fails, fall back to a smaller crop or a tiny preview as in the roadmap risks list.
+
+First session: interview your human before other work (docs/team/profiles/README.md). At every session start, read BOARD, HANDOFFS, the latest AGENT_LOG entries, and all profiles. Claim a board task before starting. Append docs/coordination/AGENT_LOG.md in the same commit (Commit: this commit).
 
 Task: [DESCRIBE THE TASK]
 ```

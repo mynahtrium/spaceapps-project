@@ -1,0 +1,14 @@
+# Decision record
+
+Short record of locked product and process choices. Add a row when the team (or Doruk) makes a new one. Do not invent names; use **Doruk / team** or **Doruk via planning** as in the seed rows. First names or nicknames only if a profile already exists.
+
+Related: [ROADMAP.md](../ROADMAP.md), [AGENTS.md](../AGENTS.md), [docs/coordination/BOARD.md](./coordination/BOARD.md).
+
+| Date | Decision | Options considered | Why | Who |
+|---|---|---|---|---|
+| 2026-11-12 | Site: Gale crater / Mount Sharp, not Jezero | Concept A Gale / Mount Sharp; Concept B Jezero delta; Concept C Protonilus ice | Best already-checked HiRISE DTM coverage plus Curiosity weather, RAD, and POV; matches the challenge's example region; lowest 48-hour risk in the 11 November planning note | Doruk / team |
+| 2026-11-12 | Science goal: ancient lake sediments and habitability / biosignature potential (organics in mudstones); boxwork is a bonus stop | Boxwork-only walk ("why did groundwater harden the ridges"); lake-sediment / habitability goal at Mount Sharp; Jezero biosignature story | Locked by Doruk; still uses the Gale / Mount Sharp data already checked. Exact outcrops remain to be locked against official NASA sources and the 13 November Resources tab (**UNVERIFIED** until then) | Doruk / team |
+| 2026-11-12 | Format: web app with a 3D first-person helmet HUD, fed by a 2D MapLibre planner | 2D tablet map first, HUD later; habitat display; helmet HUD; 3D-first | Locked by Doruk. Default 3D stack is a three.js heightmap; CesiumJS only if Frontend 1 already knows it | Doruk / team |
+| 2026-11-12 | VR / WebXR is stretch only (hours 32–40), not MUST | VR as a must-have; no VR at all | The team is new to 3D; a flaky headset path must not break the web demo | Doruk / team |
+| 2026-11-12 | Interface: static JSON contracts, with an optional live API that must fall back to those files | Live API only; static files only; static files plus optional API | Offline / demo reliability; a process crash mid-stage must not blank the HUD | Doruk via planning |
+| 2026-11-12 | Multi-agent coordination (Claude, Gemini, Grok, DeepSeek): shared AGENTS.md, board, handoffs, onboarding interviews, and an append-only agent log | Ad hoc chat only; one shared tool only | Six people and four AI tools; Doruk asked that agents first learn who their human is, and that every change is logged | Doruk / team |

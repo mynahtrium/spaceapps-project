@@ -6,6 +6,10 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [docs/
 
 **No application code before 14 November 2026** (no `.js` / `.ts`, no `package.json` in this repo until then). You may watch tutorials and sketch the HUD on paper.
 
+
+## Session start and end
+
+Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
 ## Responsibilities
 
 - Planner: MapLibre on Mars Trek (or cached / fallback) tiles, hazard overlay, stops, route, later THEMIS/CRISM/weather toggles, source legend.
@@ -13,6 +17,7 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [docs/
 - HUD MUST show **distance**, **slope**, **next stop**, and **suit O₂** (O₂ labelled as a placeholder).
 - Load `data/processed/**` first, then fall back to `docs/contracts/*.json`, so you can demo even when backends are late.
 - Static web app; cache for offline. Optional backend APIs are nice; they must not be required on stage.
+- **Demo-safe mode (you own the implementation, due hour 32):** `DEMO_SAFE=1` or `?demo=1` loads **only** [data/demo/](../../data/demo/README.md) fixtures and makes **no** network, NASA, or DONKI calls. Backends supply the fixture files. See [ROADMAP.md](../../ROADMAP.md) and board **SHOULD-07**. Spec only until 14 November.
 - No under-18 faces or voices in any capture.
 
 ## Owned folders
@@ -55,6 +60,7 @@ A reviewer can open the web app, see a 2D route, start the EVA, and walk or play
 - [ ] Planner sends route to HUD
 - [ ] Four MUST HUD fields visible and labelled (O₂ placeholder)
 - [ ] Fallback to `docs/contracts/` works
+- [ ] Demo-safe mode (`?demo=1` / `DEMO_SAFE=1`) uses only `data/demo/` and does not hit the network (hour 32)
 - [ ] Offline enough for the demo room
 - [ ] Credits / honesty notes visible
 - [ ] AI use logged
@@ -73,6 +79,8 @@ Product: a web app. 2D MapLibre planner sends a route to a 3D first-person three
 MUST HUD fields: distance, slope, next stop, suit O2. Suit O2 and walking time are illustrative placeholders — label them. Slope limits are lunar stand-ins. Do not draw a fake spatial radiation map. Use Mars lon/lat as in the contracts (GeoJSON is lon, lat). Aim for a tablet-friendly layout plus a full-screen visor.
 
 Site: Gale / Mount Sharp. Science goal: ancient lake sediments / habitability (organics in mudstones); boxwork is a bonus stop. Example coordinates in the contracts are placeholders.
+
+First session: interview your human before other work (docs/team/profiles/README.md). At every session start, read BOARD, HANDOFFS, the latest AGENT_LOG entries, and all profiles. Claim a board task before starting. Append docs/coordination/AGENT_LOG.md in the same commit (Commit: this commit).
 
 Task: [DESCRIBE THE TASK]
 ```

@@ -6,12 +6,18 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [docs/
 
 **No application code before 14 November 2026.** Demo scripts and slide outlines in `docs/demo/` are allowed now.
 
+
+## Session start and end
+
+Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
 ## Responsibilities
 
 - Demo flow (about 2–3 minutes) and a 30-second video beat sheet, updated to the 12 November decisions: 3D HUD first, planner feeds the route, lake-sediment goal, boxwork as a bonus stop.
 - Rehearsal at hours 40–44; backup recording; submit-early checklist.
 - Under-18 rule: no photos, video, voices, or likenesses of under-18s in any take. Prefer screen recording + captions (or an adult / synthetic voice if the 13 November guide allows — **UNVERIFIED** until that guide is read).
 - Honesty on slides: lunar slope stand-in, DTM under-reads tilt, radiation is mostly a time problem, O₂ and walk time are placeholders, list sources and dates.
+- Rehearse and record in **demo-safe mode** (`?demo=1`) so the video does not depend on venue Wi-Fi. Tester 1 signs the network-off check.
+- On 13 November, with Tester 1, update [docs/JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official guide (board **PRE-06**; **UNVERIFIED** until then).
 - PR reviews, especially `web/`. Every PR needs one tester approval.
 
 ## Owned folders
@@ -61,6 +67,8 @@ Read AGENTS.md, ROADMAP.md, docs/GITHUB_WORKFLOW.md, docs/roles/tester-2.md, and
 Rules: If today is before 14 November 2026, no application code. You may write docs in docs/demo/ only. Do not implement web/ or pipeline/ features. Never commit secrets. Log AI use in docs/AI_USE.md. Keep the repo private.
 
 Help with a beginner-friendly demo script, 30-second video beat sheet, slide outline, and submission checklist. No photos, voices, or likenesses of under-18s. Be honest about placeholders (slope limits, O2, walk time) and UNVERIFIED items (judging guide and Resources tab until read on 13 Nov). Science goal: ancient lake sediments / habitability at Gale / Mount Sharp; boxwork is a bonus stop. Format: 3D helmet HUD fed by a 2D MapLibre planner; WebXR is stretch only.
+
+First session: interview your human before other work (docs/team/profiles/README.md). At every session start, read BOARD, HANDOFFS, the latest AGENT_LOG entries, and all profiles. Claim a board task before starting. Append docs/coordination/AGENT_LOG.md in the same commit (Commit: this commit).
 
 Task: [DESCRIBE THE TASK]
 ```
