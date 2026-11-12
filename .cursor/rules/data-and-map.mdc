@@ -1,0 +1,18 @@
+---
+description: Data fetching, DEM-to-slope, routing, and map UI conventions (apply when working on those areas)
+alwaysApply: false
+globs: data/**,pipeline/**,web/**,skills/**
+---
+
+# Data, routing, and map conventions
+
+Read the matching skill in `skills/` and the data-layer table in [AGENTS.md](../../AGENTS.md).
+
+- Do not start downloads or processing before 14 November 2026.
+- Prefer official PDS / ODE / Mars Trek / api.nasa.gov sources listed in AGENTS.md. Re-check the official Resources tab on 13 November.
+- Never commit `data/raw/`, `*.tif`, PDS `.IMG`, or JP2 files. Cache DONKI JSON and Trek tiles for an offline demo (size target under ~100 MB of static files).
+- NASA API key only via `NASA_API_KEY`. Do not use NASA's shared demo key for the build; it is rate-limited.
+- Do not rely on `api.nasa.gov/mars-photos` (404 as of 11 November 2026). Traverse and raw-image feeds are undocumented and may change.
+- Slope limits (15° / 20°) are illustrative lunar numbers, not a Mars-specific limit. Label them as stand-ins. The 1 m HiRISE DTM under-reads rover-reported tilt.
+- Do not invent a spatial "radiation map" of rocks. Use a time-based dose budget (RAD baseline × EVA duration) plus a DONKI WSA-Enlil banner for Mars arrivals.
+- Web app is static only (MapLibre or Leaflet). No application server.

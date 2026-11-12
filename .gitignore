@@ -1,0 +1,61 @@
+# Secrets — never commit real keys
+.env
+.env.local
+.env.*
+!.env.example
+
+# Raw downloads and bulky rasters
+data/raw/
+*.tif
+*.tiff
+*.TIF
+*.TIFF
+*.img
+*.IMG
+*.jp2
+*.JP2
+*.aux.xml
+*.tfw
+*.prj
+*.ovr
+*.vrt
+*.mbtiles
+*.shp
+*.shx
+*.dbf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.ipynb
+
+# Node
+node_modules/
+.cache/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+web/dist/
+web/build/
+
+# GDAL / OS / editors
+*.gfs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
