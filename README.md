@@ -22,9 +22,9 @@ Add your GitHub username in a practice PR on [docs/team/ROSTER.md](./docs/team/R
 
 ## Do not start the build before 14 November 2026
 
-A local event's challenge post (seen as a search snippet, not confirmed on the official page) says starting the build early can lead to disqualification. Reading, installing tools, choosing roles, locking stops on paper / HiView, and a practice pull request are fine. Confirm in the Project Submission Guide, which the [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) says is published on 13 November.
+A local event's challenge post (seen as a search snippet, not confirmed on the official page) says starting the build early can lead to disqualification. That rule remains **UNVERIFIED**. Reading, installing tools, choosing roles, locking stops on paper / HiView, and a practice pull request are fine.
 
-The official **Resources tab** and **judging guide** are expected on 13 November. Treat details from them as **UNVERIFIED** until then.
+A 13 November 2026 re-check could not read the official [Resources tab](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/) or judging guide (certificate error / HTTP 500); treat them as **UNVERIFIED**. Confirmed from official pages that did load: project submission is on the Team page's Project tab and opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time** ([2026 landing page](https://www.spaceappschallenge.org/2026/)); under-18s must be registered by and accompanied by a parent or legal guardian, and participants must register before the event starts ([official terms](https://www.spaceappschallenge.org/legal/), updated 7 August 2026). See [ROADMAP.md](./ROADMAP.md).
 
 ## Planned product
 

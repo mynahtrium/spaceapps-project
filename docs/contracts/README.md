@@ -1,6 +1,6 @@
 # Interface contracts (example payloads)
 
-These JSON files are **static sample data**, not computed science products and not application code. Coordinates are **placeholders** near Curiosity's published Mount Sharp traverse (about 4.80°S, 137.39°E). They are not locked outcrops.
+These JSON files are **static sample data**, not computed science products and not application code. Coordinates are **placeholders** near Curiosity's published Mount Sharp traverse (about 4.80°S, 137.39°E). They are not locked outcrops. A 13 November 2026 check of NASA's [MSL waypoints](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json) is in [docs/testing/STOP_COORDINATE_CHECK.md](../testing/STOP_COORDINATE_CHECK.md): the example points in [stops.json](./stops.json) are about 100–900 m off the traverse and stay illustrative; stop values in that file were not changed.
 
 After 14 November 2026, backends write real (still small) files under `data/processed/` using the **same field names**. The web app must load `data/processed/...` first and fall back here if a file is missing.
 

@@ -52,3 +52,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Doruk asked to prepare multi-agent coordination, a first-session onboarding interview, an append-only agent log, 6-hour standups, a demo-safe spec, a decision record, and a judging checklist (still UNVERIFIED until 13 Nov). Docs and config only; no application code.
 - Commit: this commit
 - Next step: Testers and each role run the onboarding interview on their first session; claim PRE-* tasks on the board; on 13 Nov do PRE-05 and PRE-06.
+
+### 2026-11-13 08:12 Europe/Istanbul — PRE-05/PRE-06 (partial)
+
+- Human: Doruk via Ari
+- Agent tool + model: Grok Bot (Scout)
+- Role: docs
+- Task id: PRE-05/PRE-06 (partial)
+- Files changed: docs/JUDGING_CHECKLIST.md, ROADMAP.md, AGENTS.md, README.md, docs/AI_USE.md, docs/roles/tester-1.md, docs/roles/tester-2.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md, docs/contracts/README.md, docs/testing/README.md, docs/testing/STOP_COORDINATE_CHECK.md (new)
+- Why: Partial 13 November pass of PRE-05 / PRE-06. The official challenge Details and Resources tabs and the 2026 judging guide could not be read (certificate error / HTTP 500), so judging criteria, the "do not build early" rule, the SI-tools form, and official video length stay UNVERIFIED. Recorded confirmed submission window and guardian / register-before-start rules from official pages that did load, and a Curiosity waypoint reference (stops still unlocked; stops.json unchanged).
+- Commit: this commit
+- Next step: Retry the official Resources tab, Project Submission Guide, and judging guide when the challenge page loads; then finish PRE-05 / PRE-06. PRE-07 (lock stops on HiView) is still open.

@@ -18,7 +18,7 @@ Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md
 - File bugs as GitHub issues. Do not silently fix other people's folders (tiny typo in a contract *example* only with the owner's OK).
 - Confirm under-18 recording rules are understood (Tester 2 checks the actual takes).
 - **Demo-safe check (hour 32, board SHOULD-07 / SHOULD-08):** with `DEMO_SAFE=1` or `?demo=1`, the app must load only `data/demo/` fixtures and must not call the network, NASA, or DONKI.
-- On 13 November, with Tester 2, update [docs/JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official judging guide (board **PRE-06**). The checklist is **UNVERIFIED** until then.
+- On 13 November, with Tester 2, update [docs/JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official judging guide (board **PRE-06**). A 13 November check could not read the guide; a status note was added and the checklist stays **UNVERIFIED**. PRE-06 remains `todo`.
 - Keep [AGENT_LOG.md](../coordination/AGENT_LOG.md) honest and roll it into [docs/AI_USE.md](../AI_USE.md) before submission.
 
 ## Owned folders
@@ -30,7 +30,7 @@ Review-only everywhere else. Prefer reviewing **backend** PRs; Tester 2 leads on
 
 ## Tasks by phase
 
-**Pre-14 Nov:** Account, practice PR, draft `docs/testing/must-checklist.md` (docs only), read the 13 November guides the same day they appear (**UNVERIFIED** until then), remind the team to log AI use and to lock stops inside the DTM.
+**Pre-14 Nov:** Account, practice PR, draft `docs/testing/must-checklist.md` (docs only), read the 13 November guides when they can be loaded (a 13 November check failed; they stay **UNVERIFIED**), remind the team to log AI use and to lock stops inside the DTM. A Curiosity waypoint reference is in [docs/testing/STOP_COORDINATE_CHECK.md](../testing/STOP_COORDINATE_CHECK.md); stops are not locked yet (PRE-07).
 
 **Hours 0–16:** Kickoff checklist (everyone cloned, branches named correctly). Review all early PRs quickly. Walk the MUST plan at hours 14–16. **MUST sign-off** or force fallbacks (contract JSON) and record what was cut.
 
@@ -38,7 +38,7 @@ Review-only everywhere else. Prefer reviewing **backend** PRs; Tester 2 leads on
 
 **Hours 32–40:** If stretch starts, add a short WebXR / rover-mode checklist. Block stretch that endangers the MUST demo.
 
-**Hours 40–48:** Feature freeze. Write the SI-tools blurb. Help Tester 2 with submission fields (sources, limits, honesty notes). Do not allow "one more feature."
+**Hours 40–48:** Feature freeze. Write the SI-tools blurb (official form wording still **UNVERIFIED**). Help Tester 2 with submission fields (sources, limits, honesty notes). Official window, from the [2026 landing page](https://www.spaceappschallenge.org/2026/): submit on the Team page's Project tab; opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time**. Do not allow "one more feature."
 
 ## Handoffs
 

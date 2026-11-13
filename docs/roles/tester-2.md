@@ -14,10 +14,10 @@ Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md
 
 - Demo flow (about 2–3 minutes) and a 30-second video beat sheet, updated to the 12 November decisions: 3D HUD first, planner feeds the route, lake-sediment goal, boxwork as a bonus stop.
 - Rehearsal at hours 40–44; backup recording; submit-early checklist.
-- Under-18 rule: no photos, video, voices, or likenesses of under-18s in any take. Prefer screen recording + captions (or an adult / synthetic voice if the 13 November guide allows — **UNVERIFIED** until that guide is read).
+- Under-18 rule: no photos, video, voices, or likenesses of under-18s in any take. Prefer screen recording + captions (or an adult / synthetic voice if the official guide allows — still **UNVERIFIED**; the 13 November guide could not be read). The [official terms](https://www.spaceappschallenge.org/legal/) (updated 7 August 2026) require under-18s to be registered by a parent or legal guardian and accompanied by that parent/legal guardian throughout the event, and require participants to register online before the event starts.
 - Honesty on slides: lunar slope stand-in, DTM under-reads tilt, radiation is mostly a time problem, O₂ and walk time are placeholders, list sources and dates.
 - Rehearse and record in **demo-safe mode** (`?demo=1`) so the video does not depend on venue Wi-Fi. Tester 1 signs the network-off check.
-- On 13 November, with Tester 1, update [docs/JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official guide (board **PRE-06**; **UNVERIFIED** until then).
+- On 13 November, with Tester 1, update [docs/JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official guide (board **PRE-06**). A 13 November check could not read the guide (certificate error / HTTP 500); a status note was added and the checklist stays **UNVERIFIED**. PRE-06 remains `todo` until the guide can be read.
 - PR reviews, especially `web/`. Every PR needs one tester approval.
 
 ## Owned folders
@@ -28,7 +28,7 @@ Review-only elsewhere. Do not add features to `web/`; file issues for Frontend 1
 
 ## Tasks by phase
 
-**Pre-14 Nov:** Account, practice PR, draft `docs/demo/script.md` and `docs/demo/video-beats.md` from the roadmap (docs only). On 13 November, read the judging guide and submission guide and adjust the script (**UNVERIFIED** until they appear).
+**Pre-14 Nov:** Account, practice PR, draft `docs/demo/script.md` and `docs/demo/video-beats.md` from the roadmap (docs only). On 13 November the judging guide and Project Submission Guide could not be loaded; they stay **UNVERIFIED**. Adjust the script if they become readable later, and do not start application code.
 
 **Hours 0–16:** Watch the MUST build; review frontend PRs; keep the script in sync (cut any line that the software cannot yet show). At hour 16, walk the demo once even if it is rough.
 
@@ -36,7 +36,7 @@ Review-only elsewhere. Do not add features to `web/`; file issues for Frontend 1
 
 **Hours 32–40:** Stretch is optional in the video. If WebXR is flaky, the recorded demo stays on the normal web HUD.
 
-**Hours 40–48:** Freeze. Record the 30-second video (screen + captions). Build slides with a presenter. Submission checklist: description, SI-tools blurb (from Tester 1), sources, backup file, early upload. Nothing new after hour 40.
+**Hours 40–48:** Freeze. Record the planned 30-second video (screen + captions; official video length remains **UNVERIFIED**). Build slides with a presenter. Submission checklist: description, SI-tools blurb from Tester 1 (official form wording still **UNVERIFIED**), sources, backup file, early upload. Submit on the Team page's Project tab. Official window, from the [2026 landing page](https://www.spaceappschallenge.org/2026/): opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time**. Nothing new after hour 40.
 
 Suggested 30-second beats (adapt after you read the official guide): (0–5 s) first humans need a map of *their* walk at Mount Sharp; (5–12 s) planner context into the 3D visor; (12–22 s) hazard + route + a science stop (mudstone, then boxwork bonus if time); (22–27 s) dose and space-weather card; (27–30 s) team name + "built from NASA data."
 
@@ -66,7 +66,7 @@ Read AGENTS.md, ROADMAP.md, docs/GITHUB_WORKFLOW.md, docs/roles/tester-2.md, and
 
 Rules: If today is before 14 November 2026, no application code. You may write docs in docs/demo/ only. Do not implement web/ or pipeline/ features. Never commit secrets. Log AI use in docs/AI_USE.md. Keep the repo private.
 
-Help with a beginner-friendly demo script, 30-second video beat sheet, slide outline, and submission checklist. No photos, voices, or likenesses of under-18s. Be honest about placeholders (slope limits, O2, walk time) and UNVERIFIED items (judging guide and Resources tab until read on 13 Nov). Science goal: ancient lake sediments / habitability at Gale / Mount Sharp; boxwork is a bonus stop. Format: 3D helmet HUD fed by a 2D MapLibre planner; WebXR is stretch only.
+Help with a beginner-friendly demo script, 30-second video beat sheet, slide outline, and submission checklist. No photos, voices, or likenesses of under-18s. Be honest about placeholders (slope limits, O2, walk time) and UNVERIFIED items (the 13 Nov judging guide, Resources tab, official video length, and SI-tools form could not be read and stay UNVERIFIED). Official submission window (2026 landing page): Team page Project tab, opens 14 Nov 09:00 and closes 15 Nov 23:59 local event time. Science goal: ancient lake sediments / habitability at Gale / Mount Sharp; boxwork is a bonus stop. Format: 3D helmet HUD fed by a 2D MapLibre planner; WebXR is stretch only.
 
 First session: interview your human before other work (docs/team/profiles/README.md). At every session start, read BOARD, HANDOFFS, the latest AGENT_LOG entries, and all profiles. Claim a board task before starting. Append docs/coordination/AGENT_LOG.md in the same commit (Commit: this commit).
 

@@ -2,15 +2,16 @@
 
 Team **Martian Mappers**, NASA Space Apps 2026 (14–15 November). This is the hour-by-hour plan for six people. **No application code and no project data pipeline before 14 November 2026.** Until then, only accounts, installs, reading, route locking on paper / HiView, a practice pull request, and these docs.
 
-Companion docs: [AGENTS.md](./AGENTS.md) (design and data sources), [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md) (how to use Git), [docs/roles/](./docs/roles/) (one sheet per person), [docs/contracts/](./docs/contracts/) (example JSON). The official [Resources tab](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/) and judging guide arrive 13 November (**UNVERIFIED** until re-checked). Confirm the "do not build early" rule in the Project Submission Guide (expected 13 November).
+Companion docs: [AGENTS.md](./AGENTS.md) (design and data sources), [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md) (how to use Git), [docs/roles/](./docs/roles/) (one sheet per person), [docs/contracts/](./docs/contracts/) (example JSON). A 13 November 2026 re-check could not read the official [Resources tab](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/), the challenge Details tab, or the 2026 judging guide (certificate error / HTTP 500). Those items, the "do not build early" rule, the official SI-tools / AI-use form, and any official video length remain **UNVERIFIED**. Confirmed submission and registration rules are in §1 below.
 
 ## 1. Locked decisions (12 November 2026)
 
-- **Site:** Gale crater / Mount Sharp (Curiosity). Stay inside the already-checked HiRISE DTM coverage, especially [DTEEC_019698](https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG) (4.73–5.04°S, 137.31–137.44°E, includes the traverse). Curiosity was near 4.80°S, 137.39°E at Sol 4534 and about 4.83°S, 137.39°E at Sol 5070. Confirm chosen outcrops in [HiView](https://www.uahirise.org/hiview/) before committing.
-- **Science goal:** ancient lake sediments and habitability / biosignature potential (organics in mudstones). The boxwork unit (Altadena member) is a **bonus stop**, not the only target. Exact outcrop names and coordinates are **not yet locked** — pick them against official NASA / Curiosity sources and the 13 November Resources tab, then write them into `data/processed/routing/stops.json` at hour 0. Until then, contract files use clearly labelled **example** coordinates only. Frame the story as "if a crew visited where Curiosity studied Mount Sharp." Gale is a rover site, not a human landing candidate.
+- **Site:** Gale crater / Mount Sharp (Curiosity). Stay inside the already-checked HiRISE DTM coverage, especially [DTEEC_019698](https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG) (4.73–5.04°S, 137.31–137.44°E, includes the traverse). Curiosity was near 4.80°S, 137.39°E at Sol 4534 and about 4.83°S, 137.39°E at Sol 5070 (rounded; checked waypoint values are in [docs/testing/STOP_COORDINATE_CHECK.md](./docs/testing/STOP_COORDINATE_CHECK.md)). Confirm chosen outcrops in [HiView](https://www.uahirise.org/hiview/) before committing. Stops stay **unlocked** until the team finishes board task PRE-07.
+- **Science goal:** ancient lake sediments and habitability / biosignature potential (organics in mudstones). The boxwork unit (Altadena member) is a **bonus stop**, not the only target. Exact outcrop names and coordinates are **not yet locked** — pick them against official NASA / Curiosity sources and the 13 November Resources tab (that tab was still unreadable on 13 November and remains **UNVERIFIED**), then write them into `data/processed/routing/stops.json` at hour 0. Until then, contract files use clearly labelled **example** coordinates only. Frame the story as "if a crew visited where Curiosity studied Mount Sharp." Gale is a rover site, not a human landing candidate.
 - **Format:** a **web app**. A 2D [MapLibre](https://maplibre.org/maplibre-gl-js/docs/) planner map chooses and displays the route, then **sends that route** to a **3D first-person terrain view** with a **helmet HUD** overlay. Default 3D stack: [three.js](https://threejs.org/) heightmap (simpler for a new team). [CesiumJS](https://cesium.com/) is an option only if the frontend already knows it. **VR / WebXR headset mode is STRETCH only** (hours 32–40).
-- **Team:** six vibe coders, new to GitHub and to map / 3D work, full 48 hours, aiming to win; registered with a guardian. Demo and submission: no photos, video, voices, or likenesses of under-18s.
+- **Team:** six vibe coders, new to GitHub and to map / 3D work, full 48 hours, aiming to win. The [official terms](https://www.spaceappschallenge.org/legal/) (updated 7 August 2026) require under-18s to be registered by a parent or legal guardian and accompanied by that parent/legal guardian throughout the event, and require every participant to register online before the event starts. Demo and submission: no photos, video, voices, or likenesses of under-18s.
 - **Roles:** Backend 1 terrain · Backend 2 routing · Backend 3 data services · Frontend 1 planner + HUD · Bug testers 1 and 2.
+- **Submission window (confirmed 13 November 2026):** on the [2026 landing page](https://www.spaceappschallenge.org/2026/), project submission is on the Team page's Project tab. It opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time** (the page does not name a time zone; this repo does not assume a specific local event). Submit to receive a participant certificate and to be eligible for Global Judging. The team's planned 30-second video, the official SI-tools / AI-use form, and the "do not build early" rule remain **UNVERIFIED**.
 
 ## 2. Who owns which folders
 
@@ -108,14 +109,14 @@ No project code, no `package.json` install in this repo, no notebooks, no pipeli
 | Who | Tasks |
 |---|---|
 | All | Create a GitHub account; get added to this private repo; install Git, Python 3, and a code editor; read [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md); complete **one practice PR** (add your GitHub username to [docs/team/ROSTER.md](./docs/team/ROSTER.md)); first agent session: onboarding interview into [docs/team/profiles/](./docs/team/profiles/); read AGENTS.md, this roadmap, and your role sheet; log work in [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md). |
-| All, on 13 Nov | Read the official Resources tab, Project Submission Guide, and judging guide (**UNVERIFIED** until they appear). Testers update [docs/JUDGING_CHECKLIST.md](./docs/JUDGING_CHECKLIST.md) (board PRE-06). Adjust this plan if the guide requires it; do not start coding. |
+| All, on 13 Nov | Read the official Resources tab, Project Submission Guide, and judging guide. A 13 November check could not load those pages (certificate error / HTTP 500); they stay **UNVERIFIED**. Testers recorded a partial PRE-05 / PRE-06 pass in [docs/JUDGING_CHECKLIST.md](./docs/JUDGING_CHECKLIST.md) (status still `todo`). Adjust this plan if a later reading of the guide requires it; do not start coding. |
 | B1 | Install GDAL with OpenJPEG; run `gdalinfo --formats` on your machine (not on project data); skim [gdaldem](https://gdal.org/en/stable/programs/gdaldem.html) and the PDS driver notes in AGENTS.md. |
 | B2 | Understand A\* / Dijkstra at a high level; read the route contract; sit with the team to **lock stop candidates** on HiView / official maps (write ids and reasons in a notes issue or on paper — not application code). |
 | B3 | Request a free personal key at [api.nasa.gov](https://api.nasa.gov/) and store it only in a local `.env` (never commit it, never paste it into chat). Do not begin the project DONKI/REMS pipeline yet. |
 | F1 | Install a current browser and, if you want, a local static server you already use; watch a short three.js + MapLibre intro; sketch the HUD layout on paper (distance, slope, next stop, O₂). |
 | T1, T2 | Draft empty checklists in your folders (docs only); schedule a demo-rehearsal slot at hours 40–44; confirm the under-18 recording rule with the team. |
 
-**Route lock (prep, not code):** pick a habitat / start point, two lake-sediment / mudstone stops, and a boxwork bonus stop, all inside DTEEC_019698 (and the ortho footprint). If a favourite outcrop sits outside the DTM, drop it or move it. Testers record the locked ids in `docs/testing/` once agreed. Coordinates go into `stops.json` only after 14 November.
+**Route lock (prep, not code):** pick a habitat / start point, two lake-sediment / mudstone stops, and a boxwork bonus stop, all inside DTEEC_019698 (and the ortho footprint). If a favourite outcrop sits outside the DTM, drop it or move it. Testers record the locked ids in `docs/testing/` once agreed. Coordinates go into `stops.json` only after 14 November. Stops are **not locked yet** (PRE-07). A checked Curiosity waypoint reference, and a note that the example points in `docs/contracts/stops.json` are illustrative only, is in [docs/testing/STOP_COORDINATE_CHECK.md](./docs/testing/STOP_COORDINATE_CHECK.md).
 
 ## 6. Hour-by-hour plan (hackathon clock)
 
@@ -160,8 +161,8 @@ No new stretch after hour 40. If MUST or SHOULD is still shaky, **do not start s
 
 | Hours | Who | Work |
 |---|---|---|
-| **40–44** | All | Feature freeze. Testers run the full rehearsal. F1 + T2: 30-second screen-recording video with captions (no under-18 faces or voices). T2 + a presenter: slides. T1: SI-tools paragraph from `docs/AI_USE.md`, source list, known limits (lunar slope stand-in, DTM under-reads tilt, radiation is a time problem, O₂ is illustrative). |
-| **44–48** | All | **Submit early.** Keep a backup of the recording and a tagged commit (for example `demo-submit`). Stay available for upload issues. Do not "just add one more thing." |
+| **40–44** | All | Feature freeze. Testers run the full rehearsal. F1 + T2: planned 30-second screen-recording video with captions (no under-18 faces or voices; official video length is still **UNVERIFIED**). T2 + a presenter: slides. T1: SI-tools paragraph from `docs/AI_USE.md` (official form wording still **UNVERIFIED**), source list, known limits (lunar slope stand-in, DTM under-reads tilt, radiation is a time problem, O₂ is illustrative). |
+| **44–48** | All | **Submit early** on the Team page's Project tab. Official window (from the [2026 landing page](https://www.spaceappschallenge.org/2026/)): opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time**. Keep a backup of the recording and a tagged commit (for example `demo-submit`). Stay available for upload issues. Do not "just add one more thing." |
 
 ## 7. Definition of done
 
@@ -192,7 +193,7 @@ No new stretch after hour 40. If MUST or SHOULD is still shaky, **do not start s
 
 ### SUBMIT (hour 44)
 
-- Frozen demo, 30-second video, slides, project description, SI-tools disclosure, source list, backup recording, early upload attempted.
+- Frozen demo, planned 30-second video (official length **UNVERIFIED**), slides, project description, SI-tools disclosure (official form **UNVERIFIED**), source list, backup recording, early upload attempted on the Team page's Project tab before the official close (Sunday 15 November 23:59 **local event time**; [2026 landing page](https://www.spaceappschallenge.org/2026/)).
 - No under-18 likenesses or voices.
 
 ## 8. Risks and fallbacks

@@ -36,8 +36,8 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | PRE-02 | First-session onboarding interview; write `docs/team/profiles/<name>.md` | All | TBD | TBD | todo | first session | No personal data; see [profiles/README.md](../team/profiles/README.md) |
 | PRE-03 | Installs (Git, Python 3, editor; GDAL for B1) | All / B1 | TBD | TBD | todo | before 14 Nov | No project pipeline yet |
 | PRE-04 | Personal `NASA_API_KEY` in a local gitignored `.env` only | B3 | TBD | TBD | todo | before 14 Nov | Never commit or paste the key |
-| PRE-05 | Read 13 Nov Resources tab, submission guide, judging guide | All | TBD | TBD | todo | 13 Nov | **UNVERIFIED** until those pages appear |
-| PRE-06 | Update [JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official 13 Nov judging guide | T1, T2 | TBD | TBD | todo | 13 Nov | Checklist is explicitly **UNVERIFIED** until this is done |
+| PRE-05 | Read 13 Nov Resources tab, submission guide, judging guide | All | TBD | TBD | todo | 13 Nov | **UNVERIFIED** until those pages can be read. Partial pass 13 Nov: the [2026 landing page](https://www.spaceappschallenge.org/2026/) and [official terms](https://www.spaceappschallenge.org/legal/) loaded; official challenge Details, Resources tab, and judging / submission guides were unreadable (certificate error / HTTP 500). |
+| PRE-06 | Update [JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official 13 Nov judging guide | T1, T2 | TBD | TBD | todo | 13 Nov | Checklist is explicitly **UNVERIFIED** until this is done. Partial pass 13 Nov: a Status 2026-11-13 note was added; the 2026 judging guide itself could not be read, so UNVERIFIED labels stay. |
 | PRE-07 | Lock route stops on paper / HiView (inside DTEEC_019698) | B2 + team | TBD | TBD | todo | before hour 0 | No application code; testers record ids in `docs/testing/` |
 
 ### MUST (hours 0–16)
@@ -76,8 +76,8 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 |---|---|---|---|---|---|---|---|
 | STRETCH-01 | WebXR headset mode that does not break the default view | F1 | TBD | TBD | todo | hour 40 | Start only if MUST/SHOULD are solid |
 | STRETCH-02 | Paired rover mode (Curiosity traverse as precursor path) | B2, F1 | TBD | TBD | todo | hour 40 | |
-| SUB-01 | Feature freeze; 30-second video; slides; SI-tools paragraph | T2, T1, F1 | TBD | TBD | todo | hour 44 | Nothing new after hour 40 |
-| SUB-02 | Submit early; backup recording; tagged or noted commit | All | TBD | TBD | todo | hour 48 | |
+| SUB-01 | Feature freeze; 30-second video; slides; SI-tools paragraph | T2, T1, F1 | TBD | TBD | todo | hour 44 | Nothing new after hour 40. Official video length and SI-tools form wording remain **UNVERIFIED**. |
+| SUB-02 | Submit early; backup recording; tagged or noted commit | All | TBD | TBD | todo | hour 48 | Official window ([2026 landing page](https://www.spaceappschallenge.org/2026/)): Team page Project tab; opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time**. |
 
 ### Docs already landed (12 November 2026)
 
