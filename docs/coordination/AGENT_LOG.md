@@ -74,3 +74,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Align the Site bullet with the 12 November decision: the site is Gale crater / Mount Sharp, not the boxwork unit. Kept the Sol 4534 / 5070 waypoint facts. Boxwork remains a bonus stop (already stated in the science-goal bullet).
 - Commit: this commit
 - Next step: none from this wording fix.
+
+### 2026-11-13 17:12 Europe/Istanbul — PRE-05/PRE-06 (unofficial sources)
+
+- Human: Doruk via Ari
+- Agent tool + model: Grok Bot (Scout)
+- Role: docs
+- Task id: PRE-05/PRE-06 (unofficial sources)
+- Files changed: docs/JUDGING_CHECKLIST.md, docs/RESOURCES_UNOFFICIAL.md (new), docs/coordination/AGENT_LOG.md
+- Why: Official challenge HTTPS still fails certificate checks (HTTP 500). A curl -k fetch of the official hostname returned the challenge Details and Resources tab, plus the Judging & Awards Guide and Project Submission Guide (TLS not verified). Recorded those provisionally, kept all existing UNVERIFIED markers, labelled local-event and third-party lists UNOFFICIAL, and mapped named datasets. Did not change ROADMAP.md or DECISIONS.md.
+- Commit: this commit
+- Next step: Testers confirm the official guides with a certificate-valid fetch before closing PRE-05 / PRE-06. Consider adding the Curiosity Mount Sharp path animation as a story reference (PRE-07 / demo), without unlocking stops.
