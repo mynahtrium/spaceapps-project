@@ -96,3 +96,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Recorded a pending 13 Nov decision (demo: English-subtitled video of 30 s or less with a public no-login link, or a 7-slide alternative; disclose AI/SI and never use it to come up with the challenge idea) and matching role/demo/AI_USE notes. Noted Global Award eligibility via Mars Trek, HiRISE, and Curiosity RAD. Recorded Curiosity's proposed path up Mount Sharp as a route-story reference, not a data pipeline. All additions labelled provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00) and linked the Project Submission Guide. PRE-05 / PRE-06 stay open.
 - Commit: this commit
 - Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00; Doruk to confirm the new DECISIONS row. Do not close PRE-05 / PRE-06 until then.
+
+### 2026-11-13 17:47 Europe/Istanbul — PRE-06 follow-up (decision locked)
+
+- Human: Doruk via Lumi/Ari
+- Agent tool + model: Grok Bot (Scout)
+- Role: docs
+- Task id: PRE-06 follow-up (decision locked)
+- Files changed: docs/DECISIONS.md, docs/coordination/AGENT_LOG.md
+- Why: Locked the 13 Nov demo/AI decision after Doruk's confirmation ("Yes, lock the demo and AI decision"), relayed via Lumi and Ari at 13 Nov 2026, 17:46 Europe/Istanbul. Replaced pending-confirmation wording in the DECISIONS row with locked status. Role sheets, docs/demo/README.md, and docs/AI_USE.md had no pending-Doruk wording, so they were left unchanged. Kept the provisionally official source label (confirm with a cert-valid fetch on 14 Nov 08:00).
+- Commit: this commit
+- Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00. PRE-05 / PRE-06 stay open until then.
