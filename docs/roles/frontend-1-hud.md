@@ -63,7 +63,7 @@ A reviewer can open the web app, see a 2D route, start the EVA, and walk or play
 - [ ] Demo-safe mode (`?demo=1` / `DEMO_SAFE=1`) uses only `data/demo/` and does not hit the network (hour 32)
 - [ ] Offline enough for the demo room
 - [ ] Credits / honesty notes visible
-- [ ] AI use logged
+- [ ] AI use logged — disclose SI/AI use; never use it to come up with the challenge idea (provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00); [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/))
 
 ## Ready-to-paste prompt for your coding agent
 

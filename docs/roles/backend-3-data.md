@@ -64,7 +64,7 @@ Dose card and DONKI banner have real cached data and citations. Each stop has a 
 - [ ] Dose uses the cited baseline (and Sol tables if parsed)
 - [ ] POV credits listed
 - [ ] No invented numbers
-- [ ] AI use logged
+- [ ] AI use logged — disclose SI/AI use; never use it to come up with the challenge idea (provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00); [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/))
 
 ## Ready-to-paste prompt for your coding agent
 

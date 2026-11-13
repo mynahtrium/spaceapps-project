@@ -85,3 +85,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Official challenge HTTPS still fails certificate checks (HTTP 500). A curl -k fetch of the official hostname returned the challenge Details and Resources tab, plus the Judging & Awards Guide and Project Submission Guide (TLS not verified). Recorded those provisionally, kept all existing UNVERIFIED markers, labelled local-event and third-party lists UNOFFICIAL, and mapped named datasets. Did not change ROADMAP.md or DECISIONS.md.
 - Commit: this commit
 - Next step: Testers confirm the official guides with a certificate-valid fetch before closing PRE-05 / PRE-06. Consider adding the Curiosity Mount Sharp path animation as a story reference (PRE-07 / demo), without unlocking stops.
+
+### 2026-11-13 17:15 Europe/Istanbul — PRE-06 follow-up
+
+- Human: Doruk via Ari
+- Agent tool + model: Grok Bot (Scout)
+- Role: docs
+- Task id: PRE-06 follow-up
+- Files changed: docs/DECISIONS.md, docs/roles/tester-2.md, docs/demo/README.md, docs/roles/tester-1.md, docs/AI_USE.md, docs/roles/backend-1-terrain.md, docs/roles/backend-2-routing.md, docs/roles/backend-3-data.md, docs/roles/frontend-1-hud.md, docs/JUDGING_CHECKLIST.md, ROADMAP.md, docs/RESOURCES_UNOFFICIAL.md, AGENTS.md, docs/coordination/AGENT_LOG.md
+- Why: Recorded a pending 13 Nov decision (demo: English-subtitled video of 30 s or less with a public no-login link, or a 7-slide alternative; disclose AI/SI and never use it to come up with the challenge idea) and matching role/demo/AI_USE notes. Noted Global Award eligibility via Mars Trek, HiRISE, and Curiosity RAD. Recorded Curiosity's proposed path up Mount Sharp as a route-story reference, not a data pipeline. All additions labelled provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00) and linked the Project Submission Guide. PRE-05 / PRE-06 stay open.
+- Commit: this commit
+- Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00; Doruk to confirm the new DECISIONS row. Do not close PRE-05 / PRE-06 until then.

@@ -14,7 +14,7 @@ Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md
 
 - Written test plans for MUST (hour 16) and regression; help Tester 2 with SHOULD/STRETCH if asked.
 - Review PRs before merge: does it stay in owned folders, are secrets absent, do contract fields still match, can Frontend 1 still load fallbacks?
-- Maintain [docs/AI_USE.md](../AI_USE.md): everyone adds their own rows; you nag and turn the log into the submission's SI-tools paragraph at hours 40–44.
+- Maintain [docs/AI_USE.md](../AI_USE.md): everyone adds their own rows; you nag and turn the log into the submission's SI-tools paragraph at hours 40–44. Disclosure is required; AI/SI must **not** be used to come up with the challenge idea; the SI form answer is not shown to judges (provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00); see the [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/)).
 - File bugs as GitHub issues. Do not silently fix other people's folders (tiny typo in a contract *example* only with the owner's OK).
 - Confirm under-18 recording rules are understood (Tester 2 checks the actual takes).
 - **Demo-safe check (hour 32, board SHOULD-07 / SHOULD-08):** with `DEMO_SAFE=1` or `?demo=1`, the app must load only `data/demo/` fixtures and must not call the network, NASA, or DONKI.
@@ -38,7 +38,7 @@ Review-only everywhere else. Prefer reviewing **backend** PRs; Tester 2 leads on
 
 **Hours 32–40:** If stretch starts, add a short WebXR / rover-mode checklist. Block stretch that endangers the MUST demo.
 
-**Hours 40–48:** Feature freeze. Write the SI-tools blurb (official form wording still **UNVERIFIED**). Help Tester 2 with submission fields (sources, limits, honesty notes). Official window, from the [2026 landing page](https://www.spaceappschallenge.org/2026/): submit on the Team page's Project tab; opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time**. Do not allow "one more feature."
+**Hours 40–48:** Feature freeze. Write the SI-tools blurb: disclose how AI/SI was used; do not use it to come up with the challenge idea; the SI form answer is not shown to judges (provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00); see the [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/)). Help Tester 2 with submission fields (sources, limits, honesty notes). Official window, from the [2026 landing page](https://www.spaceappschallenge.org/2026/): submit on the Team page's Project tab; opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time**. Do not allow "one more feature."
 
 ## Handoffs
 
@@ -53,7 +53,7 @@ Review-only everywhere else. Prefer reviewing **backend** PRs; Tester 2 leads on
 
 - [ ] Every PR reviewed by a tester, small, and in the right folder
 - [ ] No `.env`, keys, or `data/raw/` in git
-- [ ] `docs/AI_USE.md` has a row for each substantive AI use
+- [ ] `docs/AI_USE.md` has a row for each substantive AI use — disclose SI/AI use; never use it to come up with the challenge idea; SI form answer is not shown to judges (provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00); [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/))
 - [ ] MUST / SHOULD sign-offs recorded in `docs/testing/`
 - [ ] Official 13 Nov guide items added to the checklist after you read them
 

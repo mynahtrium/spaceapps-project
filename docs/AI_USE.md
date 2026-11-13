@@ -1,6 +1,6 @@
 # AI / SI-tool use log
 
-NASA Space Apps submissions must describe how "SI tools" (AI tools) were used. See the [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/) and `skills/ai-use-log/SKILL.md`. The exact submission-form wording is in the Project Submission Guide. A 13 November 2026 check could not read that guide; the form remains **UNVERIFIED**.
+NASA Space Apps submissions must describe how "SI tools" (AI tools) were used. See the [Official FAQ](https://www.spaceappschallenge.org/resources/participant-faqs/), `skills/ai-use-log/SKILL.md`, and the [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/). A later 13 November `curl -k` reading of that guide is provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00): **disclosure is required**; AI/SI tools must **not** be used to come up with the challenge idea; the SI form answer is **not shown to judges** (judges can still see watermarks, descriptive text, or metadata in the project). Confirm with a cert-valid fetch on 14 November 08:00.
 
 Add a row the same day you use a tool. Do not put secrets, API keys, or personal data in this file.
 

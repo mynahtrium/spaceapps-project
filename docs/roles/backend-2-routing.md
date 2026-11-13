@@ -63,7 +63,7 @@ Stops are the locked ones, not the example names (unless the team failed to lock
 - [ ] Route avoids blocked cells (or a labelled hand-drawn fallback)
 - [ ] Mars radius used for length
 - [ ] Static fallback works
-- [ ] AI use logged
+- [ ] AI use logged — disclose SI/AI use; never use it to come up with the challenge idea (provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00); [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/))
 
 ## Ready-to-paste prompt for your coding agent
 

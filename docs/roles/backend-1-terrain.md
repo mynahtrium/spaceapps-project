@@ -61,7 +61,7 @@ A documented crop of DTEEC_019698 (or the agreed DTM) with slope / hazard classe
 - [ ] `cost-map.json` matches the contract
 - [ ] Preview file path in that JSON actually exists (or the UI falls back cleanly)
 - [ ] No raw DTM committed
-- [ ] AI use logged in `docs/AI_USE.md`
+- [ ] AI use logged in `docs/AI_USE.md` — disclose SI/AI use; never use it to come up with the challenge idea (provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00); [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/))
 
 ## Ready-to-paste prompt for your coding agent
 
