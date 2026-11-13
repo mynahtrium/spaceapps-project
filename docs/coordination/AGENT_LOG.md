@@ -63,3 +63,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Partial 13 November pass of PRE-05 / PRE-06. The official challenge Details and Resources tabs and the 2026 judging guide could not be read (certificate error / HTTP 500), so judging criteria, the "do not build early" rule, the SI-tools form, and official video length stay UNVERIFIED. Recorded confirmed submission window and guardian / register-before-start rules from official pages that did load, and a Curiosity waypoint reference (stops still unlocked; stops.json unchanged).
 - Commit: this commit
 - Next step: Retry the official Resources tab, Project Submission Guide, and judging guide when the challenge page loads; then finish PRE-05 / PRE-06. PRE-07 (lock stops on HiView) is still open.
+
+### 2026-11-13 08:14 Europe/Istanbul — n/a
+
+- Human: Doruk via Ari
+- Agent tool + model: Grok Bot (Scout)
+- Role: docs
+- Task id: n/a
+- Files changed: AGENTS.md, docs/coordination/AGENT_LOG.md
+- Why: Align the Site bullet with the 12 November decision: the site is Gale crater / Mount Sharp, not the boxwork unit. Kept the Sol 4534 / 5070 waypoint facts. Boxwork remains a bonus stop (already stated in the science-goal bullet).
+- Commit: this commit
+- Next step: none from this wording fix.
