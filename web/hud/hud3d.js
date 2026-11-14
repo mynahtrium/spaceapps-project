@@ -1,407 +1,397 @@
 /**
- * 3D First-Person Mount Sharp Terrain & Helmet HUD (`web/hud/hud3d.js`).
- * Decodes Backend 1's 8-bit RGB height-preview.png (value = R*256 + G) into a Three.js mesh,
- * textures with ortho or slope preview, receives routes via `mm:set-route`, and updates the visor.
+ * First-Person Mars Astronaut Helmet HUD & 3D Terrain Controller (`hud3d.js`).
+ *
+ * Driven by `HighResMarsTerrainEngine` (CDLOD Quadtree, off-main-thread TerrainWorkerPool,
+ * 1-px border analytical normal maps, Martian PBR strata/regolith shader, sky dome,
+ * terrain-draped AR route/beacons, ground-clamped WASD movement, and screen-to-terrain raycast).
  */
 
-import * as THREE from "three";
+import { HighResMarsTerrainEngine } from "../map/HighResMarsTerrainEngine.js";
 import {
   buildCumulativeDistances,
   classifySlope,
+  marsBearingDeg,
+  marsDistanceM,
   onSetRoute,
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 
-function loadImage(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = (e) => reject(e);
-    img.src = url;
-  });
+function cardinalFromDeg(deg) {
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 }
 
-export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
-  const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
-  const wrap = document.getElementById("hud-canvas-wrap");
+export async function initHud3D(data, opts = {}) {
+  const { demSampler, onOpenPov, onPositionChange, onAttributionsChange } = opts;
 
-  const bounds = costMap?.bounds || {
-    west_lon_deg: 137.372831,
-    south_lat_deg: -4.816946,
-    east_lon_deg: 137.406542,
-    north_lat_deg: -4.783236,
-  };
-  const ncols = costMap?.grid?.ncols || 395;
-  const nrows = costMap?.grid?.nrows || 395;
-  const cellSizeM = costMap?.cell_size_m || 5.059;
-  const worldW = ncols * cellSizeM;
-  const worldH = nrows * cellSizeM;
-  const [elevMin, elevMax] = costMap?.height_preview_elevation_range_m || [-3850.6, -3369.3];
+  const canvasWrap = document.getElementById("hud-canvas-wrap");
+  const distEl = document.getElementById("hud-dist");
+  const distSubEl = document.getElementById("hud-dist-sub");
+  const slopeEl = document.getElementById("hud-slope");
+  const slopeBadgeEl = document.getElementById("hud-slope-badge");
+  const nextStopEl = document.getElementById("hud-next-stop");
+  const nextKindEl = document.getElementById("hud-next-kind");
+  const o2El = document.getElementById("hud-o2");
+  const o2FillEl = document.getElementById("hud-o2-fill");
+  const compassEl = document.getElementById("hud-compass");
+  const probeEl = document.getElementById("hud-probe");
+  const shouldLineEl = document.getElementById("hud-should-line");
 
-  // Convert [lon, lat] to local scene X, Z (metres, centered at 0,0)
-  const lonToX = (lon) =>
-    ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
-  const latToZ = (lat) =>
-    (0.5 - (lat - bounds.south_lat_deg) / (bounds.north_lat_deg - bounds.south_lat_deg)) * worldH;
-
-  // Scene, Camera, Renderer
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1f1410);
-  scene.fog = new THREE.FogExp2(0x3a241b, 0.00075);
-
-  const camera = new THREE.PerspectiveCamera(
-    68,
-    wrap.clientWidth / Math.max(1, wrap.clientHeight),
-    0.5,
-    4000
-  );
-
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(wrap.clientWidth || window.innerWidth, wrap.clientHeight || window.innerHeight - 52);
-  wrap.appendChild(renderer.domElement);
-
-  const sun = new THREE.DirectionalLight(0xffe7cf, 1.35);
-  sun.position.set(400, 700, 300);
-  scene.add(sun);
-  scene.add(new THREE.AmbientLight(0x9a7b6c, 0.65));
-
-  // Decode height-preview.png (8-bit RGB: R*256 + G)
-  const segW = 197;
-  const segH = 197;
-  const geom = new THREE.PlaneGeometry(worldW, worldH, segW, segH);
-  geom.rotateX(-Math.PI / 2);
-
-  let elevGrid = null;
-  let imgW = 0;
-  let imgH = 0;
-
-  try {
-    const hImg = await loadImage(assets.heightPreviewUrl);
-    imgW = hImg.width;
-    imgH = hImg.height;
-    const c = document.createElement("canvas");
-    c.width = imgW;
-    c.height = imgH;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(hImg, 0, 0);
-    const px = ctx.getImageData(0, 0, imgW, imgH).data;
-    elevGrid = new Float32Array(imgW * imgH);
-
-    for (let i = 0; i < imgW * imgH; i++) {
-      const r = px[i * 4];
-      const g = px[i * 4 + 1];
-      const val = r * 256 + g;
-      elevGrid[i] = val === 0 ? elevMin : elevMin + (val / 65535) * (elevMax - elevMin);
-    }
-
-    const pos = geom.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const vx = pos.getX(i);
-      const vz = pos.getZ(i);
-      const u = Math.max(0, Math.min(1, vx / worldW + 0.5));
-      const v = Math.max(0, Math.min(1, vz / worldH + 0.5));
-      const ix = Math.min(imgW - 1, Math.floor(u * (imgW - 1)));
-      const iy = Math.min(imgH - 1, Math.floor(v * (imgH - 1)));
-      pos.setY(i, elevGrid[iy * imgW + ix] - elevMin);
-    }
-    geom.computeVertexNormals();
-  } catch {
-    // Fallback: flat terrain if height preview fails
-  }
-
-  function sampleElevSceneY(x, z) {
-    if (!elevGrid) return 0;
-    const u = Math.max(0, Math.min(1, x / worldW + 0.5));
-    const v = Math.max(0, Math.min(1, z / worldH + 0.5));
-    const fx = u * (imgW - 1);
-    const fy = v * (imgH - 1);
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const x1 = Math.min(imgW - 1, x0 + 1);
-    const y1 = Math.min(imgH - 1, y0 + 1);
-    const tx = fx - x0;
-    const ty = fy - y0;
-    const e00 = elevGrid[y0 * imgW + x0];
-    const e10 = elevGrid[y0 * imgW + x1];
-    const e01 = elevGrid[y1 * imgW + x0];
-    const e11 = elevGrid[y1 * imgW + x1];
-    const top = e00 + (e10 - e00) * tx;
-    const bot = e01 + (e11 - e01) * tx;
-    return top + (bot - top) * ty - elevMin;
-  }
-
-  const texLoader = new THREE.TextureLoader();
-  const orthoTex = texLoader.load(assets.orthoPreviewUrl);
-  const slopeTex = texLoader.load(assets.slopePreviewUrl);
-  orthoTex.colorSpace = THREE.SRGBColorSpace;
-  slopeTex.colorSpace = THREE.SRGBColorSpace;
-
-  const terrainMat = new THREE.MeshStandardMaterial({
-    map: orthoTex,
-    roughness: 0.92,
-    metalness: 0.04,
-  });
-  const terrainMesh = new THREE.Mesh(geom, terrainMat);
-  scene.add(terrainMesh);
-
-  // Stop beacons
-  if (stops?.features) {
-    stops.features.forEach((f) => {
-      const [lon, lat] = f.geometry.coordinates;
-      const sx = lonToX(lon);
-      const sz = latToZ(lat);
-      const sy = sampleElevSceneY(sx, sz);
-      const col = f.properties.kind === "habitat" ? 0x22c55e : f.properties.kind === "boxwork_bonus" ? 0xf59e0b : 0x38bdf8;
-      const beacon = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.5, 1.5, 22, 12),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75 })
-      );
-      beacon.position.set(sx, sy + 11, sz);
-      scene.add(beacon);
-    });
-  }
-
-  // Route ribbon
-  let routeLineMesh = null;
-  let activeRoute = route;
-  let routeCoords = activeRoute?.geometry?.coordinates || [];
-  let cumDist = buildCumulativeDistances(routeCoords);
-  let totalDist = cumDist[cumDist.length - 1] || 1;
-  let alongM = 0;
-
-  function rebuildRouteRibbon(r) {
-    if (routeLineMesh) scene.remove(routeLineMesh);
-    activeRoute = r;
-    routeCoords = r?.geometry?.coordinates || [];
-    cumDist = buildCumulativeDistances(routeCoords);
-    totalDist = cumDist[cumDist.length - 1] || 1;
-
-    const pts = routeCoords.map(([lon, lat]) => {
-      const x = lonToX(lon);
-      const z = latToZ(lat);
-      return new THREE.Vector3(x, sampleElevSceneY(x, z) + 1.2, z);
-    });
-    if (pts.length > 1) {
-      routeLineMesh = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(pts),
-        new THREE.LineBasicMaterial({ color: 0x38bdf8 })
-      );
-      scene.add(routeLineMesh);
-    }
-
-    const scrubber = document.getElementById("hud-scrubber");
-    if (scrubber) {
-      scrubber.max = totalDist.toFixed(1);
-      scrubber.value = alongM.toFixed(1);
-    }
-  }
-
-  if (activeRoute) rebuildRouteRibbon(activeRoute);
-
-  // State & Controls
-  let playing = false;
-  let speedMult = 1;
-  let freeRoam = false;
-  let yawOffset = 0;
-  let pitchOffset = -0.06;
-  const freePos = new THREE.Vector3(0, 10, 0);
-  const keys = new Set();
-
-  // Mouse drag look
-  let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
-  renderer.domElement.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-  });
-  window.addEventListener("pointerup", () => (dragging = false));
-  window.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    yawOffset -= (e.clientX - lastX) * 0.004;
-    pitchOffset = Math.max(-0.8, Math.min(0.8, pitchOffset - (e.clientY - lastY) * 0.003));
-    lastX = e.clientX;
-    lastY = e.clientY;
-  });
-
-  window.addEventListener("keydown", (e) => keys.add(e.key.toLowerCase()));
-  window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
-
-  // UI Controls
-  const btnPlay = document.getElementById("hud-play");
+  const playBtn = document.getElementById("hud-play");
   const scrubber = document.getElementById("hud-scrubber");
-  const btnSpeed = document.getElementById("hud-speed");
-  const btnTex = document.getElementById("hud-tex");
-  const btnFreeRoam = document.getElementById("hud-freeroam");
-  const btnBack = document.getElementById("hud-back-planner");
-  const btnPov = document.getElementById("hud-pov-btn");
+  const speedBtn = document.getElementById("hud-speed");
+  const texBtn = document.getElementById("hud-tex");
+  const exagBtn = document.getElementById("hud-exag");
+  const freeRoamBtn = document.getElementById("hud-freeroam");
+  const arToggleBtn = document.getElementById("hud-ar-toggle");
+  const resetLookBtn = document.getElementById("hud-reset-look");
+  const povBtn = document.getElementById("hud-pov-btn");
 
-  btnBack?.addEventListener("click", () => {
-    playing = false;
-    if (btnPlay) btnPlay.textContent = "▶ Play";
-    onBackToPlanner();
-  });
-
-  btnPlay?.addEventListener("click", () => {
-    playing = !playing;
-    btnPlay.textContent = playing ? "⏸ Pause" : "▶ Play";
-  });
-
-  scrubber?.addEventListener("input", () => {
-    alongM = parseFloat(scrubber.value) || 0;
-  });
-
-  btnSpeed?.addEventListener("click", () => {
-    speedMult = speedMult === 1 ? 2 : speedMult === 2 ? 5 : 1;
-    btnSpeed.textContent = `${speedMult}x`;
-  });
-
-  let useSlopeTex = false;
-  btnTex?.addEventListener("click", () => {
-    useSlopeTex = !useSlopeTex;
-    terrainMat.map = useSlopeTex ? slopeTex : orthoTex;
-    terrainMat.needsUpdate = true;
-    btnTex.textContent = useSlopeTex ? "Tex: Slope" : "Tex: Ortho";
-  });
-
-  btnFreeRoam?.addEventListener("click", () => {
-    freeRoam = !freeRoam;
-    btnFreeRoam.textContent = freeRoam ? "Free-Roam: ON (WASD)" : "Free-Roam: OFF";
-    if (freeRoam) {
-      freePos.copy(camera.position);
+  let THREE = null;
+  try {
+    THREE = await import("three");
+  } catch (err) {
+    if (canvasWrap) {
+      canvasWrap.innerHTML = `<div class="hud-error-box">3D terrain module unavailable: ${err.message}</div>`;
     }
-  });
-
-  // Listen for mm:set-route
-  onSetRoute(({ route: newRoute, along_m }) => {
-    alongM = along_m || 0;
-    yawOffset = 0;
-    freeRoam = false;
-    if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: OFF";
-    rebuildRouteRibbon(newRoute);
-  });
-
-  // Populate SHOULD line
-  const shouldEl = document.getElementById("hud-should-line");
-  if (shouldEl) {
-    const doseTxt = dose ? `Dose: ${dose.dose_estimate_mSv} mSv` : "Dose: —";
-    const alertCount = alerts?.alerts?.length ?? 0;
-    const tempTxt = weather?.latest_sol
-      ? `REMS Sol ${weather.latest_sol.sol}: ${weather.latest_sol.air_min_C}..${weather.latest_sol.air_max_C}°C`
-      : "REMS: —";
-    shouldEl.textContent = `${doseTxt} · DONKI Mars alerts: ${alertCount} · ${tempTxt}`;
+    return { onResize: () => {}, setStrictSlopeLimit: () => {}, getEngine: () => null };
   }
 
-  // Nearest stop & telemetry interpolation
-  function updateHudReadouts(sM, lon, lat) {
-    const frac = totalDist > 0 ? sM / totalDist : 0;
-    const rem = Math.max(0, totalDist - sM);
+  let route = data.route;
+  let routeCoords = route?.geometry?.coordinates || [[137.39, -4.8]];
+  let cumDist = buildCumulativeDistances(routeCoords);
+  let totalDistM = cumDist[cumDist.length - 1] || route?.properties?.distance_m || 790;
+  let profile = route?.profile || [];
+  const stops = data.stops?.features || [];
 
-    // Slope from route profile
-    const prof = activeRoute?.profile || [];
-    let slopeDeg = telemetry?.primary?.slope_deg ?? telemetry?.slope_deg ?? 4.0;
-    if (prof.length > 1) {
-      let i = 0;
-      while (i < prof.length - 2 && prof[i + 1].s_m < sM) i++;
-      slopeDeg = prof[i].slope_deg ?? slopeDeg;
+  const engine = new HighResMarsTerrainEngine({
+    THREE,
+    demSampler,
+    demoSafe: data.demoSafe,
+    orthoPreviewUrl: data.assets?.orthoPreviewUrl,
+    slopePreviewUrl: data.assets?.slopePreviewUrl,
+  });
+
+  const startPose = sampleAlongRoute(routeCoords, cumDist, 0);
+  await engine.mount(canvasWrap, {
+    center: [startPose.lon, startPose.lat],
+    bearing: startPose.bearingDeg,
+  });
+
+  if (route) {
+    engine.addGeoJsonLayer(
+      "eva-route",
+      { type: "FeatureCollection", features: [route] },
+      { color: 0x38bdf8, visible: true }
+    );
+  }
+  if (data.stops) {
+    engine.addGeoJsonLayer("eva-stops", data.stops, { visible: true });
+  }
+
+  if (onAttributionsChange) {
+    onAttributionsChange(engine.getActiveAttributions());
+  }
+
+  // Terrain raycast live readout
+  const updateProbeText = (evt, prefix = "Probe") => {
+    if (!probeEl || !evt) return;
+    const elev = evt.elevM != null ? `${evt.elevM.toFixed(1)} m MOLA` : "no NASA value";
+    const slope = evt.slopeDeg != null ? `${evt.slopeDeg.toFixed(1)}°` : "--";
+    probeEl.textContent = `${prefix}: ${evt.lat.toFixed(5)}°, ${evt.lon.toFixed(5)}° · ${elev} · slope ${slope}`;
+  };
+  engine.on("hover", (evt) => updateProbeText(evt, "Hover"));
+  engine.on("click", (evt) => updateProbeText(evt, "Clicked"));
+
+  // Simulation / Playback state
+  let playing = false;
+  let freeRoam = false;
+  let alongM = 0;
+  let speedMult = 1;
+  const speeds = [1, 2, 4];
+  let strictLimitDeg = 20;
+  let shaderModeIdx = 0;
+  const shaderModes = [
+    { id: "mars-pbr", label: "Surface: Mars PBR" },
+    { id: "slope-hazard", label: "Surface: Slope Stand-in" },
+    { id: "elevation-strata", label: "Surface: Strata Elev" },
+  ];
+  let exagIdx = 0;
+  const exagModes = [
+    { val: 1.0, label: "Relief: 1.0× True" },
+    { val: 1.8, label: "Relief: 1.8×" },
+  ];
+  let arEnabled = true;
+
+  const findNearestStop = (lon, lat) => {
+    if (!stops.length) return null;
+    // Prefer upcoming stop along route if walking, else nearest stop overall
+    let best = null;
+    let bestDist = Infinity;
+    for (const s of stops) {
+      const c = s.geometry?.coordinates;
+      if (!c) continue;
+      const d = marsDistanceM([lon, lat], c);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { feature: s, distM: d, bearingDeg: marsBearingDeg([lon, lat], c) };
+      }
     }
-    const slopeClass = classifySlope(slopeDeg, 20);
+    return best;
+  };
 
-    // Next stop from stops.json
-    let nextStop = stops?.features?.[0];
-    let minStopDist = Infinity;
-    if (stops?.features?.length) {
-      for (const f of stops.features) {
-        const dx = lonToX(f.geometry.coordinates[0]) - lonToX(lon);
-        const dz = latToZ(f.geometry.coordinates[1]) - latToZ(lat);
-        const d = Math.hypot(dx, dz);
-        if (d < minStopDist) {
-          minStopDist = d;
-          nextStop = f;
-        }
+  const interpolateProfileSlope = (sM) => {
+    if (!profile.length) return null;
+    for (let i = 1; i < profile.length; i++) {
+      if (profile[i].s_m >= sM) return profile[i].slope_deg;
+    }
+    return profile[profile.length - 1]?.slope_deg ?? null;
+  };
+
+  const updateReadouts = (lon, lat, bearingDeg) => {
+    const walkedM = Math.max(0, Math.min(totalDistM, alongM));
+    const frac = totalDistM > 0 ? walkedM / totalDistM : 0;
+
+    if (distEl) distEl.textContent = `${walkedM.toFixed(0)} m`;
+    if (distSubEl) {
+      distSubEl.textContent = `of ${totalDistM.toFixed(0)} m · rem ${(totalDistM - walkedM).toFixed(0)} m`;
+    }
+    if (scrubber) scrubber.value = String(Math.round(frac * 1000));
+
+    const terrainInfo = demSampler.sampleSlopeAndNormal([lon, lat]);
+    const slopeDeg = terrainInfo?.slopeDeg ?? interpolateProfileSlope(walkedM);
+    const elevM = terrainInfo?.elevM ?? null;
+    const slopeClass = classifySlope(slopeDeg, strictLimitDeg);
+
+    if (slopeEl) slopeEl.textContent = slopeDeg != null ? `${slopeDeg.toFixed(1)}°` : "no NASA value";
+    if (slopeBadgeEl) {
+      slopeBadgeEl.textContent = `${slopeClass.label}${elevM != null ? ` · ${elevM.toFixed(0)} m` : ""}`;
+      slopeBadgeEl.style.borderColor = slopeClass.color;
+      slopeBadgeEl.style.color = slopeClass.color;
+    }
+
+    const nearest = findNearestStop(lon, lat);
+    if (nearest && nextStopEl) {
+      const p = nearest.feature.properties || {};
+      nextStopEl.textContent = `${p.name || p.id} (${nearest.distM.toFixed(0)} m ${cardinalFromDeg(nearest.bearingDeg)})`;
+      if (nextKindEl) {
+        nextKindEl.textContent =
+          p.kind === "bonus"
+            ? "Bonus outcrop (Altadena boxwork)"
+            : "Primary target (Lake / Mudstones)";
+      }
+    } else if (nextStopEl) {
+      nextStopEl.textContent = "no NASA value";
+    }
+
+    // Illustrative suit O₂ linear depletion placeholder (explicitly labeled)
+    const o2Pct = Math.max(12, Math.round(100 - frac * 22));
+    if (o2El) o2El.textContent = `${o2Pct}% (placeholder)`;
+    if (o2FillEl) o2FillEl.style.width = `${o2Pct}%`;
+
+    const view = engine.getView();
+    const headDeg = Math.round(view.bearing ?? bearingDeg ?? 0);
+    if (compassEl) {
+      compassEl.textContent = `${String(headDeg).padStart(3, "0")}° ${cardinalFromDeg(headDeg)}`;
+    }
+
+    if (shouldLineEl) {
+      const evaDose = data.dose?.dose_estimate_mSv ?? data.dose?.total_eva_dose_msv;
+      const doseTxt =
+        evaDose != null
+          ? `RAD ~${Number(evaDose).toFixed(3)} mSv`
+          : "RAD: no NASA value";
+      const wxCount = Array.isArray(data.alerts?.alerts) ? data.alerts.alerts.length : null;
+      const alertStatus =
+        wxCount != null
+          ? `${wxCount} Mars WSA-Enlil runs`
+          : data.alerts?.status || "no NASA value";
+      shouldLineEl.textContent = `${doseTxt} · DONKI: ${alertStatus} · DEM 5m tilt r≈0.15`;
+    }
+
+    if (onPositionChange) {
+      onPositionChange({ lon, lat, alongM: walkedM, bearingDeg: headDeg, elevM, slopeDeg });
+    }
+  };
+
+  engine.on("viewchange", (view) => {
+    if (compassEl && typeof view.bearing === "number") {
+      const h = Math.round(view.bearing);
+      compassEl.textContent = `${String(h).padStart(3, "0")}° ${cardinalFromDeg(h)}`;
+    }
+  });
+
+  const applyAlongM = (sM, alignLook = true) => {
+    alongM = Math.max(0, Math.min(totalDistM, sM));
+    const pose = sampleAlongRoute(routeCoords, cumDist, alongM);
+    engine.setAstronautPose({
+      lon: pose.lon,
+      lat: pose.lat,
+      headingDeg: alignLook ? pose.bearingDeg : null,
+    });
+    updateReadouts(pose.lon, pose.lat, pose.bearingDeg);
+  };
+
+  // Controls wiring
+  if (playBtn) {
+    playBtn.addEventListener("click", () => {
+      playing = !playing;
+      if (playing && freeRoam) {
+        freeRoam = false;
+        if (freeRoamBtn) freeRoamBtn.textContent = "Walk: Free (WASD)";
+      }
+      playBtn.textContent = playing ? "⏸ Pause EVA" : "▶ Walk Route";
+    });
+  }
+
+  if (scrubber) {
+    scrubber.addEventListener("input", () => {
+      playing = false;
+      if (playBtn) playBtn.textContent = "▶ Walk Route";
+      const frac = Number(scrubber.value) / 1000;
+      applyAlongM(frac * totalDistM, true);
+    });
+  }
+
+  if (speedBtn) {
+    speedBtn.addEventListener("click", () => {
+      const idx = (speeds.indexOf(speedMult) + 1) % speeds.length;
+      speedMult = speeds[idx];
+      speedBtn.textContent = `Speed ${speedMult}×`;
+    });
+  }
+
+  if (texBtn) {
+    texBtn.addEventListener("click", () => {
+      shaderModeIdx = (shaderModeIdx + 1) % shaderModes.length;
+      const mode = shaderModes[shaderModeIdx];
+      engine.setImageryProvider(mode.id);
+      texBtn.textContent = mode.label;
+    });
+  }
+
+  if (exagBtn) {
+    exagBtn.addEventListener("click", () => {
+      exagIdx = (exagIdx + 1) % exagModes.length;
+      const mode = exagModes[exagIdx];
+      engine.setTerrainExaggeration(mode.val);
+      exagBtn.textContent = mode.label;
+    });
+  }
+
+  if (arToggleBtn) {
+    arToggleBtn.addEventListener("click", () => {
+      arEnabled = !arEnabled;
+      engine.setLayerVisibility("ar-overlays", arEnabled);
+      arToggleBtn.textContent = arEnabled ? "AR Markers: ON" : "AR Markers: OFF";
+    });
+  }
+
+  if (resetLookBtn) {
+    resetLookBtn.addEventListener("click", () => {
+      const pose = sampleAlongRoute(routeCoords, cumDist, alongM);
+      engine.setAstronautPose({
+        lon: pose.lon,
+        lat: pose.lat,
+        headingDeg: pose.bearingDeg,
+        pitchRad: -0.04,
+      });
+      updateReadouts(pose.lon, pose.lat, pose.bearingDeg);
+    });
+  }
+
+  if (freeRoamBtn) {
+    freeRoamBtn.addEventListener("click", () => {
+      freeRoam = !freeRoam;
+      if (freeRoam) {
+        playing = false;
+        if (playBtn) playBtn.textContent = "▶ Walk Route";
+      }
+      freeRoamBtn.textContent = freeRoam ? "Free-Roam ACTIVE (WASD)" : "Walk: Free (WASD)";
+    });
+  }
+
+  if (povBtn && onOpenPov) {
+    povBtn.addEventListener("click", () => {
+      const cur = engine.getView().center;
+      const nearest = findNearestStop(cur[0], cur[1]);
+      onOpenPov(nearest?.feature?.properties || stops[0]?.properties || null);
+    });
+  }
+
+  // Keyboard WASD + Arrow keys free roam
+  const pressedKeys = new Set();
+  window.addEventListener("keydown", (e) => {
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
+      pressedKeys.add(e.code);
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    pressedKeys.delete(e.code);
+  });
+
+  // Route update listener (`mm:set-route`)
+  onSetRoute((detail) => {
+    if (!detail) return;
+    if (detail.route) {
+      route = detail.route;
+      routeCoords = route.geometry?.coordinates || routeCoords;
+      cumDist = buildCumulativeDistances(routeCoords);
+      totalDistM = cumDist[cumDist.length - 1] || route.properties?.distance_m || totalDistM;
+      profile = route.profile || profile;
+      engine.updateGeoJsonLayer("eva-route", { type: "FeatureCollection", features: [route] });
+    }
+    playing = false;
+    if (playBtn) playBtn.textContent = "▶ Walk Route";
+    applyAlongM(detail.alongM ?? 0, true);
+  });
+
+  // Main simulation tick for playback & smooth WASD ground-clamped walking
+  let lastT = performance.now();
+  const simTick = (now) => {
+    const dt = Math.min(0.1, (now - lastT) / 1000);
+    lastT = now;
+
+    if (playing) {
+      const baseMetersPerSec = 4.2; // Illustrative walk replay pace
+      let nextM = alongM + baseMetersPerSec * speedMult * dt;
+      if (nextM >= totalDistM) {
+        nextM = totalDistM;
+        playing = false;
+        if (playBtn) playBtn.textContent = "▶ Walk Route";
+      }
+      applyAlongM(nextM, true);
+    } else if (freeRoam || pressedKeys.size > 0) {
+      const stepSpeed = 12 * dt; // 12 m/s scouting speed
+      let fwd = 0;
+      let strafe = 0;
+      if (pressedKeys.has("KeyW") || pressedKeys.has("ArrowUp")) fwd += stepSpeed;
+      if (pressedKeys.has("KeyS") || pressedKeys.has("ArrowDown")) fwd -= stepSpeed;
+      if (pressedKeys.has("KeyD") || pressedKeys.has("ArrowRight")) strafe += stepSpeed;
+      if (pressedKeys.has("KeyA") || pressedKeys.has("ArrowLeft")) strafe -= stepSpeed;
+      if (fwd !== 0 || strafe !== 0) {
+        const pos = engine.stepForwardMeters(fwd, strafe);
+        updateReadouts(pos.lon, pos.lat, engine.getView().bearing);
       }
     }
 
-    // Suit O2 illustrative linear placeholder
-    const o2Pct = Math.max(0, 100 * (1 - frac));
-
-    document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    document.getElementById("hud-dist-sub").textContent = `Remaining: ${rem.toFixed(1)} m · Nearest stop: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "—"}`;
-    document.getElementById("hud-slope").textContent = `${Number(slopeDeg).toFixed(1)}°`;
-    const badge = document.getElementById("hud-slope-badge");
-    if (badge) {
-      badge.textContent = slopeClass.id;
-      badge.className = `slope-badge slope-${slopeClass.id}`;
-    }
-    document.getElementById("hud-next-stop").textContent = nextStop?.properties?.name || "—";
-    document.getElementById("hud-next-kind").textContent = nextStop?.properties?.kind || "—";
-    document.getElementById("hud-o2").textContent = `${o2Pct.toFixed(1)}%`;
-    const o2Fill = document.getElementById("hud-o2-fill");
-    if (o2Fill) o2Fill.style.width = `${o2Pct.toFixed(1)}%`;
-
-    if (btnPov && nextStop) {
-      btnPov.onclick = () => {
-        const entry = povIndex?.stops?.find((s) => s.stop_id === nextStop.properties.id) || povIndex?.stops?.[0];
-        if (entry) onOpenPov(entry);
-      };
-    }
-  }
-
-  // Resize handler
-  const onResize = () => {
-    const w = wrap.clientWidth || window.innerWidth;
-    const h = wrap.clientHeight || window.innerHeight - 52;
-    camera.aspect = w / Math.max(1, h);
-    camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+    requestAnimationFrame(simTick);
   };
-  window.addEventListener("resize", onResize);
+  requestAnimationFrame(simTick);
 
-  // Animation Loop
-  let prevT = performance.now();
-  function animate(now) {
-    requestAnimationFrame(animate);
-    const dt = Math.min(0.1, (now - prevT) / 1000);
-    prevT = now;
+  // Initial HUD population
+  updateReadouts(startPose.lon, startPose.lat, startPose.bearingDeg);
 
-    if (playing && !freeRoam) {
-      alongM += dt * 12 * speedMult;
-      if (alongM > totalDist) alongM = 0;
-      if (scrubber) scrubber.value = alongM.toFixed(1);
-    }
-
-    const sample = sampleAlongRoute(routeCoords, cumDist, alongM);
-    const rx = lonToX(sample.lon);
-    const rz = latToZ(sample.lat);
-
-    if (freeRoam) {
-      const moveSpeed = 30 * dt;
-      const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yawOffset);
-      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yawOffset);
-      if (keys.has("w") || keys.has("arrowup")) freePos.addScaledVector(forward, moveSpeed);
-      if (keys.has("s") || keys.has("arrowdown")) freePos.addScaledVector(forward, -moveSpeed);
-      if (keys.has("d") || keys.has("arrowright")) freePos.addScaledVector(right, moveSpeed);
-      if (keys.has("a") || keys.has("arrowleft")) freePos.addScaledVector(right, -moveSpeed);
-      freePos.y = sampleElevSceneY(freePos.x, freePos.z) + 2.2;
-      camera.position.copy(freePos);
-      camera.rotation.order = "YXZ";
-      camera.rotation.y = yawOffset;
-      camera.rotation.x = pitchOffset;
-    } else {
-      const ry = sampleElevSceneY(rx, rz);
-      camera.position.set(rx, ry + 2.2, rz);
-      camera.rotation.order = "YXZ";
-      camera.rotation.y = yawOffset;
-      camera.rotation.x = pitchOffset;
-    }
-
-    updateHudReadouts(sample.sM, sample.lon, sample.lat);
-    renderer.render(scene, camera);
-  }
-  requestAnimationFrame(animate);
-
-  return { onResize };
+  return {
+    onResize: () => engine.resize(),
+    setStrictSlopeLimit: (deg) => {
+      strictLimitDeg = Number(deg) || 20;
+      engine.setStrictSlopeLimit(strictLimitDeg);
+      const cur = engine.getView().center;
+      updateReadouts(cur[0], cur[1], engine.getView().bearing);
+    },
+    getEngine: () => engine,
+  };
 }
