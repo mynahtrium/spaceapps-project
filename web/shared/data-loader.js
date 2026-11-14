@@ -1,5 +1,5 @@
 /**
- * Data loader with automatic Demo-Safe mode (?demo=1 / DEMO_SAFE) and contract fallback.
+ * Data loader with strict Demo-Safe mode (?demo=1 / DEMO_SAFE) and contract fallback.
  * Load order (normal): data/processed/... -> docs/contracts/...
  * Load order (?demo=1): data/demo/... ONLY (no external network, NASA, or DONKI calls).
  */
@@ -24,7 +24,7 @@ async function fetchJsonWithFallback(urls) {
 }
 
 /**
- * Load all planner, terrain, routing, and science datasets.
+ * Load all terrain, routing, telemetry, and science datasets for the astronaut visor.
  */
 export async function loadAllProjectData() {
   const demoSafe = isDemoSafeMode();
@@ -135,12 +135,23 @@ export async function loadAllProjectData() {
     povIndex: povIndexRes.data,
     themis: themisRes.data,
     crism: crismRes.data,
+    loadedFrom: {
+      costMap: costMapRes.url,
+      stops: stopsRes.url,
+      route: routeRes.url,
+      telemetry: telemetryRes.url,
+      alerts: alertsRes.url,
+      dose: doseRes.url,
+      weather: weatherRes.url,
+      povIndex: povIndexRes.url,
+      themis: themisRes.url,
+      crism: crismRes.url,
+    },
     assets: {
       heightPreviewUrl: `${baseTerrainDir}/height-preview.png`,
       slopePreviewUrl: `${baseTerrainDir}/slope-preview.png`,
-      orthoPreviewUrl: demoSafe
-        ? "../data/processed/terrain/ortho-preview.png"
-        : "../data/processed/terrain/ortho-preview.png",
+      // In ?demo=1, stay strictly inside data/demo/ (no ortho-preview.png in demo bundle)
+      orthoPreviewUrl: demoSafe ? null : "../data/processed/terrain/ortho-preview.png",
       povBaseUrl: `${baseScienceDir}/pov`,
       themisTileBaseUrl: `${baseScienceDir}/tiles/themis`,
     },

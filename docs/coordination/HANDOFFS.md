@@ -50,6 +50,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Lock the four stops (or reject candidates and supply alternates inside DTEEC_019698). Testers copy the locked ids into `docs/testing/`. Then Backend 2 runs MUST-04.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
  2026-11-14 12:02 (Asil / Tester 1) — Alındı; durak kilitleme kararı bekleniyor.
 
 ### HANDOFF-20261114-1200 — from backend-1 to backend-2, frontend-1, testers
@@ -115,6 +116,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Received:
 
 
+
 ### HANDOFF-20261114-1303 — from Tester 2 to Frontend 1, Backend 2, Backend 3, Tester 1
 
 - Date (Europe/Istanbul): 2026-11-14 13:03
@@ -128,6 +130,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Tester 1 reviews this branch (do not merge unless asked). Backend 2 answers the board question on 947.1 vs 790.3. Backend 3 refreshes dose only when the duration to show is chosen. Frontend 1 tells Tester 2 when a real `mm:set-route` click exists.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
 
 
 ### HANDOFF-20261114-1305 — from Backend 3 to Frontend 1, Tester 1, Tester 2
@@ -148,6 +151,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Frontend 1 can read `dose.json` and, for a keyless demo, the `*.example.json` DONKI files. Testers review branch `backend/science`. Do not merge to `main` unless asked.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
 
 
 ### HANDOFF-20261114-1330 — from backend-1 to frontend-1, backend-2, testers (follow-up to HANDOFF-20261114-1200)
@@ -195,5 +199,25 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - How to try it: Run `python -m http.server 8000` from the repo root and open `http://localhost:8000/web/` or `http://localhost:8000/web/?demo=1`.
 - What is not done / known limits: MapLibre GL JS & Three.js load from CDN (`unpkg.com`); `data/` and `docs/` load locally. `ortho-preview.png` is read from `data/processed/terrain/` even in `?demo=1` because `data/demo/` does not bundle `ortho-preview.png`. Stops/route remain `example` until `PRE-07` locks.
 - Please do next: Verify `MUST-08`..`MUST-10` and `SHOULD-05`..`SHOULD-07` in the browser and sign off on `BOARD.md`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:
+
+### HANDOFF-20261114-1510 — from Divarci (UI Designer / Frontend 1) to Eymen (Tester 2) & Doruk
+
+- Date (Europe/Istanbul): 2026-11-14 15:10
+- From (role, first name or nickname only, agent tool): UI Designer / Frontend 1, Divarci, Antigravity (Gemini)
+- To (role, name if known): Tester 2 (Eymen), Orchestrator (Doruk)
+- Board task id: PRE-02, MUST-08, MUST-09, MUST-10, SHOULD-05, SHOULD-06, SHOULD-07
+- What is ready:
+  - Created `docs/team/profiles/divarci.md` (PRE-02).
+  - Rebuilt `web/` on branch `frontend/planner-hud` into **one unified first-person astronaut visor view**:
+    - MapLibre GL JS tactical map mounted directly on the visor (left dock with Expand/Hide, live astronaut position dot, 15°/20° strict toggle, clickable elevation profile via `mm:set-route`, and `mars-eq://` projection protocol so CTX from ArcGIS OnMars + THEMIS Day/Night IR align to `[lon, lat]` with zero 404s).
+    - Three.js terrain decoded from `height-preview.png` (`R*256 + G`) with AR route tube, waypoints, stop beacons, and live distance AR labels directly on the terrain mesh.
+    - All 4 MUST HUD readouts + collapsible right science drawer (DONKI banner preserving skipped-fetch sentences, RAD dose, REMS weather, Curiosity POV lightbox) with `"no NASA value"` empty states.
+    - Strict `?demo=1` isolation: reads only `data/demo/` (uses `slope-preview.png` instead of `data/processed/terrain/ortho-preview.png` and skips external WMTS calls).
+- Paths (files or folders): `web/`, `docs/team/profiles/divarci.md`
+- How to try it: Checkout `frontend/planner-hud`, run `python -m http.server 8000` from repo root, open `http://localhost:8000/web/` and `http://localhost:8000/web/?demo=1`.
+- What is not done / known limits: MapLibre GL JS & Three.js still load from `unpkg.com` CDN. Live browser test was started and taken over by user; JS syntax checks (`node --check`) and all 30 local HTTP 200 checks passed.
+- Please do next: Eymen reviews `frontend/planner-hud` PR; Doruk merges to `main` when ready.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:

@@ -8,7 +8,7 @@ const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 
 /**
- * Dispatch `mm:set-route` on `window` so the 3D HUD receives the route and starting distance.
+ * Dispatch `mm:set-route` on `window` so the 3D HUD & visor map sync route + distance.
  * @param {object} route - GeoJSON Feature (LineString) matching martian-mappers.route.v1
  * @param {number} [alongM=0] - Starting distance along the route in metres
  */
@@ -103,6 +103,23 @@ export function sampleAlongRoute(coords, cumDist, sM) {
   const lat = a[1] + (b[1] - a[1]) * t;
   const headingDeg = marsBearingDeg(a, b);
   return { lon, lat, headingDeg, sM: clamped };
+}
+
+/**
+ * Find the closest `along_m` along a LineString to a stop's [lon, lat].
+ */
+export function closestAlongM(coords, cumDist, targetCoord) {
+  if (!coords || coords.length === 0) return 0;
+  let bestDist = Infinity;
+  let bestS = 0;
+  for (let i = 0; i < coords.length; i++) {
+    const d = marsDistanceM(coords[i], targetCoord);
+    if (d < bestDist) {
+      bestDist = d;
+      bestS = cumDist[i] || 0;
+    }
+  }
+  return bestS;
 }
 
 /**

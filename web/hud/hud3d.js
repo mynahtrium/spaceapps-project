@@ -1,7 +1,7 @@
 /**
- * 3D First-Person Mount Sharp Terrain & Helmet HUD (`web/hud/hud3d.js`).
- * Decodes Backend 1's 8-bit RGB height-preview.png (value = R*256 + G) into a Three.js mesh,
- * textures with ortho or slope preview, receives routes via `mm:set-route`, and updates the visor.
+ * First-Person Mount Sharp 3D Terrain, AR Route/Stop World Markers & Helmet HUD (`web/hud/hud3d.js`).
+ * Decodes Backend 1's 8-bit RGB height-preview.png (value = R*256 + G), renders AR route + stop labels
+ * directly on the terrain mesh, receives routes via `mm:set-route`, and updates the visor readouts.
  */
 
 import * as THREE from "three";
@@ -22,8 +22,81 @@ function loadImage(url) {
   });
 }
 
-export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
-  const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
+function makeArLabelSprite(title, kind, distText) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 380;
+  canvas.height = 110;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "rgba(8, 14, 24, 0.84)";
+  ctx.strokeStyle = kind === "habitat" ? "#22c55e" : kind === "boxwork_bonus" ? "#f59e0b" : "#38bdf8";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.roundRect(6, 6, 368, 98, 16);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#7dd3fc";
+  ctx.font = "bold 20px monospace";
+  ctx.fillText(kind.toUpperCase(), 22, 36);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 22px sans-serif";
+  const shortTitle = title.length > 28 ? title.slice(0, 27) + "…" : title;
+  ctx.fillText(shortTitle, 22, 66);
+
+  ctx.fillStyle = "#cbd5e1";
+  ctx.font = "bold 20px monospace";
+  ctx.fillText(distText, 22, 92);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(26, 7.5, 1);
+  sprite.userData = { canvas, ctx, tex, title, kind, lastDist: distText };
+  return sprite;
+}
+
+function updateArLabelDist(sprite, distM) {
+  const distText = `${distM.toFixed(0)} m`;
+  if (sprite.userData.lastDist === distText) return;
+  sprite.userData.lastDist = distText;
+  const { ctx, tex, title, kind } = sprite.userData;
+
+  ctx.clearRect(0, 0, 380, 110);
+  ctx.fillStyle = "rgba(8, 14, 24, 0.84)";
+  ctx.strokeStyle = kind === "habitat" ? "#22c55e" : kind === "boxwork_bonus" ? "#f59e0b" : "#38bdf8";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.roundRect(6, 6, 368, 98, 16);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#7dd3fc";
+  ctx.font = "bold 20px monospace";
+  ctx.fillText(kind.toUpperCase(), 22, 36);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 22px sans-serif";
+  const shortTitle = title.length > 28 ? title.slice(0, 27) + "…" : title;
+  ctx.fillText(shortTitle, 22, 66);
+
+  ctx.fillStyle = "#fde68a";
+  ctx.font = "bold 20px monospace";
+  ctx.fillText(`AR DIST: ${distText}`, 22, 92);
+
+  tex.needsUpdate = true;
+}
+
+function compassLabel(deg) {
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const idx = Math.round(((deg % 360) + 360) % 360 / 45) % 8;
+  return `${String(Math.round(((deg % 360) + 360) % 360)).padStart(3, "0")}° ${dirs[idx]}`;
+}
+
+export async function initHud3D(data, { onOpenPov, onPositionChange }) {
+  const { costMap, route, stops, telemetry, povIndex, assets } = data;
   const wrap = document.getElementById("hud-canvas-wrap");
 
   const bounds = costMap?.bounds || {
@@ -39,7 +112,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const worldH = nrows * cellSizeM;
   const [elevMin, elevMax] = costMap?.height_preview_elevation_range_m || [-3850.6, -3369.3];
 
-  // Convert [lon, lat] to local scene X, Z (metres, centered at 0,0)
   const lonToX = (lon) =>
     ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
   const latToZ = (lat) =>
@@ -47,8 +119,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   // Scene, Camera, Renderer
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1f1410);
-  scene.fog = new THREE.FogExp2(0x3a241b, 0.00075);
+  scene.background = new THREE.Color(0x21140f);
+  scene.fog = new THREE.FogExp2(0x3a2319, 0.00072);
 
   const camera = new THREE.PerspectiveCamera(
     68,
@@ -59,13 +131,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(wrap.clientWidth || window.innerWidth, wrap.clientHeight || window.innerHeight - 52);
+  renderer.setSize(wrap.clientWidth || window.innerWidth, wrap.clientHeight || window.innerHeight);
   wrap.appendChild(renderer.domElement);
 
   const sun = new THREE.DirectionalLight(0xffe7cf, 1.35);
-  sun.position.set(400, 700, 300);
+  sun.position.set(420, 720, 310);
   scene.add(sun);
-  scene.add(new THREE.AmbientLight(0x9a7b6c, 0.65));
+  scene.add(new THREE.AmbientLight(0x9a7b6c, 0.68));
 
   // Decode height-preview.png (8-bit RGB: R*256 + G)
   const segW = 197;
@@ -108,7 +180,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     }
     geom.computeVertexNormals();
   } catch {
-    // Fallback: flat terrain if height preview fails
+    // Fallback: flat terrain
   }
 
   function sampleElevSceneY(x, z) {
@@ -132,39 +204,60 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     return top + (bot - top) * ty - elevMin;
   }
 
+  // Textures (use slopePreviewUrl strictly when orthoPreviewUrl is null in ?demo=1)
   const texLoader = new THREE.TextureLoader();
-  const orthoTex = texLoader.load(assets.orthoPreviewUrl);
   const slopeTex = texLoader.load(assets.slopePreviewUrl);
-  orthoTex.colorSpace = THREE.SRGBColorSpace;
   slopeTex.colorSpace = THREE.SRGBColorSpace;
+  const orthoTex = assets.orthoPreviewUrl ? texLoader.load(assets.orthoPreviewUrl) : slopeTex;
+  if (assets.orthoPreviewUrl) orthoTex.colorSpace = THREE.SRGBColorSpace;
 
+  let useSlopeTex = !assets.orthoPreviewUrl;
   const terrainMat = new THREE.MeshStandardMaterial({
-    map: orthoTex,
+    map: useSlopeTex ? slopeTex : orthoTex,
     roughness: 0.92,
     metalness: 0.04,
   });
   const terrainMesh = new THREE.Mesh(geom, terrainMat);
   scene.add(terrainMesh);
 
-  // Stop beacons
+  // AR Group: Route + Stop Beacons + Floating AR Labels on Terrain
+  const arGroup = new THREE.Group();
+  scene.add(arGroup);
+
+  const stopSprites = [];
   if (stops?.features) {
     stops.features.forEach((f) => {
       const [lon, lat] = f.geometry.coordinates;
       const sx = lonToX(lon);
       const sz = latToZ(lat);
       const sy = sampleElevSceneY(sx, sz);
-      const col = f.properties.kind === "habitat" ? 0x22c55e : f.properties.kind === "boxwork_bonus" ? 0xf59e0b : 0x38bdf8;
+      const kind = f.properties.kind || "stop";
+      const col = kind === "habitat" ? 0x22c55e : kind === "boxwork_bonus" ? 0xf59e0b : 0x38bdf8;
+
       const beacon = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.5, 1.5, 22, 12),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75 })
+        new THREE.CylinderGeometry(1.1, 1.8, 22, 12),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.72 })
       );
       beacon.position.set(sx, sy + 11, sz);
-      scene.add(beacon);
+      arGroup.add(beacon);
+
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(2.5, 3.6, 24),
+        new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(sx, sy + 0.5, sz);
+      arGroup.add(ring);
+
+      const sprite = makeArLabelSprite(f.properties.name || f.properties.id, kind, "— m");
+      sprite.position.set(sx, sy + 26, sz);
+      arGroup.add(sprite);
+      stopSprites.push({ sprite, x: sx, z: sz });
     });
   }
 
-  // Route ribbon
-  let routeLineMesh = null;
+  let routeGroup = new THREE.Group();
+  arGroup.add(routeGroup);
   let activeRoute = route;
   let routeCoords = activeRoute?.geometry?.coordinates || [];
   let cumDist = buildCumulativeDistances(routeCoords);
@@ -172,7 +265,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   let alongM = 0;
 
   function rebuildRouteRibbon(r) {
-    if (routeLineMesh) scene.remove(routeLineMesh);
+    arGroup.remove(routeGroup);
+    routeGroup = new THREE.Group();
+    arGroup.add(routeGroup);
+
     activeRoute = r;
     routeCoords = r?.geometry?.coordinates || [];
     cumDist = buildCumulativeDistances(routeCoords);
@@ -181,14 +277,26 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     const pts = routeCoords.map(([lon, lat]) => {
       const x = lonToX(lon);
       const z = latToZ(lat);
-      return new THREE.Vector3(x, sampleElevSceneY(x, z) + 1.2, z);
+      return new THREE.Vector3(x, sampleElevSceneY(x, z) + 0.9, z);
     });
+
     if (pts.length > 1) {
-      routeLineMesh = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(pts),
-        new THREE.LineBasicMaterial({ color: 0x38bdf8 })
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const tube = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, Math.min(400, pts.length * 3), 0.45, 6, false),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9 })
       );
-      scene.add(routeLineMesh);
+      routeGroup.add(tube);
+
+      // Periodic AR ground markers along the path
+      for (let i = 0; i < pts.length; i += 6) {
+        const pin = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.65, 0),
+          new THREE.MeshBasicMaterial({ color: 0xbae6fd })
+        );
+        pin.position.copy(pts[i]).add(new THREE.Vector3(0, 1.0, 0));
+        routeGroup.add(pin);
+      }
     }
 
     const scrubber = document.getElementById("hud-scrubber");
@@ -235,19 +343,19 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const scrubber = document.getElementById("hud-scrubber");
   const btnSpeed = document.getElementById("hud-speed");
   const btnTex = document.getElementById("hud-tex");
+  const btnAr = document.getElementById("hud-ar-toggle");
   const btnFreeRoam = document.getElementById("hud-freeroam");
-  const btnBack = document.getElementById("hud-back-planner");
+  const btnResetLook = document.getElementById("hud-reset-look");
   const btnPov = document.getElementById("hud-pov-btn");
 
-  btnBack?.addEventListener("click", () => {
-    playing = false;
-    if (btnPlay) btnPlay.textContent = "▶ Play";
-    onBackToPlanner();
-  });
+  if (btnTex) {
+    btnTex.textContent = useSlopeTex ? "Tex: Slope" : "Tex: Ortho";
+    if (!assets.orthoPreviewUrl) btnTex.disabled = true;
+  }
 
   btnPlay?.addEventListener("click", () => {
     playing = !playing;
-    btnPlay.textContent = playing ? "⏸ Pause" : "▶ Play";
+    btnPlay.textContent = playing ? "⏸ Pause" : "▶ Walk EVA";
   });
 
   scrubber?.addEventListener("input", () => {
@@ -259,50 +367,69 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     btnSpeed.textContent = `${speedMult}x`;
   });
 
-  let useSlopeTex = false;
   btnTex?.addEventListener("click", () => {
+    if (!assets.orthoPreviewUrl) return;
     useSlopeTex = !useSlopeTex;
     terrainMat.map = useSlopeTex ? slopeTex : orthoTex;
     terrainMat.needsUpdate = true;
     btnTex.textContent = useSlopeTex ? "Tex: Slope" : "Tex: Ortho";
   });
 
+  btnAr?.addEventListener("click", () => {
+    arGroup.visible = !arGroup.visible;
+    btnAr.textContent = arGroup.visible ? "AR: ON" : "AR: OFF";
+  });
+
   btnFreeRoam?.addEventListener("click", () => {
     freeRoam = !freeRoam;
     btnFreeRoam.textContent = freeRoam ? "Free-Roam: ON (WASD)" : "Free-Roam: OFF";
-    if (freeRoam) {
-      freePos.copy(camera.position);
-    }
+    if (freeRoam) freePos.copy(camera.position);
+  });
+
+  btnResetLook?.addEventListener("click", () => {
+    yawOffset = 0;
+    pitchOffset = -0.06;
   });
 
   // Listen for mm:set-route
   onSetRoute(({ route: newRoute, along_m }) => {
     alongM = along_m || 0;
-    yawOffset = 0;
     freeRoam = false;
     if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: OFF";
     rebuildRouteRibbon(newRoute);
   });
 
-  // Populate SHOULD line
-  const shouldEl = document.getElementById("hud-should-line");
-  if (shouldEl) {
-    const doseTxt = dose ? `Dose: ${dose.dose_estimate_mSv} mSv` : "Dose: —";
-    const alertCount = alerts?.alerts?.length ?? 0;
-    const tempTxt = weather?.latest_sol
-      ? `REMS Sol ${weather.latest_sol.sol}: ${weather.latest_sol.air_min_C}..${weather.latest_sol.air_max_C}°C`
-      : "REMS: —";
-    shouldEl.textContent = `${doseTxt} · DONKI Mars alerts: ${alertCount} · ${tempTxt}`;
-  }
+  const compassEl = document.getElementById("hud-compass");
 
-  // Nearest stop & telemetry interpolation
-  function updateHudReadouts(sM, lon, lat) {
+  function updateHudReadouts(sM, lon, lat, camX, camZ) {
+    // Update AR stop distances
+    for (const st of stopSprites) {
+      updateArLabelDist(st.sprite, Math.hypot(st.x - camX, st.z - camZ));
+    }
+
+    // Compass heading from current camera yawOffset
+    if (compassEl) {
+      const lookHeadingDeg = (-yawOffset * 180) / Math.PI;
+      compassEl.textContent = `HDG ${compassLabel(lookHeadingDeg)}`;
+    }
+
+    // Honest empty state if route & telemetry are both missing
+    const primaryTel = telemetry?.primary || telemetry;
+    if (!activeRoute && !primaryTel) {
+      document.getElementById("hud-dist").textContent = "no NASA value";
+      document.getElementById("hud-dist-sub").textContent = "route.json / hud-telemetry.json missing";
+      document.getElementById("hud-slope").textContent = "no NASA value";
+      document.getElementById("hud-next-stop").textContent = "no NASA value";
+      document.getElementById("hud-next-kind").textContent = "stops.json missing";
+      document.getElementById("hud-o2").textContent = "no NASA value";
+      return;
+    }
+
     const frac = totalDist > 0 ? sM / totalDist : 0;
     const rem = Math.max(0, totalDist - sM);
 
-    // Slope from route profile
     const prof = activeRoute?.profile || [];
-    let slopeDeg = telemetry?.primary?.slope_deg ?? telemetry?.slope_deg ?? 4.0;
+    let slopeDeg = primaryTel?.slope_deg ?? null;
     if (prof.length > 1) {
       let i = 0;
       while (i < prof.length - 2 && prof[i + 1].s_m < sM) i++;
@@ -310,8 +437,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     }
     const slopeClass = classifySlope(slopeDeg, 20);
 
-    // Next stop from stops.json
-    let nextStop = stops?.features?.[0];
+    let nextStop = stops?.features?.[0] || null;
     let minStopDist = Infinity;
     if (stops?.features?.length) {
       for (const f of stops.features) {
@@ -325,42 +451,54 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       }
     }
 
-    // Suit O2 illustrative linear placeholder
-    const o2Pct = Math.max(0, 100 * (1 - frac));
+    const o2Pct =
+      sM === 0 && primaryTel?.suit_o2_remaining_percent != null && !activeRoute
+        ? primaryTel.suit_o2_remaining_percent
+        : Math.max(0, 100 * (1 - frac));
 
     document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    document.getElementById("hud-dist-sub").textContent = `Remaining: ${rem.toFixed(1)} m · Nearest stop: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "—"}`;
-    document.getElementById("hud-slope").textContent = `${Number(slopeDeg).toFixed(1)}°`;
+    document.getElementById("hud-dist-sub").textContent =
+      `Rem: ${rem.toFixed(1)} m · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`;
+    document.getElementById("hud-slope").textContent =
+      slopeDeg != null ? `${Number(slopeDeg).toFixed(1)}°` : "no NASA value";
+
     const badge = document.getElementById("hud-slope-badge");
     if (badge) {
       badge.textContent = slopeClass.id;
       badge.className = `slope-badge slope-${slopeClass.id}`;
     }
-    document.getElementById("hud-next-stop").textContent = nextStop?.properties?.name || "—";
-    document.getElementById("hud-next-kind").textContent = nextStop?.properties?.kind || "—";
+
+    document.getElementById("hud-next-stop").textContent =
+      nextStop?.properties?.name || primaryTel?.next_stop_name || "no NASA value";
+    document.getElementById("hud-next-kind").textContent =
+      nextStop?.properties?.kind || "stops.json";
+
     document.getElementById("hud-o2").textContent = `${o2Pct.toFixed(1)}%`;
     const o2Fill = document.getElementById("hud-o2-fill");
     if (o2Fill) o2Fill.style.width = `${o2Pct.toFixed(1)}%`;
 
-    if (btnPov && nextStop) {
+    if (btnPov) {
       btnPov.onclick = () => {
-        const entry = povIndex?.stops?.find((s) => s.stop_id === nextStop.properties.id) || povIndex?.stops?.[0];
-        if (entry) onOpenPov(entry);
+        if (!nextStop) {
+          onOpenPov({ stop_name: "Unknown Stop", missing: true, missing_label: "no NASA value — stops.json missing" });
+          return;
+        }
+        const entry = povIndex?.stops?.find((s) => s.stop_id === nextStop.properties.id);
+        onOpenPov(entry || { stop_id: nextStop.properties.id, stop_name: nextStop.properties.name, missing: true, missing_label: "no NASA value — POV image missing" });
       };
     }
   }
 
-  // Resize handler
   const onResize = () => {
     const w = wrap.clientWidth || window.innerWidth;
-    const h = wrap.clientHeight || window.innerHeight - 52;
+    const h = wrap.clientHeight || window.innerHeight;
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
   };
   window.addEventListener("resize", onResize);
 
-  // Animation Loop
+  // Animation Loop (no forced camera yaw on turns — user keeps full control of look direction)
   let prevT = performance.now();
   function animate(now) {
     requestAnimationFrame(animate);
@@ -398,7 +536,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       camera.rotation.x = pitchOffset;
     }
 
-    updateHudReadouts(sample.sM, sample.lon, sample.lat);
+    updateHudReadouts(sample.sM, sample.lon, sample.lat, camera.position.x, camera.position.z);
+    if (onPositionChange) onPositionChange(sample.lon, sample.lat, sample.sM);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(animate);

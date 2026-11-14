@@ -1,7 +1,7 @@
 /**
- * Main entry point (`web/app.js`).
- * Loads processed / demo-safe / contract data, initializes the 2D Planner and 3D Helmet HUD,
- * and handles view switching and modals (Curiosity POV + Credits & Honesty).
+ * Main entry point (`web/app.js`) for the Unified Astronaut Visor.
+ * Loads processed / demo-safe / contract data, binds the visor map + 3D terrain + AR markers,
+ * and handles Curiosity POV & NASA Sources/Credits modals.
  */
 
 import { loadAllProjectData } from "./shared/data-loader.js";
@@ -14,17 +14,20 @@ async function boot() {
 
   if (data.demoSafe) {
     document.getElementById("badge-demo").style.display = "inline-block";
-  }
-  if (data.route?.status === "example" || data.stops?.status === "example") {
-    document.getElementById("badge-example").style.display = "inline-block";
+    const toggle = document.getElementById("link-demo-toggle");
+    if (toggle) {
+      toggle.textContent = "Exit ?demo=1";
+      toggle.href = "./";
+    }
   }
 
-  const plannerView = document.getElementById("planner-view");
-  const hudView = document.getElementById("hud-view");
-  const btnTabPlanner = document.getElementById("btn-tab-planner");
-  const btnTabHud = document.getElementById("btn-tab-hud");
-  const btnStartEva = document.getElementById("btn-start-eva");
-  const btnCredits = document.getElementById("btn-credits");
+  if (
+    data.route?.status === "example" ||
+    data.stops?.status === "example" ||
+    data.dose?.is_example === true
+  ) {
+    document.getElementById("badge-example").style.display = "inline-block";
+  }
 
   const modalBackdrop = document.getElementById("modal-backdrop");
   const modalTitle = document.getElementById("modal-title");
@@ -35,22 +38,40 @@ async function boot() {
   };
 
   function openPovModal(povEntry) {
-    modalTitle.textContent = `Curiosity Rover POV — ${povEntry.stop_name}`;
+    modalTitle.textContent = `Curiosity Rover POV — ${povEntry.stop_name || "Stop"}`;
+    if (!povEntry || povEntry.missing) {
+      modalBody.innerHTML = `
+        <div class="science-card empty-state" style="padding:14px;">
+          ${povEntry?.missing_label || "no NASA value — Curiosity POV still unavailable for this stop."}
+        </div>
+      `;
+      modalBackdrop.classList.add("open");
+      return;
+    }
     const imgUrl = `${data.assets.povBaseUrl}/${povEntry.stop_id}.jpg`;
     modalBody.innerHTML = `
-      <img class="modal-img" src="${imgUrl}" alt="${povEntry.title}" />
+      <img class="modal-img" src="${imgUrl}" alt="${povEntry.title || "Curiosity POV"}" onerror="this.outerHTML='<div class=empty-state>no NASA value — image failed to load</div>'" />
       <div style="font-size:12px;line-height:1.5;">
-        <div><strong>${povEntry.title}</strong></div>
-        <div>Sol ${povEntry.sol} · Camera: ${povEntry.camera} · Taken: ${povEntry.date_taken_utc}</div>
-        <div>Credit: ${povEntry.credit}</div>
-        <div class="honesty-note">${povEntry.note}</div>
+        <div><strong>${povEntry.title || "Curiosity Raw Image"}</strong></div>
+        <div>Sol ${povEntry.sol ?? "—"} · Camera: ${povEntry.camera ?? "—"} · Taken: ${povEntry.date_taken_utc ?? "—"}</div>
+        <div>Image ID: <code>${povEntry.imageid ?? "—"}</code> · Credit: ${povEntry.credit ?? "NASA/JPL-Caltech"}</div>
+        <div class="hud-sub">${povEntry.note || ""}</div>
       </div>
     `;
     modalBackdrop.classList.add("open");
   }
 
   function openCreditsModal() {
-    modalTitle.textContent = "Data Sources, Citations & Honesty Notes";
+    modalTitle.textContent = "NASA & PDS Data Sources, Citations & Honesty Notes";
+    const dtmId = data.costMap?.dtm_product_id_planned || "DTEEC_019698_1750_019988_1750_U01";
+    const crismCount = data.crism?.product_count ?? 0;
+    const alertsDate = data.alerts?.queried_at || "no NASA value";
+    const weatherDate = data.weather?.fetched_at || "no NASA value";
+    const doseDate = data.dose?.computed_at || "no NASA value";
+    const povDate = data.povIndex?.fetched_at || "no NASA value";
+    const themisDate = data.themis?.fetched_at || "no NASA value";
+    const crismDate = data.crism?.fetched_at || "no NASA value";
+
     modalBody.innerHTML = `
       <div style="font-size:12px;line-height:1.55;">
         <p><strong>Site Framing:</strong> "If a crew visited where Curiosity studied Mount Sharp." Gale crater is a rover site, not a human landing candidate. Primary science goal: ancient lake sediments and habitability / biosignature potential (organics in mudstones); boxwork unit (Altadena member) is a bonus stop.</p>
@@ -60,53 +81,35 @@ async function boot() {
           <li><strong>Suit O₂ &amp; Walking Time:</strong> Illustrative linear / Earth-hiking placeholders, not validated Mars suit models.</li>
           <li><strong>Radiation Dose:</strong> Hassler et al. (Science 2014) Curiosity RAD baseline (0.64 ± 0.12 mSv/day) × EVA duration. No spatial rock radiation map.</li>
         </ul>
-        <p><strong>Missions &amp; Datasets (fetched 2026-11-14):</strong></p>
+        <p><strong>Cached NASA &amp; PDS Products (loaded from ${data.demoSafe ? "data/demo/ only" : "data/processed/ (with docs/contracts/ fallback)"}):</strong></p>
         <ul>
-          <li><strong>MRO HiRISE:</strong> 1 m DTM (<code>DTEEC_019698_1750_019988_1750_U01</code>) &amp; 25 cm orthoimage</li>
-          <li><strong>MRO CTX &amp; Odyssey THEMIS:</strong> Mars Trek WMTS mosaics (5 m CTX, 100 m Day/Night IR)</li>
-          <li><strong>MRO CRISM:</strong> 9 MTRDR product records via PDS Geosciences ODE REST</li>
-          <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
-          <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
+          <li><strong>MRO HiRISE DTM &amp; Ortho:</strong> <code>${dtmId}</code> (<a href="https://hirise-pds.lpl.arizona.edu/PDS/DTM/" target="_blank" style="color:#7dd3fc;">PDS DTM Archive</a>)</li>
+          <li><strong>MRO CTX &amp; Odyssey THEMIS:</strong> Mars Trek WMTS (fetched ${themisDate})</li>
+          <li><strong>MRO CRISM:</strong> ${crismCount} MTRDR records from PDS Geosciences ODE REST (fetched ${crismDate})</li>
+          <li><strong>MSL Curiosity Traverse &amp; REMS Weather:</strong> MMGIS waypoints + CAB/NASA REMS feed (fetched ${weatherDate})</li>
+          <li><strong>MSL Curiosity Raw Images (POV):</strong> ${data.povIndex?.count ?? 0} cached stills (fetched ${povDate})</li>
+          <li><strong>Curiosity RAD Dose Budget:</strong> ${data.dose?.baseline_source || "Hassler et al. 2014"} (computed ${doseDate})</li>
+          <li><strong>NASA DONKI Space Weather:</strong> ${data.alerts?.source || "no NASA value"} (queried ${alertsDate})</li>
         </ul>
       </div>
     `;
     modalBackdrop.classList.add("open");
   }
 
-  btnCredits.onclick = openCreditsModal;
+  document.getElementById("btn-credits").onclick = openCreditsModal;
 
-  let hudApi = null;
-  function switchToHud() {
-    plannerView.classList.remove("active");
-    hudView.classList.add("active");
-    btnTabPlanner.classList.remove("active");
-    btnTabHud.classList.add("active");
-    if (hudApi) hudApi.onResize();
-  }
+  const plannerApi = initPlanner(data, { onOpenPov: openPovModal });
 
-  function switchToPlanner() {
-    hudView.classList.remove("active");
-    plannerView.classList.add("active");
-    btnTabHud.classList.remove("active");
-    btnTabPlanner.classList.add("active");
-  }
-
-  btnTabPlanner.onclick = switchToPlanner;
-  btnTabHud.onclick = switchToHud;
-  btnStartEva.onclick = () => {
-    if (data.route) dispatchSetRoute(data.route, 0);
-    switchToHud();
-  };
-
-  initPlanner(data, {
+  await initHud3D(data, {
     onOpenPov: openPovModal,
-    onStartEva: switchToHud,
+    onPositionChange: (lon, lat, sM) => {
+      plannerApi.updateAstronautPosition(lon, lat, sM);
+    },
   });
 
-  hudApi = await initHud3D(data, {
-    onBackToPlanner: switchToPlanner,
-    onOpenPov: openPovModal,
-  });
+  if (data.route) {
+    dispatchSetRoute(data.route, 0);
+  }
 }
 
 boot();

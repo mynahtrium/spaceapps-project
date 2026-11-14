@@ -570,3 +570,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Wrote one instruction file per nickname for the astronaut-visor pass (Cagan first in Claude, Cetin beside him, Divarci on the visor, Eymen reviewing, Doruk compiling). Each file starts with a nickname grill. Science and terrain numbers must come from cached NASA and PDS products. Live DONKI uses `NASA_API_KEY` from the gitignored `.env` (present on this machine; the value is not in git). CC's profile nickname for this pack is Cetin.
 - Commit: this commit
 - Next step: Paste `docs/roles/prompts/cagan.md` into Claude Code. Cetin then runs a live DONKI fetch. Divarci waits until Cagan's four processed JSON files are confirmed.
+
+### 2026-11-14 15:10 Europe/Istanbul — PRE-02 / MUST-08..10 / SHOULD-05..07 (Divarci Visor Pass)
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (UI designer)
+- Task id: PRE-02, MUST-08, MUST-09, MUST-10, SHOULD-05, SHOULD-06, SHOULD-07
+- Files changed: docs/team/profiles/divarci.md (new), docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, web/index.html, web/styles.css, web/app.js, web/README.md, web/shared/data-loader.js, web/shared/route-bridge.js, web/planner/planner.js, web/hud/hud3d.js
+- Why: Completed Divarci's nickname grill and PRE-02 profile, confirmed the four gate JSONs on disk, and rebuilt `web/` on branch `frontend/planner-hud` as one unified first-person astronaut visor per `docs/roles/prompts/divarci.md`: moved the MapLibre tactical map + elevation profile onto the visor with a live astronaut marker and `mars-eq://` geographic tile alignment for CTX/THEMIS, added 3D AR route tubes + stop beacons + live-distance AR labels on the terrain mesh, enforced `"no NASA value"` empty states + exact DONKI skipped-fetch messaging, and isolated `?demo=1` strictly to `data/demo/`.
+- Commit: this commit
+- Next step: Push `frontend/planner-hud` and open PR for Eymen to review; merge to `main` only when Doruk asks.
