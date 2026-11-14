@@ -2945,6 +2945,17 @@ export async function initHud3D(
   let lastMpSendMs = 0;
   let lastSentPose = null;
   let hudTimer = 1;
+  let eyeBaseY = null;
+  let groundSpeedSm = 0;
+
+  document.getElementById("hud-quickkeys")?.addEventListener("click", (e) => {
+    const btn = e.target.closest?.("button[data-qk]");
+    if (!btn) return;
+    btn.blur();
+    const key = btn.dataset.qk;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true }));
+  });
 
   const pushApart = (targetPos, minRadius = PARTNER_COLLISION_R) => {
     if (!targetPos) return;
@@ -3457,7 +3468,9 @@ export async function initHud3D(
     }
     const feet = footSample(px, pz, yaw, player.y);
     const strikes = [];
-    self.update(dt, step, groundSpeed, !player.grounded, gaitDir, {
+    groundSpeedSm += (groundSpeed - groundSpeedSm) * Math.min(1, dt * 9);
+    if (groundSpeedSm < 0.03 && step === 0) groundSpeedSm = 0;
+    self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir, {
       crouch: phys.crouch,
       lean,
       brake,
@@ -3532,9 +3545,11 @@ export async function initHud3D(
     } else {
       const tip = Math.max(0, -pitch);
       const eyeFwd = EYE_FORWARD_M + tip * 0.1;
+      if (eyeBaseY == null || snappedThisFrame || Math.abs(player.y - eyeBaseY) > 0.8) eyeBaseY = player.y;
+      else eyeBaseY += (player.y - eyeBaseY) * Math.min(1, dt * 14);
       camera.position.set(
         px + fwd.x * eyeFwd + right.x * swayX,
-        player.y + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
+        eyeBaseY + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
         pz + fwd.z * eyeFwd + right.z * swayX
       );
       camera.rotation.order = "YXZ";

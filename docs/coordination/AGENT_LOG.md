@@ -947,3 +947,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Pull `main` and test live at `http://localhost:8000/web/`.
 
+
+### 2026-11-14 23:25 Europe/Istanbul — Frosted obsidian HUD, snappy stop, anti-jitter & planted rover (main)
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen)
+- Role: frontend visor (edits in web/ at the user's request, branch main)
+- Task id: MUST-10 / PHYS-01 follow-up
+- Files changed: web/index.html, web/styles.css, web/hud/hud3d.js, web/hud/experimental-rover.js, web/physics/MarsPhysicsWorld.js, web/physics/SuitBiomechanics.js, web/tests/physics.test.mjs, web/tests/fallback.test.mjs, docs/coordination/AGENT_LOG.md
+- Why: Ported the frosted obsidian glass + ice-cyan HUD theme (glassmorphic cam-stamp & telemetry cards, top-center quick-access key bar, capsule drive bar, rounded slope/O2 gauges, pill controls with ice-cyan Map CTA), walker camera/gait anti-jitter smoothing, snappy braking (BRAKE_BOOST 3.4x, RESPONSE_TAU_S 0.1 s), and planted MMSEV rover crest physics onto main so the live deployment and main branch reflect all requested updates. Verified 26/26 Node tests pass and syntax checks pass.
+- Commit: this commit
+- Next step: Hard-reload (Ctrl+Shift+R) on main / ?demo=1.

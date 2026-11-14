@@ -11,7 +11,7 @@ const DEG = Math.PI / 180;
 export const WALK_SPEED_MS = 1.4;
 export const RUN_SPEED_MS = 2.5;
 export const JUMP_SPEED_MS = 1.7;
-export const RESPONSE_TAU_S = 0.22;
+export const RESPONSE_TAU_S = 0.1;
 
 export const HIP_NEUTRAL_RAD = 12 * DEG;
 export const KNEE_NEUTRAL_RAD = 15 * DEG;

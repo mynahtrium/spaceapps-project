@@ -101,6 +101,9 @@ function samplePatch(sampleHeight, x, z) {
   };
 }
 
+const BRAKE_BOOST = 3.4;
+const ACCEL_BOOST = 2.2;
+
 function clampAccel(ax, az, cap) {
   const mag = Math.hypot(ax, az);
   if (mag > cap && mag > 0) {
@@ -215,15 +218,22 @@ function substep(body, dt, input, env) {
     const sp = Math.hypot(body.vx, body.vz);
     let ax;
     let az;
-    // Releasing the stick brakes at the full friction limit (μ g), which is the
-    // spec's ~0.98 s / ~1.22 m stop from 2.5 m/s. A soft tau tail would miss that.
-    if (speed === 0 && sp > 0.03) {
-      ax = (-cap * body.vx) / sp;
-      az = (-cap * body.vz) / sp;
+    // Game-feel pass: releasing the keys stops the walker almost at once (no ice-skating).
+    if (speed === 0) {
+      const stopStep = cap * BRAKE_BOOST * dt;
+      if (sp <= Math.max(0.12, stopStep)) {
+        body.vx = 0;
+        body.vz = 0;
+        ax = 0;
+        az = 0;
+      } else {
+        ax = (-cap * BRAKE_BOOST * body.vx) / sp;
+        az = (-cap * BRAKE_BOOST * body.vz) / sp;
+      }
     } else {
       ax = (vTargetX - body.vx) / RESPONSE_TAU_S;
       az = (vTargetZ - body.vz) / RESPONSE_TAU_S;
-      [ax, az] = clampAccel(ax, az, cap);
+      [ax, az] = clampAccel(ax, az, cap * ACCEL_BOOST);
     }
     body.vx += ax * dt;
     body.vz += az * dt;

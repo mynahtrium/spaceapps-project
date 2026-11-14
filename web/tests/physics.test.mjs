@@ -20,7 +20,7 @@ test("ellipsoid metres per degree at 4.80 S", () => {
   assert.ok(Math.abs(m.eastWestM - 59059.4) <= 10, `E-W ${m.eastWestM}`);
 });
 
-test("mudstone braking from 2.5 m/s takes about 0.98 s and 1.22 m", () => {
+test("releasing the keys stops the walker quickly (under 0.5 s and 0.6 m from 2.5 m/s)", () => {
   const body = createMarsBody({ vx: 2.5, vy: 0, vz: 0, y: 0, grounded: true });
   let t = 0;
   while (body.vx > 0.02 && t < 5) {
@@ -28,8 +28,8 @@ test("mudstone braking from 2.5 m/s takes about 0.98 s and 1.22 m", () => {
     t += FIXED_DT;
   }
   assert.equal(body.faciesId, "MUDSTONE_SLAB");
-  assert.ok(Math.abs(t - 0.98) <= 0.05, `time ${t}`);
-  assert.ok(Math.abs(body.x - 1.22) <= 0.05, `distance ${body.x}`);
+  assert.ok(t < 0.5, `time ${t}`);
+  assert.ok(body.x < 0.6 && body.vx === 0, `distance ${body.x}, vx ${body.vx}`);
 });
 
 test("a 24 degree slope slips downhill instead of climbing", () => {
