@@ -35,7 +35,7 @@ import {
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
 import { createFootsteps } from "./footsteps.js";
-import { galeSunState, PHOBOS_SKY_RATE_RAD_S, DEIMOS_SKY_RATE_RAD_S } from "./MarsEphemeris.js";
+import { formatHoursHM, moonFromSurface, sunStateAt } from "./MarsEphemeris.js";
 import { createCelestialSky } from "./MarsCelestialSky.js";
 import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
@@ -62,6 +62,7 @@ import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
 import {
   MARS_HISTORIC_ROVERS,
   getHistoricRoverById,
+  makeCustomSiteSpec,
   sampleProceduralSiteHeightM,
   scatterHistoricRoverCoords,
 } from "../shared/mars-rovers.js";
@@ -175,15 +176,20 @@ const SKY_FRAG = /* glsl */ `
     vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
     col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
     col = mix(col, uGround, smoothstep(0.0, -0.08, h));
+    // Day/twilight/night: dusty Mars twilight lasts until the sun is ~18° down.
+    float day = smoothstep(-0.32, 0.12, uSunElev);
+    float above = smoothstep(-0.03, 0.01, uSunElev);
+    col *= mix(0.012, 1.0, day);
     float s = max(dot(d, normalize(uSunDir)), 0.0);
     float disc = smoothstep(uSunCos - 0.00002, min(0.9999992, uSunCos + 0.0000015), s);
-    col += vec3(1.6, 1.65, 1.8) * disc * exp(-0.18 * tau);
-    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
-    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
-    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    col += vec3(1.6, 1.65, 1.8) * disc * exp(-0.18 * tau) * above;
+    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0 * above;
+    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6 * day;
+    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35 * day;
     float lowSun = smoothstep(0.38, -0.02, uSunElev);
     float fwd = smoothstep(0.90, 0.992, s);
-    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22);
+    // Blue Martian sunset glow around the sun, fading out through twilight.
+    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22) * smoothstep(-0.3, -0.02, uSunElev);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -222,13 +228,15 @@ const MOON_FRAG = /* glsl */ `
     vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
     col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
     col = mix(col, uGround, smoothstep(0.0, -0.08, h));
+    float day = smoothstep(-0.32, 0.12, uSunElev);
+    col *= mix(0.012, 1.0, day);
     float s = max(dot(d, normalize(uSunDir)), 0.0);
-    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
-    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
-    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0 * day;
+    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6 * day;
+    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35 * day;
     float lowSun = smoothstep(0.38, -0.02, uSunElev);
     float fwd = smoothstep(0.90, 0.992, s);
-    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22);
+    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22) * smoothstep(-0.3, -0.02, uSunElev);
     return col;
   }
 
@@ -339,7 +347,7 @@ const LENS_FRAG = /* glsl */ `
 
 export async function initHud3D(
   data,
-  { onBackToPlanner, onOpenPov, onOpenRoverInfo = null, mp = null, onLocalPose = null }
+  { onBackToPlanner, onOpenPov, onOpenRoverInfo = null, mp = null, onLocalPose = null, onOpenOrbit = null }
 ) {
   const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
   let surfaceG = 3.717;
@@ -371,13 +379,27 @@ export async function initHud3D(
   let activeSiteId = activeSiteRover.id;
 
   // Convert [lon, lat] <-> local scene X, Z (metres, centred at 0,0) for active landing site
-  const isGaleSite = () => activeSiteId === "curiosity";
+  const isGaleSite = () => Boolean(activeSiteRover?.isHiRiseGaleSite);
+  /** True when a lon/lat lies on (or within ~1 km of) the real HiRISE Gale tile. */
+  const insideGaleTile = (lon, lat) => {
+    const padLon = (bounds.east_lon_deg - bounds.west_lon_deg) * 0.5;
+    const padLat = (bounds.north_lat_deg - bounds.south_lat_deg) * 0.5;
+    return (
+      lon >= bounds.west_lon_deg - padLon &&
+      lon <= bounds.east_lon_deg + padLon &&
+      lat >= bounds.south_lat_deg - padLat &&
+      lat <= bounds.north_lat_deg + padLat
+    );
+  };
+  const cosLatClamped = (latDeg) => Math.max(0.2, Math.cos(latDeg * (Math.PI / 180)));
   const lonToX = (lon) => {
     if (isGaleSite()) {
       return ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
     }
     const rad = Math.PI / 180;
-    return (lon - activeSiteRover.lon) * rad * MARS_RADIUS_MEAN_M * Math.cos(activeSiteRover.lat * rad);
+    let dLon = lon - activeSiteRover.lon;
+    dLon = ((((dLon + 180) % 360) + 360) % 360) - 180;
+    return dLon * rad * MARS_RADIUS_MEAN_M * cosLatClamped(activeSiteRover.lat);
   };
   const latToZ = (lat) => {
     if (isGaleSite()) {
@@ -392,8 +414,9 @@ export async function initHud3D(
       return bounds.west_lon_deg + u * (bounds.east_lon_deg - bounds.west_lon_deg);
     }
     const rad = Math.PI / 180;
-    const mPerDeg = MARS_RADIUS_MEAN_M * Math.max(0.2, Math.cos(activeSiteRover.lat * rad)) * rad;
-    return activeSiteRover.lon + x / mPerDeg;
+    const mPerDeg = MARS_RADIUS_MEAN_M * cosLatClamped(activeSiteRover.lat) * rad;
+    const lon = activeSiteRover.lon + x / mPerDeg;
+    return ((((lon + 180) % 360) + 360) % 360) - 180;
   };
   const zToLat = (z) => {
     if (isGaleSite()) {
@@ -403,7 +426,7 @@ export async function initHud3D(
     const mPerDeg = MARS_RADIUS_MEAN_M * (Math.PI / 180);
     return activeSiteRover.lat - z / mPerDeg;
   };
-  const activeElevBaseM = () => (isGaleSite() ? elevMin : activeSiteRover.siteElevM ?? elevMin);
+  const activeElevBaseM = () => (isGaleSite() ? elevMin : activeSiteRover.siteElevM ?? 0);
 
   // ---------- renderer, scene, camera ----------
   const scene = new THREE.Scene();
@@ -424,9 +447,16 @@ export async function initHud3D(
   wrap.appendChild(renderer.domElement);
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-  // Afternoon at Gale from the Mars24 solar longitude, not a fixed vector.
-  const sunState = galeSunState(new Date(), 15);
+  // Sun from the Mars24 algorithm at the active site. "local" = real local true solar time now;
+  // "day" = the same site at 15:00 LTST (the classic afternoon light). Gale starts in "day" mode.
+  let sunMode = "day";
+  const sunSite = { lat: -4.8, lon: 137.4 };
+  const computeSunState = () =>
+    sunStateAt(new Date(), { latDeg: sunSite.lat, lonEastDeg: sunSite.lon, ltstHours: sunMode === "day" ? 15 : null });
+  let sunState = computeSunState();
   const sunDir = new THREE.Vector3(sunState.x, sunState.y, sunState.z).normalize();
+  // 0 when the sun is well below the horizon, 1 above ~+6°; drives sun light, glint and night ambient.
+  const sunUp = (el) => Math.max(0, Math.min(1, (el + 0.02) / 0.12));
   let sunTransit = 1;
   // Mars sees a small sun disc (about 0.35 deg), so near shadows are crisp; the thin dusty sky
   // fills them with a weak reddish light rather than washing them out.
@@ -537,33 +567,30 @@ export async function initHud3D(
 
   const PHOBOS_ORBIT_R = 9600;
   const DEIMOS_ORBIT_R = 10400;
-  const moonSpin = new THREE.Vector3();
   const phobosDir = new THREE.Vector3();
   const deimosDir = new THREE.Vector3();
-  function dirNearSun(out, angleRad, elevBias) {
-    const c = Math.cos(angleRad);
-    const s = Math.sin(angleRad);
-    out.set(sunDir.x * c - sunDir.z * s, sunDir.y + elevBias, sunDir.x * s + sunDir.z * c);
-    if (out.lengthSq() < 1e-6) out.set(0, 1, 0);
-    return out.normalize();
-  }
-  function updateMoons(tSec, camPos = camera.position) {
-    // Epoch puts Phobos just west of the Sun so a real-rate transit starts soon after the visor opens.
-    const pAng = (tSec - 18) * PHOBOS_SKY_RATE_RAD_S;
-    dirNearSun(phobosDir, pAng, 0);
+  let sunStateStampMs = performance.now();
+  // Real topocentric Phobos / Deimos directions (JPL-fitted ephemeris) for the sky time in `sunState.date`.
+  // Their sky sizes keep the old artistic scale; the directions and rise/set are real.
+  function updateMoons(camPos = camera.position) {
+    const when = new Date(sunState.date.getTime() + (performance.now() - sunStateStampMs));
+    const p = moonFromSurface("phobos", when, sunSite.lat, sunSite.lon);
+    phobosDir.set(p.x, p.y, p.z).normalize();
     phobos.position.copy(phobosDir).multiplyScalar(PHOBOS_ORBIT_R);
+    phobos.visible = p.el > -0.05;
     phobos.lookAt(camPos);
-    const dAng = 1.15 + tSec * DEIMOS_SKY_RATE_RAD_S;
-    dirNearSun(deimosDir, dAng, 0.08);
+    const d = moonFromSurface("deimos", when, sunSite.lat, sunSite.lon);
+    deimosDir.set(d.x, d.y, d.z).normalize();
     deimos.position.copy(deimosDir).multiplyScalar(DEIMOS_ORBIT_R);
+    deimos.visible = d.el > -0.05;
     deimos.lookAt(camPos);
     const sep = Math.acos(Math.max(-1, Math.min(1, phobosDir.dot(sunDir))));
     const limit = sunState.sunAngularRad * 0.5 + 0.1 * (Math.PI / 180);
     sunTransit = sep < limit ? 1 - 0.35 * (1 - sep / limit) : 1;
   }
-  updateMoons(0);
+  updateMoons();
   const celestial = createCelestialSky(THREE);
-  celestial.update({ ...sunState, date: new Date() });
+  celestial.update(sunState);
   scene.add(celestial.group);
   const rockField = createRockField(THREE);
   scene.add(rockField.group);
@@ -573,14 +600,19 @@ export async function initHud3D(
   scene.add(dustDevil.points);
 
   // Image-based light from the same sky, so suits and rocks pick up the dusty sky and ground bounce.
-  {
+  // Rebuilt whenever the sun moves enough to change the sky (time of day / site change).
+  const envSphereGeom = new THREE.SphereGeometry(50, 32, 16);
+  function rebuildEnvironment() {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envScene = new THREE.Scene();
-    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), sky.material));
+    envScene.add(new THREE.Mesh(envSphereGeom, sky.material));
+    const prev = scene.environment;
     scene.environment = pmrem.fromScene(envScene, 0.04).texture;
-    scene.environmentIntensity = 0.5;
+    prev?.dispose?.();
+    scene.environmentIntensity = 0.5 * (0.18 + 0.82 * sunUp(sunState.elevationRad));
     pmrem.dispose();
   }
+  rebuildEnvironment();
 
   // ---------- height grid ----------
   let elevGrid = null;
@@ -611,7 +643,7 @@ export async function initHud3D(
     if (!isGaleSite()) {
       const mx = (mirrorWrap(x / worldW + 0.5) - 0.5) * worldW;
       const mz = (mirrorWrap(z / worldH + 0.5) - 0.5) * worldH;
-      return sampleProceduralSiteHeightM(activeSiteId, mx, mz);
+      return sampleProceduralSiteHeightM(activeSiteRover, mx, mz);
     }
     if (!elevGrid) return 0;
     const fx = mirrorWrap(x / worldW + 0.5) * (imgW - 1);
@@ -740,14 +772,27 @@ export async function initHud3D(
         H[r * N + c] = elevGrid[sr * imgW + sc];
       }
     }
-    const horiz = Math.hypot(sunDir.x, sunDir.z);
+    const horiz = Math.max(1e-4, Math.hypot(sunDir.x, sunDir.z));
     const tanSun = sunDir.y / horiz;
     const dx = sunDir.x / horiz; // cells per step towards the sun (x = columns, east)
     const dz = sunDir.z / horiz; // z = rows, south
     const maxSteps = Math.ceil(700 / cell);
     const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
     const out = new Uint8Array(N * N * 4);
-    const wrap = (v) => ((v % N) + N) % N;
+    if (sunDir.y <= 0.0) {
+      // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
+      for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
+      const dark = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+      dark.needsUpdate = true;
+      return dark;
+    }
+    if (sunDir.y > 0.995) {
+      out.fill(255); // sun at the zenith: no terrain shadows
+      const lit = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+      lit.needsUpdate = true;
+      return lit;
+    }
+    const wrapN = (v) => ((v % N) + N) % N;
     for (let r = 0; r < N; r++) {
       for (let c = 0; c < N; c++) {
         const h0 = H[r * N + c];
@@ -759,10 +804,10 @@ export async function initHud3D(
           const z0 = Math.floor(fz);
           const tx = fx - x0;
           const tz = fz - z0;
-          const a = wrap(x0);
-          const b = wrap(x0 + 1);
-          const ra = wrap(z0) * N;
-          const rb = wrap(z0 + 1) * N;
+          const a = wrapN(x0);
+          const b = wrapN(x0 + 1);
+          const ra = wrapN(z0) * N;
+          const rb = wrapN(z0 + 1) * N;
           const h =
             (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
           const t = (h - h0) / (k * cell);
@@ -786,7 +831,7 @@ export async function initHud3D(
     return tex;
   }
   const bakeT0 = performance.now();
-  const sunMask = bakeSunMask();
+  let sunMask = bakeSunMask();
   if (sunMask) {
     const d = sunMask.image.data;
     let shade = 0;
@@ -1100,7 +1145,6 @@ export async function initHud3D(
   const footsteps = createFootsteps(THREE, scene);
 
   // ---------- route ----------
-  let routeLineMesh = null;
   let activeRoute = route;
   let routeCoords = activeRoute?.geometry?.coordinates || [];
   let cumDist = buildCumulativeDistances(routeCoords);
@@ -1111,24 +1155,12 @@ export async function initHud3D(
   const toGeomDist = (s) => (geomTotalDist > 0 && totalDist > 0 ? (s / totalDist) * geomTotalDist : s);
 
   function rebuildRouteRibbon(r) {
-    if (routeLineMesh) scene.remove(routeLineMesh);
     activeRoute = r;
     routeCoords = r?.geometry?.coordinates || [];
     cumDist = buildCumulativeDistances(routeCoords);
     geomTotalDist = cumDist[cumDist.length - 1] || 1;
     totalDist = Number(activeRoute?.totals?.distance_m) > 0 ? Number(activeRoute.totals.distance_m) : geomTotalDist;
-    const pts = routeCoords.map(([lon, lat]) => {
-      const x = lonToX(lon);
-      const z = latToZ(lat);
-      return new THREE.Vector3(x, sampleElevSceneY(x, z) + 0.12, z);
-    });
-    if (pts.length > 1) {
-      routeLineMesh = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(pts),
-        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, fog: true })
-      );
-      // route line hidden in the 3D view (Cagan's request); the route data still drives the HUD
-    }
+    // The route line is intentionally not drawn in the 3D view; the route data still drives the HUD.
     const scrubberEl = document.getElementById("hud-scrubber");
     if (scrubberEl) {
       scrubberEl.max = totalDist.toFixed(1);
@@ -1190,7 +1222,7 @@ export async function initHud3D(
     body.position.y = ASTRONAUT_HEIGHT_M / 2;
     body.castShadow = true;
     g.add(body);
-    return { group: g, update() {}, phase: 0, amount: 0 };
+    return { group: g, update() {}, phase: 0, amount: 0, isStandIn: true };
   };
   const sharedDraco = new DRACOLoader();
   sharedDraco.setDecoderPath("./vendor/addons/libs/draco/gltf/");
@@ -1437,6 +1469,12 @@ export async function initHud3D(
     entry.beacon.material.dispose();
     entry.badge.tex.dispose();
     entry.badge.mat.dispose();
+    if (entry.avatar?.isStandIn) {
+      entry.group.traverse((o) => {
+        o.geometry?.dispose?.();
+        o.material?.dispose?.();
+      });
+    }
     remoteAvatars.delete(peerId);
     updateCrewHudSummary();
   }
@@ -1484,7 +1522,8 @@ export async function initHud3D(
     const summaryEl = document.getElementById("hud-crew-summary");
     if (crewEl) {
       const cs = mp?.callsign || "AST-1";
-      crewEl.innerHTML = `${cs} · 1.80 M · <span id="hud-suit">${suitLabel}</span>`;
+      const txt = `${cs} · 1.80 M · ${suitLabel}`;
+      if (crewEl.textContent !== txt) crewEl.textContent = txt;
     }
     if (summaryEl) {
       const gTxt = `MARS g ${surfaceG.toFixed(3)} M/S²`;
@@ -1844,6 +1883,18 @@ export async function initHud3D(
   const btnMap = document.getElementById("hud-map-btn");
 
   btnPing?.addEventListener("click", () => dropLocalPing("EVA Waypoint"));
+  const openNextPov = () => {
+    const stop = nextPovStop;
+    const entry = povIndex?.stops?.find((s) => s.stop_id === stop?.properties?.id) || povIndex?.stops?.[0];
+    if (entry) onOpenPov(entry);
+  };
+  btnPov?.addEventListener("click", openNextPov);
+  const btnOrbit = document.getElementById("hud-orbit-btn");
+  btnOrbit?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    releasePointerLock();
+    onOpenOrbit?.();
+  });
 
   btnBack?.addEventListener("click", () => {
     playing = false;
@@ -2023,10 +2074,7 @@ export async function initHud3D(
 
   onTeleport(({ lon, lat }) => {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-    if (!isGaleSite()) {
-      visitRoverSite("curiosity", { approachRover: false, switchTerrain: true });
-    }
-    teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: false });
+    visitLocation(lon, lat, { keepYaw: false });
   });
 
   function renderHudFleetPanel() {
@@ -2093,54 +2141,180 @@ export async function initHud3D(
     fleetPanelEl.classList.toggle("open", nextOpen);
   });
 
+  // ---------- active site & sun ----------
+  let lastSunBakeMs = performance.now();
+  /**
+   * Recompute the sun for the active site and time mode and push it into every consumer.
+   * `rebake` re-runs the terrain shadow ray-march (Gale only; ~100 ms) and rebuilds sky IBL.
+   */
+  function refreshSun({ rebake = false } = {}) {
+    sunState = computeSunState();
+    sunStateStampMs = performance.now();
+    sunDir.set(sunState.x, sunState.y, sunState.z).normalize();
+    sky.material.uniforms.uSunElev.value = sunState.elevationRad;
+    sky.material.uniforms.uSunCos.value = Math.cos(sunState.sunAngularRad * 0.5);
+    for (const moon of [phobos, deimos]) moon.material.uniforms.uSunElev.value = sunState.elevationRad;
+    celestial.update(sunState);
+    const up = sunUp(sunState.elevationRad);
+    // Night: no direct sun, a faint sky/starlight floor so the ground stays readable.
+    hemiLight.intensity = (devCfg.superGraphics ? 0.28 : 0.22) * (0.32 + 0.68 * up);
+    renderer.toneMappingExposure = (devCfg.superGraphics ? 1.06 : 1.0) * (1 + 0.55 * (1 - up));
+    if (rebake) {
+      rebuildEnvironment();
+      if (isGaleSite() && elevGrid) {
+        const next = bakeSunMask();
+        if (next) {
+          const prev = sunMask;
+          sunMask = next;
+          if (terrainShaderRef?.uniforms?.sunMask) terrainShaderRef.uniforms.sunMask.value = next;
+          prev?.dispose?.();
+        }
+      }
+      lastSunBakeMs = performance.now();
+    }
+    if (terrainShaderRef?.uniforms?.sunMaskOn) {
+      terrainShaderRef.uniforms.sunMaskOn.value = isGaleSite() && sunMask ? 1 : 0;
+    }
+    updateSunButton();
+  }
+
+  const btnSun = document.getElementById("hud-sun-btn");
+  function updateSunButton() {
+    if (!btnSun) return;
+    const tr = isTrLang();
+    const t = formatHoursHM(sunState.ltstHours);
+    btnSun.textContent =
+      sunMode === "local" ? (tr ? `Güneş: yerel ${t}` : `Sun: local ${t}`) : tr ? `Güneş: gündüz ${t}` : `Sun: day ${t}`;
+    btnSun.title =
+      sunMode === "local"
+        ? "Real local true solar time at this site (Mars24). Click for fixed 15:00 daylight."
+        : "Fixed 15:00 local solar time. Click for the real local time at this site.";
+  }
+  function setSunMode(mode) {
+    sunMode = mode === "local" ? "local" : "day";
+    refreshSun({ rebake: true });
+    const tr = isTrLang();
+    const lt = formatHoursHM(sunState.ltstHours);
+    const night = sunState.elevationRad < 0;
+    showWrapNotice(
+      sunMode === "local"
+        ? tr
+          ? `GERÇEK YEREL GÜNEŞ SAATİ ${lt}${night ? " · GECE" : ""}`
+          : `REAL LOCAL SOLAR TIME ${lt}${night ? " · NIGHT SIDE" : ""}`
+        : tr
+          ? `SABİT GÜNDÜZ IŞIĞI ${lt}`
+          : `FIXED DAYLIGHT ${lt}`
+    );
+  }
+  btnSun?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    setSunMode(sunMode === "local" ? "day" : "local");
+  });
+  updateSunButton();
+
+  /** Swap the active terrain site (Gale HiRISE tile, a rover site, or an arbitrary orbit landing). */
+  function switchSite(spec) {
+    if (!spec || spec.id === activeSiteId) return false;
+    activeSiteRover = spec;
+    activeSiteId = spec.id;
+    historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
+    const gale = isGaleSite();
+    galeStopsGroup.visible = gale;
+    fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
+    galeVista.visible = Boolean(devCfg.superGraphics) && gale;
+    const nextMain = buildTerrainGeometry(fullSeg);
+    const nextCopy = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
+    terrainMesh.geometry = nextMain;
+    for (const child of endless.children) {
+      if (child.isMesh) {
+        child.geometry = child === endless.userData.centre ? nextMain : nextCopy;
+      }
+    }
+    terrainGeom.dispose();
+    copyGeom.dispose();
+    terrainGeom = nextMain;
+    copyGeom = nextCopy;
+
+    if (gale) {
+      terrainMat.color.setHex(0xffffff);
+      HORIZON.setRGB(0.62, 0.43, 0.3);
+      scene.fog.color.copy(HORIZON);
+    } else {
+      const pal = spec.terrainProfile?.palette;
+      if (pal?.dust) {
+        terrainMat.color.setRGB(
+          Math.min(1, pal.dust[0] / 155),
+          Math.min(1, pal.dust[1] / 100),
+          Math.min(1, pal.dust[2] / 72)
+        );
+      }
+      if (pal?.skyHorizon) {
+        HORIZON.setRGB(pal.skyHorizon[0], pal.skyHorizon[1], pal.skyHorizon[2]);
+        scene.fog.color.copy(HORIZON);
+      }
+    }
+    // The five NASA rovers stand near you at their own sites, at Gale, and near custom landings
+    // within 150 km of a rover site; far from any of them the area is empty.
+    const showRovers = !spec.isCustomSite || Boolean(spec.nearRoverId);
+    if (showRovers) reScatterHistoricRovers(0, 0);
+    else historicRovers.clearAll();
+    if (fleetBtnEl) fleetBtnEl.textContent = showRovers ? `Rovers: ${spec.name} (5)` : "Rovers (5)";
+
+    sunSite.lat = spec.lat;
+    sunSite.lon = spec.lon;
+    refreshSun({ rebake: true });
+    return true;
+  }
+
+  /**
+   * Put the walker at any lat/lon on Mars. Inside the Gale HiRISE tile this is a precise teleport onto the
+   * real DTM; anywhere else the site switches to seeded procedural relief centred on that point.
+   */
+  function visitLocation(lon, lat, { keepYaw = true, sun = null } = {}) {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    if (sun === "local" || sun === "day") sunMode = sun;
+    if (drivingRover) {
+      drivingRover = false;
+      resetRoverMotionState();
+      chaseCamInit = false;
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = suitRig != null;
+    }
+    if (insideGaleTile(lon, lat)) {
+      const changed = switchSite(getHistoricRoverById("curiosity"));
+      if (!changed) {
+        sunSite.lat = lat;
+        sunSite.lon = lon;
+        refreshSun({ rebake: true });
+      }
+      teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw });
+    } else {
+      const spec = makeCustomSiteSpec(lon, lat);
+      // Force a rebuild even when landing twice on the same rounded point.
+      if (spec.id === activeSiteId) activeSiteId = null;
+      switchSite(spec);
+      teleportToLocal(0, 0, { keepYaw: true });
+    }
+    renderHudFleetPanel();
+    const tr = isTrLang();
+    const lt = formatHoursHM(sunState.ltstHours);
+    const where = isGaleSite() ? "GALE · HiRISE DTM" : tr ? "PROSEDÜREL ARAZİ" : "PROCEDURAL RELIEF";
+    showWrapNotice(
+      `${formatLatLonShort(lat, lon)} · ${where} · LTST ${lt}${sunState.elevationRad < 0 ? (tr ? " · GECE" : " · NIGHT") : ""}`
+    );
+  }
+
+  function formatLatLonShort(lat, lon) {
+    return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? "S" : "N"} ${(((lon % 360) + 360) % 360).toFixed(2)}°E`;
+  }
+
   function visitRoverSite(roverId, { approachRover = true, switchTerrain = false } = {}) {
     const spec = getHistoricRoverById(roverId) || getHistoricRoverById("curiosity");
     if (!spec) return;
-    const siteChanged = Boolean(switchTerrain && spec.id !== activeSiteId);
-    activeSiteRover = spec;
-    activeSiteId = spec.id;
-    historicRovers.setFocusId(spec.id);
-
-    if (siteChanged) {
-      const gale = isGaleSite();
-      galeStopsGroup.visible = gale;
-      fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
-      galeVista.visible = Boolean(devCfg.superGraphics) && gale;
-      const nextMain = buildTerrainGeometry(fullSeg);
-      const nextCopy = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
-      terrainMesh.geometry = nextMain;
-      for (const child of endless.children) {
-        if (child.isMesh) {
-          child.geometry = child === endless.userData.centre ? nextMain : nextCopy;
-        }
-      }
-      terrainGeom.dispose();
-      copyGeom.dispose();
-      terrainGeom = nextMain;
-      copyGeom = nextCopy;
-
-      if (terrainShaderRef?.uniforms?.sunMaskOn) {
-        terrainShaderRef.uniforms.sunMaskOn.value = gale && sunMask ? 1 : 0;
-      }
-      if (gale) {
-        terrainMat.color.setHex(0xffffff);
-        HORIZON.setRGB(0.62, 0.43, 0.3);
-        scene.fog.color.copy(HORIZON);
-      } else {
-        const pal = spec.terrainProfile?.palette;
-        if (pal?.dust) {
-          terrainMat.color.setRGB(
-            Math.min(1, pal.dust[0] / 155),
-            Math.min(1, pal.dust[1] / 100),
-            Math.min(1, pal.dust[2] / 72)
-          );
-        }
-        if (pal?.skyHorizon) {
-          HORIZON.setRGB(pal.skyHorizon[0], pal.skyHorizon[1], pal.skyHorizon[2]);
-          scene.fog.color.copy(HORIZON);
-        }
-      }
-      reScatterHistoricRovers(0, 0);
+    if (switchTerrain && spec.id !== activeSiteId) {
+      switchSite(spec);
+    } else if (!activeSiteRover?.isCustomSite) {
+      historicRovers.setFocusId(spec.id);
     }
 
     let entry = historicRovers.getEntry(spec.id);
@@ -2412,7 +2586,7 @@ export async function initHud3D(
     const wz = wrapSceneCoord(tz, worldH).val;
     const lon = xToLon(wx);
     const lat = zToLat(wz);
-    const elevMola = elevMin + sampleElevSceneY(wx, wz);
+    const elevMola = activeElevBaseM() + sampleElevSceneY(wx, wz);
     const slopeDeg = computeLocalSlopeDeg(wx, wz);
     const distM = Math.hypot(wx - player.x, wz - player.z);
     return { tx: wx, tz: wz, lon, lat, elevMola, slopeDeg, distM };
@@ -2446,6 +2620,13 @@ export async function initHud3D(
   function setMapOpen(open) {
     if (!mapOverlayEl) return;
     const next = Boolean(open);
+    if (next && !isGaleSite()) {
+      // The tactical map is the Gale HiRISE DTM; elsewhere use the global Orbit view instead.
+      showWrapNotice(isTrLang() ? "BURADA HiRISE HARİTASI YOK · YÖRÜNGE GÖRÜNÜMÜ AÇILIYOR" : "NO HiRISE MAP AT THIS SITE · OPENING ORBIT VIEW");
+      releasePointerLock();
+      onOpenOrbit?.();
+      return;
+    }
     mapOverlayEl.classList.toggle("open", next);
     document.querySelector(".hud-reticle")?.classList.toggle("hidden", next);
     if (next) {
@@ -2669,6 +2850,7 @@ export async function initHud3D(
 
   let goldVisor = 0;
   let optZoom = 1;
+  let arrival = null; // { t0, reduced } while the orbit arrival drop plays
   let nextPovStop = null;
 
   window.addEventListener("keydown", (e) => {
@@ -2683,6 +2865,12 @@ export async function initHud3D(
     if (k === "m" && !e.repeat) {
       e.preventDefault();
       setMapOpen(!isMapOpen());
+      return;
+    }
+    if (k === "o" && !e.repeat && !isMapOpen()) {
+      e.preventDefault();
+      releasePointerLock();
+      onOpenOrbit?.();
       return;
     }
     if (e.key === "Escape") {
@@ -2811,34 +2999,45 @@ export async function initHud3D(
       const lonTxt = lon >= 0 ? `${lon.toFixed(4)}°E` : `${lonE.toFixed(2)}°E (${Math.abs(lon).toFixed(2)}°W)`;
       if (isGaleSite()) {
         viewLabelEl.textContent = `GALE CRATER · MOUNT SHARP · ${Math.abs(lat).toFixed(4)}°${latHem} ${lonTxt}`;
+      } else if (activeSiteRover.isCustomSite) {
+        viewLabelEl.textContent = `${activeSiteRover.siteShortName} · ${Math.abs(lat).toFixed(3)}°${latHem} ${lonTxt} · PROCEDURAL RELIEF`;
       } else {
         viewLabelEl.textContent = `${activeSiteRover.siteShortName} · ${activeSiteRover.name.toUpperCase()} · ${Math.abs(lat).toFixed(2)}°${latHem} ${lonTxt} · PROCEDURAL RELIEF`;
       }
     }
 
-    const { stop: nextStop, distanceM: nextStopDist, mode: nextMode } = resolveNextStopAlongRoute(
-      activeRoute,
-      stops,
-      sM,
-      [lon, lat]
-    );
+    // The EVA route and science stops exist only on the Gale HiRISE tile.
+    const onRoute = isGaleSite();
+    const { stop: nextStop, distanceM: nextStopDist, mode: nextMode } = onRoute
+      ? resolveNextStopAlongRoute(activeRoute, stops, sM, [lon, lat])
+      : { stop: null, distanceM: Infinity, mode: "none" };
 
     const o2Pct = Math.max(0, 100 * (1 - frac)); // illustrative linear placeholder
+    const setText = (id, txt) => {
+      const el = document.getElementById(id);
+      if (el && el.textContent !== txt) el.textContent = txt;
+    };
 
-    document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    const stopDistLabel = nextMode === "leg" ? "next stop" : "nearest stop";
-    document.getElementById("hud-dist-sub").textContent = `remaining ${rem.toFixed(1)} m · ${stopDistLabel} ${
-      nextStopDist < Infinity ? nextStopDist.toFixed(0) + " m" : "—"
-    }`;
-    document.getElementById("hud-slope").textContent = `${Number(slopeDeg).toFixed(1)}°`;
+    if (onRoute) {
+      setText("hud-dist", `${sM.toFixed(1)} m`);
+      const stopDistLabel = nextMode === "leg" ? "next stop" : "nearest stop";
+      setText(
+        "hud-dist-sub",
+        `remaining ${rem.toFixed(1)} m · ${stopDistLabel} ${nextStopDist < Infinity ? nextStopDist.toFixed(0) + " m" : "—"}`
+      );
+    } else {
+      setText("hud-dist", "OFF-ROUTE");
+      setText("hud-dist-sub", `EVA route is at Gale · here: ${activeSiteRover.siteShortName}`);
+    }
+    setText("hud-slope", `${Number(slopeDeg).toFixed(1)}°`);
     const badge = document.getElementById("hud-slope-badge");
     if (badge) {
       badge.textContent = slopeClass.id;
       badge.className = `slope-badge slope-${slopeClass.id}`;
     }
-    document.getElementById("hud-next-stop").textContent = nextStop?.properties?.name || "—";
-    document.getElementById("hud-next-kind").textContent = nextStop?.properties?.kind || "—";
-    document.getElementById("hud-o2").textContent = `${o2Pct.toFixed(1)}%`;
+    setText("hud-next-stop", nextStop?.properties?.name || "—");
+    setText("hud-next-kind", nextStop?.properties?.kind || (onRoute ? "—" : "no science stops at this site"));
+    setText("hud-o2", `${o2Pct.toFixed(1)}%`);
     const o2Fill = document.getElementById("hud-o2-fill");
     if (o2Fill) o2Fill.style.width = `${o2Pct.toFixed(1)}%`;
 
@@ -2847,15 +3046,12 @@ export async function initHud3D(
       const hh = String(Math.floor(t / 3600)).padStart(2, "0");
       const mm = String(Math.floor((t % 3600) / 60)).padStart(2, "0");
       const ss = String(t % 60).padStart(2, "0");
-      clockEl.textContent = `LTST 15:00 · T+${hh}:${mm}:${ss}  (WALK-TIME PLACEHOLDER)`;
+      const ltst = formatHoursHM(sunState.ltstHours);
+      const mode = sunMode === "local" ? "LOCAL" : "FIXED DAY";
+      const txt = `LTST ${ltst} (${mode}) · Ls ${sunState.lsDeg.toFixed(0)}° · T+${hh}:${mm}:${ss}  (WALK-TIME PLACEHOLDER)`;
+      if (clockEl.textContent !== txt) clockEl.textContent = txt;
     }
-    if (btnPov && nextStop) {
-      btnPov.onclick = () => {
-        const entry = povIndex?.stops?.find((s) => s.stop_id === nextStop.properties.id) || povIndex?.stops?.[0];
-        if (entry) onOpenPov(entry);
-      };
-    }
-    nextPovStop = nextStop;
+    if (nextStop) nextPovStop = nextStop;
   }
 
   let renderScale = 1;
@@ -2964,9 +3160,10 @@ export async function initHud3D(
 
     superDetailUniform.value = wantSuper ? 1.0 : 0.0;
     baseSunIntensity = wantSuper ? 3.95 : 3.6;
-    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590);
-    hemiLight.intensity = wantSuper ? 0.28 : 0.22;
-    renderer.toneMappingExposure = wantSuper ? 1.06 : 1.0;
+    const upNow = sunUp(sunState.elevationRad);
+    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * upNow;
+    hemiLight.intensity = (wantSuper ? 0.28 : 0.22) * (0.32 + 0.68 * upNow);
+    renderer.toneMappingExposure = (wantSuper ? 1.06 : 1.0) * (1 + 0.55 * (1 - upNow));
     rockField.group.visible = wantSuper;
     galeVista.visible = wantSuper && isGaleSite();
     fieldKits.visible = wantSuper && isGaleSite();
@@ -3643,6 +3840,41 @@ export async function initHud3D(
       camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
     }
 
+    // Orbit-view arrival: the camera starts high above the walker looking down, then drops in two
+    // stepped beats to the visor (camera only; physics and the walker are already on the ground).
+    if (arrival) {
+      const t = (now - arrival.t0) / 1000;
+      const ease = (x) => {
+        const c = Math.max(0, Math.min(1, x));
+        return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
+      };
+      const H0 = arrival.reduced ? 0 : 240;
+      const H1 = 48;
+      let h;
+      let moving = false;
+      if (arrival.reduced) h = 0;
+      else if (t < 0.3) h = H0;
+      else if (t < 0.85) {
+        h = H0 - (H0 - H1) * ease((t - 0.3) / 0.55);
+        moving = true;
+      } else if (t < 1.15) h = H1;
+      else if (t < 1.95) {
+        h = H1 * (1 - ease((t - 1.15) / 0.8));
+        moving = true;
+      } else h = 0;
+      if (t > 2.3 || arrival.reduced) arrival = null;
+      else {
+        const look = Math.min(1, h / H1);
+        camera.rotation.order = "YXZ";
+        camera.position.y += h;
+        camera.rotation.x = camera.rotation.x * (1 - look) + -1.48 * look;
+        if (moving) {
+          camera.position.x += (Math.random() - 0.5) * 0.002 * h;
+          camera.position.z += (Math.random() - 0.5) * 0.002 * h;
+        }
+      }
+    }
+
     // Smoothly animate live multiplayer crewmates
     const lerpAlpha = Math.min(1, dt * 12);
     for (const remote of remoteAvatars.values()) {
@@ -3703,7 +3935,9 @@ export async function initHud3D(
     const tauFogScale = 0.55 + tau * 0.85;
     if (scene.fog) {
       scene.fog.density = atm.fogDensity * tauFogScale;
-      if (!isGaleSite()) scene.fog.color.copy(HORIZON);
+      // Fog takes the horizon colour, dimmed through twilight to near-black at night.
+      const tw = Math.max(0, Math.min(1, (sunState.elevationRad + 0.32) / 0.44));
+      scene.fog.color.copy(HORIZON).multiplyScalar(0.025 + 0.975 * tw * tw * (3 - 2 * tw));
     }
 
     // sun, moons and shadow box follow the walker
@@ -3714,11 +3948,17 @@ export async function initHud3D(
     sky.position.copy(camera.position);
     skyMoons.position.copy(camera.position);
     celestial.group.position.copy(camera.position);
-    updateMoons(clockT, camera.position);
+    updateMoons(camera.position);
     footsteps.update(dt, phys.g || surfaceG);
     rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
-    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit;
+    const sunUpNow = sunUp(sunState.elevationRad);
+    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
+    sun.castShadow = sunUpNow > 0.01;
+    // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
+    if (now - sunStateStampMs > 30000) {
+      refreshSun({ rebake: now - lastSunBakeMs > 600000 });
+    }
 
     // the HUD text & rover reticle inspection only need ~10 updates a second
     hudTimer += dt;
@@ -3789,7 +4029,7 @@ export async function initHud3D(
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uOptZoom.value = optZoom;
     camera.getWorldDirection(lookDir);
-    lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir));
+    lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir)) * sunUpNow;
     const flicker = devCfg.frameEffect
       ? 1.0 + Math.sin(clockT * 0.7) * 0.015 * devCfg.frameStrength + Math.sin(clockT * 13.0) * 0.006 * devCfg.frameStrength
       : 1.0;
@@ -3810,24 +4050,27 @@ export async function initHud3D(
     visitRoverSite,
     getActiveSiteId: () => activeSiteId,
     syncAlongM: (s) => {
-      alongM = Math.max(0, Math.min(totalDist, Number(s) || 0));
-      if (freeRoam && btnFreeRoam) btnFreeRoam.click();
+      // Crew route sync: move this walker onto the shared route position (the route is at Gale).
+      const target = Math.max(0, Math.min(totalDist, Number(s) || 0));
+      if (routeCoords.length < 2) return;
+      if (!isGaleSite()) switchSite(getHistoricRoverById("curiosity"));
+      const rp = routePoint(target);
+      teleportToLocal(rp.x, rp.z, { keepYaw: false });
+      alongM = target; // after the teleport, so the ±80 m route search starts from the synced point
       if (scrubber) scrubber.value = alongM.toFixed(1);
     },
-    teleportTo: (lon, lat) => {
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-      if (!isGaleSite()) {
-        visitRoverSite("curiosity", { approachRover: false, switchTerrain: true });
-      }
-      if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
-      teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: true });
+    /** Teleport to a lon/lat anywhere on Mars (HiRISE at Gale, procedural relief elsewhere). */
+    teleportTo: (lon, lat) => visitLocation(lon, lat, { keepYaw: true }),
+    visitLocation,
+    /** Camera drop from ~240 m to the visor after an Orbit-view descent. */
+    playArrivalDrop: () => {
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+      arrival = { t0: performance.now(), reduced };
     },
+    getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z), siteId: activeSiteId }),
+    setSunMode,
+    getSunMode: () => sunMode,
     cycleTex: () => setTexMode((texMode + 1) % TEX.length),
-    openRoverPov: () => {
-      const stop = nextPovStop;
-      const entry =
-        povIndex?.stops?.find((s) => s.stop_id === stop?.properties?.id) || povIndex?.stops?.[0];
-      if (entry) onOpenPov(entry);
-    },
+    openRoverPov: openNextPov,
   };
 }

@@ -476,7 +476,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
         },
         "onmars-ctx": {
           type: "raster",
-          tiles: ["mars-eq://trek-ctx/{z}/{x}/{y}"],
+          tiles: ["mars-eq://onmars-ctx/{z}/{x}/{y}"],
           tileSize: 256,
           maxzoom: 16,
         },
@@ -620,8 +620,14 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
 
       this.map = map;
 
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
+        // A style that never loads (WebGL lost, blocked worker, ...) must not hang the planner forever:
+        // after 20 s fall back to the 2D canvas map instead.
+        const timer = setTimeout(() => {
+          if (!this._styleLoaded) reject(new Error("MapLibre style did not load within 20 s"));
+        }, 20000);
         const onReady = () => {
+          clearTimeout(timer);
           this._styleLoaded = true;
           this._flushPendingOps();
           resolve();
@@ -686,6 +692,10 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
       return this;
     } catch (err) {
       console.warn("[MapLibreMarsAdapter] Falling back to 2D Canvas:", err);
+      try {
+        this.map?.remove?.();
+      } catch {}
+      this.map = null;
       return this._mountFallback(container, options);
     }
   }

@@ -228,6 +228,9 @@ export function initPlanner(data, { onOpenPov, onStartEva, onOpenRoverInfo, onVi
         });
       } else if (adapter._fallback?.loadRasterOverlay) {
         adapter._fallback.loadRasterOverlay("strict-15", strictUrl, false);
+      } else if (typeof adapter.loadRasterOverlay === "function") {
+        // ?legacyMap=1: the adapter itself is a Fallback2DMap
+        adapter.loadRasterOverlay("strict-15", strictUrl, false);
       }
     }
 
@@ -431,7 +434,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, onOpenRoverInfo, onVi
   renderProfileSvg(route?.profile || [], (sM) => {
     if (route) {
       dispatchSetRoute(route, sM);
-      onStartEva();
+      onStartEva?.();
     }
   });
 

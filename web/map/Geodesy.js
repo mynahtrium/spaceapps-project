@@ -19,7 +19,8 @@ const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
 
 /**
- * Wrap longitude into [-180, 180). Handles Mars PDS 0..360 east-longitude inputs safely.
+ * Wrap longitude into [-180, 180]. Handles Mars PDS 0..360 east-longitude inputs safely.
+ * A positive input that lands exactly on the antimeridian is kept as +180 (so 180 stays 180, not -180).
  * @param {number} lonDeg
  * @returns {number}
  */
