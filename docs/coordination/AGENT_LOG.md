@@ -239,3 +239,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Added TRI roughness, the cost grid (multiplier; 9e99 = blocked, 18% of cells) and a 16-bit height preview for the 3D view. cost-map.json (~0.8 MB) parses in Python and Node with no Infinity/NaN. Contract field names kept; additive fields logged in CHANGES.md and handed off to backend-2, frontend-1 and testers. Crop centre is still a placeholder until PRE-07.
 - Commit: this commit
 - Next step: Tilt check vs MSL waypoints (MUST-03); re-run both scripts when stops are locked.
+
+### 2026-11-14 12:05 Europe/Istanbul — MUST-04/05/06 (example scaffold)
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: MUST-04, MUST-05, MUST-06
+- Files changed: pipeline/routing/{write_stops.py,build_route.py,dijkstra_grid.py,mars_geo.py,requirements.txt,README.md}, data/processed/routing/{stops.json,route.json,hud-telemetry.json,README.md}, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: End-to-end Backend 2 example scaffold while PRE-07 is open. Habitat/boxwork use cited Sol 4527/4534 waypoints; mudstones use contract example points; all is_example. 8-neighbour Dijkstra with geodesic fallback; HUD samples with labelled O2 placeholder. No official outcrop names or mineral IDs invented. No secrets.
+- Commit: this commit
+- Next step: Stay on backend-2/routing-must-scaffold (long-lived; merge only at end). Re-run after PRE-07 lock and B1 re-crop; then clear is_example.
