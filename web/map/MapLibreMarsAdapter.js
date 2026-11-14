@@ -71,6 +71,18 @@ const activeProtocolContext = {
   demSampler: null,
 };
 
+const demTileCache = new Map();
+let transparentTileBytesPromise = null;
+
+function getTransparentTileBytes() {
+  if (!transparentTileBytesPromise) {
+    transparentTileBytesPromise = blobFromRgba(new Uint8ClampedArray([0, 0, 0, 0]), 1, 1).then((b) =>
+      b.arrayBuffer()
+    );
+  }
+  return transparentTileBytesPromise;
+}
+
 function ensureProtocolsRegistered(maplibregl) {
   if (!maplibregl || typeof maplibregl.addProtocol !== "function") return;
 
@@ -79,14 +91,24 @@ function ensureProtocolsRegistered(maplibregl) {
     maplibregl.addProtocol("mars-dem", async (params) => {
       const m = /mars-dem:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
       if (!m || !activeProtocolContext.demSampler) {
-        return { data: new ArrayBuffer(0) };
+        return { data: (await getTransparentTileBytes()).slice(0) };
       }
       const z = Number(m[1]);
       const x = Number(m[2]);
       const y = Number(m[3]);
-      const rgba = activeProtocolContext.demSampler.rasterizeTerrariumTileRGBA(z, x, y, 256);
-      const blob = await blobFromRgba(rgba, 256, 256);
-      return { data: await blob.arrayBuffer() };
+      const key = `${z}:${x}:${y}`;
+      let bytes = demTileCache.get(key);
+      if (!bytes) {
+        const rgba = activeProtocolContext.demSampler.rasterizeTerrariumTileRGBA(z, x, y, 256);
+        const blob = await blobFromRgba(rgba, 256, 256);
+        bytes = await blob.arrayBuffer();
+        if (demTileCache.size > 96) {
+          const oldest = demTileCache.keys().next().value;
+          demTileCache.delete(oldest);
+        }
+        demTileCache.set(key, bytes);
+      }
+      return { data: bytes.slice(0) };
     });
   }
 
@@ -95,7 +117,7 @@ function ensureProtocolsRegistered(maplibregl) {
     maplibregl.addProtocol("mars-eq", async (params, abortController) => {
       const m = /mars-eq:\/\/([^/]+)\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
       if (!m || !activeProtocolContext.registry) {
-        return { data: new ArrayBuffer(0) };
+        return { data: (await getTransparentTileBytes()).slice(0) };
       }
       const layerId = m[1];
       const z = Number(m[2]);
@@ -106,9 +128,9 @@ function ensureProtocolsRegistered(maplibregl) {
 
       const chain =
         layerId === "themis-night"
-          ? ["themis-night", "themis-day", "mola-color"]
+          ? ["themis-night", "themis-day"]
           : layerId === "themis-day"
-            ? ["themis-day", "mola-color"]
+            ? ["themis-day"]
             : layerId === "mola-color"
               ? ["mola-color"]
               : reg.getImageryCascade(layerId);
@@ -121,18 +143,25 @@ function ensureProtocolsRegistered(maplibregl) {
       const tlTile = lonLatToMarsEquirectTile(bounds.west, bounds.north, eqZ);
       const brTile = lonLatToMarsEquirectTile(
         bounds.east - 1e-6,
-        clampLatDeg(bounds.south + 1e-6),
+        clampLatDeg(bounds.south),
         eqZ
       );
 
+      const rowStart = Math.max(0, Math.min(tlTile.row, brTile.row));
+      const rowEnd = Math.min(nRows - 1, Math.max(tlTile.row, brTile.row));
+      const colSpan = brTile.col >= tlTile.col ? brTile.col - tlTile.col : brTile.col + nCols - tlTile.col;
+
       // Collect unique equirectangular (col, row) tiles intersecting this Mercator tile
+      const seenTiles = new Set();
       const tileCoords = [];
-      for (let r = tlTile.row; r <= brTile.row; r++) {
-        for (let c = tlTile.col; c <= brTile.col; c++) {
-          tileCoords.push({
-            col: ((c % nCols) + nCols) % nCols,
-            row: Math.max(0, Math.min(nRows - 1, r)),
-          });
+      for (let r = rowStart; r <= rowEnd; r++) {
+        for (let dc = 0; dc <= colSpan; dc++) {
+          const col = (((tlTile.col + dc) % nCols) + nCols) % nCols;
+          const k = `${col}:${r}`;
+          if (!seenTiles.has(k)) {
+            seenTiles.add(k);
+            tileCoords.push({ col, row: r });
+          }
         }
       }
 
@@ -147,7 +176,6 @@ function ensureProtocolsRegistered(maplibregl) {
               signal: abortController.signal,
               responseType: "blob",
             });
-            // Wait: cascade may step down to lower eqZ if a high-res provider was capped or open
             const bitmap = await createImageBitmap(
               res.data instanceof Blob ? res.data : new Blob([res.data])
             );
@@ -172,8 +200,8 @@ function ensureProtocolsRegistered(maplibregl) {
           const rowExact = ((90 - lat) / 180) * nRows;
           const reqRow = Math.max(0, Math.min(nRows - 1, Math.floor(rowExact)));
 
-          for (let c = tlTile.col; c <= brTile.col; c++) {
-            const colNorm = ((c % nCols) + nCols) % nCols;
+          for (let dc = 0; dc <= colSpan; dc++) {
+            const colNorm = (((tlTile.col + dc) % nCols) + nCols) % nCols;
             const rec = fetchedTiles.get(`${colNorm}:${reqRow}`);
             if (!rec) continue;
 
@@ -191,8 +219,10 @@ function ensureProtocolsRegistered(maplibregl) {
 
             const dstX0 = ((spanLonW - bounds.west) / (bounds.east - bounds.west)) * size;
             const dstX1 = ((spanLonE - bounds.west) / (bounds.east - bounds.west)) * size;
-            const srcX0 = ((spanLonW - tileLonW) / (tileLonE - tileLonW)) * bitmap.width;
-            const srcX1 = ((spanLonE - tileLonW) / (tileLonE - tileLonW)) * bitmap.width;
+            const rawSrcX0 = ((spanLonW - tileLonW) / (tileLonE - tileLonW)) * bitmap.width;
+            const rawSrcX1 = ((spanLonE - tileLonW) / (tileLonE - tileLonW)) * bitmap.width;
+            const srcX0 = Math.max(0, Math.min(bitmap.width - 0.01, rawSrcX0));
+            const srcW = Math.max(0.01, Math.min(bitmap.width - srcX0, rawSrcX1 - srcX0));
             const srcY = Math.max(
               0,
               Math.min(
@@ -205,7 +235,7 @@ function ensureProtocolsRegistered(maplibregl) {
               bitmap,
               srcX0,
               srcY,
-              Math.max(1, srcX1 - srcX0),
+              srcW,
               1,
               dstX0,
               py,
@@ -220,13 +250,23 @@ function ensureProtocolsRegistered(maplibregl) {
         return { data };
       } catch (err) {
         if (err?.name === "AbortError") throw err;
+        // Offline / ?demo=1 fallback for MOLA color: render hypsometric elevation ramp from local DEM
+        if (layerId === "mola-color" && dem) {
+          const rgba = renderMolaColorTileRgba(dem, z, x, y, 256);
+          const blob = await blobFromRgba(rgba, 256, 256);
+          return { data: await blob.arrayBuffer() };
+        }
+        // Overlay layers outside cached/offline coverage stay transparent rather than obscuring basemap
+        if (layerId === "themis-day" || layerId === "themis-night" || layerId === "mola-color") {
+          return { data: (await getTransparentTileBytes()).slice(0) };
+        }
         // Fallback: generate procedural Martian DEM shaded tile so offline/?demo=1 shows topography smoothly
         if (dem) {
           const rgba = renderShadedReliefTileRgba(dem, z, x, y, 256);
           const blob = await blobFromRgba(rgba, 256, 256);
           return { data: await blob.arrayBuffer() };
         }
-        return { data: new ArrayBuffer(0) };
+        return { data: (await getTransparentTileBytes()).slice(0) };
       }
     });
   }
@@ -279,6 +319,56 @@ function renderShadedReliefTileRgba(dem, z, x, y, size = 256) {
       rgba[idx + 1] = Math.min(255, Math.max(10, Math.round((78 + tElev * 40 + speck) * dot * contourBoost)));
       rgba[idx + 2] = Math.min(255, Math.max(8, Math.round((54 + tElev * 26 + speck * 0.8) * dot * contourBoost)));
       rgba[idx + 3] = 255;
+    }
+  }
+  return rgba;
+}
+
+/**
+ * Render an offline MOLA-style hypsometric color ramp overlay from the local Gale DEM.
+ */
+function renderMolaColorTileRgba(dem, z, x, y, size = 256) {
+  const rgba = new Uint8ClampedArray(size * size * 4);
+  const n = 2 ** z;
+  const tx0 = x / n;
+  const ty0 = y / n;
+  const txSpan = 1 / n;
+  const stops = [
+    [0.0, 42, 62, 168],
+    [0.25, 34, 152, 198],
+    [0.5, 92, 188, 92],
+    [0.75, 232, 168, 48],
+    [1.0, 224, 72, 48],
+  ];
+
+  for (let py = 0; py < size; py++) {
+    const ny = ty0 + ((py + 0.5) / size) * txSpan;
+    const lat = (Math.atan(Math.sinh(Math.PI * (1 - 2 * ny))) * 180) / Math.PI;
+    for (let px = 0; px < size; px++) {
+      const nx = tx0 + ((px + 0.5) / size) * txSpan;
+      const lon = normalizeLonDeg(nx * 360 - 180);
+      const info = dem.sampleSlopeAndNormal([lon, lat]);
+      const idx = (py * size + px) * 4;
+      if (!info) {
+        rgba[idx + 3] = 0;
+        continue;
+      }
+      const t = Math.max(0, Math.min(1, (info.elevM + 3850.6) / 481.3));
+      let s0 = stops[0];
+      let s1 = stops[stops.length - 1];
+      for (let i = 0; i < stops.length - 1; i++) {
+        if (t >= stops[i][0] && t <= stops[i + 1][0]) {
+          s0 = stops[i];
+          s1 = stops[i + 1];
+          break;
+        }
+      }
+      const frac = s1[0] > s0[0] ? (t - s0[0]) / (s1[0] - s0[0]) : 0;
+      const shade = Math.max(0.55, Math.min(1.25, 0.72 + info.normal.x * 0.35 + info.normal.z * -0.35));
+      rgba[idx] = Math.min(255, Math.round((s0[1] + (s1[1] - s0[1]) * frac) * shade));
+      rgba[idx + 1] = Math.min(255, Math.round((s0[2] + (s1[2] - s0[2]) * frac) * shade));
+      rgba[idx + 2] = Math.min(255, Math.round((s0[3] + (s1[3] - s0[3]) * frac) * shade));
+      rgba[idx + 3] = 225;
     }
   }
   return rgba;
@@ -343,7 +433,14 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
           tiles: ["mars-dem://{z}/{x}/{y}"],
           tileSize: 256,
           encoding: "terrarium",
-          maxzoom: 17,
+          maxzoom: 15,
+        },
+        "mars-terrain-dem": {
+          type: "raster-dem",
+          tiles: ["mars-dem://{z}/{x}/{y}"],
+          tileSize: 256,
+          encoding: "terrarium",
+          maxzoom: 15,
         },
         "onmars-ctx": {
           type: "raster",
@@ -374,32 +471,11 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
       const styleLayers = [
         { id: "bg", type: "background", paint: { "background-color": "#19110d" } },
         {
-          id: "mola-color",
-          type: "raster",
-          source: "mola-color",
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": 0.9 },
-        },
-        {
           id: "onmars-ctx",
           type: "raster",
           source: "onmars-ctx",
           layout: { visibility: "visible" },
           paint: { "raster-opacity": 0.92 },
-        },
-        {
-          id: "themis-day",
-          type: "raster",
-          source: "themis-day",
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": 0.72 },
-        },
-        {
-          id: "themis-night",
-          type: "raster",
-          source: "themis-night",
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": 0.72 },
         },
         {
           id: "mars-hillshade",
@@ -426,9 +502,34 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
           type: "raster",
           source: "hirise-ortho",
           layout: { visibility: "visible" },
-          paint: { "raster-opacity": 0.85 },
+          paint: { "raster-opacity": 0.8 },
         });
       }
+
+      // Spectral/thermal & regional elevation overlays sit above ortho so toggles are immediately visible
+      styleLayers.push(
+        {
+          id: "mola-color",
+          type: "raster",
+          source: "mola-color",
+          layout: { visibility: "none" },
+          paint: { "raster-opacity": 0.62 },
+        },
+        {
+          id: "themis-day",
+          type: "raster",
+          source: "themis-day",
+          layout: { visibility: "none" },
+          paint: { "raster-opacity": 0.62 },
+        },
+        {
+          id: "themis-night",
+          type: "raster",
+          source: "themis-night",
+          layout: { visibility: "none" },
+          paint: { "raster-opacity": 0.62 },
+        }
+      );
 
       if (this.slopePreviewUrl) {
         styleSources["slope-preview"] = {
@@ -445,19 +546,38 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
         });
       }
 
+      const wantsTerrain3d = Boolean(options.terrain3d ?? true);
+      this._terrain3dEnabled = wantsTerrain3d;
+
       const map = new maplibregl.Map({
         container,
         center,
         zoom: options.zoom ?? 14.3,
-        pitch: options.pitch ?? 0,
-        bearing: options.bearing ?? 0,
+        pitch: options.pitch ?? (wantsTerrain3d ? 52 : 0),
+        bearing: options.bearing ?? (wantsTerrain3d ? -14 : 0),
+        maxPitch: 85,
+        doubleClickZoom: false,
         attributionControl: false,
         style: {
           version: 8,
           sources: styleSources,
           layers: styleLayers,
+          ...(wantsTerrain3d
+            ? {
+                terrain: {
+                  source: "mars-terrain-dem",
+                  exaggeration: this._terrainExaggeration,
+                },
+              }
+            : {}),
         },
       });
+      if (typeof maplibregl.NavigationControl === "function") {
+        map.addControl(
+          new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }),
+          "top-left"
+        );
+      }
 
       this.map = map;
 
@@ -485,6 +605,20 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
         const lonLat = [e.lngLat.lng, e.lngLat.lat];
         const info = this.demSampler.sampleSlopeAndNormal(lonLat);
         this.emit("click", {
+          lon: lonLat[0],
+          lat: lonLat[1],
+          lngLat: e.lngLat,
+          elevM: info ? info.elevM : null,
+          slopeDeg: info ? info.slopeDeg : null,
+          x: e.point.x,
+          y: e.point.y,
+        });
+      });
+      map.on("dblclick", (e) => {
+        e.preventDefault?.();
+        const lonLat = [e.lngLat.lng, e.lngLat.lat];
+        const info = this.demSampler.sampleSlopeAndNormal(lonLat);
+        this.emit("dblclick", {
           lon: lonLat[0],
           lat: lonLat[1],
           lngLat: e.lngLat,
@@ -527,6 +661,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
     });
     this._fallback.on("viewchange", (v) => this.emit("viewchange", v));
     this._fallback.on("click", (e) => this.emit("click", e));
+    this._fallback.on("dblclick", (e) => this.emit("dblclick", e));
     this._fallback.on("hover", (e) => this.emit("hover", e));
     this._fallback.on("attributionchange", (a) => this.emit("attributionchange", a));
     await this._fallback.mount(container, options);
@@ -560,7 +695,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
     this._runOrQueue(() => {
       if (this._terrain3dEnabled) {
         this.map.setTerrain({
-          source: "mars-dem",
+          source: "mars-terrain-dem",
           exaggeration: this._terrainExaggeration,
         });
         if (this.map.getPitch() < 30) {

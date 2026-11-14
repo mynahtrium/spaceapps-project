@@ -752,6 +752,70 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Visually verify `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctrl+Shift+R`), then decide whether to open a PR to `main`.
 
+### 2026-11-14 17:22 Europe/Istanbul — free-roam only, single astronaut, contact shadows
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, web/hud/astronaut-rig.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for shadows under the feet, then to remove route walking and the per-pixel ray tracing that was tried in between (not committed). Now: you always walk yourself (WASD, Shift run, Space jump) starting at the route start; Play, scrubber, speed and free-roam buttons are gone; the white route line stays as a guide; HUD progress uses the nearest route point within 80 m of the last progress (the route is a loop, so a global nearest search matched the end). The second astronaut (buddy) was then removed at Cagan's request; you are the only astronaut (HUD says CREW: 1). Each boot has a soft contact shadow on the local slope that fades as the foot lifts. Far terrain shadows stay the earlier CPU bake. Checked in the browser: no console errors, HUD starts at 0.0 m / 790.3 m / O2 100%.
+- Commit: this commit
+- Next step: push when Cagan asks.
+
+### 2026-11-14 17:25 Europe/Istanbul — MAP-01 / MUST-09 / MUST-10: map bug fixes, default 3D planner, map click/dblclick teleport & sky Phobos/Deimos
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MAP-01, MUST-09, MUST-10
+- Files changed: web/index.html, web/styles.css, web/shared/route-bridge.js, web/map/TileSourceRegistry.js, web/map/MapLibreMarsAdapter.js, web/map/Fallback2DMap.js, web/planner/planner.js, web/hud/hud3d.js, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Fixed THEMIS template substitution (`{Style}`, `{TileMatrixSet}`, `.0.0//`) and added offline `?demo=1` Gale sample pyramid step-down (`z=8/6/4`) in `TileSourceRegistry.js`; fixed `mars-eq://` scanline clamping, overlay transparent fallback, overlay layer z-order above `hirise-ortho`, separate `mars-terrain-dem` + LRU DEM tile cache, and enabled 3D terrain by default (`pitch: 52`, `#toggle-3d-map` checked, `NavigationControl`, `doubleClickZoom: false`) in `MapLibreMarsAdapter.js`, `Fallback2DMap.js`, `planner.js`, and `index.html`; fixed `alongM`/`along_m` mismatch and added `mm:teleport` bridge + map single-click `TELEPORT HERE` button & double-click instant teleport into 3D Bodycam `freeRoam` (with terrain grounding, partner astronaut collision guard, and `closestAlongM` sync); added Phobos, Deimos (daytime-sky limb shader, E/W orbital motion), and solar disc to `web/hud/hud3d.js` with raised pitch limit (`1.42` rad) and extended camera/sky far range. Verified `node --check` on all 19 `web/` JS files, 16/16 unit tests (`geodesy.test.mjs`, `fallback.test.mjs`, `route-bridge.test.mjs`), DOM ID consistency, and THEMIS step-down + teleport bridge runtime checks.
+- Commit: this commit
+- Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) in browser to visually verify 3D planner, map click/dblclick teleport, THEMIS/MOLA overlays, and Phobos/Deimos in the 3D sky.
+
+### 2026-11-14 17:31 Europe/Istanbul — hide the route line in the 3D view
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/ at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked to remove the route. The white route line is no longer added to the 3D scene and the hint text no longer mentions it. The 2D planner route and route.json are unchanged, and the HUD still uses them for distance, next stop and O2.
+- Commit: this commit
+- Next step: none.
+
+### 2026-11-14 17:34 Europe/Istanbul — side-step and backward walking animation
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/hud at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/astronaut-rig.js, web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan said the astronaut looked like it walked forward while strafing. hud3d.js now passes the walking direction in the body frame to the rig; the fore-aft leg swing scales with the forward part (reversed when walking backwards), and the sideways part drives a side-step (leading leg reaches out, trailing leg closes, feet do not cross, soles kept flat, pelvis leans into the step, arm swing reduced). Checked with front-view renders of a right and a left side-step.
+- Commit: this commit
+- Next step: none.
+
+### 2026-11-14 17:39 Europe/Istanbul — 3D view performance
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/hud at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan reported stutter. Cut per-frame work: pixel ratio capped at 1.25 (was 2), MSAA 4 -> 2 samples, shadow map 4096 -> 2048 px over a 40 m box with PCF instead of PCF-soft, terrain no longer drawn into the shadow map (terrain shadows come from the baked sun mask), mirrored copies at a quarter of the vertex density, HUD text updated 10 times a second, and adaptive render resolution (scene scale drops to 0.55 when frames average over 24 ms and recovers under 15 ms). In the in-app browser the frame rate is capped by vsync (median 13.9 ms before and after), so the gain could not be measured there; no console errors and shadows still render.
+- Commit: this commit
+- Next step: Cagan checks the frame rate on his machine.
+
+### 2026-11-14 17:38 Europe/Istanbul — MAP-01 / MUST-09 follow-up: MOLA offline ramp, PNG fallback buffer, buffered teleport, Stickney orientation & unit tests
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: tester-2
+- Task id: MAP-01, MUST-09
+- Files changed: `web/hud/hud3d.js`, `web/map/Fallback2DMap.js`, `web/map/MapLibreMarsAdapter.js`, `web/map/TileSourceRegistry.js`, `web/planner/planner.js`, `web/shared/route-bridge.js`, `web/tests/fallback.test.mjs`, `web/tests/route-bridge.test.mjs`, `docs/coordination/HANDOFFS.md`, `docs/coordination/AGENT_LOG.md`
+- Why: Polished map protocol & fallback edge cases on top of `612223b` (keeping Cagan's single-astronaut free-roam HUD & boot contact shadows intact): replaced empty `ArrayBuffer(0)` returns with a valid 1x1 transparent PNG in `MapLibreMarsAdapter.js`, added offline hypsometric `renderMolaColorTileRgba()` for `mola-color`, wired `strict-15` and `unmount()` cleanup in `Fallback2DMap.js`, added pre-selection hover probe in `planner.js`, buffered `dispatchTeleport`/`onTeleport` in `route-bridge.js` for startup calls before `hud3d.js` finishes init, pointed Stickney crater (`+Z`) and `phobos`/`deimos.lookAt(camera.position)` toward the camera in `hud3d.js`, accepted `alongM ?? along_m` in `onSetRoute`, and added unit tests in `web/tests/route-bridge.test.mjs` and `web/tests/fallback.test.mjs`. Verified `node --check` on 22 JS/MJS files and 18/18 Node unit tests.
+- Commit: this commit
+- Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) to visually inspect MOLA offline color, double-click teleport, and Phobos/Deimos in browser.
+
 ### 2026-11-14 17:27 Europe/Istanbul — Add dual-transport EVA multiplayer support (BroadcastChannel + LAN WebSocket)
 - Human: Doruk
 - Agent tool + model: Gemini (Antigravity)
@@ -772,3 +836,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Published the static Marswalk app to Vercel production (`martian-mappers`). Root redirects to `/web/`. The deploy ignore list leaves out team profiles, coordination notes, pipeline code, secrets, and the relief STL. `.vercel/` stays untracked so link metadata and pulled env files are not committed.
 - Commit: this commit
 - Next step: Turn off Vercel Authentication if judges should open https://martian-mappers.vercel.app without a Vercel login. Cross-device crew still needs the local server.
+
+### 2026-11-14 17:45 Europe/Istanbul — Merge origin/main into local main
+
+- Human: Doruk
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: docs
+- Task id: n/a
+- Files changed: web/hud/hud3d.js, web/index.html, web/planner/planner.js, web/styles.css, docs/coordination/AGENT_LOG.md
+- Why: Local main had the multiplayer commit and the Vercel config; origin/main had the single-astronaut HUD, map teleport, and performance work. Kept both: crew pins, radio, and remote avatars, plus teleport, contact shadows, and CREW: 1 with no AI buddy. `node --check` and 22/22 web tests passed.
+- Commit: this commit
+- Next step: Push main.

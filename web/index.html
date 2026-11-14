@@ -59,7 +59,10 @@
     <section id="planner-view" class="view active">
       <div id="map-container">
         <div id="map"></div>
-        <div id="map-probe-readout" class="map-probe">CLICK MAP FOR ELEVATION &amp; SLOPE (HiRISE DTM PREVIEW)</div>
+        <div id="map-probe-readout" class="map-probe">
+          <span id="map-probe-text">CLICK TO INSPECT · DOUBLE-CLICK MAP TO TELEPORT</span>
+          <button id="map-teleport-btn" class="txt-btn map-teleport-btn" type="button" style="display:none;">TELEPORT HERE</button>
+        </div>
         <div class="map-legend">
           <div style="color:#fff;letter-spacing:0.2em;font-size:9.5px;margin-bottom:6px;">SLOPE / HAZARD — LUNAR STAND-IN</div>
           <div class="legend-row"><span class="swatch" style="background:#22c55e;"></span> ≤ 10° preferred</div>
@@ -121,7 +124,7 @@
             <label class="toggle-item"><input type="checkbox" id="layer-crism" checked /> CRISM footprints</label>
             <label class="toggle-item"><input type="checkbox" id="layer-ctx" checked /> Mars Trek CTX</label>
             <label class="toggle-item"><input type="checkbox" id="layer-mola" /> MOLA colour</label>
-            <label class="toggle-item"><input type="checkbox" id="toggle-3d-map" /> 3D tilt (DEM)</label>
+            <label class="toggle-item"><input type="checkbox" id="toggle-3d-map" checked /> 3D terrain (DEM)</label>
           </div>
         </div>
 
@@ -151,7 +154,7 @@
             <div><span class="rec">●</span> REC &nbsp;EVA-CAM 02 &nbsp;<span class="dim">// HELMET MOUNT</span></div>
             <div id="hud-clock">T+00:00:00</div>
             <div class="dim" id="hud-crew">AST-1 · 1.80 M · <span id="hud-suit">SUIT —</span></div>
-            <div class="dim" id="hud-crew-summary">MARS g 3.71 M/S² · CREW: 2 (BUDDY EVA)</div>
+            <div class="dim" id="hud-crew-summary">MARS g 3.71 M/S² · CREW: 1</div>
             <div class="dim" id="hud-view-label">GALE CRATER · MOUNT SHARP · 4.80°S 137.39°E</div>
           </div>
 
@@ -186,11 +189,7 @@
 
           <div class="hud-controls">
             <button id="hud-back-planner" class="btn">Planner</button>
-            <button id="hud-play" class="btn primary">Play</button>
-            <input id="hud-scrubber" class="hud-scrubber" type="range" min="0" max="100" step="0.5" value="0" aria-label="Position along route" />
-            <button id="hud-speed" class="btn">1x walk</button>
             <button id="hud-tex" class="btn">Tex: relief</button>
-            <button id="hud-freeroam" class="btn">Free-roam: off</button>
             <button id="hud-ping" class="btn">Pin (P)</button>
             <button id="hud-pov-btn" class="btn">Rover POV</button>
           </div>

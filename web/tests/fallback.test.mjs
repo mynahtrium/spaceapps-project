@@ -285,3 +285,36 @@ test("MarsPbrTextures synthesizes high-contrast offline PBR albedo + normals and
     assert.equal(shaderSrc.includes(token), true, `MarsTerrainShader.js must include ${token}`);
   }
 });
+
+test("TileSourceRegistry substitutes THEMIS WMTS template params online and resolves ancestor tiles in demoSafe mode", () => {
+  const themisMeta = JSON.parse(
+    fs.readFileSync(path.resolve(WEB_DIR, "..", "data/demo/layers-themis.json"), "utf8")
+  );
+
+  const onlineReg = new TileSourceRegistry({
+    demoSafe: false,
+    themisMetadata: themisMeta,
+    demoTileBaseUrl: "../data/demo/themis",
+  });
+  const onlineRes = onlineReg.resolveEquirectTileUrl("themis-day", 9, 902, 268);
+  assert.ok(onlineRes);
+  assert.equal(onlineRes.isLocal, false);
+  assert.equal(onlineRes.url.includes("{Style}"), false);
+  assert.equal(onlineRes.url.includes("{TileMatrixSet}"), false);
+  assert.equal(onlineRes.url.includes("1.0.0//"), false);
+  assert.ok(onlineRes.url.includes("/1.0.0/default/default028mm/9/268/902.png"));
+
+  const demoReg = new TileSourceRegistry({
+    demoSafe: true,
+    themisMetadata: themisMeta,
+    demoTileBaseUrl: "../data/demo/themis",
+  });
+  // Exact eqZ=8 tile (col=451, row=134) should satisfy intermediate eqZ=9 Gale tile (col=902, row=268)
+  const ancestorRes = demoReg.resolveEquirectTileUrl("themis-day", 9, 902, 268);
+  assert.ok(ancestorRes);
+  assert.equal(ancestorRes.isLocal, true);
+  assert.equal(ancestorRes.eqZ, 8);
+  assert.equal(ancestorRes.col, 451);
+  assert.equal(ancestorRes.row, 134);
+  assert.ok(ancestorRes.url.endsWith("/day/z8_r134_c451.png"));
+});

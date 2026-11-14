@@ -20,7 +20,9 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import {
   buildCumulativeDistances,
   classifySlope,
+  closestAlongM,
   onSetRoute,
+  onTeleport,
   resolveNextStopAlongRoute,
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
@@ -127,10 +129,68 @@ const SKY_FRAG = /* glsl */ `
     vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
     col = mix(col, uGround, smoothstep(0.0, -0.08, h));
     float s = max(dot(d, normalize(uSunDir)), 0.0);
-    // Mars: small bluish halo right around the sun, warm dust glow further out
+    // Mars: 0.35 deg sun disc + small bluish dust halo around sun, warm dust glow further out
+    col += vec3(1.6, 1.65, 1.8) * smoothstep(0.999965, 0.999992, s);
     col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
     col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
     col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const MOON_VERT = /* glsl */ `
+  varying vec3 vNormalW;
+  varying vec3 vDirW;
+  varying vec3 vLocalPos;
+  void main() {
+    vLocalPos = position;
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vDirW = normalize(wp.xyz - cameraPosition);
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+// Daytime Martian moon shader: matches surrounding sky glow on dark unlit limb so the unlit side
+// blends naturally into the dusty atmosphere instead of turning into a black silhouette.
+const MOON_FRAG = /* glsl */ `
+  uniform vec3 uZenith;
+  uniform vec3 uHorizon;
+  uniform vec3 uGround;
+  uniform vec3 uSunDir;
+  uniform vec3 uBaseColor;
+  uniform float uAlbedoBoost;
+  varying vec3 vNormalW;
+  varying vec3 vDirW;
+  varying vec3 vLocalPos;
+
+  vec3 marsSky(vec3 d) {
+    float h = d.y;
+    vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
+    col = mix(col, uGround, smoothstep(0.0, -0.08, h));
+    float s = max(dot(d, normalize(uSunDir)), 0.0);
+    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
+    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
+    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    return col;
+  }
+
+  void main() {
+    vec3 d = normalize(vDirW);
+    vec3 n = normalize(vNormalW);
+    vec3 sun = normalize(uSunDir);
+    vec3 skyBg = marsSky(d);
+
+    // Subtle regolith/crater tonal grain on the moon surface
+    vec3 p = normalize(vLocalPos);
+    float mottling = 0.82 + 0.18 * sin(p.x * 11.0 + p.y * 7.0) * cos(p.z * 9.0 - p.x * 5.0);
+    float ndl = max(dot(n, sun), 0.0);
+    float diffuse = smoothstep(0.0, 0.85, ndl) * uAlbedoBoost * mottling;
+
+    // Warm Martian dust extinction near the horizon
+    float elevFade = smoothstep(-0.02, 0.14, d.y);
+    vec3 lit = uBaseColor * diffuse * mix(vec3(1.0, 0.68, 0.45), vec3(1.0), elevFade);
+    vec3 col = skyBg + lit * (0.28 + 0.72 * elevFade);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -227,15 +287,17 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const HORIZON = new THREE.Color(0.62, 0.43, 0.3);
   scene.fog = new THREE.FogExp2(HORIZON.getHex(), 0.00042);
 
-  const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 9000);
+  const camera = new THREE.PerspectiveCamera(78, 1, 0.06, 15000);
 
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Performance: draw at most 1.25 device pixels per CSS pixel; adaptive scaling below lowers it further.
+  const MAX_PIXEL_RATIO = Math.min(window.devicePixelRatio, 1.25);
+  renderer.setPixelRatio(MAX_PIXEL_RATIO);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap; // PCF: crisp enough, far cheaper than PCFSoft
   wrap.appendChild(renderer.domElement);
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
@@ -243,8 +305,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const sunDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize();
   // Mars sees a small sun disc (about 0.35 deg), so near shadows are crisp; the thin dusty sky
   // fills them with a weak reddish light rather than washing them out.
-  const SHADOW_HALF_M = 28;
-  const SHADOW_MAP_PX = 4096;
+  const SHADOW_HALF_M = 20; // about 2 cm per shadow texel around the walker
+  const SHADOW_MAP_PX = 2048;
   const sun = new THREE.DirectionalLight(0xfff0de, 3.6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP_PX, SHADOW_MAP_PX);
@@ -259,8 +321,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   scene.add(sun, sun.target);
   scene.add(new THREE.HemisphereLight(0xc99a76, 0x2e1a12, 0.22));
 
+  const ZENITH = new THREE.Color(0.23, 0.15, 0.12);
+  const SKY_GROUND = new THREE.Color(0.3, 0.19, 0.13);
   const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(8500, 48, 24),
+    new THREE.SphereGeometry(12500, 48, 24),
     new THREE.ShaderMaterial({
       vertexShader: SKY_VERT,
       fragmentShader: SKY_FRAG,
@@ -268,15 +332,107 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       depthWrite: false,
       fog: false,
       uniforms: {
-        uZenith: { value: new THREE.Color(0.23, 0.15, 0.12) },
+        uZenith: { value: ZENITH },
         uHorizon: { value: HORIZON },
-        uGround: { value: new THREE.Color(0.3, 0.19, 0.13) },
+        uGround: { value: SKY_GROUND },
         uSunDir: { value: sunDir },
       },
     })
   );
-  sky.renderOrder = -1;
+  sky.renderOrder = -2;
   scene.add(sky);
+
+  // ---------- Mars Moons: Phobos (potato-shaped, prograde W->E) & Deimos (smaller, E->W) ----------
+  function buildMoonGeometry(radius, axesScale, craterProfile) {
+    const geom = new THREE.SphereGeometry(radius, 36, 26);
+    const pos = geom.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let vx = pos.getX(i);
+      let vy = pos.getY(i);
+      let vz = pos.getZ(i);
+      const invR = 1 / (Math.hypot(vx, vy, vz) || 1);
+      const nx = vx * invR;
+      const ny = vy * invR;
+      const nz = vz * invR;
+      let scale = 1.0;
+      if (craterProfile) {
+        // Stickney crater depression (+Z faces Mars when lookAt(camPos) is applied) + surface lumps
+        const dStickney = Math.hypot(nx - 0.52, ny - 0.18, nz - 0.83);
+        const stickney = Math.max(0, 1 - dStickney / 0.55);
+        const dHall = Math.hypot(nx + 0.5, ny - 0.65, nz - 0.56);
+        const hall = Math.max(0, 1 - dHall / 0.34);
+        const lum = 0.05 * Math.sin(nx * 4.3 + ny * 3.1) * Math.cos(nz * 5.1);
+        scale += lum - 0.18 * stickney * stickney - 0.09 * hall * hall;
+      }
+      pos.setXYZ(i, vx * axesScale[0] * scale, vy * axesScale[1] * scale, vz * axesScale[2] * scale);
+    }
+    geom.computeVertexNormals();
+    return geom;
+  }
+
+  function makeMoonMat(baseHex, albedoBoost) {
+    return new THREE.ShaderMaterial({
+      vertexShader: MOON_VERT,
+      fragmentShader: MOON_FRAG,
+      depthWrite: false,
+      depthTest: true,
+      fog: false,
+      uniforms: {
+        uZenith: { value: ZENITH },
+        uHorizon: { value: HORIZON },
+        uGround: { value: SKY_GROUND },
+        uSunDir: { value: sunDir },
+        uBaseColor: { value: new THREE.Color(baseHex) },
+        uAlbedoBoost: { value: albedoBoost },
+      },
+    });
+  }
+
+  const skyMoons = new THREE.Group();
+  const phobos = new THREE.Mesh(
+    buildMoonGeometry(145, [1.34, 0.9, 0.82], true),
+    makeMoonMat(0xd6cbc2, 1.35)
+  );
+  phobos.renderOrder = -1;
+  const deimos = new THREE.Mesh(
+    buildMoonGeometry(52, [1.14, 0.95, 0.9], false),
+    makeMoonMat(0xf0e4d8, 1.7)
+  );
+  deimos.renderOrder = -1;
+  skyMoons.add(phobos, deimos);
+  scene.add(skyMoons);
+
+  const PHOBOS_ORBIT_R = 9600;
+  const DEIMOS_ORBIT_R = 10400;
+  function updateMoons(tSec, camPos = camera.position) {
+    // Phobos orbits faster than Mars rotates -> rises West (-X), drifts East (+X) across upper sky
+    const pAngle = 1.05 - tSec * 0.014; // ~0.5 rad above NW horizon at start, gliding W -> E
+    const pAzX = -Math.cos(pAngle);
+    const pAltY = Math.sin(pAngle) * 0.72 + 0.16;
+    const pLatZ = -0.52;
+    const pLen = Math.hypot(pAzX, pAltY, pLatZ);
+    phobos.position.set(
+      (pAzX / pLen) * PHOBOS_ORBIT_R,
+      (pAltY / pLen) * PHOBOS_ORBIT_R,
+      (pLatZ / pLen) * PHOBOS_ORBIT_R
+    );
+    phobos.lookAt(camPos); // tidally locked toward viewer / Mars surface
+    phobos.rotateZ(0.32);
+
+    // Deimos orbits slower than Mars rotates -> rises East (+X), slowly drifts West (-X)
+    const dAngle = 0.85 + tSec * 0.0055;
+    const dAzX = Math.cos(dAngle);
+    const dAltY = Math.sin(dAngle) * 0.82 + 0.12;
+    const dLatZ = -0.34;
+    const dLen = Math.hypot(dAzX, dAltY, dLatZ);
+    deimos.position.set(
+      (dAzX / dLen) * DEIMOS_ORBIT_R,
+      (dAltY / dLen) * DEIMOS_ORBIT_R,
+      (dLatZ / dLen) * DEIMOS_ORBIT_R
+    );
+    deimos.lookAt(camPos);
+  }
+  updateMoons(0);
 
   // Image-based light from the same sky, so suits and rocks pick up the dusty sky and ground bounce.
   {
@@ -342,7 +498,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
   const terrainGeom = buildTerrainGeometry(fullSeg);
-  const copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 2)));
+  // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
+  const copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
 
   // ---------- far terrain shadows (baked) ----------
   // The real-time shadow map only covers the ground near the walker. For the rest, march from every
@@ -503,7 +660,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
   terrainMesh.receiveShadow = true;
-  terrainMesh.castShadow = true;
+  terrainMesh.castShadow = false; // terrain shadows come from the baked sun mask, not the shadow map
   scene.add(terrainMesh);
 
   // Endless ground: mirrored copies meet the real tile with identical edges. Only the
@@ -576,7 +733,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         new THREE.BufferGeometry().setFromPoints(pts),
         new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, fog: true })
       );
-      scene.add(routeLineMesh);
+      // route line hidden in the 3D view (Cagan's request); the route data still drives the HUD
     }
     const scrubberEl = document.getElementById("hud-scrubber");
     if (scrubberEl) {
@@ -591,6 +748,32 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const x = lonToX(smp.lon);
     const z = latToZ(smp.lat);
     return { x, z, y: sampleElevSceneY(x, z), smp };
+  }
+
+  // The route is a loop (it ends back at the habitat), so search only near the last known
+  // progress; otherwise the start would match the end of the loop.
+  function nearestAlongRoute(x, z, prevRouteM) {
+    if (routeCoords.length < 2) return 0;
+    const prevG = toGeomDist(prevRouteM || 0);
+    let best = Infinity;
+    let bestS = 0;
+    for (let i = 0; i < routeCoords.length - 1; i++) {
+      if (cumDist[i + 1] < prevG - 80 || cumDist[i] > prevG + 80) continue;
+      const ax = lonToX(routeCoords[i][0]);
+      const az = latToZ(routeCoords[i][1]);
+      const bx = lonToX(routeCoords[i + 1][0]);
+      const bz = latToZ(routeCoords[i + 1][1]);
+      const vx = bx - ax;
+      const vz = bz - az;
+      const len2 = vx * vx + vz * vz || 1e-9;
+      const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / len2));
+      const d = Math.hypot(ax + vx * t - x, az + vz * t - z);
+      if (d < best) {
+        best = d;
+        bestS = cumDist[i] + (cumDist[i + 1] - cumDist[i]) * t; // geometry metres
+      }
+    }
+    return geomTotalDist > 0 && totalDist > 0 ? (bestS / geomTotalDist) * totalDist : bestS;
   }
 
   function routeHeading(s) {
@@ -625,7 +808,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         const rig = await loadSuitRig(loader, m.url, ASTRONAUT_HEIGHT_M);
         suitRig = rig;
         self = createAstronaut(rig, { hideHead: true });
-        partner = createAstronaut(rig);
         suitLabel = m.label + " · RIGGED";
         break;
       } catch (err) {
@@ -637,10 +819,75 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     // Stand-in: a 1.80 m capsule, labelled in the HUD
     self = makeStandInAvatar();
     self.group.visible = false;
-    partner = makeStandInAvatar();
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
-  scene.add(self.group, partner.group);
+  scene.add(self.group); // single astronaut: you
+
+  // ---------- contact shadows under the boots ----------
+  // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
+  // boot where almost no sky light reaches. It lies on the local slope and fades as the boot lifts.
+  const contactTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 128;
+    const g = c.getContext("2d");
+    const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+    grad.addColorStop(0, "rgba(0,0,0,0.85)");
+    grad.addColorStop(0.45, "rgba(0,0,0,0.5)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const contactGeom = new THREE.PlaneGeometry(0.34, 0.5);
+  contactGeom.rotateX(-Math.PI / 2);
+  const contacts = [];
+  for (const who of [self]) {
+    const feet = who.bones ? [who.bones.footL, who.bones.footR] : [];
+    for (const foot of feet) {
+      if (!foot) continue;
+      const mat = new THREE.MeshBasicMaterial({
+        map: contactTex,
+        color: 0x000000,
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+      });
+      const m = new THREE.Mesh(contactGeom, mat);
+      m.renderOrder = 2;
+      scene.add(m);
+      contacts.push({ who, foot, mesh: m });
+    }
+  }
+  const footPos = new THREE.Vector3();
+  const nrm = new THREE.Vector3();
+  const qTilt = new THREE.Quaternion();
+  const qYaw = new THREE.Quaternion();
+  const Y_AXIS = new THREE.Vector3(0, 1, 0);
+  function updateContactShadows() {
+    for (const c of contacts) {
+      c.mesh.visible = c.who.group.visible;
+      if (!c.mesh.visible) continue;
+      c.foot.getWorldPosition(footPos);
+      const gy = sampleElevSceneY(footPos.x, footPos.z);
+      const lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
+      c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
+      const e = 0.3;
+      nrm
+        .set(
+          sampleElevSceneY(footPos.x - e, footPos.z) - sampleElevSceneY(footPos.x + e, footPos.z),
+          2 * e,
+          sampleElevSceneY(footPos.x, footPos.z - e) - sampleElevSceneY(footPos.x, footPos.z + e)
+        )
+        .normalize();
+      qTilt.setFromUnitVectors(Y_AXIS, nrm);
+      qYaw.setFromAxisAngle(Y_AXIS, c.who.group.rotation.y);
+      c.mesh.quaternion.copy(qTilt).multiply(qYaw);
+      c.mesh.position.set(footPos.x, gy + 0.02, footPos.z);
+      const sc = 1 + lift * 1.5;
+      c.mesh.scale.set(sc, 1, sc);
+    }
+  }
   const suitEl = document.getElementById("hud-suit");
   if (suitEl) suitEl.textContent = suitLabel;
 
@@ -825,7 +1072,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   // ---------- bodycam lens pass ----------
-  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -853,11 +1100,20 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let playing = false;
   let speedIdx = 0;
   const SPEEDS = [1, 2, 3];
-  let freeRoam = false;
+  const freeRoam = true; // walking is always yours; the route is a guide line on the ground
   let userYaw = 0;
   let pitch = -0.12;
   let autoYaw = routeCoords.length > 1 ? routeHeading(0) : 0;
   const freePos = new THREE.Vector3(0, 0, 0);
+  // start at the beginning of the route, facing along it
+  if (routeCoords.length > 1) {
+    const p0 = routePoint(0);
+    freePos.set(p0.x, 0, p0.z);
+    userYaw = autoYaw;
+    autoYaw = 0;
+  }
+  const partnerPos = new THREE.Vector3(freePos.x, 0, freePos.z);
+  let partnerYaw = userYaw;
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
   let partnerS = PARTNER_AHEAD_M;
   const keys = new Set();
@@ -874,7 +1130,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   window.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     userYaw -= (e.clientX - lastX) * 0.0035;
-    pitch = Math.max(-1.35, Math.min(0.9, pitch - (e.clientY - lastY) * 0.003));
+    pitch = Math.max(-1.35, Math.min(1.42, pitch - (e.clientY - lastY) * 0.003));
     lastX = e.clientX;
     lastY = e.clientY;
   });
@@ -895,10 +1151,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
     const k = e.key.toLowerCase();
     keys.add(k);
-    // walking keys take over from route playback
-    if (!freeRoam && ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
-      btnFreeRoam?.click();
-    }
     if (k === "p") {
       dropLocalPing("EVA Waypoint");
     }
@@ -957,27 +1209,58 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
   btnTex?.addEventListener("click", () => setTexMode((texMode + 1) % TEX.length));
 
-  btnFreeRoam?.addEventListener("click", () => {
-    freeRoam = !freeRoam;
-    btnFreeRoam.textContent = freeRoam ? "Free-roam: on" : "Free-roam: off";
-    if (freeRoam) {
+  // A new route from the planner (Begin EVA): stand at its start, facing along it.
+  onSetRoute((detail) => {
+    const newRoute = detail?.route;
+    const nextAlong = Number(detail?.alongM ?? detail?.along_m ?? 0) || 0;
+    rebuildRouteRibbon(newRoute);
+    alongM = nextAlong;
+    autoYaw = 0;
+    if (routeCoords.length > 1) {
       const p = routePoint(alongM);
       freePos.set(p.x, 0, p.z);
-      userYaw += autoYaw;
-      autoYaw = 0;
-    } else {
-      userYaw = 0;
-      autoYaw = routeHeading(alongM);
+      userYaw = routeHeading(alongM);
+      partnerPos.set(p.x, 0, p.z);
+      player.init = false;
     }
   });
 
-  onSetRoute(({ route: newRoute, along_m }) => {
-    alongM = along_m || 0;
-    userYaw = 0;
-    freeRoam = false;
-    if (btnFreeRoam) btnFreeRoam.textContent = "Free-roam: off";
-    rebuildRouteRibbon(newRoute);
-    autoYaw = routeCoords.length > 1 ? routeHeading(alongM) : 0;
+  const viewLabelEl = document.getElementById("hud-view-label");
+
+  function computeLocalSlopeDeg(x, z) {
+    const hW = sampleElevSceneY(x - 2, z);
+    const hE = sampleElevSceneY(x + 2, z);
+    const hN = sampleElevSceneY(x, z - 2);
+    const hS = sampleElevSceneY(x, z + 2);
+    const grad = Math.hypot((hE - hW) / 4, (hS - hN) / 4);
+    return Math.atan(grad) * (180 / Math.PI);
+  }
+
+  onTeleport(({ lon, lat }) => {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    const tx = lonToX(lon);
+    const tz = latToZ(lat);
+    const ty = sampleElevSceneY(tx, tz);
+
+    const nearestGeomS = closestAlongM(routeCoords, cumDist, lon, lat);
+    alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+
+    freePos.set(tx, 0, tz);
+    player.x = freePos.x;
+    player.z = freePos.z;
+    player.y = ty;
+    player.vy = 0;
+    player.grounded = true;
+    player.init = true;
+
+    autoYaw = 0;
+    if (routeCoords.length > 1) {
+      const rp = routePoint(alongM);
+      const distToRoute = Math.hypot(rp.x - tx, rp.z - tz);
+      userYaw = distToRoute > 5 ? Math.atan2(-(rp.x - tx), -(rp.z - tz)) : routeHeading(alongM);
+    }
+    pitch = -0.04;
+    followEndless({ x: player.x, y: player.y, z: player.z });
   });
 
   const shouldEl = document.getElementById("hud-should-line");
@@ -991,18 +1274,24 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   const clockEl = document.getElementById("hud-clock");
-  function updateHudReadouts(sM, lon, lat) {
+  function updateHudReadouts(sM, lon, lat, overrideSlopeDeg = null) {
     const frac = totalDist > 0 ? sM / totalDist : 0;
     const rem = Math.max(0, totalDist - sM);
 
     const prof = activeRoute?.profile || [];
     let slopeDeg = telemetry?.primary?.slope_deg ?? telemetry?.slope_deg ?? 4.0;
-    if (prof.length > 1) {
+    if (overrideSlopeDeg != null && Number.isFinite(overrideSlopeDeg)) {
+      slopeDeg = overrideSlopeDeg;
+    } else if (prof.length > 1) {
       let i = 0;
       while (i < prof.length - 2 && prof[i + 1].s_m < sM) i++;
       slopeDeg = prof[i].slope_deg ?? slopeDeg;
     }
     const slopeClass = classifySlope(slopeDeg, 20);
+    if (viewLabelEl && Number.isFinite(lat) && Number.isFinite(lon)) {
+      const latHem = lat < 0 ? "S" : "N";
+      viewLabelEl.textContent = `GALE CRATER · MOUNT SHARP · ${Math.abs(lat).toFixed(4)}°${latHem} ${lon.toFixed(4)}°E`;
+    }
 
     const { stop: nextStop, distanceM: nextStopDist, mode: nextMode } = resolveNextStopAlongRoute(
       activeRoute,
@@ -1052,10 +1341,28 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
-    const pr = renderer.getPixelRatio();
-    rt.setSize(Math.floor(w * pr), Math.floor(h * pr));
+    const pr = renderer.getPixelRatio() * renderScale;
+    rt.setSize(Math.max(1, Math.floor(w * pr)), Math.max(1, Math.floor(h * pr)));
     lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
   };
+
+  // Adaptive resolution: the 3D scene renders into rt, so its size can drop when frames are slow
+  // and come back when there is headroom. The lens pass scales it to the screen.
+  let renderScale = 1;
+  let frameAvg = 16;
+  let lastScaleChange = 0;
+  function adaptResolution(frameMs, now) {
+    frameAvg += (frameMs - frameAvg) * 0.05;
+    if (now - lastScaleChange < 1200) return;
+    let next = renderScale;
+    if (frameAvg > 24 && renderScale > 0.55) next = Math.max(0.55, renderScale - 0.1);
+    else if (frameAvg < 15 && renderScale < 1) next = Math.min(1, renderScale + 0.05);
+    if (next !== renderScale) {
+      renderScale = next;
+      lastScaleChange = now;
+      onResize();
+    }
+  }
   window.addEventListener("resize", onResize);
   onResize();
 
@@ -1068,6 +1375,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let clockT = 0;
   let lastMpSendMs = 0;
   let lastSentPose = null;
+  let hudTimer = 1;
 
   const pushApart = (targetPos) => {
     if (!targetPos) return;
@@ -1093,13 +1401,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     clockT += dt;
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
-    if (playing && !freeRoam) {
-      const pace = keys.has("shift") ? RUN_SPEED_MS : WALK_SPEED_MS * SPEEDS[speedIdx];
-      alongM += dt * pace;
-      if (alongM > totalDist) alongM = 0;
-      if (scrubber) scrubber.value = alongM.toFixed(1);
-    }
-
+    // progress along the route = the route point nearest to you (for the HUD only)
+    alongM = nearestAlongRoute(freePos.x, freePos.z, alongM);
     const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
     let px;
     let pz;
@@ -1150,6 +1453,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       player.init = true;
     }
     const movedXZ = Math.hypot(px - player.x, pz - player.z);
+    const mvx = px - player.x;
+    const mvz = pz - player.z;
     player.x = px;
     player.z = pz;
     if (movedXZ > 20) {
@@ -1177,7 +1482,15 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     // own body: rigged walk driven by distance actually covered
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
-    self.update(dt, step, groundSpeed, !player.grounded);
+    // walking direction in the body frame, so strafing side-steps and S walks backwards
+    let gaitDir = null;
+    if (step > 1e-5) {
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      gaitDir = { f: (mvx * fx + mvz * fz) / movedXZ, s: (mvx * -fz + mvz * fx) / movedXZ };
+    }
+    self.update(dt, step, groundSpeed, !player.grounded, gaitDir);
+    self.group.updateMatrixWorld(true);
 
     // helmet camera at the visor, with only a few millimetres of walking sway
     const ph = self.phase ?? 0;
@@ -1199,24 +1512,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     camera.rotation.y = yaw + micro(0.6, 0.0007);
     camera.rotation.x = pitch + micro(0.9, 0.0006);
     camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
-
-    // AI buddy astronaut only appears when no human multiplayer crewmates are connected
-    if (partner) {
-      partner.group.visible = remoteAvatars.size === 0;
-      if (partner.group.visible && routeCoords.length > 1) {
-        const wantS = alongM + PARTNER_AHEAD_M;
-        const prevS = partnerS;
-        const maxStep = (keys.has("shift") && !freeRoam ? RUN_SPEED_MS : WALK_SPEED_MS * SPEEDS[speedIdx]) * 1.2 * dt;
-        partnerS += Math.max(-maxStep, Math.min(maxStep, wantS - partnerS));
-        if (Math.abs(wantS - partnerS) > 30) partnerS = wantS; // scrubber jump
-        if (!freeRoam && Math.abs(partnerS - alongM) < 1.5) partnerS = alongM + PARTNER_AHEAD_M;
-        const pa = routePoint(partnerS);
-        const pStep = Math.abs(partnerS - prevS);
-        partner.group.position.set(pa.x, pa.y, pa.z);
-        partner.group.rotation.y = routeHeading(partnerS);
-        partner.update(dt, pStep < 20 ? pStep : 0, dt > 0 && pStep < 20 ? pStep / dt : 0, false);
-      }
-    }
 
     // Smoothly animate live multiplayer crewmates
     const lerpAlpha = Math.min(1, dt * 12);
@@ -1261,16 +1556,29 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       mp?.sendState(posePayload);
       onLocalPose?.(posePayload);
     }
+    updateContactShadows();
 
-    // sun and shadow box follow the walker
+    // sun, moons and shadow box follow the walker
     const texel = (2 * SHADOW_HALF_M) / SHADOW_MAP_PX;
     sun.target.position.set(Math.round(px / texel) * texel, Math.round(ground / texel) * texel, Math.round(pz / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
+    skyMoons.position.copy(camera.position);
+    updateMoons(clockT, camera.position);
 
-    updateHudReadouts(alongM, sample.lon, sample.lat);
+    // the HUD text only needs ~10 updates a second
+    hudTimer += dt;
+    if (hudTimer > 0.1) {
+      hudTimer = 0;
+      if (freeRoam) {
+        updateHudReadouts(alongM, xToLon(px), zToLat(pz), computeLocalSlopeDeg(px, pz));
+      } else {
+        updateHudReadouts(alongM, sample.lon, sample.lat);
+      }
+    }
     followEndless(camera.position);
 
+    adaptResolution(dt * 1000, now);
     lensMat.uniforms.uTime.value = clockT;
     lensMat.uniforms.uExposure.value = 1.0 + Math.sin(clockT * 0.7) * 0.015 + Math.sin(clockT * 13.0) * 0.006;
     renderer.setRenderTarget(rt);

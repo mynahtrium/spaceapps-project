@@ -320,49 +320,73 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   let phase = 0;
   let amount = 0; // 0 idle .. 1 walk .. ~1.5 run
   let air = 0; // 0 grounded .. 1 airborne
+  let dirF = 1; // smoothed walking direction relative to the body: forward (+1) / back (-1)
+  let dirS = 0; // and sideways: right (+1) / left (-1)
 
   /**
    * @param dt seconds
    * @param moved metres travelled this frame along the ground
    * @param speed current ground speed (m/s)
    * @param airborne true while falling or jumping
+   * @param dir optional walking direction in the body frame: { f: forward, s: right }, unit length
    */
-  function update(dt, moved, speed, airborne) {
+  function update(dt, moved, speed, airborne, dir) {
     const running = speed > 1.9;
     const stride = running ? 2.1 : 1.5; // metres per full gait cycle (two steps)
     if (!airborne) phase += (moved / stride) * Math.PI * 2;
     const target = speed < 0.05 ? 0 : running ? 1.45 : Math.min(1, speed / 1.3);
     amount += (target - amount) * Math.min(1, dt * 6);
     air += ((airborne ? 1 : 0) - air) * Math.min(1, dt * 8);
+    if (dir && speed > 0.05) {
+      const k = Math.min(1, dt * 8);
+      dirF += (dir.f - dirF) * k;
+      dirS += (dir.s - dirS) * k;
+    }
 
     const a = amount;
+    const fw = dirF; // forward share of the step (negative = walking backwards)
+    const sd = dirS; // sideways share (positive = to the right)
+    const side = Math.abs(sd);
     const legPose = (p) => {
-      const hip = a * 0.33 * Math.sin(p);
-      const knee = a * (0.05 + (running ? 0.85 : 0.6) * Math.max(0, Math.cos(p)) ** 2);
+      const hip = a * 0.33 * Math.sin(p) * fw; // fore-aft swing only for the forward part
+      // knees lift the swinging foot in any direction; side steps use a shorter, higher lift
+      const knee = a * (0.05 + (running ? 0.85 : 0.6) * (1 - 0.25 * side) * Math.max(0, Math.cos(p)) ** 2);
       return { hip, knee, ankle: -(hip - knee) * 0.7 };
     };
     const L = legPose(phase);
     const R = legPose(phase + Math.PI);
+    // Side-stepping: the leading leg reaches out, the trailing leg closes in after it; feet never cross.
+    const reach = a * 0.26 * side;
+    const out = (p) => 0.5 + 0.5 * Math.sin(p); // 0..1 over the cycle
+    const leadR = sd > 0; // moving right: right leg leads
+    const abdR = reach * (leadR ? out(phase + Math.PI) : 0.35 * out(phase + Math.PI));
+    const abdL = reach * (leadR ? 0.35 * out(phase) : out(phase));
     const tuck = air * 0.45;
     thighL.rotation.x = L.hip + tuck * 0.6;
+    thighL.rotation.z = -abdL; // out to the left
     shinL.rotation.x = -(L.knee + tuck);
     footL.rotation.x = L.ankle + tuck * 0.3;
+    footL.rotation.z = abdL * 0.6; // keep the sole flat
     thighR.rotation.x = R.hip + tuck * 0.4;
+    thighR.rotation.z = abdR; // out to the right
     shinR.rotation.x = -(R.knee + tuck * 0.8);
     footR.rotation.x = R.ankle + tuck * 0.3;
+    footR.rotation.z = -abdR * 0.6;
 
     pelvis.position.y = basePelvisY - a * 0.022 * Math.abs(Math.sin(phase)) - air * 0.03;
-    pelvis.rotation.y = a * 0.07 * Math.sin(phase);
-    pelvis.rotation.z = a * 0.025 * Math.cos(phase);
+    pelvis.rotation.y = a * 0.07 * Math.sin(phase) * Math.abs(fw);
+    // weight shifts over the standing leg; leaning slightly into a side step
+    pelvis.rotation.z = a * 0.025 * Math.cos(phase) - sd * a * 0.04;
     spine.rotation.y = -a * 0.05 * Math.sin(phase);
     spine.rotation.x = a * (running ? 0.12 : 0.04);
     chest.rotation.y = -a * 0.03 * Math.sin(phase);
     // arms swing opposite to the legs (more when running); forward and out for balance in the air
-    const swing = a * (running ? 0.32 : 0.2);
-    poseArm(armL, foreL, "L", -swing * Math.sin(phase) + air * 0.3, air * 0.25);
-    poseArm(armR, foreR, "R", swing * Math.sin(phase) + air * 0.3, air * 0.25);
+    const swing = a * (running ? 0.32 : 0.2) * Math.abs(fw); // little arm swing when side-stepping
+    const balance = a * side * 0.12; // arms ease out a little for balance on a side step
+    poseArm(armL, foreL, "L", -swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.3, air * 0.25 + balance);
+    poseArm(armR, foreR, "R", swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.3, air * 0.25 + balance);
     head.rotation.y = a * 0.02 * Math.sin(phase);
   }
 
-  return { group, bones: { root, pelvis, spine, chest, head }, update, get phase() { return phase; }, get amount() { return amount; } };
+  return { group, bones: { root, pelvis, spine, chest, head, footL, footR }, update, get phase() { return phase; }, get amount() { return amount; } };
 }

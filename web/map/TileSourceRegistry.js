@@ -319,6 +319,8 @@ export class TileSourceRegistry {
     this._activeAttributionIds = new Set(["hirise-dtm-local"]);
     /** @type {Map<string, string>} */
     this._localThemisMap = new Map();
+    /** @type {{ day: Array<{eqZ:number,row:number,col:number,url:string}>, night: Array<{eqZ:number,row:number,col:number,url:string}> }} */
+    this._localThemisEntries = { day: [], night: [] };
     /** @type {Set<(list: Array<object>) => void>} */
     this._attrListeners = new Set();
 
@@ -340,18 +342,28 @@ export class TileSourceRegistry {
       const prov = this._providers.get(pid);
       if (prov && cfg.tile_url_template) {
         prov.urlTemplate = cfg.tile_url_template
+          .replace("{Style}", cfg.style || "default")
+          .replace("{TileMatrixSet}", cfg.tile_matrix_set || "default028mm")
           .replace("{TileMatrix}", "{eqZ}")
           .replace("{TileRow}", "{row}")
-          .replace("{TileCol}", "{col}");
+          .replace("{TileCol}", "{col}")
+          .replace(/\/1\.0\.0\/+/g, "/1.0.0/");
       }
       if (Array.isArray(cfg.cached_gale_sample_tiles)) {
+        this._localThemisEntries[band] = [];
         for (const t of cfg.cached_gale_sample_tiles) {
-          const key = `${band}:${t.z}:${t.row}:${t.col}`;
+          const eqZ = Number(t.z);
+          const row = Number(t.row);
+          const col = Number(t.col);
+          const key = `${band}:${t.z}:${row}:${col}`;
           const filename = String(t.relpath || "").split("/").pop();
           if (filename) {
-            this._localThemisMap.set(key, `${baseUrl}/${band}/${filename}`);
+            const url = `${baseUrl}/${band}/${filename}`;
+            this._localThemisMap.set(key, url);
+            this._localThemisEntries[band].push({ eqZ, row, col, url });
           }
         }
+        this._localThemisEntries[band].sort((a, b) => b.eqZ - a.eqZ);
       }
     }
   }
@@ -381,8 +393,19 @@ export class TileSourceRegistry {
 
     if (providerId === "themis-day" || providerId === "themis-night") {
       const band = providerId === "themis-day" ? "day" : "night";
-      const localUrl = this._localThemisMap.get(`${band}:${eqZ}:${row}:${col}`);
-      if (localUrl) return { url: localUrl, isLocal: true };
+      const exactUrl = this._localThemisMap.get(`${band}:${eqZ}:${row}:${col}`);
+      if (exactUrl) return { url: exactUrl, isLocal: true, eqZ, col, row };
+
+      // In demoSafe mode (or at intermediate zooms like eqZ=9/7/5), reuse cached ancestor tile
+      if (this.demoSafe) {
+        for (const cand of this._localThemisEntries[band] || []) {
+          if (cand.eqZ > eqZ) continue;
+          const shift = eqZ - cand.eqZ;
+          if (Math.floor(col / 2 ** shift) === cand.col && Math.floor(row / 2 ** shift) === cand.row) {
+            return { url: cand.url, isLocal: true, eqZ: cand.eqZ, col: cand.col, row: cand.row };
+          }
+        }
+      }
     }
 
     if (this.demoSafe && !prov.localOnly) {
@@ -398,7 +421,7 @@ export class TileSourceRegistry {
       .replace("{y}", String(row))
       .replace("{col}", String(col))
       .replace("{x}", String(col));
-    return { url, isLocal: false };
+    return { url, isLocal: false, eqZ, col, row };
   }
 
   /**
@@ -507,7 +530,10 @@ export class TileSourceRegistry {
         errors.push({ providerId, skipped: true, reason: this.demoSafe ? "demo-blocked" : "unavailable" });
         continue;
       }
-      const key = `${providerId}:${clampedZ}:${targetCol}:${targetRow}`;
+      const actualZ = resolved.eqZ ?? clampedZ;
+      const actualCol = resolved.col ?? targetCol;
+      const actualRow = resolved.row ?? targetRow;
+      const key = `${providerId}:${actualZ}:${actualCol}:${actualRow}`;
       try {
         const result = await this.fetchSingleflight(key, resolved.url, {
           providerId,
@@ -516,9 +542,9 @@ export class TileSourceRegistry {
         });
         return {
           ...result,
-          eqZ: clampedZ,
-          col: targetCol,
-          row: targetRow,
+          eqZ: actualZ,
+          col: actualCol,
+          row: actualRow,
           requestedEqZ: eqZ,
           requestedCol: col,
           requestedRow: row,
