@@ -693,3 +693,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Ran live browser verification on `2860d7e` (`http://localhost:8000/web/?demo=1`, 0 console errors), checked `node --check` on all 6 non-vendor JS files, verified `0` missing DOM IDs, `data/demo/science-manifest.json` completeness (`texture-relief.jpg` included), and `web/assets/nasa-3d/SOURCE.md` citation. Found and logged 2 HUD logic bugs in `web/hud/hud3d.js`: `BUG-15` (`NEXT` stop shows nearest Euclidean stop instead of upcoming `route.legs` target) and `BUG-16` (3D HUD `remaining` distance `824.7 m` vs `route.json` `790.3 m` due to planar `lonToX`/`latToZ` scaling).
 - Commit: this commit
 - Next step: Frontend 1 / Cagan fix `BUG-15` and `BUG-16` in `web/hud/hud3d.js`; team locks `PRE-07` (`BUG-09`).
+
+### 2026-11-14 17:09 Europe/Istanbul — elbow joints and suited arm pose
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/hud at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/astronaut-rig.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan said the arms looked odd. The NASA model's arms reach forward with bent elbows; rotating each whole arm from the shoulder pushed the elbows out and stretched the shoulder. Added elbow bones (elbow and hand measured from the mesh), a wider shoulder blend, and a suited rest pose (upper arm slightly forward and out, elbow bent, hands in front of the hips) with opposite-phase swing. Checked with front, back, side and walking renders and in first person (both gloves and boots visible when looking down).
+- Commit: this commit
+- Next step: none for the arms.

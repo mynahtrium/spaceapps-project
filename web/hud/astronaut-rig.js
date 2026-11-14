@@ -32,6 +32,8 @@ const BONES = [
   "footR",
   "armL",
   "armR",
+  "foreL",
+  "foreR",
 ];
 const B = Object.fromEntries(BONES.map((n, i) => [n, i]));
 
@@ -107,6 +109,37 @@ export async function loadSuitRig(loader, url, heightM) {
     legR,
   };
 
+  // Measure each arm from the mesh: hand = farthest arm vertices from the shoulder joint,
+  // elbow = arm vertices at about 42% of that reach (upper arm of a 1.80 m body is ~0.30 m).
+  J.arm = {};
+  for (const [side, sign] of [
+    ["L", -1],
+    ["R", 1],
+  ]) {
+    const sh = new THREE.Vector3(sign * J.shoulderX, J.shoulderY, 0);
+    const pts = [];
+    for (const p of parts) {
+      const pos = p.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        if (Math.sign(v.x) !== sign) continue;
+        if (armWeight(v.x, v.y, v.z, J, H) > 0.9) pts.push([v.x, v.y, v.z, v.distanceTo(sh)]);
+      }
+    }
+    const dMax = pts.reduce((m, q) => Math.max(m, q[3]), 0) || 0.7 * H;
+    const avg = (sel, fallback) => {
+      const list = pts.filter(sel);
+      if (!list.length) return fallback;
+      const a = [0, 0, 0];
+      for (const q of list) for (let k = 0; k < 3; k++) a[k] += q[k];
+      return new THREE.Vector3(a[0] / list.length, a[1] / list.length, a[2] / list.length);
+    };
+    const dE = 0.42 * dMax;
+    const elbow = avg((q) => Math.abs(q[3] - dE) < 0.03 * H, sh.clone().add(new THREE.Vector3(0, -0.3 * H, 0)));
+    const hand = avg((q) => q[3] > 0.9 * dMax, elbow.clone().add(new THREE.Vector3(0, -0.35 * H, 0)));
+    J.arm[side] = { shoulder: sh, elbow, hand, dE };
+  }
+
   // Skin weights from position.
   for (const p of parts) {
     const pos = p.geometry.attributes.position;
@@ -140,21 +173,20 @@ function weightsFor(x, y, z, J, H) {
     return out;
   }
 
-  // Arms: outboard of the torso (upper arm, elbow) or in front of it (forearm, glove).
-  let wArm = 0;
-  if (y > 0.7 * H && y < 1.47 * H) {
-    // below 1.0 m only the gloves reach this far forward (thighs stay behind z = -0.2 m)
-    const front = smooth(-0.19 * H, -0.29 * H, z) * (y < 1.0 * H ? smooth(-0.21 * H, -0.27 * H, z) : 1);
-    const side = y >= 1.0 * H ? smooth(0.27 * H, 0.33 * H, ax) : 0;
-    wArm = Math.max(front, side) * (1 - smooth(1.37 * H, 1.47 * H, y));
-  }
-  const arm = x < 0 ? B.armL : B.armR;
-  if (wArm >= 0.999) {
-    add(arm, 1);
-    return out;
+  // Arms: upper arm on the shoulder joint, forearm and glove on the elbow joint.
+  const wArm = armWeight(x, y, z, J, H);
+  if (wArm > 0) {
+    const a = J.arm?.[x < 0 ? "L" : "R"];
+    let tFore = 0;
+    if (a) {
+      const d = Math.hypot(x - a.shoulder.x, y - a.shoulder.y, z - a.shoulder.z);
+      tFore = smooth(a.dE - 0.05 * H, a.dE + 0.05 * H, d);
+    }
+    add(x < 0 ? B.armL : B.armR, wArm * (1 - tFore));
+    add(x < 0 ? B.foreL : B.foreR, wArm * tFore);
+    if (wArm >= 0.999) return normalise(out);
   }
   const rest = 1 - wArm;
-  add(arm, wArm);
 
   // Torso: pelvis -> spine -> chest.
   if (y >= J.hipY + 0.06 * H) {
@@ -183,6 +215,17 @@ function weightsFor(x, y, z, J, H) {
   return normalise(out);
 }
 
+// Arms: outboard of the torso (upper arm, elbow) or in front of it (forearm, glove).
+function armWeight(x, y, z, J, H) {
+  if (y <= 0.7 * H || y >= 1.47 * H) return 0;
+  if (y > J.neckY && Math.abs(x) < 0.26 * H && z > -0.3 * H) return 0; // helmet
+  // below 1.0 m only the gloves reach this far forward (thighs stay behind z = -0.2 m)
+  const front = smooth(-0.19 * H, -0.29 * H, z) * (y < 1.0 * H ? smooth(-0.21 * H, -0.27 * H, z) : 1);
+  // wide blend at the shoulder bearing so turning the arm spreads the stretch over more of the suit
+  const side = y >= 1.0 * H ? smooth(0.23 * H, 0.36 * H, Math.abs(x)) : 0;
+  return Math.max(front, side) * (1 - smooth(1.28 * H, 1.47 * H, y));
+}
+
 function normalise(list) {
   list.sort((a, b) => b[1] - a[1]);
   const top = list.slice(0, 4);
@@ -198,7 +241,8 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     b.name = name;
     return b;
   });
-  const [root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR] = bones;
+  const [root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR] =
+    bones;
   root.add(pelvis);
   pelvis.position.set(0, J.hipY, 0);
   pelvis.add(spine);
@@ -210,6 +254,10 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   chest.add(armL, armR);
   armL.position.set(-J.shoulderX, J.shoulderY - J.chestY, 0);
   armR.position.set(J.shoulderX, J.shoulderY - J.chestY, 0);
+  armL.add(foreL);
+  armR.add(foreR);
+  foreL.position.copy(J.arm.L.elbow).sub(J.arm.L.shoulder);
+  foreR.position.copy(J.arm.R.elbow).sub(J.arm.R.shoulder);
   for (const [thigh, shin, foot, x] of [
     [thighL, shinL, footL, J.legL],
     [thighR, shinR, footR, J.legR],
@@ -237,9 +285,38 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   if (hideHead) head.scale.setScalar(1e-4);
 
   const basePelvisY = J.hipY;
-  const ARM_REST = -0.75; // lower the model's forward-reaching arms to a relaxed carry
-  armL.rotation.x = ARM_REST;
-  armR.rotation.x = ARM_REST;
+  // Rest pose for the arms. The model reaches forward with bent elbows; turn each upper arm to hang
+  // beside the suit (a little out, for the bulky torso) and each forearm forward-down with the
+  // elbow bent about 35 degrees, the way suited crews carry their hands.
+  const armRest = {};
+  for (const [side, sign] of [
+    ["L", -1],
+    ["R", 1],
+  ]) {
+    const a = J.arm[side];
+    const up = a.elbow.clone().sub(a.shoulder).normalize();
+    const fore = a.hand.clone().sub(a.elbow).normalize();
+    // pressurised suits hold the upper arms a little forward and out, hands in front of the hips
+    const upTarget = new THREE.Vector3(sign * 0.24, -1, -0.34).normalize();
+    const foreTarget = new THREE.Vector3(sign * 0.04, -0.62, -0.78).normalize();
+    const qS = new THREE.Quaternion().setFromUnitVectors(up, upTarget);
+    const foreInUpper = foreTarget.clone().applyQuaternion(qS.clone().invert());
+    const qE = new THREE.Quaternion().setFromUnitVectors(fore, foreInUpper);
+    armRest[side] = { qS, qE, sign };
+  }
+  const qSwing = new THREE.Quaternion();
+  const qOut = new THREE.Quaternion();
+  const AX = new THREE.Vector3(1, 0, 0);
+  const AZ = new THREE.Vector3(0, 0, 1);
+  function poseArm(bone, foreBone, side, swing, out) {
+    const r = armRest[side];
+    qSwing.setFromAxisAngle(AX, swing);
+    qOut.setFromAxisAngle(AZ, -r.sign * out);
+    bone.quaternion.copy(qOut).multiply(qSwing).multiply(r.qS);
+    foreBone.quaternion.copy(r.qE);
+  }
+  poseArm(armL, foreL, "L", 0, 0);
+  poseArm(armR, foreR, "R", 0, 0);
   let phase = 0;
   let amount = 0; // 0 idle .. 1 walk .. ~1.5 run
   let air = 0; // 0 grounded .. 1 airborne
@@ -280,12 +357,10 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     spine.rotation.y = -a * 0.05 * Math.sin(phase);
     spine.rotation.x = a * (running ? 0.12 : 0.04);
     chest.rotation.y = -a * 0.03 * Math.sin(phase);
-    // arms swing opposite to the legs; tucked up a little in the air
-    armL.rotation.x = ARM_REST - a * 0.2 * Math.sin(phase) + air * 0.35;
-    armR.rotation.x = ARM_REST + a * 0.2 * Math.sin(phase) + air * 0.35;
-    // bring the arms in towards the hips (the model's right arm sits wider); out for balance in the air
-    armL.rotation.z = 0.06 - air * 0.15;
-    armR.rotation.z = -0.16 + air * 0.15;
+    // arms swing opposite to the legs (more when running); forward and out for balance in the air
+    const swing = a * (running ? 0.32 : 0.2);
+    poseArm(armL, foreL, "L", -swing * Math.sin(phase) + air * 0.3, air * 0.25);
+    poseArm(armR, foreR, "R", swing * Math.sin(phase) + air * 0.3, air * 0.25);
     head.rotation.y = a * 0.02 * Math.sin(phase);
   }
 
