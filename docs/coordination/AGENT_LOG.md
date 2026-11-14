@@ -341,6 +341,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
 
+### 2026-11-14 12:59 Europe/Istanbul — MUST-11
+
+- Human: Asil
+- Agent tool + model: Grok (Cursor agent)
+- Role: tester-1
+- Task id: MUST-11
+- Files changed: docs/testing/test-plan.md (new), docs/testing/contract-checklist.md (new), docs/testing/README.md, docs/testing/must-checklist.md (pointer only), docs/AI_USE.md, docs/comms/intro-tester-1.md, docs/coordination/BOARD.md (MUST-11 and one T1 question), docs/coordination/AGENT_LOG.md
+- Why: Wrote the MUST test plan and the contract checklist from a document review of main `d2c4695`. Rolled AGENT_LOG tool-and-purpose rows into docs/AI_USE.md without deleting existing rows. Did not sign hour-16 MUST: stops are still examples, the route uses the contract cost grid, and web/ has no app. No pipeline or web code edits. No secrets.
+- Commit: this commit
+- Next step: Tester 2 reviews branch `tester/review`. Do not merge to main until asked. Re-walk the plan after PRE-07 and after Frontend 1 lands. Previous commit on main before this branch: d2c4695.
+
 ### 2026-11-14 13:03 Europe/Istanbul — MUST-12
 
 - Human: Eymen

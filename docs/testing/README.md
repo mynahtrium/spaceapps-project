@@ -4,4 +4,7 @@ Tester 1 writes checklists and sign-offs here. Before 14 November 2026, only doc
 
 See [docs/roles/tester-1.md](../roles/tester-1.md) and [ROADMAP.md](../../ROADMAP.md) §7.
 
-Checked Curiosity waypoint reference (stops still unlocked; PRE-07 is open): [STOP_COORDINATE_CHECK.md](./STOP_COORDINATE_CHECK.md).
+- [test-plan.md](./test-plan.md) — MUST walk, SHOULD regression, PR gate, sign-off marks
+- [contract-checklist.md](./contract-checklist.md) — required JSON fields and the 14 Nov 2026 document review
+- [must-checklist.md](./must-checklist.md) — Turkish MUST checkbox list (hour 16)
+- [STOP_COORDINATE_CHECK.md](./STOP_COORDINATE_CHECK.md) — Curiosity waypoint reference (stops still unlocked; PRE-07 is open)
