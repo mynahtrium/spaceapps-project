@@ -22,5 +22,6 @@ Needs `numpy` (`pip install -r pipeline/routing/requirements.txt`).
 
 Stops stay `status: example` / `is_example: true` until Doruk/team locks outcrops. See [PRE07_LOCK_REQUEST.md](./PRE07_LOCK_REQUEST.md). Habitat/boxwork use cited Sol 4527 / 4534 waypoint coords; mudstones use contract example points. No invented official outcrop names or mineral IDs.
 
-Backend 1's current cost-map crop does **not** cover those lon/lats — `build_route.py` therefore writes a labelled Mars-radius geodesic fallback until B1 re-crops after lock.
-Stops writing lives in `pipeline/stops/` (branch `backend/stops`).
+Backend 1's current `data/processed/terrain/cost-map.json` crop does **not** cover those lon/lats. `build_route.py` then prefers Dijkstra on `docs/contracts/cost-map.json` when that toy grid covers the stops (current example path); otherwise a labelled Mars-radius geodesic fallback. Re-run after Cagan's covering re-crop.
+
+Stops writing lives in `pipeline/stops/` (branch `backend/stops`). Ship note: [docs/comms/note-backend-2-ship.md](../../docs/comms/note-backend-2-ship.md).
