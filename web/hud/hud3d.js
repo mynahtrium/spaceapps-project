@@ -8,7 +8,6 @@ import * as THREE from "three";
 import {
   buildCumulativeDistances,
   classifySlope,
-  marsBearingDeg,
   onSetRoute,
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
@@ -206,7 +205,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   let speedMult = 1;
   let freeRoam = false;
   let yawOffset = 0;
-  let smoothedYaw = null;
   let pitchOffset = -0.06;
   const freePos = new THREE.Vector3(0, 10, 0);
   const keys = new Set();
@@ -254,7 +252,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   scrubber?.addEventListener("input", () => {
     alongM = parseFloat(scrubber.value) || 0;
-    smoothedYaw = null;
   });
 
   btnSpeed?.addEventListener("click", () => {
@@ -282,7 +279,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   onSetRoute(({ route: newRoute, along_m }) => {
     alongM = along_m || 0;
     yawOffset = 0;
-    smoothedYaw = null;
     freeRoam = false;
     if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: OFF";
     rebuildRouteRibbon(newRoute);
@@ -372,38 +368,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     prevT = now;
 
     if (playing && !freeRoam) {
-      const prevAlong = alongM;
       alongM += dt * 12 * speedMult;
-      if (alongM > totalDist) {
-        alongM = 0;
-        smoothedYaw = null;
-      } else if (alongM < prevAlong) {
-        smoothedYaw = null;
-      }
+      if (alongM > totalDist) alongM = 0;
       if (scrubber) scrubber.value = alongM.toFixed(1);
     }
 
     const sample = sampleAlongRoute(routeCoords, cumDist, alongM);
     const rx = lonToX(sample.lon);
     const rz = latToZ(sample.lat);
-
-    // Look-ahead bearing smooths out 45-deg Dijkstra grid zig-zags
-    const aheadDist = Math.min(totalDist, alongM + 18);
-    const ahead = sampleAlongRoute(routeCoords, cumDist, aheadDist);
-    const hasLookAhead = aheadDist - alongM > 1.0 && (ahead.lon !== sample.lon || ahead.lat !== sample.lat);
-    const targetHeadingDeg = hasLookAhead
-      ? marsBearingDeg([sample.lon, sample.lat], [ahead.lon, ahead.lat])
-      : sample.headingDeg;
-    const targetYaw = -(targetHeadingDeg * Math.PI) / 180;
-
-    if (smoothedYaw === null) {
-      smoothedYaw = targetYaw;
-    } else {
-      // Shortest-angle exponential damping
-      const diff = ((targetYaw - smoothedYaw + Math.PI) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
-      const alpha = 1 - Math.exp(-3.2 * dt);
-      smoothedYaw += diff * alpha;
-    }
 
     if (freeRoam) {
       const moveSpeed = 30 * dt;
@@ -422,8 +394,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       const ry = sampleElevSceneY(rx, rz);
       camera.position.set(rx, ry + 2.2, rz);
       camera.rotation.order = "YXZ";
-      // Bearing 0° = North (-Z in Three.js)
-      camera.rotation.y = smoothedYaw + yawOffset;
+      camera.rotation.y = yawOffset;
       camera.rotation.x = pitchOffset;
     }
 

@@ -548,3 +548,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Replaced abrupt 45-degree Dijkstra segment heading snaps with an 18 m look-ahead bearing, shortest-angle exponential yaw damping, and bilinear elevation sampling so 3D EVA playback turns and walks smoothly.
 - Commit: this commit
 - Next step: Reload `http://localhost:8000/web/` in browser to verify smooth turns.
+
+### 2026-11-14 14:29 Europe/Istanbul — MUST-09 (keep camera yaw under user control)
+
+- Human: F1
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1
+- Task id: MUST-09
+- Files changed: web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Removed automatic camera yaw rotation on route turns per F1 request; camera position follows the route while look direction remains strictly user-controlled via mouse drag.
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` in browser to verify.
