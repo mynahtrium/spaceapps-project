@@ -1,4 +1,5 @@
 rasterio>=1.5
 numpy
+scipy
 scikit-image
 shapely

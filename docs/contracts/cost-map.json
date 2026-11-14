@@ -21,7 +21,7 @@
   ],
   "cost_formula": "step_length * (1 + (slope_deg / 10)^2 + k_rough * roughness); cost is blocked if slope > limit or cell is no-data or an obstacle",
   "k_rough_example": 0.05,
-  "tilt_validation_note": "A 1 m HiRISE DTM under-read rover-reported tilt in the 11 Nov 2026 planning check (about 4–10° under the rover vs 9–17° reported). Add a margin and say so.",
+  "tilt_validation_note": "An 11 Nov 2026 planning check saw a 1 m HiRISE DTM below rover-reported tilt at four boxwork Sols (about 4–10° vs 9–17°); a 14 Nov check on 176 waypoints did not confirm it (medians 9.0° vs 8.6° at 5 m, weak correlation). Add a margin and say so.",
   "preview_png_relpath": "data/processed/terrain/slope-preview.png",
   "example_cost_row_major": [
     1.1, 1.2, 1.4, 9e99, 2.0,
@@ -29,6 +29,7 @@
     1.4, 1.5, 1.8, 2.1, 2.6,
     1.6, 1.8, 2.0, 2.3, 3.0
   ],
+  "grid_field_note": "Processed output (data/processed/terrain/cost-map.json) names the grid cost_row_major; this example calls it example_cost_row_major. Readers should accept both, preferring cost_row_major. Processed output also has height_preview_png_relpath, height_preview_encoding and height_preview_elevation_range_m.",
   "blocked_sentinel": 9e99,
   "units": { "cost": "relative", "slope": "degrees" }
 }

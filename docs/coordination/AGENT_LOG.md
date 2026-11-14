@@ -251,3 +251,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Re-run make_slope.py, make_cost_map.py and tilt_check.py once the stops are locked, then freeze the MUST raster. Tell testers and the slides owner that the "DTM under-reads tilt" wording needs softening.
 - Previous commit: 3078ef5
+
+### 2026-11-14 13:30 Europe/Istanbul — MUST-02 / MUST-03 (fixes)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend-1
+- Task id: MUST-02, MUST-03
+- Files changed: pipeline/terrain/make_cost_map.py, make_slope.py, requirements.txt (scipy), data/processed/terrain/cost-map.json and height-preview.png (regenerated), docs/contracts/cost-map.json (note fields) and CHANGES.md, docs/roles/backend-1-terrain.md, skills/dem-to-slope/SKILL.md, docs/AI_USE.md, docs/DATA_SOURCES.md (new), .gitattributes (new), docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Fixed the height preview (16-bit grey PNG becomes an 8-bit RGB encoding; decoded back to the expected range with 53,969 distinct levels). Softened the "DTM under-reads tilt" wording in files Backend 1 owns, since MUST-03 did not confirm it. Added scipy to requirements, an AI_USE row, a data-sources file and a .gitattributes to stop LF/CRLF warnings. Other roles' files still carry the old wording; flagged in a handoff, not edited.
+- Commit: this commit
+- Next step: Open the PR for a tester; re-run the scripts once stops are locked (PRE-07).
+- Previous commit: 638e466

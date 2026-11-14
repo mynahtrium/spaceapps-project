@@ -9,7 +9,7 @@ Outputs:
     data/processed/terrain/slope_stats.json
 
 The crop centre is a placeholder near Curiosity's Sol 5070 position until the stops are locked (PRE-07).
-Slope limits are lunar stand-ins; the 1 m DTM under-reads rover tilt (see AGENTS.md).
+Slope limits are lunar stand-ins; DTM slope vs rover tilt is only a weak match (see tilt_check.py).
 """
 import argparse
 import json
@@ -122,7 +122,7 @@ def main():
         "share_gt_15_deg": float((s[valid] > 15).mean()) if valid.any() else None,
         "share_gt_20_deg": float((s[valid] > 20).mean()) if valid.any() else None,
         "classes": "0 <=10, 1 10-15, 2 15-20, 3 >20 (blocked), 4 no data",
-        "note": "Lunar slope limits are stand-ins; the 1 m DTM under-reads rover tilt.",
+        "note": "Lunar slope limits are stand-ins; DTM slope is only weakly matched to rover tilt (MUST-03).",
     }
     (out / "slope_stats.json").write_text(json.dumps(stats, indent=2) + "\n")
     print(json.dumps(stats, indent=2))

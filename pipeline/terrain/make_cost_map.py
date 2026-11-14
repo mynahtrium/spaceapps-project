@@ -7,7 +7,9 @@ Usage (from repo root):
 
 Outputs (data/processed/terrain/):
     cost-map.json       contract: docs/contracts/cost-map.json (cost is a multiplier; 9e99 = blocked)
-    height-preview.png  16-bit height, scaled over height_preview_elevation_range_m
+    height-preview.png  8-bit RGB PNG that encodes a 16-bit height (browser canvas keeps all bits):
+                        value = R * 256 + G (B is 0); elevation_m = min + value / 65535 * (max - min),
+                        with min and max from height_preview_elevation_range_m. Value 0 also marks no-data.
 """
 import json
 import math
@@ -71,7 +73,9 @@ def main():
 
     zmin, zmax = float(np.nanmin(zc)), float(np.nanmax(zc))
     h16 = np.where(np.isfinite(zc), (zc - zmin) / (zmax - zmin), 0) * 65535
-    imsave(out / "height-preview.png", h16.astype("uint16"), check_contrast=False)
+    h16 = h16.astype("uint16")
+    rgb = np.dstack([h16 >> 8, h16 & 255, np.zeros_like(h16)]).astype("uint8")
+    imsave(out / "height-preview.png", rgb, check_contrast=False)
 
     west, north = t.c, t.f
     east, south = west + zc.shape[1] * cell, north - zc.shape[0] * cell
@@ -106,9 +110,10 @@ def main():
         "cost_formula": "1 + (slope_deg / 10)^2 + k_rough * roughness_m; multiply by step length when routing; blocked if slope > limit or no-data",
         "k_rough_example": K_ROUGH,
         "roughness_note": "roughness = TRI (mean absolute elevation difference to 8 neighbours, metres) on the ~5 m grid",
-        "tilt_validation_note": "MUST-03 (14 Nov 2026, 176 Curiosity waypoints, Sol 4400-5073, see tilt-check.json): median DTM slope 9.0 deg at 5 m vs median rover tilt 8.6 deg, so no systematic under-read at this scale, but correlation is weak (r about 0.15) and rovers pick gentle ground. The 11 Nov planning check had found the 1 m DTM under-reading tilt at four boxwork Sols (4-10 deg vs 9-17 deg). Keep a safety margin and say so; do not call the cost map validated.",
+        "tilt_validation_note": "MUST-03 (14 Nov 2026, 176 Curiosity waypoints, Sol 4400-5073, see tilt-check.json): median DTM slope 9.0 deg at 5 m vs median rover tilt 8.6 deg, so no systematic offset at this scale, but correlation is weak (r about 0.15) and rovers pick gentle ground. The 11 Nov planning check had seen the DTM below rover tilt at four boxwork Sols (4-10 deg vs 9-17 deg); that was not confirmed on the larger sample. Keep a safety margin and say so; do not call the cost map validated.",
         "preview_png_relpath": "data/processed/terrain/slope-preview.png",
         "height_preview_png_relpath": "data/processed/terrain/height-preview.png",
+        "height_preview_encoding": "8-bit RGB PNG: value = R*256 + G (0..65535); elevation_m = min + value/65535*(max-min); value 0 = no-data",
         "height_preview_elevation_range_m": [round(zmin, 1), round(zmax, 1)],
         "cost_row_major": [float(v) for v in cost.ravel()],
         "blocked_sentinel": BLOCKED,

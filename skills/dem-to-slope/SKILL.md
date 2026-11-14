@@ -23,7 +23,7 @@ Crop to ~2 km × 2 km around the planned walk before heavy processing.
 
 1. **Resample to 2–5 m cells** (average blocks). The 1 m terrain model has stereo noise; averaging to 5 m changed the share of steep pixels from 32% to 26% (>20°) in a 1 km × 7.4 km test strip of DTEEC_019698 (about 4.79–4.81°S). Those figures are indicative, not a validated product.
 2. **Slope** with `gdaldem slope` ([documentation](https://gdal.org/en/stable/programs/gdaldem.html)). **Roughness / TRI** with `gdaldem roughness` or `TRI`.
-3. The 1 m DTM **under-reads local slope** versus Curiosity's reported tilts (4–10° under the rover vs 9–17° at four boxwork Sols — a steady offset, so relative slopes are usable). Add a safety margin and say so in the demo. Check against waypoint `tilt` in [MSL waypoints](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json).
+3. An 11 Nov planning check saw the 1 m DTM below Curiosity's reported tilts at four boxwork Sols (4–10° vs 9–17°). The 14 Nov MUST-03 check on 176 waypoints (Sol 4400–5073) did **not** confirm a steady offset: median DTM slope 9.0° at 5 m vs median rover tilt 8.6°, with weak correlation (r ≈ 0.15). Add a safety margin, say the match is weak, and do not call the map validated. Results: `data/processed/terrain/tilt-check.json`. Check against waypoint `tilt` in [MSL waypoints](https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json).
 4. About a quarter of the sampled DTM strip had no-data pixels. Treat no-data as blocked. Report statistics on valid pixels only.
 5. The 1 m DTM barely resolves 5 m ridges. Use the 25 cm orthophoto to see ridge walls and boulders (simple texture / edge density, or hand-drawn polygons for the demo).
 6. Use a Mars radius / the DTM's stated pixel size when computing slope. GDAL's [PDS driver](https://gdal.org/en/stable/drivers/raster/pds.html) should read the label; verify scale. Equatorial radius in the DTM labels: 3,396.19 km. Mean radius commonly used for distances: 3,389.5 km.
@@ -55,4 +55,4 @@ Tune `-tr` from the product label, not from this snippet. Do not commit `*.tif` 
 
 ## Honesty
 
-State in the UI: stereo noise was reduced by resampling; the DTM under-reads rover tilt; no-data gaps are treated as blocked; slope limits are illustrative.
+State in the UI: stereo noise was reduced by resampling; DTM slope matches rover tilt only weakly (MUST-03); no-data gaps are treated as blocked; slope limits are illustrative.

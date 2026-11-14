@@ -63,3 +63,17 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Backend 2 can start routing on this grid; Frontend 1 can load the height preview in the 3D view; testers check the bounds against HiView.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
 - Received:
+
+### HANDOFF-20261114-1330 — from backend-1 to frontend-1, backend-2, testers (follow-up to HANDOFF-20261114-1200)
+
+- Date (Europe/Istanbul): 2026-11-14 13:30
+- From (role, first name or nickname only, agent tool): backend-1, Cagan, Claude Code
+- To (role, name if known): frontend-1, backend-2 (Doruk), tester-1 (Asil), tester-2 (Eymen)
+- Board task id: MUST-02, MUST-03
+- What is ready: (1) `data/processed/terrain/height-preview.png` is now an 8-bit RGB PNG: `value = R*256 + G`, `elevation_m = min + value/65535*(max-min)` with min and max from `height_preview_elevation_range_m` in `cost-map.json` (value 0 = no-data). The old 16-bit grey file would be read as 8-bit by a browser canvas. (2) `tilt-check.json`: DTM slope vs Curiosity tilt at 176 waypoints.
+- Paths (files or folders): `data/processed/terrain/`, `docs/DATA_SOURCES.md`, `docs/contracts/cost-map.json` (note fields only)
+- How to try it: decode a pixel as above; compare the min/max with `height_preview_elevation_range_m`.
+- What is not done / known limits: The MUST-03 result does **not** confirm "DTM under-reads rover tilt" (medians 9.0 vs 8.6 deg at 5 m; weak correlation). I fixed that wording in B1-owned files only. Still using the old wording: AGENTS.md, ROADMAP.md, `.cursor/rules/data-and-map.mdc`, `skills/hud-3d`, `skills/map-ui`, `docs/JUDGING_CHECKLIST.md`, `docs/demo/*`, `docs/testing/must-checklist.md`, `docs/roles/tester-2.md`. Owners, please soften it, e.g. "DTM slope matches rover tilt only weakly; we keep a safety margin".
+- Please do next: Frontend 1 reads the RGB height PNG; testers and Doruk update the wording in their files; whoever owns AGENTS.md / ROADMAP.md edits those (shared files, ask first).
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive (see CHANGES.md)
+- Received:
