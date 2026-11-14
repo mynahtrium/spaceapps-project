@@ -615,9 +615,40 @@ export function createMarsFxSystem(scene, sampleElevSceneY) {
     return lastWindState;
   }
 
+  function shiftParticles(dx, dz) {
+    if (!Number.isFinite(dx) || !Number.isFinite(dz) || (Math.abs(dx) < 1e-6 && Math.abs(dz) < 1e-6)) return;
+    for (let i = 0; i < WISP_COUNT; i++) {
+      const idx = i * 3;
+      wispPos[idx] += dx;
+      wispPos[idx + 2] += dz;
+    }
+    for (let i = 0; i < MOTE_COUNT; i++) {
+      const idx = i * 3;
+      motePos[idx] += dx;
+      motePos[idx + 2] += dz;
+    }
+    for (let i = 0; i < PLUME_COUNT; i++) {
+      if (plumeLife[i] <= 0) continue;
+      const idx = i * 3;
+      plumePos[idx] += dx;
+      plumePos[idx + 2] += dz;
+    }
+    for (let i = 0; i < CLOD_COUNT; i++) {
+      if (clodLife[i] <= 0) continue;
+      const idx = i * 3;
+      clodPos[idx] += dx;
+      clodPos[idx + 2] += dz;
+    }
+    wispGeom.attributes.position.needsUpdate = true;
+    moteGeom.attributes.position.needsUpdate = true;
+    plumeGeom.attributes.position.needsUpdate = true;
+    clodGeom.attributes.position.needsUpdate = true;
+  }
+
   return {
     emitBurst,
     emitJumpBurst,
+    shiftParticles,
     update,
     getWindState: () => lastWindState,
   };

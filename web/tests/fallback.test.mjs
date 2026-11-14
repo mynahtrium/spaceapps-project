@@ -6,11 +6,27 @@ import { fileURLToPath } from "node:url";
 
 import { makeLocalTangentOrigin, decodeTerrariumPixel } from "../map/Geodesy.js";
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
-import { DEFAULT_DEV_SETTINGS, FULL_REALISM_PRESET, normalizeDevSettings } from "../shared/dev-settings.js";
 import {
+  DEFAULT_DEV_SETTINGS,
+  FULL_REALISM_PRESET,
+  normalizeDevSettings,
+} from "../shared/dev-settings.js";
+import {
+  MARS_HISTORIC_ROVERS,
+  buildHistoricRoversGeoJson,
+  computeRoverSurfaceDistanceKm,
+  formatMarsLonLat,
+  getHistoricRoverById,
+  sampleProceduralSiteHeightM,
+  scatterHistoricRoverCoords,
+} from "../shared/mars-rovers.js";
+import {
+  DRIVABLE_VEHICLES,
   ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
+  getDrivableVehicleSpec,
   resolveRoverObbCollision,
+  stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
@@ -343,6 +359,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
     frameEffect: false,
     frameStrength: 9,
     speedMultiplier: 12,
+    roverSpeedMultiplier: 9.5,
     ...FULL_REALISM_PRESET,
     realisticDust: false,
     realisticPhysics: false,
@@ -353,6 +370,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(clean.frameEffect, false);
   assert.equal(clean.frameStrength, 1.5);
   assert.equal(clean.speedMultiplier, 8.0);
+  assert.equal(clean.roverSpeedMultiplier, 4.0);
   assert.equal(clean.superGraphics, true);
   assert.equal(clean.experimentalRover, true);
   assert.equal(clean.realisticTextures, true);
@@ -363,6 +381,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(clean.cleanHud, true);
   const defs = normalizeDevSettings();
   assert.equal(defs.speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
+  assert.equal(defs.roverSpeedMultiplier, 1.0);
   assert.equal(defs.experimentalRover, false);
   assert.equal(defs.realisticTextures, false);
   assert.equal(defs.realisticDust, true);
@@ -472,4 +491,143 @@ test("stepRoverBallisticPhysics keeps normal driving planted and launches fast c
   });
   assert.equal(whip.launched, true);
   assert.equal(s.airborne, true);
+});
+
+test("MARS_HISTORIC_ROVERS defines all 5 unique Mars rovers at separated real Martian coordinates + valid Perseverance GLB", () => {
+  assert.equal(MARS_HISTORIC_ROVERS.length, 5);
+  const expectedIds = ["sojourner", "spirit", "opportunity", "curiosity", "perseverance"];
+  assert.deepEqual(
+    MARS_HISTORIC_ROVERS.map((r) => r.id),
+    expectedIds
+  );
+
+  for (let i = 0; i < MARS_HISTORIC_ROVERS.length; i++) {
+    const a = MARS_HISTORIC_ROVERS[i];
+    assert.ok(a.lat >= -90 && a.lat <= 90, `${a.id} valid lat`);
+    assert.ok(a.lon >= -180 && a.lon <= 180, `${a.id} valid lon`);
+    assert.equal(getHistoricRoverById(a.id)?.name, a.name);
+    assert.ok(formatMarsLonLat(a.lon, a.lat).includes("°"));
+    for (let j = i + 1; j < MARS_HISTORIC_ROVERS.length; j++) {
+      const b = MARS_HISTORIC_ROVERS[j];
+      const distKm = computeRoverSurfaceDistanceKm(a, b);
+      assert.ok(distKm > 1000, `${a.id} and ${b.id} must be far apart on Mars (got ${distKm.toFixed(0)} km)`);
+    }
+  }
+
+  const fc = buildHistoricRoversGeoJson();
+  assert.equal(fc.type, "FeatureCollection");
+  assert.equal(fc.features.length, 5);
+
+  // Gale site defers completely to real HiRISE DTM; off-Gale sites generate deterministic relief
+  assert.equal(sampleProceduralSiteHeightM("curiosity", 120, -80), 0);
+  assert.notEqual(sampleProceduralSiteHeightM("perseverance", 260, 180), 0);
+
+  // Bundled NASA Perseverance GLB starts with valid binary glTF magic header
+  const glbPath = path.join(WEB_DIR, "assets", "nasa-3d", "mars-2020-perseverance.glb");
+  assert.equal(fs.existsSync(glbPath), true, "Expected mars-2020-perseverance.glb on disk");
+  const head = fs.readFileSync(glbPath).subarray(0, 4).toString("ascii");
+  assert.equal(head, "glTF");
+});
+
+test("scatterHistoricRoverCoords spreads all 5 unique rovers safely across walkable terrain", () => {
+  let seed = 42;
+  const detRng = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  // Mild crater undulations (< 16 deg slope everywhere except small local bump)
+  const gentleDem = (x, z) => Math.sin(x * 0.02) * 1.6 + Math.cos(z * 0.018) * 1.4;
+  const placements = scatterHistoricRoverCoords({
+    sampleElevY: gentleDem,
+    worldW: 1980,
+    worldH: 1980,
+    originX: 0,
+    originZ: 0,
+    minSepM: 52,
+    maxSlopeDeg: 16,
+    rng: detRng,
+  });
+  assert.equal(placements.length, 5);
+  const seen = new Set(placements.map((p) => p.id));
+  assert.equal(seen.size, 5);
+
+  for (let i = 0; i < placements.length; i++) {
+    const p = placements[i];
+    assert.ok(Math.hypot(p.x, p.z) >= 28, `${p.id} must clear start mast`);
+    assert.ok(p.slopeDeg <= 16.5, `${p.id} slope (${p.slopeDeg.toFixed(1)}°) should be safe`);
+    for (let j = i + 1; j < placements.length; j++) {
+      const q = placements[j];
+      const sep = Math.hypot(p.x - q.x, p.z - q.z);
+      assert.ok(sep >= 50, `${p.id} and ${q.id} too close (${sep.toFixed(1)} m)`);
+    }
+  }
+});
+
+test("drivable vehicle registry keeps only NASA MMSEV and normalizes roverSpeedMultiplier", () => {
+  assert.equal(DRIVABLE_VEHICLES.length, 1);
+  assert.equal(DRIVABLE_VEHICLES[0].id, "mmsev");
+  assert.equal(getDrivableVehicleSpec("mmsev").shortLabel, "MMSEV 6×6");
+  assert.equal(getDrivableVehicleSpec("anything-else").id, "mmsev");
+  assert.equal(DEFAULT_DEV_SETTINGS.roverSpeedMultiplier, 1.0);
+  assert.equal(normalizeDevSettings({ roverSpeedMultiplier: 2.5 }).roverSpeedMultiplier, 2.5);
+});
+
+test("stepAdvancedRoverPhysics simulates acceleration, gearbox shifts, handbrake drift slip, and flight trim", () => {
+  const s = {
+    yaw: 0,
+    yawRate: 0,
+    velX: 0,
+    velZ: 0,
+    forwardSpeed: 0,
+    lateralSpeed: 0,
+    slipRatio: 0,
+    gear: 1,
+    rpmNorm: 0,
+    drifting: false,
+    braking: false,
+    airPitchVel: 0,
+    airRollVel: 0,
+    airPitchOffset: 0,
+    airRollOffset: 0,
+    lastSlopePitch: 0,
+  };
+
+  let res = null;
+  for (let i = 0; i < 65; i++) {
+    res = stepAdvancedRoverPhysics(s, {
+      vehicleType: "mmsev",
+      throttle: 1,
+      steer: 0,
+      boost: true,
+      speedMultiplier: 1.0,
+      dt: 0.02,
+    });
+  }
+  assert.ok(res.vFwd > 10, `MMSEV should accelerate crisply (got ${res.vFwd.toFixed(2)} m/s)`);
+  assert.ok(res.gear >= 3, `Expected higher gear at speed (got Gear ${res.gear})`);
+
+  // Engage handbrake powerslide drift + sharp steer
+  for (let i = 0; i < 12; i++) {
+    res = stepAdvancedRoverPhysics(s, {
+      vehicleType: "mmsev",
+      throttle: 1,
+      steer: 1,
+      handbrake: true,
+      dt: 0.02,
+    });
+  }
+  assert.equal(res.drifting, true, "Handbrake + steer at speed must induce powerslide drift");
+  assert.ok(res.slipRatio > 0.2, `Drift must produce lateral slip ratio (got ${res.slipRatio.toFixed(2)})`);
+  assert.ok(Math.abs(s.yaw) > 0.15, "Cornering drift must rotate heading yaw");
+
+  // Mid-air attitude reaction trim
+  const airOut = stepAdvancedRoverPhysics(s, {
+    vehicleType: "mmsev",
+    throttle: 1,
+    steer: -1,
+    airborne: true,
+    dt: 0.05,
+  });
+  assert.equal(airOut.drifting, false);
+  assert.ok(s.airPitchVel !== 0 || s.airRollVel !== 0);
 });

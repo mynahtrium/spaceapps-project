@@ -130,6 +130,14 @@
         </div>
 
         <div class="card">
+          <h3 class="card-title">
+            <span>NASA Mars rovers (5)</span>
+            <span style="font-size:9px;color:var(--faint);letter-spacing:0.12em;">real Mars coords</span>
+          </h3>
+          <div id="fleet-list"></div>
+        </div>
+
+        <div class="card">
           <h3 class="card-title"><span>Science stops &amp; rover POV</span></h3>
           <div id="stops-list"></div>
         </div>
@@ -147,6 +155,7 @@
     <section id="hud-view" class="view">
       <div id="hud-canvas-wrap"></div>
       <div class="hud-reticle"></div>
+      <div id="hud-rover-target" class="hud-rover-target" aria-live="polite"></div>
       <div id="hud-loading" class="loading-veil">LOADING TERRAIN · NASA SUIT MODEL</div>
       <div id="hud-wrap-notice" class="hud-wrap-notice" aria-live="polite"></div>
 
@@ -243,19 +252,28 @@
 
         <div class="visor-bottom">
           <div>
+            <div id="hud-drive-bar" class="hud-drive-bar" aria-live="polite">
+              <span class="drive-pill"><b id="hud-drv-veh">MMSEV 6×6</b></span>
+              <span class="drive-pill"><b id="hud-drv-spd">0</b> km/h</span>
+              <span class="drive-pill">G<b id="hud-drv-gear">1</b> <span class="drive-rpm-track"><span id="hud-drv-rpm" class="drive-rpm-fill"></span></span></span>
+              <span class="drive-pill" id="hud-drv-slip">GRIP 100%</span>
+              <span class="drive-pill">SPACE DRIFT</span>
+            </div>
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:6px;">
-              CLICK TO LOCK MOUSE (ESC UNLOCK) · WASD MOVE · SHIFT BOOST · SPACE JUMP · F ROVER · M MAP
+              CLICK TO LOCK MOUSE (ESC UNLOCK) · WASD MOVE · SHIFT BOOST · SPACE JUMP/DRIFT · F ROVER · M MAP
             </div>
           </div>
 
           <div class="hud-controls">
+            <button id="hud-fleet-btn" class="btn">Rovers (5)</button>
             <button id="hud-map-btn" class="btn">Map (M)</button>
             <button id="hud-tex" class="btn">Tex: relief</button>
             <button id="hud-ping" class="btn">Pin (P)</button>
             <button id="hud-pov-btn" class="btn">Rover POV</button>
           </div>
+          <div id="hud-fleet-panel" class="hud-fleet-panel" aria-label="Historic NASA Mars Rovers"></div>
         </div>
       </div>
     </section>

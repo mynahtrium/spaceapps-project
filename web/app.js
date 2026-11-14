@@ -7,7 +7,8 @@
 import { loadAllProjectData, loadDemSamplerFromData } from "./shared/data-loader.js";
 import { TileSourceRegistry } from "./map/TileSourceRegistry.js";
 import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
-import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
+import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInfo } from "./shared/route-bridge.js";
+import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
 import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
@@ -216,6 +217,94 @@ async function boot() {
     modalBackdrop.classList.add("open");
   }
 
+  function openHistoricRoverModal(roverOrId) {
+    if (document.pointerLockElement) {
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
+    const rover = typeof roverOrId === "string" ? getHistoricRoverById(roverOrId) : roverOrId;
+    if (!rover) return;
+    const tr = readLang() === "tr";
+    const statusTr = rover.status === "ACTIVE" ? (tr ? "AKTİF GÖREV" : "ACTIVE") : tr ? "TAMAMLANDI" : "COMPLETED";
+    const coordsText = formatMarsLonLat(rover.lon, rover.lat, 4);
+    modalTitle.textContent = `${rover.name.toUpperCase()} — ${rover.mission}`;
+    modalBody.innerHTML = `
+      <div style="font-size:12px;line-height:1.55;">
+        <div class="rover-modal-hero">
+          <div>
+            <div style="font-size:15px;color:#fff;letter-spacing:0.08em;"><strong>${rover.name}</strong> · ${rover.agency}</div>
+            <div style="color:var(--faint);font-size:11px;">${rover.landingSite}</div>
+            ${rover.landingCoordsNote ? `<div style="color:var(--muted);font-size:10px;margin-top:3px;">${rover.landingCoordsNote}</div>` : ""}
+          </div>
+          <span class="fleet-status ${rover.status === "ACTIVE" ? "active" : ""}">${statusTr}</span>
+        </div>
+
+        <div class="rover-modal-grid">
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "MARS KONUMU" : "MARS COORDINATES"}</div>
+            <div class="rover-stat-v">${coordsText}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "KATEDİLEN MESAFE" : "DISTANCE DRIVEN"}</div>
+            <div class="rover-stat-v">${rover.distanceLabel}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "FIRLATMA / İNİŞ" : "LAUNCH / LANDING"}</div>
+            <div class="rover-stat-v">${rover.launchDate} → ${rover.landingDate}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "GÖREV SÜRESİ" : "SOLS / LIFESPAN"}</div>
+            <div class="rover-stat-v">${rover.sols.toLocaleString()} sols${rover.endDate ? ` (ended ${rover.endDate})` : " (ongoing)"}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "KÜTLE & BOYUT" : "MASS & DIMENSIONS"}</div>
+            <div class="rover-stat-v">${rover.massKg} kg · ${rover.dimensionsM}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "GÜÇ KAYNAĞI" : "POWER SOURCE"}</div>
+            <div class="rover-stat-v">${rover.powerSource}</div>
+          </div>
+        </div>
+
+        <p style="margin-bottom:8px;">
+          <strong>${tr ? "Bilimsel Keşifler:" : "Science Highlights:"}</strong>
+          ${tr ? rover.highlightsTr : rover.highlightsEn}
+        </p>
+        <p style="margin-bottom:8px;">
+          <strong>${tr ? "Ana Enstrümanlar:" : "Key Instruments:"}</strong>
+          ${rover.instruments.join(" · ")}
+        </p>
+        <div class="honesty-note">
+          <strong>3D Asset:</strong> ${rover.modelSourceNote}.
+          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;">NASA Mission Page ↗</a>
+        </div>
+
+        <div class="rover-modal-actions">
+          <button id="rover-modal-visit-3d" class="btn primary" type="button">
+            ${tr ? "3D Bölgeye Git (Aracın Yanına)" : "Visit 3D Site (Stand by Rover)"}
+          </button>
+          <button id="rover-modal-show-2d" class="btn" type="button">
+            ${tr ? "2D Haritada Göster" : "Locate on 2D Mars Map"}
+          </button>
+        </div>
+      </div>
+    `;
+    modalBody.querySelector("#rover-modal-visit-3d")?.addEventListener("click", () => {
+      modalBackdrop.classList.remove("open");
+      dispatchVisitRoverSite(rover.id);
+      switchToHud();
+    });
+    modalBody.querySelector("#rover-modal-show-2d")?.addEventListener("click", () => {
+      modalBackdrop.classList.remove("open");
+      switchToPlanner();
+      plannerApi?.flyToRover?.(rover.id);
+    });
+    modalBackdrop.classList.add("open");
+  }
+
+  onOpenRoverInfo((detail) => openHistoricRoverModal(detail?.roverId));
+
   function openCreditsModal() {
     modalTitle.textContent = "Data Sources, Citations & Honesty Notes";
     modalBody.innerHTML = `
@@ -236,6 +325,7 @@ async function boot() {
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
           <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh. Mars gravity (3.71 m/s²) drives jumps, falls, momentum, slope traction, and dust settling.</li>
           <li><strong>Pressurized Rover &amp; Environment:</strong> Official NASA 3D Resources <code>Space Exploration Vehicle</code> (MMSEV Draco GLB, fetched 2026-11-14) with 4-point DEM slope alignment &amp; spring-damper suspension, plus REMS-inspired dust haze and surface wind gust particles.</li>
+          <li><strong>Historic NASA Mars Rovers (5 sites):</strong> Perseverance (Jezero Crater, NASA 3D Resources <code>Mars 2020 Perseverance Rover.glb</code>, fetched 2026-11-14), Curiosity (Gale Crater Sol 4534 waypoint, MSL scale assembly), Spirit (Gusev Crater, MER-A assembly), Opportunity (Meridiani Planum, MER-B assembly), Sojourner (Ares Vallis, Pathfinder scale assembly). Off-Gale terrain sites use seeded procedural site relief rather than downloaded regional HiRISE tiles.</li>
           <li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
         <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
@@ -294,6 +384,23 @@ async function boot() {
             </div>
           </div>
           <input class="dev-range" type="range" id="dev-speed" min="0.5" max="8" step="0.25" value="${s.speedMultiplier}" />
+        </div>
+
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Araç (Rover) Sürüş Hızı" : "Rover Drive Speed Multiplier"}</div>
+            <div class="dev-sub">
+              <span id="dev-rover-speed-val">${s.roverSpeedMultiplier.toFixed(2)}×</span>
+              <span class="dev-presets">
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="0.5">0.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="1">1×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="1.5">1.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="2.5">2.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="3.5">3.5×</button>
+              </span>
+            </div>
+          </div>
+          <input class="dev-range" type="range" id="dev-rover-speed" min="0.3" max="4" step="0.1" value="${s.roverSpeedMultiplier}" />
         </div>
 
         <label class="dev-row dev-row-exp">
@@ -406,6 +513,8 @@ async function boot() {
     const frameStrengthVal = document.getElementById("dev-frame-strength-val");
     const speedRange = document.getElementById("dev-speed");
     const speedVal = document.getElementById("dev-speed-val");
+    const roverSpeedRange = document.getElementById("dev-rover-speed");
+    const roverSpeedVal = document.getElementById("dev-rover-speed-val");
     const superToggle = document.getElementById("dev-super-gfx");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
@@ -427,6 +536,8 @@ async function boot() {
       if (frameStrengthVal) frameStrengthVal.textContent = `${Math.round(cfg.frameStrength * 100)}%`;
       if (speedRange) speedRange.value = String(cfg.speedMultiplier);
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
+      if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
+      if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
       if (superToggle) superToggle.checked = cfg.superGraphics;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
@@ -444,6 +555,14 @@ async function boot() {
     speedRange?.addEventListener("input", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(speedRange.value) })));
     modalBody.querySelectorAll(".dev-preset").forEach((btn) => {
       btn.addEventListener("click", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(btn.dataset.speed) })));
+    });
+    roverSpeedRange?.addEventListener("input", () =>
+      syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(roverSpeedRange.value) }))
+    );
+    modalBody.querySelectorAll(".dev-rover-preset").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
+      );
     });
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
     expRoverToggle?.addEventListener("change", () =>
@@ -708,6 +827,8 @@ async function boot() {
     registry,
     mp,
     onOpenPov: openPovModal,
+    onOpenRoverInfo: openHistoricRoverModal,
+    onVisitRoverSite: (id) => dispatchVisitRoverSite(id),
     onStartEva: switchToHud,
   });
 
@@ -719,6 +840,7 @@ async function boot() {
     demSampler,
     registry,
     mp,
+    openHistoricRoverModal,
     get plannerApi() {
       return plannerApi;
     },
@@ -734,6 +856,7 @@ async function boot() {
     },
     onBackToPlanner: switchToPlanner,
     onOpenPov: openPovModal,
+    onOpenRoverInfo: openHistoricRoverModal,
   });
 }
 

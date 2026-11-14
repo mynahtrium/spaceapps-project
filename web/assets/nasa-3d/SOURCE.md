@@ -7,3 +7,5 @@
 NASA 3D Resources are provided by NASA for public use under the NASA media usage guidelines (https://www.nasa.gov/nasa-brand-center/images-and-media/). The Mark III is a NASA hard-upper-torso planetary surface suit prototype. The model is Draco-compressed glTF (decoder in `web/vendor/addons/libs/draco/gltf/`), has no skeleton, and is scaled to a 1.80 m astronaut at runtime in `web/hud/hud3d.js`.
 
 The Z2 suit (`3D Models/Z2 Spacesuit`, 16.9 MB) was tried but the download did not finish on 14 Nov 2026; it can be added later.
+
+- `mars-2020-perseverance.glb` -> `3D Models/Mars 2020 Perseverance Rover/Mars 2020 Perseverance Rover.glb` (Draco/glTF, NASA/JPL-Caltech, fetched 2026-11-14)
