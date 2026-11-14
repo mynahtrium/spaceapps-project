@@ -772,3 +772,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Fixed THEMIS template substitution (`{Style}`, `{TileMatrixSet}`, `.0.0//`) and added offline `?demo=1` Gale sample pyramid step-down (`z=8/6/4`) in `TileSourceRegistry.js`; fixed `mars-eq://` scanline clamping, overlay transparent fallback, overlay layer z-order above `hirise-ortho`, separate `mars-terrain-dem` + LRU DEM tile cache, and enabled 3D terrain by default (`pitch: 52`, `#toggle-3d-map` checked, `NavigationControl`, `doubleClickZoom: false`) in `MapLibreMarsAdapter.js`, `Fallback2DMap.js`, `planner.js`, and `index.html`; fixed `alongM`/`along_m` mismatch and added `mm:teleport` bridge + map single-click `TELEPORT HERE` button & double-click instant teleport into 3D Bodycam `freeRoam` (with terrain grounding, partner astronaut collision guard, and `closestAlongM` sync); added Phobos, Deimos (daytime-sky limb shader, E/W orbital motion), and solar disc to `web/hud/hud3d.js` with raised pitch limit (`1.42` rad) and extended camera/sky far range. Verified `node --check` on all 19 `web/` JS files, 16/16 unit tests (`geodesy.test.mjs`, `fallback.test.mjs`, `route-bridge.test.mjs`), DOM ID consistency, and THEMIS step-down + teleport bridge runtime checks.
 - Commit: this commit
 - Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) in browser to visually verify 3D planner, map click/dblclick teleport, THEMIS/MOLA overlays, and Phobos/Deimos in the 3D sky.
+
+### 2026-11-14 17:31 Europe/Istanbul — hide the route line in the 3D view
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/ at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked to remove the route. The white route line is no longer added to the 3D scene and the hint text no longer mentions it. The 2D planner route and route.json are unchanged, and the HUD still uses them for distance, next stop and O2.
+- Commit: this commit
+- Next step: none.

@@ -729,7 +729,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
         new THREE.BufferGeometry().setFromPoints(pts),
         new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, fog: true })
       );
-      scene.add(routeLineMesh);
+      // route line hidden in the 3D view (Cagan's request); the route data still drives the HUD
     }
     const scrubberEl = document.getElementById("hud-scrubber");
     if (scrubberEl) {
