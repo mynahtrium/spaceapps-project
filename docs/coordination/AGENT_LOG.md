@@ -537,3 +537,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Completed F1 onboarding profile (PRE-02) and built the full Frontend 1 static web app (2D MapLibre planner + `mm:set-route` bridge + 3D three.js heightmap from `height-preview.png` + helmet HUD with distance, slope/class, next stop, placeholder suit O2 + DONKI, RAD dose, REMS weather, Curiosity POV lightbox, 15°/20° toggle, THEMIS/CRISM toggles, Credits/Honesty modal, and `?demo=1` demo-safe mode). Verified all 27 local web and data URLs return HTTP 200 via `http.server`.
 - Commit: this commit
 - Next step: Testers 1 & 2 review `web/` in browser and sign off MUST-08..10 and SHOULD-05..07.
+
+### 2026-11-14 14:26 Europe/Istanbul — MUST-09 (smooth 3D camera turns)
+
+- Human: F1
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1
+- Task id: MUST-09
+- Files changed: web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Replaced abrupt 45-degree Dijkstra segment heading snaps with an 18 m look-ahead bearing, shortest-angle exponential yaw damping, and bilinear elevation sampling so 3D EVA playback turns and walks smoothly.
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` in browser to verify smooth turns.

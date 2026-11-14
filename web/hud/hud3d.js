@@ -8,6 +8,7 @@ import * as THREE from "three";
 import {
   buildCumulativeDistances,
   classifySlope,
+  marsBearingDeg,
   onSetRoute,
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
@@ -115,9 +116,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     if (!elevGrid) return 0;
     const u = Math.max(0, Math.min(1, x / worldW + 0.5));
     const v = Math.max(0, Math.min(1, z / worldH + 0.5));
-    const ix = Math.min(imgW - 1, Math.floor(u * (imgW - 1)));
-    const iy = Math.min(imgH - 1, Math.floor(v * (imgH - 1)));
-    return elevGrid[iy * imgW + ix] - elevMin;
+    const fx = u * (imgW - 1);
+    const fy = v * (imgH - 1);
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const x1 = Math.min(imgW - 1, x0 + 1);
+    const y1 = Math.min(imgH - 1, y0 + 1);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const e00 = elevGrid[y0 * imgW + x0];
+    const e10 = elevGrid[y0 * imgW + x1];
+    const e01 = elevGrid[y1 * imgW + x0];
+    const e11 = elevGrid[y1 * imgW + x1];
+    const top = e00 + (e10 - e00) * tx;
+    const bot = e01 + (e11 - e01) * tx;
+    return top + (bot - top) * ty - elevMin;
   }
 
   const texLoader = new THREE.TextureLoader();
@@ -193,6 +206,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   let speedMult = 1;
   let freeRoam = false;
   let yawOffset = 0;
+  let smoothedYaw = null;
   let pitchOffset = -0.06;
   const freePos = new THREE.Vector3(0, 10, 0);
   const keys = new Set();
@@ -240,6 +254,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   scrubber?.addEventListener("input", () => {
     alongM = parseFloat(scrubber.value) || 0;
+    smoothedYaw = null;
   });
 
   btnSpeed?.addEventListener("click", () => {
@@ -267,6 +282,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   onSetRoute(({ route: newRoute, along_m }) => {
     alongM = along_m || 0;
     yawOffset = 0;
+    smoothedYaw = null;
     freeRoam = false;
     if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: OFF";
     rebuildRouteRibbon(newRoute);
@@ -356,15 +372,38 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     prevT = now;
 
     if (playing && !freeRoam) {
+      const prevAlong = alongM;
       alongM += dt * 12 * speedMult;
-      if (alongM > totalDist) alongM = 0;
+      if (alongM > totalDist) {
+        alongM = 0;
+        smoothedYaw = null;
+      } else if (alongM < prevAlong) {
+        smoothedYaw = null;
+      }
       if (scrubber) scrubber.value = alongM.toFixed(1);
     }
 
     const sample = sampleAlongRoute(routeCoords, cumDist, alongM);
     const rx = lonToX(sample.lon);
     const rz = latToZ(sample.lat);
-    const headingRad = (sample.headingDeg * Math.PI) / 180;
+
+    // Look-ahead bearing smooths out 45-deg Dijkstra grid zig-zags
+    const aheadDist = Math.min(totalDist, alongM + 18);
+    const ahead = sampleAlongRoute(routeCoords, cumDist, aheadDist);
+    const hasLookAhead = aheadDist - alongM > 1.0 && (ahead.lon !== sample.lon || ahead.lat !== sample.lat);
+    const targetHeadingDeg = hasLookAhead
+      ? marsBearingDeg([sample.lon, sample.lat], [ahead.lon, ahead.lat])
+      : sample.headingDeg;
+    const targetYaw = -(targetHeadingDeg * Math.PI) / 180;
+
+    if (smoothedYaw === null) {
+      smoothedYaw = targetYaw;
+    } else {
+      // Shortest-angle exponential damping
+      const diff = ((targetYaw - smoothedYaw + Math.PI) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+      const alpha = 1 - Math.exp(-3.2 * dt);
+      smoothedYaw += diff * alpha;
+    }
 
     if (freeRoam) {
       const moveSpeed = 30 * dt;
@@ -384,7 +423,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       camera.position.set(rx, ry + 2.2, rz);
       camera.rotation.order = "YXZ";
       // Bearing 0° = North (-Z in Three.js)
-      camera.rotation.y = -headingRad + yawOffset;
+      camera.rotation.y = smoothedYaw + yawOffset;
       camera.rotation.x = pitchOffset;
     }
 
