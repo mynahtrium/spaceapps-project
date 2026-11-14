@@ -150,8 +150,8 @@ export async function loadAllProjectData() {
     assets: {
       heightPreviewUrl: `${baseTerrainDir}/height-preview.png`,
       slopePreviewUrl: `${baseTerrainDir}/slope-preview.png`,
-      // In ?demo=1, stay strictly inside data/demo/ (no ortho-preview.png in demo bundle)
-      orthoPreviewUrl: demoSafe ? null : "../data/processed/terrain/ortho-preview.png",
+      orthoPreviewUrl: `${baseTerrainDir}/ortho-preview.png`,
+      reliefPreviewUrl: demoSafe ? null : "../data/processed/terrain/texture-relief.jpg",
       povBaseUrl: `${baseScienceDir}/pov`,
       themisTileBaseUrl: `${baseScienceDir}/tiles/themis`,
     },

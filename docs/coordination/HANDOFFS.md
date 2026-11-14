@@ -49,9 +49,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Mudstone outcrop names and final coordinates are not chosen. Resources tab still may be UNVERIFIED. HiView confirmation still needed for any pick.
 - Please do next: Lock the four stops (or reject candidates and supply alternates inside DTEEC_019698). Testers copy the locked ids into `docs/testing/`. Then Backend 2 runs MUST-04.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
-
- 2026-11-14 12:02 (Asil / Tester 1) — Alındı; durak kilitleme kararı bekleniyor.
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed). 2026-11-14 12:02 (Asil / Tester 1) — Alındı; durak kilitleme kararı bekleniyor.
 
 ### HANDOFF-20261114-1200 — from backend-1 to backend-2, frontend-1, testers
 
@@ -113,7 +111,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
   - Frontend 1: wire `data/processed/science/` (and `data/demo/` for `?demo=1`).
   - Backend 2: ping Backend 3 once `stops.json` and `route.json` are locked so we refresh `dose.json` + `pov/`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 
@@ -129,7 +127,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Web HUD is not built. Stops are examples. Route total 947.1 m does not match the leg sum 790.3 m. Dose card is still 96 min / 0.0427 mSv. Slides no longer say the DTM systematically under-reads tilt; the 14 Nov 176-waypoint check did not show that.
 - Please do next: Tester 1 reviews this branch (do not merge unless asked). Backend 2 answers the board question on 947.1 vs 790.3. Backend 3 refreshes dose only when the duration to show is chosen. Frontend 1 tells Tester 2 when a real `mm:set-route` click exists.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 
@@ -150,7 +148,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: PRE-07 is still open, so dose and stops stay examples. Walk time is still an Earth-hiking placeholder. PDS RAD tables are still unavailable (expired TLS on the earlier fetch). No personal NASA key on this machine.
 - Please do next: Frontend 1 can read `dose.json` and, for a keyless demo, the `*.example.json` DONKI files. Testers review branch `backend/science`. Do not merge to `main` unless asked.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 
@@ -199,6 +197,48 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - How to try it: Run `python -m http.server 8000` from the repo root and open `http://localhost:8000/web/` or `http://localhost:8000/web/?demo=1`.
 - What is not done / known limits: MapLibre GL JS & Three.js load from CDN (`unpkg.com`); `data/` and `docs/` load locally. `ortho-preview.png` is read from `data/processed/terrain/` even in `?demo=1` because `data/demo/` does not bundle `ortho-preview.png`. Stops/route remain `example` until `PRE-07` locks.
 - Please do next: Verify `MUST-08`..`MUST-10` and `SHOULD-05`..`SHOULD-07` in the browser and sign off on `BOARD.md`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
+
+### HANDOFF-20261114-1520 — from backend (Cagan) to Divarci, Eymen, Cetin
+
+- Date (Europe/Istanbul): 2026-11-14 15:20
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (visor), Eymen (review), Cetin (demo fixture export)
+- Board task id: MUST-02, MUST-04, MUST-05, MUST-06
+- What is ready: the four visor files now cite their NASA / PDS source in a top-level `sources[]` (name, product_id, url, fetch_date, used_for): `data/processed/terrain/cost-map.json`, `data/processed/routing/stops.json`, `route.json`, `hud-telemetry.json`. Stops also carry `source_url` and `source_fetch_date`. All stay `status: example` / `is_example: true`.
+- Paths (files or folders): the four files above; generators `pipeline/costmap/make_cost_map.py`, `pipeline/stops/write_stops.py`, `pipeline/routing/build_route.py`
+- How to try it: `python pipeline/stops/write_stops.py` then `python pipeline/routing/build_route.py` (both local, no network). Route: 132 points, 790.3 m, 0 points outside the grid or on blocked cells.
+- What is not done / known limits: (1) `cost-map.json` got its `sources` block edited in place; the grid was not recomputed because the DTM re-download stalled. The generator has the same block for the next run. (2) `stop-mudstone-a` and `stop-mudstone-b` have **no NASA citation** (UNVERIFIED example points); PRE-07 must replace them. (3) `data/demo/` copies of these four files are now older than `data/processed/` (no `sources`); re-run `pipeline/data/export_demo_fixtures.py` (Cetin's tree, not edited here).
+- Please do next: Divarci may ignore or show `sources[]` in the credits panel; Eymen reviews the PR; Cetin re-exports demo fixtures.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
+- Received:
+
+### HANDOFF-20261114-1545 — from backend (Cagan) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 15:45
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (3D visor), Eymen (review)
+- Board task id: MUST-02 follow-up (visual quality)
+- What is ready: new visual terrain products for the same window as `cost-map.json`, listed in `data/processed/terrain/relief.json`: `texture-relief.jpg` (2048 px, ortho x hillshade with an illustrative Mars tint), `texture-ortho.jpg` (2048 px greyscale), `hillshade.png` (395 px), `relief.stl` (closed, watertight, 133,110 triangles, metres), `relief-preview.png` (oblique render).
+- Paths (files or folders): `data/processed/terrain/`, `pipeline/terrain/make_relief.py`, `pipeline/terrain/fetch_dtm.py`
+- How to try it: in the 3D view, use `texture-relief.jpg` as the terrain map on the existing `height-preview.png` mesh (same bounds, north up). Run `python pipeline/terrain/make_relief.py --from-preview` to rebuild offline.
+- What is not done / known limits: built in offline mode from the 5 m height and the 1000 px ortho preview, because the HiRISE server delivered about 5 KB/s today. Full mode (1 m height `height-hi.png` at 1024 px, 4096 px ortho texture) needs `fetch_dtm.py` to finish first. The Mars tint is illustrative (HiRISE RED is greyscale); label it. Route and cost grid unchanged. Not added to `data/demo/` yet.
+- Please do next: Divarci tries `texture-relief.jpg` in the HUD; Eymen checks the files and the STL in any 3D viewer.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (new files with their own manifest; existing contracts untouched)
+- Received:
+
+### HANDOFF-20261114-1559 — from backend (Cagan) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 15:59
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (owner of web/hud/hud3d.js), Eymen (review)
+- Board task id: MUST-09 follow-up
+- What is ready: endless terrain in the 3D HUD. The real tile is surrounded by mirrored copies (7 x 7 ring, same geometry and material), so neighbouring edges meet with identical heights and texture. The ring follows the camera in steps of one mirror period (2 tiles); `sampleElevSceneY` mirror-wraps coordinates so free-roam walking height matches the copies. Only the centre tile is real data; stops and the route stay on it.
+- Paths (files or folders): `web/hud/hud3d.js` (edited at Cagan's request; Divarci owns this file)
+- How to try it: `python -m http.server 8000`, open `http://localhost:8000/web/?demo=1`, 3D Helmet HUD, Free-Roam ON, hold W for about 35 s to cross the tile edge.
+- What is not done / known limits: `node --check` passes and the page loads with no console errors; crossing the edge was not watched by the agent (Cagan was testing in the same tab). The copies are mirror images, not real terrain; say so if they appear in the video. GPU cost is 48 extra draws of the same geometry.
+- Please do next: Divarci reviews the change; Eymen walks past the edge once in `?demo=1`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
 

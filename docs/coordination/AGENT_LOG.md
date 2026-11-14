@@ -582,6 +582,96 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Push `frontend/planner-hud` and open PR for Eymen to review; merge to `main` only when Doruk asks.
 
+### 2026-11-14 15:20 Europe/Istanbul — MUST-02 / MUST-04..06 (source citations)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Fable 5.2)
+- Role: backend implementer (terrain, costmap, routing, stops)
+- Task id: MUST-02, MUST-04, MUST-05, MUST-06
+- Files changed: pipeline/costmap/make_cost_map.py, pipeline/stops/write_stops.py, pipeline/routing/build_route.py, data/processed/terrain/cost-map.json, data/processed/routing/stops.json, route.json, hud-telemetry.json, docs/contracts/CHANGES.md, docs/coordination/HANDOFFS.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Audit against docs/roles/prompts/cagan.md found that none of the four visor files cited a source URL or fetch date. Added an additive `sources[]` block (HiRISE DTEEC_019698 on PDS; MSL_waypoints.json; fetch date 2026-11-14) and per-stop `source_url`. Checked the Sol 4527 and Sol 4534 stop coordinates against the local waypoint file (exact match). Mudstone example stops have no citation and are marked UNVERIFIED. Regenerated stops, route and HUD locally; route numbers unchanged (790.3 m, 132 points, none outside the grid or on blocked cells); all four parse in Node. cost-map.json was edited in place (sources only) because the DTM re-download stalled. Status stays example.
+- Commit: this commit
+- Next step: Cetin re-exports data/demo fixtures; PRE-07 must replace the two uncited mudstone stops; PR for Eymen.
+
+### 2026-11-14 15:22 Europe/Istanbul — MUST-12 / SHOULD-07 (NASA data & ?demo=1 audit)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12, SHOULD-07
+- Files changed: docs/testing/nasa-data-audit.md (new), POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Audited `web/`, `data/processed/`, and `data/demo/` against `docs/roles/prompts/eymen.md` §4 (NASA sources, fetch dates, placeholder labels, secrets/DEMO_KEY, `?demo=1` isolation). Verified all 11 processed JSONs cite NASA/PDS sources and fetch/compute dates (with 0 secrets or `DEMO_KEY`/`mars-photos` usage). Found and logged 3 `?demo=1` / sync bugs: `BUG-12` (`web/planner/planner.js` registers `trek.nasa.gov` tiles and `web/index.html` loads `unpkg.com` CDN even in `?demo=1`), `BUG-13` (`data/demo/` out of sync with `2b217d1` citations in `data/processed/`), and `BUG-14` (`web/shared/data-loader.js` hardcodes `data/processed/terrain/ortho-preview.png` in `?demo=1`).
+- Commit: this commit
+- Next step: Hand off `BUG-12`/`BUG-14` to Frontend 1 (Dıvarcı) and `BUG-13` (`export_demo_fixtures.py` re-run) to Backend 3 (Çetin).
+
+### 2026-11-14 15:45 Europe/Istanbul — BUG-13 / BUG-14
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (small edits outside own folders, asked for by Cagan)
+- Task id: SHOULD-07 (BUG-13, BUG-14)
+- Files changed: pipeline/data/export_demo_fixtures.py (one line, Cetin's tree), web/shared/data-loader.js (one line, Divarci's tree), data/demo/ (re-exported: cost-map, stops, route, hud-telemetry, ortho-preview.png, science-manifest.json), docs/coordination/AGENT_LOG.md
+- Why: BUG-13: re-ran the export so the four data/demo/ JSON copies match data/processed/ (all four byte-identical; they now carry sources[]). BUG-14: the export now also copies ortho-preview.png (560 KB) into data/demo/, and orthoPreviewUrl uses baseTerrainDir so ?demo=1 reads data/demo/ instead of data/processed/. Loader passes node --check. Not tested in a browser. BUG-12 (trek.nasa.gov and unpkg.com still loaded in ?demo=1) is Frontend 1's and was not touched.
+- Commit: this commit
+- Next step: Divarci and Eymen re-check ?demo=1 with the network off; Divarci fixes BUG-12; Cetin to know his export script gained one line.
+
+### 2026-11-14 15:45 Europe/Istanbul — MUST-02 follow-up (relief, textures, STL)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (terrain)
+- Task id: MUST-02 follow-up
+- Files changed: pipeline/terrain/make_relief.py (new), pipeline/terrain/fetch_dtm.py (new), pipeline/terrain/make_slope.py (uses a local DTM band if present), pipeline/terrain/README.md, data/processed/terrain/ (hillshade.png, texture-ortho.jpg, texture-relief.jpg, relief.stl, relief-preview.png, relief.json), docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for a better map like a DEM relief model (reference: DEM -> triangulated surface -> STL). Added multi-directional hillshade, an ortho x hillshade texture with an illustrative Mars tint, a closed STL (checked: 0 non-manifold edges, consistent outward winding, positive volume) and an oblique 3D preview rendered without extra libraries. The HiRISE server gave about 5 KB/s, so the products were built offline from the 5 m height preview and the 1000 px ortho preview (same window as cost-map.json). fetch_dtm.py downloads the needed DTM rows in resumable chunks for a later full-resolution run. Fixed a fill bug found on the way: a mean fill of one no-data cell made a 250 m spike; now nearest-neighbour fill. Cost grid and route untouched.
+- Commit: this commit
+- Next step: When the network allows, run fetch_dtm.py then make_slope.py and make_relief.py (full mode) for 1 m height and 4096 px textures; Divarci wires texture-relief.jpg into the HUD.
+
+- Correction (same day): the entry above was first written with 16:15; the real time was about 15:45. fetch_dtm.py now takes --chunk-kb (default 512) because the server reset 4 MB range requests ten times in a row.
+
+### 2026-11-14 15:32 Europe/Istanbul — MUST-12 / SHOULD-07 (deep web JS & demo sync verification)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12, SHOULD-07
+- Files changed: POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/AGENT_LOG.md
+- Why: Pulled `20fc36f` and ran deep verification: `node --check` passed on all 5 JS files in `web/`, `0` missing DOM IDs against `web/index.html`, verified `BUG-13` and `BUG-14` are fixed (`data/demo/` matches `data/processed/` 1:1 and `ortho-preview.png` is bundled), and verified `web/planner/planner.js` already guards `trek.nasa.gov` CTX/THEMIS tiles behind `if (!demoSafe)`. Narrowed `BUG-12` strictly to `web/index.html` CDN links (`unpkg.com` for `maplibre-gl` and `three.js`).
+- Commit: this commit
+- Next step: Frontend 1 (Dıvarcı) optionally vendors `maplibre-gl` and `three.js` locally (`BUG-12`); team locks `PRE-07` stops (`BUG-09`).
+
+### 2026-11-14 15:34 Europe/Istanbul — SHOULD-07 (fix BUG-12 offline vendoring)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2 (requested offline fix in `web/`)
+- Task id: SHOULD-07 (BUG-12)
+- Files changed: web/vendor/maplibre-gl.css (new), web/vendor/maplibre-gl.js (new), web/vendor/three.module.js (new), web/index.html, POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Vendored `maplibre-gl@4.7.1` and `three@0.170.0` (`2.18 MB` total) into `web/vendor/` and updated `web/index.html` to load them locally instead of `unpkg.com` CDN. Verified `web/index.html` now has 0 external URLs so `?demo=1` runs 100% offline.
+- Commit: this commit
+- Next step: Run live browser verification at `http://localhost:8000/web/?demo=1` with DevTools Offline mode enabled.
+
+### 2026-11-14 15:59 Europe/Istanbul — MUST-09 follow-up (endless mirrored terrain)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in Divarci's web/ tree at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for the map to repeat with no visible border. A raw DEM tile does not tile (about 480 m of relief, with different north and south edges), so the HUD now surrounds the real tile with mirrored copies that share edges exactly, keeps the ring centred on the camera, and mirror-wraps height sampling for free-roam. The mirror maths was checked numerically (edge u = 1 from both sides). Page loads in ?demo=1 with no console errors; the edge crossing itself was not observed by the agent.
+- Commit: this commit
+- Next step: Divarci reviews; Eymen walks past the edge once.
+
+### 2026-11-14 15:59 Europe/Istanbul — SHOULD-07 / MUST-12 (app launcher scripts)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: SHOULD-07, MUST-12
+- Files changed: start.bat (new), scripts/start-app.sh (new), docs/coordination/AGENT_LOG.md
+- Why: Added one-click/one-command local launcher scripts (`start.bat` for Windows, `scripts/start-app.sh` for bash/macOS/Linux) that start `http.server` on port 8000 and open `http://localhost:8000/web/?demo=1`. Also verified the live app in `?demo=1` mode via browser preview (2D MapLibre planner + 3D three.js helmet HUD + playback, 0 console errors).
+- Commit: this commit
+- Next step: Team can double-click `start.bat` to launch the demo locally.
+
 ### 2026-11-14 15:40 Europe/Istanbul — MUST-09 (1st-Person Camera-Relative WASD & 1.7m Terrain Grounding)
 
 - Human: Divarci
@@ -589,9 +679,9 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Role: frontend-1 (UI designer)
 - Task id: MUST-09
 - Files changed: web/hud/hud3d.js, web/index.html, docs/coordination/AGENT_LOG.md
-- Why: Switched 1st-person HUD default to free camera-relative WASD walking (`W/A/S/D`, arrow keys, `Shift` sprint) anchored to the look yaw without forced camera turns; matched the Three.js terrain mesh geometry 1:1 to `height-preview.png` (`segW = imgW - 1`, `segH = imgH - 1`), added exact triangle-interpolated `sampleMeshY` + 0.6m near-plane cliff collar clearance at 1.7m human eye height (`EYE_HEIGHT_M = 1.7`), clamped movement inside terrain bounds, and synced live position/distance/slope from free-roam coordinates to the HUD and MapLibre visor marker. Verified all JS files via `node --check` and ephemeral HTTP 200 check.
-- Commit: this commit
-- Next step: Push `frontend/planner-hud` so Eymen can test 1st-person WASD movement in the browser.
+- Why: Switched 1st-person HUD default to free camera-relative WASD walking (`W/A/S/D`, arrow keys, `Shift` sprint) anchored to the look yaw without forced camera turns; matched the Three.js terrain mesh geometry 1:1 to `height-preview.png` (`segW = imgW - 1`, `segH = imgH - 1`), added exact triangle-interpolated `sampleMeshY` + 0.6m near-plane cliff collar clearance at 1.7m human eye height (`EYE_HEIGHT_M = 1.7`), and synced live position/distance/slope from free-roam coordinates to the HUD and MapLibre visor marker.
+- Commit: d4a137a
+- Next step: Pushed to `frontend/planner-hud`.
 
 ### 2026-11-14 15:47 Europe/Istanbul — MUST-09 / MUST-10 (Pointer-Lock Mouse Look & Route Removal)
 
@@ -600,6 +690,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Role: frontend-1 (UI designer)
 - Task id: MUST-09, MUST-10
 - Files changed: web/hud/hud3d.js, web/planner/planner.js, web/shared/route-bridge.js, web/app.js, web/index.html, web/styles.css, docs/coordination/AGENT_LOG.md
-- Why: Added FPS Pointer Lock mouse look when clicking the 3D terrain canvas (rotates camera via `movementX`/`movementY`, highlights `.hud-reticle.locked`, unlocks on `Esc`, with drag fallback), and removed the planned route line/ribbon, auto-walk playback bar (`Walk EVA` / scrubber), and elevation profile SVG from both the 3D scene and 2D MapLibre tactical map per user decision while preserving science stops (`mm:jump-coord` telemetry jump), HiRISE/CTX/THEMIS/CRISM layers, Curiosity POV, RAD/REMS/DONKI cards, and live WASD position tracking. Verified with `node --check` and ephemeral HTTP 200 checks.
+- Why: Added FPS Pointer Lock mouse look when clicking the 3D terrain canvas (rotates camera via `movementX`/`movementY`, highlights `.hud-reticle.locked`, unlocks on `Esc`, with drag fallback), and removed the planned route line/ribbon, auto-walk playback bar (`Walk EVA` / scrubber), and elevation profile SVG from both the 3D scene and 2D MapLibre tactical map per user decision while preserving science stops (`mm:jump-coord` telemetry jump), HiRISE/CTX/THEMIS/CRISM layers, Curiosity POV, RAD/REMS/DONKI cards, and live WASD position tracking.
+- Commit: b756073
+- Next step: Merged with `origin/main`.
+
+### 2026-11-14 16:06 Europe/Istanbul — MUST-08..10 (Merge origin/main: Endless Mirrored Terrain, Relief Texture & Offline Vendor Libs)
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (UI designer)
+- Task id: MUST-09, SHOULD-07
+- Files changed: web/hud/hud3d.js, web/index.html, web/shared/data-loader.js, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Merged `origin/main` (`e805280`) into `frontend/planner-hud` to bring in vendored offline `web/vendor/` libs (`BUG-12`), `data/demo/ortho-preview.png` (`BUG-14`), Cagan's `texture-relief.jpg` (illustrative Mars tint, wired alongside Ortho/Slope cycle on `btnTex`), and Cagan's endless 7x7 mirrored terrain (`followEndless` + `mirrorWrap` inside triangle-exact `sampleMeshY` at `EYE_HEIGHT_M = 1.7` without clipping and without boundary clamping so astronauts can walk across edges while labelling mirrored terrain copies honestly in the HUD), while preserving Divarci's unified visor, camera-relative WASD, Pointer Lock look, and route-free view.
 - Commit: this commit
-- Next step: Push `frontend/planner-hud` and verify Pointer Lock + route-free visor live at `http://localhost:8000/web/`.
+- Next step: Verify combined endless terrain + WASD + mouse lock in browser at `http://localhost:8000/web/`.

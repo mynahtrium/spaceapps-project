@@ -27,6 +27,26 @@ MUD_A = {"lon": 137.39, "lat": -4.8}
 MUD_B = {"lon": 137.3915, "lat": -4.8015}
 
 
+WAYPOINTS_URL = "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json"
+FETCH_DATE = "2026-11-14"
+SOURCES = [
+    {
+        "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+        "product_id": "MSL_waypoints.json",
+        "url": WAYPOINTS_URL,
+        "fetch_date": FETCH_DATE,
+        "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates",
+    },
+    {
+        "name": "UNVERIFIED example points",
+        "product_id": None,
+        "url": None,
+        "fetch_date": None,
+        "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07",
+    },
+]
+
+
 def build_stops() -> dict:
     return {
         "contract": "martian-mappers.stops.v1",
@@ -37,6 +57,7 @@ def build_stops() -> dict:
             "are docs/contracts example points only — not official outcrop names. All is_example "
             "true. Do not treat as locked. Inside DTEEC_019698 footprint check is required at lock."
         ),
+        "sources": SOURCES,
         "crs": "mars-geographic-planetocentric",
         "type": "FeatureCollection",
         "features": [
@@ -53,6 +74,8 @@ def build_stops() -> dict:
                     ),
                     "sol_hint": SOL_4527["sol"],
                     "source": "MSL waypoints Sol 4527 (cited candidate; not locked)",
+                    "source_url": WAYPOINTS_URL,
+                    "source_fetch_date": FETCH_DATE,
                     "is_example": True,
                 },
                 "geometry": {
@@ -72,7 +95,9 @@ def build_stops() -> dict:
                         "coordinates still required at PRE-07 lock. No mineral IDs invented."
                     ),
                     "sol_hint": None,
-                    "source": "docs/contracts/stops.json example point",
+                    "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
+                    "source_url": None,
+                    "source_fetch_date": None,
                     "is_example": True,
                 },
                 "geometry": {"type": "Point", "coordinates": [MUD_A["lon"], MUD_A["lat"]]},
@@ -88,7 +113,9 @@ def build_stops() -> dict:
                         "Do not invent mineral IDs. Replace at PRE-07 lock."
                     ),
                     "sol_hint": None,
-                    "source": "docs/contracts/stops.json example point",
+                    "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
+                    "source_url": None,
+                    "source_fetch_date": None,
                     "is_example": True,
                 },
                 "geometry": {"type": "Point", "coordinates": [MUD_B["lon"], MUD_B["lat"]]},
@@ -106,6 +133,8 @@ def build_stops() -> dict:
                     ),
                     "sol_hint": SOL_4534["sol"],
                     "source": "MSL waypoints Sol 4534 (cited candidate; not locked)",
+                    "source_url": WAYPOINTS_URL,
+                    "source_fetch_date": FETCH_DATE,
                     "is_example": True,
                 },
                 "geometry": {

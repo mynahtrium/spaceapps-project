@@ -137,6 +137,15 @@ def main():
 
     cost_map = {
         "contract": "martian-mappers.cost-map.v1",
+        "sources": [
+            {
+                "name": "HiRISE DTM (MRO), PDS",
+                "product_id": "DTEEC_019698_1750_019988_1750_U01",
+                "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+                "fetch_date": "2026-11-14",
+                "used_for": "elevation, slope, roughness, cost grid and height preview",
+            }
+        ],
         "status": "example-stop crop, not a locked route (PRE-07 still open). Covers every example point in docs/contracts/stops.json and data/processed/routing/stops.json. The contract example boxwork point can still fall in a blocked cell. Matching slope and ortho previews are on branch backend/terrain.",
         "crs": "mars-geographic-planetocentric",
         "mars_radius_km": 3389.5,

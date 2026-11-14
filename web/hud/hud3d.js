@@ -183,11 +183,17 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     geom.computeVertexNormals();
   }
 
+  // Mirror-wrap a tile coordinate (period 2) so heights match the mirrored copies.
+  function mirrorWrap(t) {
+    const m = ((t % 2) + 2) % 2;
+    return m > 1 ? 2 - m : m;
+  }
+
   // Exact triangle-interpolated surface height matching PlaneGeometry triangulation
   function sampleMeshY(x, z) {
     if (!elevGrid) return 0;
-    const u = Math.max(0, Math.min(1, x / worldW + 0.5));
-    const v = Math.max(0, Math.min(1, z / worldH + 0.5));
+    const u = mirrorWrap(x / worldW + 0.5);
+    const v = mirrorWrap(z / worldH + 0.5);
     const fx = u * (imgW - 1);
     const fy = v * (imgH - 1);
     const x0 = Math.min(imgW - 2, Math.floor(fx));
@@ -237,23 +243,62 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     return (Math.atan(Math.hypot(gx, gz)) * 180) / Math.PI;
   }
 
-  // Textures (use slopePreviewUrl strictly when orthoPreviewUrl is null in ?demo=1)
+  // Textures: Relief (illustrative Mars tint, normal mode) -> Ortho -> Slope
   const texLoader = new THREE.TextureLoader();
   const slopeTex = texLoader.load(assets.slopePreviewUrl);
   slopeTex.colorSpace = THREE.SRGBColorSpace;
   const orthoTex = assets.orthoPreviewUrl ? texLoader.load(assets.orthoPreviewUrl) : slopeTex;
   if (assets.orthoPreviewUrl) orthoTex.colorSpace = THREE.SRGBColorSpace;
+  const reliefTex = assets.reliefPreviewUrl
+    ? texLoader.load(assets.reliefPreviewUrl, undefined, undefined, () => {
+        terrainMat.map = orthoTex;
+        terrainMat.needsUpdate = true;
+      })
+    : null;
+  if (reliefTex) reliefTex.colorSpace = THREE.SRGBColorSpace;
 
-  let useSlopeTex = !assets.orthoPreviewUrl;
+  const texOptions = [
+    ...(reliefTex ? [{ label: "Tex: Relief (Tint)", tex: reliefTex }] : []),
+    ...(assets.orthoPreviewUrl ? [{ label: "Tex: Ortho", tex: orthoTex }] : []),
+    { label: "Tex: Slope", tex: slopeTex },
+  ];
+  let texIdx = 0;
   const terrainMat = new THREE.MeshStandardMaterial({
-    map: useSlopeTex ? slopeTex : orthoTex,
+    map: texOptions[0].tex,
     roughness: 0.92,
     metalness: 0.04,
   });
   const terrainMesh = new THREE.Mesh(geom, terrainMat);
   scene.add(terrainMesh);
 
-  // AR Group: Science Stop Beacons + Floating AR Labels on Terrain
+  // Endless terrain: surround the real tile with mirrored copies (period 2) so edges meet cleanly.
+  const TILE_RING = 3; // copies out to 3 tiles in every direction (7x7 ring)
+  const endless = new THREE.Group();
+  for (let i = -TILE_RING; i <= TILE_RING; i++) {
+    for (let j = -TILE_RING; j <= TILE_RING; j++) {
+      const copy = new THREE.Mesh(geom, terrainMat);
+      copy.position.set(i * worldW, 0, j * worldH);
+      copy.scale.set(i % 2 === 0 ? 1 : -1, 1, j % 2 === 0 ? 1 : -1);
+      copy.userData.mirrorCopy = true;
+      if (i === 0 && j === 0) {
+        copy.visible = false; // the real tile already sits here until the ring moves
+        endless.userData.centre = copy;
+      }
+      endless.add(copy);
+    }
+  }
+  scene.add(endless);
+  const period = { x: 2 * worldW, z: 2 * worldH };
+  function followEndless(pos) {
+    endless.position.set(
+      Math.round(pos.x / period.x) * period.x,
+      0,
+      Math.round(pos.z / period.z) * period.z
+    );
+    endless.userData.centre.visible = endless.position.x !== 0 || endless.position.z !== 0;
+  }
+
+  // AR Group: Science Stop Beacons + Floating AR Labels on centre tile
   const arGroup = new THREE.Group();
   scene.add(arGroup);
 
@@ -399,8 +444,8 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   const btnPov = document.getElementById("hud-pov-btn");
 
   if (btnTex) {
-    btnTex.textContent = useSlopeTex ? "Tex: Slope" : "Tex: Ortho";
-    if (!assets.orthoPreviewUrl) btnTex.disabled = true;
+    btnTex.textContent = texOptions[0].label;
+    if (texOptions.length <= 1) btnTex.disabled = true;
   }
 
   btnSpeed?.addEventListener("click", () => {
@@ -409,11 +454,11 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   });
 
   btnTex?.addEventListener("click", () => {
-    if (!assets.orthoPreviewUrl) return;
-    useSlopeTex = !useSlopeTex;
-    terrainMat.map = useSlopeTex ? slopeTex : orthoTex;
+    if (texOptions.length <= 1) return;
+    texIdx = (texIdx + 1) % texOptions.length;
+    terrainMat.map = texOptions[texIdx].tex;
     terrainMat.needsUpdate = true;
-    btnTex.textContent = useSlopeTex ? "Tex: Slope" : "Tex: Ortho";
+    btnTex.textContent = texOptions[texIdx].label;
   });
 
   btnAr?.addEventListener("click", () => {
@@ -482,9 +527,11 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
         ? primaryTel.suit_o2_remaining_percent
         : Math.max(0, 100 * (1 - frac));
 
+    const inCentreTile = Math.abs(camX) <= worldW * 0.5 && Math.abs(camZ) <= worldH * 0.5;
     document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    document.getElementById("hud-dist-sub").textContent =
-      `WASD Walk (1.7m) · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`;
+    document.getElementById("hud-dist-sub").textContent = inCentreTile
+      ? `WASD Walk (1.7m) · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`
+      : `Mirrored copy (real DTM on centre tile) · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "—"}`;
     document.getElementById("hud-slope").textContent =
       slopeDeg != null ? `${Number(slopeDeg).toFixed(1)}°` : "no NASA value";
 
@@ -556,8 +603,8 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
         moveVec.normalize();
         const prevX = freePos.x;
         const prevZ = freePos.z;
-        freePos.x = clamp(freePos.x + moveVec.x * moveSpeed * dt, -halfW, halfW);
-        freePos.z = clamp(freePos.z + moveVec.z * moveSpeed * dt, -halfH, halfH);
+        freePos.x = freePos.x + moveVec.x * moveSpeed * dt;
+        freePos.z = freePos.z + moveVec.z * moveSpeed * dt;
         walkedM += Math.hypot(freePos.x - prevX, freePos.z - prevZ);
       }
     }
@@ -568,10 +615,11 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     camera.rotation.y = yawOffset;
     camera.rotation.x = pitchOffset;
 
-    const hudLon = xToLon(freePos.x);
-    const hudLat = zToLat(freePos.z);
+    const hudLon = clamp(xToLon(freePos.x), -180, 180);
+    const hudLat = clamp(zToLat(freePos.z), -85, 85);
     updateHudReadouts(walkedM, camera.position.x, camera.position.z);
     if (onPositionChange) onPositionChange(hudLon, hudLat, walkedM);
+    followEndless(camera.position);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(animate);

@@ -27,7 +27,16 @@ if str(_STOPS) not in sys.path:
 
 from dijkstra_grid import route_through_stops
 from mars_geo import MARS_RADIUS_M, bearing_deg, haversine_m, interpolate_lonlat
-from write_stops import build_stops
+from write_stops import SOURCES as STOP_SOURCES, build_stops
+
+TERRAIN_SOURCE = {
+    "name": "HiRISE DTM (MRO), PDS",
+    "product_id": "DTEEC_019698_1750_019988_1750_U01",
+    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+    "fetch_date": "2026-11-14",
+    "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on",
+}
+ROUTE_SOURCES = [TERRAIN_SOURCE] + STOP_SOURCES
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "data/processed/routing"
@@ -450,6 +459,7 @@ def build_hud(
                 "contract": "martian-mappers.hud-telemetry.v1",
                 "status": "example",
                 "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+                "sources": ROUTE_SOURCES,
                 "route_id": route_id,
                 "along_route_m": round(target, 1),
                 "position": {"lat_deg": round(lat, 7), "lon_deg": round(lon, 7), "elev_m": elev_m},
@@ -580,6 +590,7 @@ def main() -> None:
             + " "
             + block_sentence
         ),
+        "sources": ROUTE_SOURCES,
         "blocked_stops": blocked_ids,
         "blocked_contract_example_stops": contract_blocked,
         "stop_cells": cell_report,

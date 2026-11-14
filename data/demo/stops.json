@@ -2,6 +2,22 @@
   "contract": "martian-mappers.stops.v1",
   "status": "example",
   "note": "PRE-07 still open. Habitat uses cited Sol 4527 waypoint; boxwork bonus uses cited Sol 4534 waypoint (MSL waypoints.json via STOP_COORDINATE_CHECK.md). Mudstone stops are docs/contracts example points only \u2014 not official outcrop names. All is_example true. Do not treat as locked. Inside DTEEC_019698 footprint check is required at lock.",
+  "sources": [
+    {
+      "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+      "product_id": "MSL_waypoints.json",
+      "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+      "fetch_date": "2026-11-14",
+      "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+    },
+    {
+      "name": "UNVERIFIED example points",
+      "product_id": null,
+      "url": null,
+      "fetch_date": null,
+      "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+    }
+  ],
   "crs": "mars-geographic-planetocentric",
   "type": "FeatureCollection",
   "features": [
@@ -14,6 +30,8 @@
         "science_summary": "Illustrative EVA start at the cited Curiosity Sol 4527 waypoint (near boxwork entry). Not a human landing-site claim. Gale is a rover site. PRE-07 not locked.",
         "sol_hint": 4527,
         "source": "MSL waypoints Sol 4527 (cited candidate; not locked)",
+        "source_url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+        "source_fetch_date": "2026-11-14",
         "is_example": true
       },
       "geometry": {
@@ -32,7 +50,9 @@
         "kind": "lake_sediment",
         "science_summary": "Placeholder for a mudstone / ancient-lake-sediment stop supporting the habitability and organics science goal. Official outcrop name and coordinates still required at PRE-07 lock. No mineral IDs invented.",
         "sol_hint": null,
-        "source": "docs/contracts/stops.json example point",
+        "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
+        "source_url": null,
+        "source_fetch_date": null,
         "is_example": true
       },
       "geometry": {
@@ -51,7 +71,9 @@
         "kind": "lake_sediment",
         "science_summary": "Placeholder second sediment or contact stop from the example contract. Do not invent mineral IDs. Replace at PRE-07 lock.",
         "sol_hint": null,
-        "source": "docs/contracts/stops.json example point",
+        "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
+        "source_url": null,
+        "source_fetch_date": null,
         "is_example": true
       },
       "geometry": {
@@ -71,6 +93,8 @@
         "science_summary": "Bonus stop candidate at the cited Curiosity Sol 4534 boxwork-entry waypoint (Altadena member context). Primary goal remains lake sediments / habitability. PRE-07 not locked.",
         "sol_hint": 4534,
         "source": "MSL waypoints Sol 4534 (cited candidate; not locked)",
+        "source_url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+        "source_fetch_date": "2026-11-14",
         "is_example": true
       },
       "geometry": {

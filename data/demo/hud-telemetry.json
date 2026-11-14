@@ -2,6 +2,29 @@
   "contract": "martian-mappers.hud-telemetry.v1",
   "status": "example",
   "note": "Top-level contract HUD fields from mid-route sample, plus `primary` and `samples[]` array. Not real-time suit telemetry.",
+  "sources": [
+    {
+      "name": "HiRISE DTM (MRO), PDS",
+      "product_id": "DTEEC_019698_1750_019988_1750_U01",
+      "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+      "fetch_date": "2026-11-14",
+      "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+    },
+    {
+      "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+      "product_id": "MSL_waypoints.json",
+      "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+      "fetch_date": "2026-11-14",
+      "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+    },
+    {
+      "name": "UNVERIFIED example points",
+      "product_id": null,
+      "url": null,
+      "fetch_date": null,
+      "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+    }
+  ],
   "route_id": "eva-example-pre07-scaffold-001",
   "along_route_m": 439.1,
   "position": {
@@ -26,6 +49,29 @@
     "contract": "martian-mappers.hud-telemetry.v1",
     "status": "example",
     "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+    "sources": [
+      {
+        "name": "HiRISE DTM (MRO), PDS",
+        "product_id": "DTEEC_019698_1750_019988_1750_U01",
+        "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+        "fetch_date": "2026-11-14",
+        "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+      },
+      {
+        "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+        "product_id": "MSL_waypoints.json",
+        "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+        "fetch_date": "2026-11-14",
+        "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+      },
+      {
+        "name": "UNVERIFIED example points",
+        "product_id": null,
+        "url": null,
+        "fetch_date": null,
+        "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+      }
+    ],
     "route_id": "eva-example-pre07-scaffold-001",
     "along_route_m": 439.1,
     "position": {
@@ -52,6 +98,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 87.8,
       "position": {
@@ -77,6 +146,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 175.6,
       "position": {
@@ -102,6 +194,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 263.4,
       "position": {
@@ -127,6 +242,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 351.2,
       "position": {
@@ -152,6 +290,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 439.1,
       "position": {
@@ -177,6 +338,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 526.9,
       "position": {
@@ -202,6 +386,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 614.7,
       "position": {
@@ -227,6 +434,29 @@
       "contract": "martian-mappers.hud-telemetry.v1",
       "status": "example",
       "note": "Example HUD sample along the example route. Not real-time suit telemetry.",
+      "sources": [
+        {
+          "name": "HiRISE DTM (MRO), PDS",
+          "product_id": "DTEEC_019698_1750_019988_1750_U01",
+          "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
+          "fetch_date": "2026-11-14",
+          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        },
+        {
+          "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
+          "product_id": "MSL_waypoints.json",
+          "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+          "fetch_date": "2026-11-14",
+          "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+        },
+        {
+          "name": "UNVERIFIED example points",
+          "product_id": null,
+          "url": null,
+          "fetch_date": null,
+          "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+        }
+      ],
       "route_id": "eva-example-pre07-scaffold-001",
       "along_route_m": 702.5,
       "position": {
