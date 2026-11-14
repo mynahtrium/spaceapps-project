@@ -979,3 +979,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Added progressive 2x-step `upscaleWithFillers()` up to 4096 px (`~3950x3950`) with luminance-only multi-scale (`1 px` + upscale-radius) unsharp sharpening and zero-mean micro filler pixels; upgraded `makeDetailTexture` (256 -> 512 with 128 octave) and procedural PBR ground maps (256 -> 512 default, 512 -> 1024 high-res) with `960x960` normal repeat; added elevation-contour UV blending (`vMmSlope`, `vMmElev`) and close-range sub-meter grit (`mmMicro`) in `terrainMat.onBeforeCompile` so slopes and ground look crisp without shifting color balance. Verified `node --check web/hud/hud3d.js` and `node --test web/tests/fallback.test.mjs` (18/18 pass).
 - Commit: this commit
 - Next step: Hard-reload browser (`Ctrl+Shift+R`) to inspect ground sharpness.
+
+### 2026-11-15 00:25 Europe/Istanbul — Hybrid WebGL2 GPU Ray Tracing & untitled UI restore
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen)
+- Role: frontend graphics (branch main)
+- Task id: RT-01
+- Files changed: `web/hud/ray-tracer.js`, `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/app.js`, `web/shared/dev-settings.js`, `web/index.html`, `web/tests/fallback.test.mjs`, `docs/coordination/AGENT_LOG.md`
+- Why: Added toggleable WebGL2 GPU hybrid ray tracing (`R` key and Developer Settings `#dev-ray-tracing`): 16-bit mirrored heightfield texture (`buildHeightfieldRtTexture`), per-pixel penumbra soft sun shadows (`rtTraceShadow`), 6-direction hemisphere bounce GI/AO (`rtTraceGI`), object reflection rays (`rtTraceReflectionRay` on MMSEV, historic rovers, astronaut suit/visor, rocks), and depth-buffer screen-space ray marching (`SSR`, `RTAO/SSGI`, `FXAA` in `LENS_FRAG`). Restored `untitled` HUD layout/styles and merged `origin/main` (`feat/orbit-view`). Verified `node --check` and `node --test web/tests/*.test.mjs` (32/32 pass).
+- Commit: this commit
+- Next step: Run `git pull` to merge `2401223` (`frontend/context-menu`) cleanly.

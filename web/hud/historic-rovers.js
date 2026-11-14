@@ -848,7 +848,7 @@ function normalizePerseveranceGltf(THREE, gltfScene, roverId) {
  * Create a single rover 3D group (`THREE.Group`) with all child meshes tagged
  * for raycast inspection (`userData.historicRoverId = roverSpec.id`).
  */
-export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex = null) {
+export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex = null, onModelLoaded = null) {
   const tex = sharedTex || makeSharedTextures(THREE);
   const outer = new THREE.Group();
   outer.name = `historic-rover-${roverSpec.id}`;
@@ -906,6 +906,7 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
         outer.traverse((obj) => {
           obj.userData.historicRoverId = roverSpec.id;
         });
+        if (typeof onModelLoaded === "function") onModelLoaded(outer);
       })
       .catch((err) => console.warn("[historic-rovers] Failed loading NASA GLB:", roverSpec.glbUrl, err));
   }
@@ -916,11 +917,12 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
 /**
  * Manages ALL 5 historic NASA Mars rovers simultaneously across scattered terrain spots.
  */
-export function createHistoricRoverManager(THREE, gltfLoader, scene) {
+export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLoaded = null } = {}) {
   const sharedTex = makeSharedTextures(THREE);
   const sharedTexSet = new Set(Object.values(sharedTex).filter((t) => t?.isTexture));
   const roster = new Map();
   let focusedId = "curiosity";
+  let modelLoadedCb = typeof onModelLoaded === "function" ? onModelLoaded : null;
 
   function clearAll() {
     for (const entry of roster.values()) {
@@ -973,7 +975,8 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene) {
     for (const p of placements) {
       const spec = p?.spec;
       if (!spec) continue;
-      const group = createHistoricRoverGroup(THREE, gltfLoader, spec, sharedTex);
+      let group = null;
+      group = createHistoricRoverGroup(THREE, gltfLoader, spec, sharedTex, () => modelLoadedCb?.(group));
       const x = Number.isFinite(p.x) ? p.x : 0;
       const z = Number.isFinite(p.z) ? p.z : 0;
       const yaw = Number.isFinite(p.yaw) ? p.yaw : -0.35;
@@ -983,6 +986,7 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene) {
       if (sampleElevY) groundEntry(entry, sampleElevY);
       if (scene) scene.add(group);
       roster.set(spec.id, entry);
+      if (modelLoadedCb) modelLoadedCb(group);
     }
   }
 
@@ -1000,13 +1004,15 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene) {
       if (sampleElevY) groundEntry(existing, sampleElevY);
       return existing.group;
     }
-    const group = createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex);
+    let group = null;
+    group = createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex, () => modelLoadedCb?.(group));
     group.position.set(x, sampleElevY ? sampleElevY(x, z) : 0, z);
     group.rotation.y = yaw;
     const entry = { id: roverSpec.id, spec: roverSpec, group, baseX: x, baseZ: z, yaw };
     if (sampleElevY) groundEntry(entry, sampleElevY);
     if (scene) scene.add(group);
     roster.set(roverSpec.id, entry);
+    if (modelLoadedCb) modelLoadedCb(group);
     return group;
   }
 

@@ -12,6 +12,7 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   speedMultiplier: 1.0,
   roverSpeedMultiplier: 1.0,
   superGraphics: false,
+  rayTracing: false,
   experimentalRover: false,
   realisticTextures: false,
   realisticDust: true,
@@ -25,6 +26,7 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
 
 export const FULL_REALISM_PRESET = Object.freeze({
   superGraphics: true,
+  rayTracing: true,
   experimentalRover: true,
   realisticTextures: true,
   realisticDust: true,
@@ -45,6 +47,7 @@ export function normalizeDevSettings(raw = {}) {
     speedMultiplier: clampNum(raw.speedMultiplier, 0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
     roverSpeedMultiplier: clampNum(raw.roverSpeedMultiplier, 0.3, 4.0, DEFAULT_DEV_SETTINGS.roverSpeedMultiplier),
     superGraphics: raw.superGraphics !== undefined ? Boolean(raw.superGraphics) : DEFAULT_DEV_SETTINGS.superGraphics,
+    rayTracing: raw.rayTracing !== undefined ? Boolean(raw.rayTracing) : DEFAULT_DEV_SETTINGS.rayTracing,
     experimentalRover:
       raw.experimentalRover !== undefined ? Boolean(raw.experimentalRover) : DEFAULT_DEV_SETTINGS.experimentalRover,
     realisticTextures:

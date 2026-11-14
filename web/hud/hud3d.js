@@ -43,7 +43,7 @@ import { createDustDevil } from "./DustDevil.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
-import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
+import { loadDevSettings, saveDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
 import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
@@ -67,6 +67,14 @@ import {
   scatterHistoricRoverCoords,
 } from "../shared/mars-rovers.js";
 import { createHistoricRoverManager } from "./historic-rovers.js";
+import {
+  RT_HEIGHT_GLSL,
+  RT_LENS_PARS_GLSL,
+  buildHeightfieldRtData,
+  buildHeightfieldRtTexture,
+  createRayTracerUniforms,
+  patchObjectRayTracer,
+} from "./ray-tracer.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -285,6 +293,8 @@ const LENS_FRAG = /* glsl */ `
   uniform float uRay;
   varying vec2 vUv;
 
+  ${RT_LENS_PARS_GLSL}
+
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -303,9 +313,18 @@ const LENS_FRAG = /* glsl */ `
     vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
     float ca = uAberration * r2;
     vec3 col;
-    col.r = texture2D(tDiffuse, uv + dir * ca).r;
-    col.g = texture2D(tDiffuse, uv).g;
-    col.b = texture2D(tDiffuse, uv - dir * ca).b;
+    if (uRtEnabled > 0.5) {
+      vec3 rtBase = rtFxaaSample(tDiffuse, uv, uResolution);
+      float rtJ = hash(gl_FragCoord.xy + fract(uTime * 13.7) * 97.0);
+      vec3 rtCol = rtScreenSpacePass(tDiffuse, rtBase, uv, uResolution, rtJ);
+      col.r = mix(rtCol.r, texture2D(tDiffuse, uv + dir * ca).r, 0.35);
+      col.g = rtCol.g;
+      col.b = mix(rtCol.b, texture2D(tDiffuse, uv - dir * ca).b, 0.35);
+    } else {
+      col.r = texture2D(tDiffuse, uv + dir * ca).r;
+      col.g = texture2D(tDiffuse, uv).g;
+      col.b = texture2D(tDiffuse, uv - dir * ca).b;
+    }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
 
     col *= uExposure;
@@ -662,6 +681,20 @@ export async function initHud3D(
     const bot = e01 + (e11 - e01) * tx;
     return top + (bot - top) * ty - elevMin;
   }
+
+  const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 192);
+  const rtUniforms = createRayTracerUniforms(THREE, worldW, worldH, sunDir, rtHeightInfo);
+  function refreshRtHeightfield() {
+    const packed = buildHeightfieldRtData(sampleElevSceneY, worldW, worldH, 192);
+    if (rtHeightInfo?.texture?.image?.data) {
+      rtHeightInfo.texture.image.data.set(packed.data);
+      rtHeightInfo.texture.needsUpdate = true;
+    }
+    rtUniforms.uRtElevMin.value = packed.minH;
+    rtUniforms.uRtElevSpan.value = packed.span;
+  }
+  patchObjectRayTracer(THREE, rockField.group, rtUniforms, { reflectScale: 0.35 });
+  patchObjectRayTracer(THREE, galeVista, rtUniforms, { reflectScale: 0.25 });
 
   function sampleNormal(x, z) {
     const e = 0.35;
@@ -1023,14 +1056,15 @@ export async function initHud3D(
     shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
     shader.uniforms.uSuperDetail = superDetailUniform;
     shader.uniforms.uRealisticTex = realisticTexUniform;
+    Object.assign(shader.uniforms, rtUniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
       )
       .replace(
         "#include <project_vertex>",
-        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
+        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nvRtWorldPos = mmWorld.xyz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
       );
     const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
       "getDirectionalLightInfo( directionalLight, directLight );",
@@ -1039,12 +1073,32 @@ export async function initHud3D(
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
+        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\n${RT_HEIGHT_GLSL}`
       )
       .replace(
         "#include <lights_fragment_begin>",
-        "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
+        "float mmMaskVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\nfloat mmSunVis = mmMaskVis;\nif (uRtEnabled > 0.5) {\n  float rtShJ = rtIgn(gl_FragCoord.xy + fract(uRtTime) * 53.0);\n  float rtSh = rtTraceShadow(vRtWorldPos + vec3(0.0, 0.14, 0.0), uRtSunDir, 260.0, rtShJ);\n  mmSunVis = mix(rtSh, min(rtSh, mmMaskVis), 0.35);\n}\n" +
           sunChunk
+      )
+      .replace(
+        "#include <lights_fragment_end>",
+        `#include <lights_fragment_end>
+        if (uRtEnabled > 0.5) {
+          float rtJGi = rtIgn(gl_FragCoord.xy + fract(uRtTime * 1.37) * 79.0);
+          vec3 rtWN = normalize((vec4(geometryNormal, 0.0) * viewMatrix).xyz);
+          vec3 rtWV = normalize((vec4(geometryViewDir, 0.0) * viewMatrix).xyz);
+          float rtSkyVis;
+          vec3 rtBounce;
+          rtTraceGI(vRtWorldPos + rtWN * 0.08, rtWN, uRtSunDir, rtJGi, rtSkyVis, rtBounce);
+          reflectedLight.indirectDiffuse *= rtSkyVis;
+          reflectedLight.indirectDiffuse += diffuseColor.rgb * rtBounce;
+          float rtFresnel = pow(1.0 - clamp(dot(rtWN, rtWV), 0.0, 1.0), 5.0);
+          if (rtFresnel > 0.025) {
+            vec3 rtReflDir = reflect(-rtWV, rtWN);
+            vec3 rtSkySpec = rtMarsSky(rtReflDir, uRtSunDir);
+            reflectedLight.indirectSpecular += rtSkySpec * rtFresnel * 0.18 * rtSkyVis;
+          }
+        }`
       )
       .replace(
         "#include <map_pars_fragment>",
@@ -1248,6 +1302,7 @@ export async function initHud3D(
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
   scene.add(self.group); // single astronaut: you
+  patchObjectRayTracer(THREE, self.group, rtUniforms, { reflectScale: 1.0 });
 
   const suitMatBaselines = [];
   self.group.traverse((obj) => {
@@ -1287,9 +1342,14 @@ export async function initHud3D(
   const rover = createExperimentalRover(THREE);
   rover.group.visible = false;
   scene.add(rover.group);
-  rover.attachRealModel(sharedGltfLoader);
+  patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  rover.attachRealModel(sharedGltfLoader).then((ok) => {
+    if (ok) patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  });
 
-  const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene);
+  const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
+    onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
+  });
   function reScatterHistoricRovers(originX = 0, originZ = 0) {
     const placements = scatterHistoricRoverCoords({
       sampleElevY: sampleElevSceneY,
@@ -1431,6 +1491,7 @@ export async function initHud3D(
 
     const badge = makeCallsignBadgeFor(peer);
     avatar.group.add(badge.spr);
+    patchObjectRayTracer(THREE, avatar.group, rtUniforms, { reflectScale: 0.95 });
     remoteGroup.add(avatar.group);
 
     const st = peer.state || {};
@@ -1567,8 +1628,11 @@ export async function initHud3D(
   }
 
   // ---------- bodycam lens pass ----------
+  const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  dummyDepthTex.needsUpdate = true;
   let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
   let rtSamples = 2;
+  let rtHasDepth = false;
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -1577,6 +1641,10 @@ export async function initHud3D(
     toneMapped: true,
     uniforms: {
       tDiffuse: { value: rt.texture },
+      tDepth: { value: dummyDepthTex },
+      uRtEnabled: rtUniforms.uRtEnabled,
+      uRtProj: { value: new THREE.Matrix4() },
+      uRtInvProj: { value: new THREE.Matrix4() },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uDistort: { value: 0.26 },
@@ -2263,6 +2331,7 @@ export async function initHud3D(
     sunSite.lat = spec.lat;
     sunSite.lon = spec.lon;
     refreshSun({ rebake: true });
+    refreshRtHeightfield();
     return true;
   }
 
@@ -2899,6 +2968,16 @@ export async function initHud3D(
       if (readout) readout.textContent = `${optZoom}×`;
       return;
     }
+    if (k === "r" && !e.repeat) {
+      const nextCfg = saveDevSettings({ rayTracing: !devCfg.rayTracing });
+      applyDevSettings(nextCfg);
+      showWrapNotice(
+        isTrLang()
+          ? `RAY TRACING: ${nextCfg.rayTracing ? "AÇIK (GPU YOĞUN)" : "KAPALI"}`
+          : `RAY TRACING: ${nextCfg.rayTracing ? "ON (HEAVY GPU)" : "OFF"}`
+      );
+      return;
+    }
 
     keys.add(k);
     if (k === "f" && !e.repeat && devCfg.experimentalRover && rover.group.visible) {
@@ -3109,17 +3188,34 @@ export async function initHud3D(
     }
 
     const wantSuper = Boolean(cfg.superGraphics);
+    const wantRt = Boolean(cfg.rayTracing);
     const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : 1.25);
     renderer.setPixelRatio(targetPr);
     renderScale = wantSuper ? 1.25 : 1.0;
 
-    const wantSamples = wantSuper ? 4 : 2;
-    if (rtSamples !== wantSamples) {
+    // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
+    // we switch to samples: 0 + DepthTexture (paired with FXAA + SSR/RTAO in LENS_FRAG).
+    const wantSamples = wantRt ? 0 : wantSuper ? 4 : 2;
+    if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
+      rtHasDepth = wantRt;
+      rt.depthTexture?.dispose?.();
       rt.dispose();
-      rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
+      if (wantRt) {
+        const depthTex = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+        rt = new THREE.WebGLRenderTarget(1, 1, {
+          type: THREE.HalfFloatType,
+          samples: 0,
+          depthTexture: depthTex,
+        });
+        lensMat.uniforms.tDepth.value = depthTex;
+      } else {
+        rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
+        lensMat.uniforms.tDepth.value = dummyDepthTex;
+      }
       lensMat.uniforms.tDiffuse.value = rt.texture;
     }
+    rtUniforms.uRtEnabled.value = wantRt ? 1 : 0;
 
     const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
     const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
@@ -4034,6 +4130,12 @@ export async function initHud3D(
       ? 1.0 + Math.sin(clockT * 0.7) * 0.015 * devCfg.frameStrength + Math.sin(clockT * 13.0) * 0.006 * devCfg.frameStrength
       : 1.0;
     lensMat.uniforms.uExposure.value = flicker;
+    rtUniforms.uRtTime.value = clockT;
+    rtUniforms.uRtSunDir.value.copy(sunDir);
+    if (devCfg.rayTracing) {
+      lensMat.uniforms.uRtProj.value.copy(camera.projectionMatrix);
+      lensMat.uniforms.uRtInvProj.value.copy(camera.projectionMatrixInverse);
+    }
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);

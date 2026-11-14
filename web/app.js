@@ -429,6 +429,21 @@ async function boot() {
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
+              ${tr ? "Gerçek Zamanlı Işın İzleme (Ray Tracing)" : "Real-Time Ray Tracing"}
+              <span class="dev-badge-exp">${tr ? "GPU RT" : "GPU RT"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "Piksel başına GPU yükseklik alanı ışın yürütme: dinamik yumuşak gölgeler, 6 yönlü küresel aydınlatma (GI/AO), araç/vizör/arazi yansıma ışınları ve derinlik tamponu SSR/SSGI (ağır GPU yükü, FPS düşürebilir — R tuşuyla da aç/kapa)."
+                : "Per-pixel GPU heightfield ray marching & screen-space rays: dynamic penumbra soft shadows, 6-dir indirect bounce GI/AO, rover/visor/terrain reflection rays & depth SSR (heavy GPU cost, lowers FPS — toggle with R key)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-ray-tracing" ${s.rayTracing ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
               ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
               <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
             </div>
@@ -544,6 +559,7 @@ async function boot() {
     const roverSpeedRange = document.getElementById("dev-rover-speed");
     const roverSpeedVal = document.getElementById("dev-rover-speed-val");
     const superToggle = document.getElementById("dev-super-gfx");
+    const rtToggle = document.getElementById("dev-ray-tracing");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
@@ -570,6 +586,7 @@ async function boot() {
       if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
       if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (rtToggle) rtToggle.checked = cfg.rayTracing;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
@@ -599,6 +616,7 @@ async function boot() {
       );
     });
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    rtToggle?.addEventListener("change", () => syncUi(saveDevSettings({ rayTracing: rtToggle.checked })));
     expRoverToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
     );
