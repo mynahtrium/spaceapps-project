@@ -1,7 +1,7 @@
 /**
  * Main entry point (`web/app.js`).
- * Loads processed / demo-safe / contract data, initializes the 2D Planner and 3D Helmet HUD,
- * and handles view switching and modals (Curiosity POV + Credits & Honesty).
+ * Loads processed / demo-safe / contract data, initializes the 3D Helmet HUD and Orbit View,
+ * and handles view switching, the ESC command menu, and modals (Curiosity POV + Credits & Honesty).
  */
 
 import { loadAllProjectData, loadDemSamplerFromData } from "./shared/data-loader.js";
@@ -9,7 +9,6 @@ import { TileSourceRegistry } from "./map/TileSourceRegistry.js";
 import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
 import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInfo } from "./shared/route-bridge.js";
 import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
-import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
 import { initOrbitView } from "./orbit/orbit-view.js";
 import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
@@ -26,7 +25,6 @@ const I18N = {
     ],
     menu_eva: "BEGIN EVA",
     menu_orbit: "ORBIT VIEW",
-    menu_planner: "ROUTE PLANNER",
     menu_credits: "SOURCES & HONESTY",
     menu_dev: "DEV",
     foot_sources:
@@ -42,7 +40,6 @@ const I18N = {
     ],
     menu_eva: "EVA'YA BAŞLA",
     menu_orbit: "YÖRÜNGE GÖRÜNÜMÜ",
-    menu_planner: "ROTA PLANLAYICI",
     menu_credits: "KAYNAKLAR VE DÜRÜSTLÜK",
     menu_dev: "GELİŞTİRİCİ",
     foot_sources:
@@ -58,7 +55,7 @@ function readLang() {
   }
 }
 
-function initStartScreen({ onEva, onOrbit, onPlanner, onCredits, onDev }) {
+function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
   const screen = document.getElementById("start-screen");
   const linesEl = document.getElementById("start-lines");
   const menu = document.getElementById("start-menu");
@@ -73,8 +70,8 @@ function initStartScreen({ onEva, onOrbit, onPlanner, onCredits, onDev }) {
       const key = el.dataset.i18n;
       if (t[key]) el.textContent = t[key];
     });
-    document.getElementById("lang-en").style.color = lang === "en" ? "#fff" : "";
-    document.getElementById("lang-tr").style.color = lang === "tr" ? "#fff" : "";
+    document.getElementById("lang-en").style.color = lang === "en" ? "#a5f3fc" : "";
+    document.getElementById("lang-tr").style.color = lang === "tr" ? "#a5f3fc" : "";
   }
 
   async function typeIntro() {
@@ -123,7 +120,7 @@ function initStartScreen({ onEva, onOrbit, onPlanner, onCredits, onDev }) {
     setFocus(0);
   }
 
-  const actions = { eva: onEva, orbit: onOrbit, planner: onPlanner, credits: onCredits };
+  const actions = { eva: onEva, orbit: onOrbit, credits: onCredits };
   items.forEach((el, k) => {
     el.addEventListener("mouseenter", () => setFocus(k));
     el.addEventListener("click", () => {
@@ -152,7 +149,8 @@ function initStartScreen({ onEva, onOrbit, onPlanner, onCredits, onDev }) {
       /* storage blocked: keep the in-memory choice */
     }
     applyLang();
-    typeIntro();
+    if (!screen.classList.contains("hidden")) typeIntro();
+    onLangChange?.(l);
   };
   document.getElementById("lang-en").onclick = () => setLang("en");
   document.getElementById("lang-tr").onclick = () => setLang("tr");
@@ -161,21 +159,22 @@ function initStartScreen({ onEva, onOrbit, onPlanner, onCredits, onDev }) {
 
   applyLang();
   show();
-  return { show, hide };
+  return { show, hide, setLang };
 }
 
 async function boot() {
+  document.body.classList.add("in-hud");
   // Show the start screen at once; its actions wait until the data and views are ready.
   let resolveReady;
   const ready = new Promise((r) => (resolveReady = r));
+  let syncEscMenuRef = () => {};
   const start = initStartScreen({
     onEva: () => ready.then((a) => a.eva()),
     onOrbit: () => ready.then((a) => a.orbit()),
-    onPlanner: () => ready.then((a) => a.planner()),
     onCredits: () => ready.then((a) => a.credits()),
     onDev: () => ready.then((a) => a.dev()),
+    onLangChange: () => syncEscMenuRef(),
   });
-  document.getElementById("btn-menu").onclick = () => start.show();
 
   const data = await loadAllProjectData();
   // High-res Mars map stack: HiRISE DEM sampler + tile registry (demo-safe = zero network).
@@ -193,10 +192,8 @@ async function boot() {
     document.getElementById("badge-example").style.display = "inline-block";
   }
 
-  const plannerView = document.getElementById("planner-view");
   const hudView = document.getElementById("hud-view");
   const orbitView = document.getElementById("orbit-view");
-  const btnTabPlanner = document.getElementById("btn-tab-planner");
   const btnTabHud = document.getElementById("btn-tab-hud");
   const btnTabOrbit = document.getElementById("btn-tab-orbit");
   const btnCredits = document.getElementById("btn-credits");
@@ -240,7 +237,7 @@ async function boot() {
       <div style="font-size:12px;line-height:1.55;">
         <div class="rover-modal-hero">
           <div>
-            <div style="font-size:15px;color:#fff;letter-spacing:0.08em;"><strong>${rover.name}</strong> · ${rover.agency}</div>
+            <div style="font-size:15px;color:var(--cyan-bright);letter-spacing:0.08em;"><strong>${rover.name}</strong> · ${rover.agency}</div>
             <div style="color:var(--faint);font-size:11px;">${rover.landingSite}</div>
             ${rover.landingCoordsNote ? `<div style="color:var(--muted);font-size:10px;margin-top:3px;">${rover.landingCoordsNote}</div>` : ""}
           </div>
@@ -284,15 +281,15 @@ async function boot() {
         </p>
         <div class="honesty-note">
           <strong>3D Asset:</strong> ${rover.modelSourceNote}.
-          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;">NASA Mission Page ↗</a>
+          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;">NASA Mission Page ↗</a>
         </div>
 
         <div class="rover-modal-actions">
           <button id="rover-modal-visit-3d" class="btn primary" type="button">
             ${tr ? "3D Bölgeye Git (Aracın Yanına)" : "Visit 3D Site (Stand by Rover)"}
           </button>
-          <button id="rover-modal-show-2d" class="btn" type="button">
-            ${tr ? "2D Haritada Göster" : "Locate on 2D Mars Map"}
+          <button id="rover-modal-show-orbit" class="btn" type="button">
+            ${tr ? "Yörünge Görünümü" : "Orbit View"}
           </button>
         </div>
       </div>
@@ -302,10 +299,9 @@ async function boot() {
       dispatchVisitRoverSite(rover.id);
       switchToHud();
     });
-    modalBody.querySelector("#rover-modal-show-2d")?.addEventListener("click", () => {
+    modalBody.querySelector("#rover-modal-show-orbit")?.addEventListener("click", () => {
       modalBackdrop.classList.remove("open");
-      switchToPlanner();
-      plannerApi?.flyToRover?.(rover.id);
+      switchToOrbit();
     });
     modalBackdrop.classList.add("open");
   }
@@ -365,8 +361,8 @@ async function boot() {
             <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
             <div class="dev-sub">${
               tr
-                ? "Altın vizör filtresi (G), kask farı (L) ve optik büyütme (Z) ayarları."
-                : "Gold sun filter (G), EVA lamp (L), optical zoom (Z), and subtle grain."
+                ? "Altın vizör filtresi (G), kask el feneri (F) ve optik büyütme (Z) ayarları."
+                : "Gold sun filter (G), EVA flashlight (F), optical zoom (Z), and subtle grain."
             }</div>
           </div>
           <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
@@ -450,8 +446,8 @@ async function boot() {
             </div>
             <div class="dev-sub">${
               tr
-                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + F tuşuyla sürüş)."
-                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press F to drive)."
+                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + E tuşuyla sürüş)."
+                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press E to drive)."
             }</div>
           </div>
           <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
@@ -651,10 +647,9 @@ async function boot() {
   }
 
   let hudApi = null;
-  let plannerApi = null;
   let lastSelfPose = null;
 
-  const mp = new MultiplayerClient({ demoSafe: data.demoSafe, role: "planner" });
+  const mp = new MultiplayerClient({ demoSafe: data.demoSafe, role: "eva" });
 
   // ---------- Crew & EVA Multiplayer Drawer ----------
   const btnCrew = document.getElementById("btn-crew");
@@ -693,7 +688,7 @@ async function boot() {
     const row = document.createElement("div");
     row.className = "crew-chat-line";
     const badge = document.createElement("strong");
-    badge.style.color = color || "#38bdf8";
+    badge.style.color = color || "#67e8f9";
     badge.textContent = `[${callsign}] `;
     row.appendChild(badge);
     row.appendChild(document.createTextNode(text));
@@ -733,7 +728,7 @@ async function boot() {
         const left = document.createElement("span");
         const dot = document.createElement("span");
         dot.className = "crew-dot";
-        dot.style.background = peer.color || "#38bdf8";
+        dot.style.background = peer.color || "#67e8f9";
         left.appendChild(dot);
         let distTxt = peer.role?.toUpperCase() || "EVA";
         if (lastSelfPose?.lon != null && peer.state?.lon != null) {
@@ -787,11 +782,8 @@ async function boot() {
     }
   });
   mpDropPingBtn?.addEventListener("click", () => {
-    if (hudView.classList.contains("active") && hudApi?.dropLocalPing) {
+    if (hudApi?.dropLocalPing) {
       hudApi.dropLocalPing("Science Beacon");
-    } else if (plannerApi?.getLastProbePoint) {
-      const pt = plannerApi.getLastProbePoint();
-      mp.dropPing({ lon: pt.lon, lat: pt.lat, elevM: pt.elevM, label: "Planner Pin" });
     }
   });
   mpSyncRouteBtn?.addEventListener("click", () => {
@@ -810,27 +802,21 @@ async function boot() {
 
   mp.on("status", () => {
     renderCrewUi();
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
   });
   mp.on("peerjoin", (peer) => {
     showToast(`${peer.callsign} joined EVA room ${mp.room}`);
     appendChatLine({ callsign: "SYS", color: "#34d399", text: `${peer.callsign} connected` });
     renderCrewUi();
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
   });
   mp.on("peerleave", (peer) => {
     showToast(`${peer.callsign} left EVA`);
     appendChatLine({ callsign: "SYS", color: "#94a3b8", text: `${peer.callsign} disconnected` });
     renderCrewUi();
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
   });
   mp.on("peerstate", () => {
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
     if (crewDrawer?.classList.contains("open")) renderCrewUi();
   });
-  mp.on("pins", (pins) => {
-    plannerApi?.updatePinsOverlay?.(pins);
-  });
+  mp.on("pins", () => {});
   mp.on("ping", (pin) => {
     showToast(`${pin.by} dropped ${pin.label}`);
     appendChatLine({ callsign: pin.by, color: pin.color, text: `Dropped beacon (${pin.lat.toFixed(4)}°, ${pin.lon.toFixed(4)}°)` });
@@ -856,20 +842,17 @@ async function boot() {
     return orbitApi;
   }
 
-  /** Show exactly one of the three views ("planner" | "orbit" | "hud"). */
+  /** Show exactly one of the two views ("hud" | "orbit"). */
   function switchView(name, opts = {}) {
     document.body.classList.toggle("in-hud", name === "hud");
-    const views = { planner: plannerView, orbit: orbitView, hud: hudView };
-    const tabs = { planner: btnTabPlanner, orbit: btnTabOrbit, hud: btnTabHud };
+    const views = { orbit: orbitView, hud: hudView };
+    const tabs = { orbit: btnTabOrbit, hud: btnTabHud };
     for (const [k, el] of Object.entries(views)) el?.classList.toggle("active", k === name);
     for (const [k, el] of Object.entries(tabs)) el?.classList.toggle("active", k === name);
     if (name !== "orbit") orbitApi?.hide();
     if (name === "hud") {
       mp.setRole("eva");
       hudApi?.onResize();
-    } else if (name === "planner") {
-      mp.setRole("planner");
-      requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
     } else if (name === "orbit") {
       if (document.pointerLockElement) {
         try {
@@ -880,7 +863,6 @@ async function boot() {
     }
   }
   const switchToHud = () => switchView("hud");
-  const switchToPlanner = () => switchView("planner");
   const switchToOrbit = () => {
     const from = hudView.classList.contains("active") ? hudApi?.getLonLat?.() : null;
     switchView("orbit", { from });
@@ -914,9 +896,147 @@ async function boot() {
     switchToHud();
   };
 
-  btnTabPlanner.onclick = switchToPlanner;
   btnTabHud.onclick = switchToHud;
   if (btnTabOrbit) btnTabOrbit.onclick = switchToOrbit;
+
+  // ---------- ESC Command / Pause Menu ----------
+  const escMenu = document.getElementById("esc-menu");
+  const escSunBtn = document.getElementById("esc-sun");
+  const escGoldBtn = document.getElementById("esc-gold");
+  const escLampBtn = document.getElementById("esc-lamp");
+  const escTexBtn = document.getElementById("esc-tex");
+  const escCrewBtn = document.getElementById("esc-crew");
+  const escRoversBtn = document.getElementById("esc-open-rovers");
+  const escGoHudBtn = document.getElementById("esc-go-hud");
+  const escGoOrbitBtn = document.getElementById("esc-go-orbit");
+
+  function syncEscMenuUi() {
+    if (!escMenu) return;
+    const tr = readLang() === "tr";
+    const inOrbit = Boolean(orbitView?.classList.contains("active"));
+    const setText = (id, txt) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = txt;
+    };
+    setText("esc-title", tr ? "EVA KOMUT MENÜSÜ" : "EVA COMMAND MENU");
+    setText(
+      "esc-sub",
+      inOrbit
+        ? tr
+          ? "MARS YÖRÜNGE GÖRÜNÜMÜ"
+          : "MARS ORBIT VIEW"
+        : tr
+          ? "GALE KRATERİ · MOUNT SHARP"
+          : "GALE CRATER · MOUNT SHARP"
+    );
+    setText("esc-resume", tr ? "Devam Et (ESC)" : "Resume (ESC)");
+    setText("esc-lbl-views", tr ? "GÖRÜNÜMLER VE NAVİGASYON" : "VIEWS & NAVIGATION");
+    setText("esc-lbl-eva", tr ? "EVA VE OPTİK KONTROLLER" : "EVA & OPTICS CONTROLS");
+    setText("esc-lbl-system", tr ? "GÖREV VE AYARLAR" : "MISSION & SETTINGS");
+    setText("esc-go-hud", tr ? "EVA Vücut Kamerası" : "EVA Bodycam");
+    setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
+    setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
+    setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
+    setText("esc-dev", tr ? "Geliştirici Ayarları" : "Developer Settings");
+    setText("esc-sources", tr ? "Kaynaklar ve Dürüstlük" : "Sources & Honesty");
+    setText("esc-title-btn", tr ? "Başlangıç Ekranı" : "Title Screen");
+    setText("esc-hint", tr ? "DEVAM ETMEK İÇİN ESC" : "PRESS ESC TO RESUME");
+
+    const hudSun = document.getElementById("hud-sun-btn")?.textContent?.trim();
+    const hudGold = document.getElementById("hud-gold-btn");
+    const hudLamp = document.getElementById("hud-lamp-btn");
+    const hudTex = document.getElementById("hud-tex")?.textContent?.trim();
+    const hudFleet = document.getElementById("hud-fleet-btn")?.textContent?.trim();
+    if (escSunBtn && hudSun) escSunBtn.textContent = hudSun;
+    if (escGoldBtn) {
+      escGoldBtn.textContent = hudGold?.textContent?.trim() || (tr ? "Altın Vizör (G)" : "Gold Visor (G)");
+      escGoldBtn.classList.toggle("active", Boolean(hudGold?.classList.contains("active")));
+    }
+    if (escLampBtn) {
+      escLampBtn.textContent = hudLamp?.textContent?.trim() || (tr ? "El Feneri (F)" : "Flashlight (F)");
+      escLampBtn.classList.toggle("active", Boolean(hudLamp?.classList.contains("active")));
+    }
+    if (escTexBtn && hudTex) escTexBtn.textContent = hudTex;
+    if (escRoversBtn && hudFleet) escRoversBtn.textContent = hudFleet;
+    if (escCrewBtn && btnCrew) escCrewBtn.textContent = btnCrew.textContent.trim();
+    escGoHudBtn?.classList.toggle("active", !inOrbit);
+    escGoOrbitBtn?.classList.toggle("active", inOrbit);
+
+    const lang = readLang();
+    const lEn = document.getElementById("esc-lang-en");
+    const lTr = document.getElementById("esc-lang-tr");
+    if (lEn) lEn.style.color = lang === "en" ? "#a5f3fc" : "";
+    if (lTr) lTr.style.color = lang === "tr" ? "#a5f3fc" : "";
+  }
+  syncEscMenuRef = syncEscMenuUi;
+
+  function toggleEscMenu(force) {
+    if (!escMenu) return;
+    const next = typeof force === "boolean" ? force : !escMenu.classList.contains("open");
+    if (next && document.pointerLockElement) {
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
+    escMenu.classList.toggle("open", next);
+    if (next) syncEscMenuUi();
+  }
+
+  document.getElementById("btn-menu")?.addEventListener("click", () => toggleEscMenu(true));
+  document.getElementById("esc-resume")?.addEventListener("click", () => toggleEscMenu(false));
+  escMenu?.addEventListener("click", (e) => {
+    if (e.target === escMenu) toggleEscMenu(false);
+  });
+  escGoHudBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToHud();
+  });
+  escGoOrbitBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToOrbit();
+  });
+  escRoversBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToHud();
+    document.getElementById("hud-fleet-btn")?.click();
+  });
+  escSunBtn?.addEventListener("click", () => {
+    document.getElementById("hud-sun-btn")?.click();
+    syncEscMenuUi();
+  });
+  escGoldBtn?.addEventListener("click", () => {
+    document.getElementById("hud-gold-btn")?.click();
+    syncEscMenuUi();
+  });
+  escLampBtn?.addEventListener("click", () => {
+    document.getElementById("hud-lamp-btn")?.click();
+    syncEscMenuUi();
+  });
+  escTexBtn?.addEventListener("click", () => {
+    document.getElementById("hud-tex")?.click();
+    syncEscMenuUi();
+  });
+  document.getElementById("esc-pin")?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToHud();
+    document.getElementById("hud-ping")?.click();
+  });
+  document.getElementById("esc-pov")?.addEventListener("click", () => {
+    document.getElementById("hud-pov-btn")?.click();
+  });
+  escCrewBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    crewDrawer?.classList.add("open");
+    renderCrewUi();
+  });
+  document.getElementById("esc-dev")?.addEventListener("click", openDevSettingsModal);
+  document.getElementById("esc-sources")?.addEventListener("click", openCreditsModal);
+  document.getElementById("esc-title-btn")?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    start.show();
+  });
+  document.getElementById("esc-lang-en")?.addEventListener("click", () => start.setLang("en"));
+  document.getElementById("esc-lang-tr")?.addEventListener("click", () => start.setLang("tr"));
 
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
@@ -931,6 +1051,18 @@ async function boot() {
     if (crewDrawer?.classList.contains("open")) {
       e.preventDefault();
       crewDrawer.classList.remove("open");
+      return;
+    }
+    if (escMenu?.classList.contains("open")) {
+      e.preventDefault();
+      toggleEscMenu(false);
+      return;
+    }
+    const startScreen = document.getElementById("start-screen");
+    if (startScreen && !startScreen.classList.contains("hidden")) return;
+    if (orbitView?.classList.contains("active") || !hudApi) {
+      e.preventDefault();
+      toggleEscMenu(true);
     }
   });
 
@@ -938,11 +1070,9 @@ async function boot() {
   function initAppContextMenu() {
     const t = (en, trText) => (readLang() === "tr" ? trText : en);
     const clickId = (id) => () => document.getElementById(id)?.click();
-    const activeView = () =>
-      hudView.classList.contains("active") ? "hud" : orbitView?.classList.contains("active") ? "orbit" : "planner";
-    const probeTextEl = document.getElementById("map-probe-text");
+    const activeView = () => (orbitView?.classList.contains("active") ? "orbit" : "hud");
 
-    async function copyCoords(lon, lat, where) {
+    async function copyCoords(lon, lat) {
       const text = formatMarsLonLat(lon, lat, 5);
       let ok = true;
       try {
@@ -952,28 +1082,7 @@ async function boot() {
         window.prompt(t("Copy coordinates:", "Koordinatları kopyala:"), text);
       }
       if (!ok) return;
-      const msg = `${t("COPIED", "KOPYALANDI")} · ${text}`;
-      if (where === "planner" && probeTextEl) probeTextEl.textContent = msg;
-      else showToast(msg);
-    }
-
-    function mapItems(ctx) {
-      const ll = plannerApi?.lonLatAt?.(ctx.x, ctx.y);
-      if (!ll) return [];
-      const info = demSampler?.sampleSlopeAndNormal?.([ll.lon, ll.lat]);
-      const elev = Number.isFinite(info?.elevM) ? ` · ${Math.round(info.elevM)} m` : "";
-      const slope = Number.isFinite(info?.slopeDeg) ? ` · ${info.slopeDeg.toFixed(1)}°` : "";
-      return [
-        { heading: `${formatMarsLonLat(ll.lon, ll.lat, 4)}${elev}${slope}` },
-        { label: t("Teleport here", "Buraya ışınlan"), hint: t("dbl-click", "çift tık"), action: () => plannerApi.teleportTo(ll.lon, ll.lat) },
-        {
-          label: t("Drop crew pin here", "Buraya ekip işareti bırak"),
-          action: () => mp.dropPing({ lon: ll.lon, lat: ll.lat, elevM: info?.elevM ?? null, label: "Planner Pin" }),
-        },
-        { label: t("Copy coordinates", "Koordinatları kopyala"), action: () => copyCoords(ll.lon, ll.lat, "planner") },
-        { label: t("Fit EVA route", "EVA rotasına sığdır"), action: () => plannerApi.fitEva() },
-        { separator: true },
-      ];
+      showToast(`${t("COPIED", "KOPYALANDI")} · ${text}`);
     }
 
     function hudItems() {
@@ -982,16 +1091,17 @@ async function boot() {
       return [
         { heading: t("BODYCAM", "VÜCUT KAMERASI") },
         { label: t("Drop waypoint pin", "Yol işareti bırak"), hint: "P", action: clickId("hud-ping") },
-        { label: t("Elevation map", "Yükselti haritası"), hint: "M", action: clickId("hud-map-btn") },
-        { label: t("Orbit view", "Yörünge görünümü"), hint: "O", action: clickId("hud-orbit-btn") },
+        { label: t("Orbit view", "Yörünge görünümü"), hint: "M", action: clickId("hud-orbit-btn") },
         { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
+        { label: btnLabel("hud-gold-btn", "Gold (G)"), action: clickId("hud-gold-btn") },
+        { label: btnLabel("hud-lamp-btn", "Flashlight (F)"), action: clickId("hud-lamp-btn") },
         { label: btnLabel("hud-tex", "Texture"), action: clickId("hud-tex") },
         { label: btnLabel("hud-fleet-btn", "Rovers"), action: clickId("hud-fleet-btn") },
         { label: t("Rover POV photo", "Gezgin POV fotoğrafı"), action: clickId("hud-pov-btn") },
         {
           label: t("Copy my coordinates", "Konumumu kopyala"),
           hidden: !Number.isFinite(pos?.lon) || !Number.isFinite(pos?.lat),
-          action: () => copyCoords(pos.lon, pos.lat, "hud"),
+          action: () => copyCoords(pos.lon, pos.lat),
         },
         { separator: true },
       ];
@@ -1014,14 +1124,14 @@ async function boot() {
       const view = activeView();
       return [
         { heading: t("GO TO", "GİT") },
-        { label: t("Route planner", "Rota planlayıcı"), disabled: view === "planner", action: switchToPlanner },
         { label: t("Orbit view", "Yörünge görünümü"), disabled: view === "orbit", action: switchToOrbit },
         { label: t("Bodycam EVA", "Vücut kamerası EVA"), disabled: view === "hud", action: switchToHud },
+        { label: t("Command menu", "Komut menüsü"), hint: "Esc", action: () => toggleEscMenu(true) },
         { separator: true },
         { label: btnCrew?.textContent?.trim() || "Crew", action: () => btnCrew?.click() },
         { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
         { label: t("Developer settings", "Geliştirici ayarları"), action: openDevSettingsModal },
-        { label: t("Main menu", "Ana menü"), action: () => start.show() },
+        { label: t("Title screen", "Başlangıç ekranı"), action: () => start.show() },
       ];
     }
 
@@ -1038,20 +1148,19 @@ async function boot() {
         if (modalBackdrop.classList.contains("open")) {
           return [{ label: t("Close window", "Pencereyi kapat"), hint: "Esc", action: () => modalBackdrop.classList.remove("open") }];
         }
+        if (escMenu?.classList.contains("open")) {
+          return [{ label: t("Resume", "Devam et"), hint: "Esc", action: () => toggleEscMenu(false) }];
+        }
         if (el?.closest?.("#crew-drawer")) {
           return [{ label: t("Close crew panel", "Ekip panelini kapat"), hint: "Esc", action: () => crewDrawer?.classList.remove("open") }];
         }
-        // The in-HUD elevation map has its own click-to-teleport flow; keep it to global items.
-        const inHudMap = el?.closest?.("#hud-map-overlay.open");
         const view = activeView();
         const local =
-          view === "planner" && el?.closest?.("#map")
-            ? mapItems(ctx)
-            : view === "hud" && !inHudMap
-              ? hudItems()
-              : view === "orbit"
-                ? orbitItems()
-                : [];
+          view === "hud"
+            ? hudItems()
+            : view === "orbit"
+              ? orbitItems()
+              : [];
         return [...local, ...globalItems()];
       },
     });
@@ -1060,19 +1169,8 @@ async function boot() {
   resolveReady({
     eva: startEva,
     orbit: switchToOrbit,
-    planner: switchToPlanner,
     credits: openCreditsModal,
     dev: openDevSettingsModal,
-  });
-
-  plannerApi = initPlanner(data, {
-    demSampler,
-    registry,
-    mp,
-    onOpenPov: openPovModal,
-    onOpenRoverInfo: openHistoricRoverModal,
-    onVisitRoverSite: (id) => dispatchVisitRoverSite(id),
-    onStartEva: switchToHud,
   });
 
   initAppContextMenu();
@@ -1086,9 +1184,6 @@ async function boot() {
     registry,
     mp,
     openHistoricRoverModal,
-    get plannerApi() {
-      return plannerApi;
-    },
     get hudApi() {
       return hudApi;
     },
@@ -1100,13 +1195,13 @@ async function boot() {
     mp,
     onLocalPose: (pose) => {
       lastSelfPose = pose;
-      plannerApi?.updateCrewOverlay?.(pose);
     },
-    onBackToPlanner: switchToPlanner,
+    onOpenMenu: () => toggleEscMenu(true),
     onOpenPov: openPovModal,
     onOpenRoverInfo: openHistoricRoverModal,
     onOpenOrbit: switchToOrbit,
   });
+  if (data.route) dispatchSetRoute(data.route, 0);
   if (pendingLanding) {
     const args = pendingLanding;
     pendingLanding = null;

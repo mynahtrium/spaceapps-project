@@ -1,6 +1,6 @@
 # Contract change log
 
-Every change to a field name, meaning, or file in `docs/contracts/` must be recorded here **in the same PR**, and the owning role plus **Frontend 1** and **both testers** must be notified with a [handoff](../coordination/HANDOFFS.md) and a [BOARD](../coordination/BOARD.md) question (or a clearly mentioned PR checklist).
+Every change to a field name, meaning, or file in `docs/contracts/` must be recorded here **in the same commit**. Tell whoever uses that file.
 
 Do not silently rename fields. See also [README.md](./README.md) and [AGENTS.md](../../AGENTS.md).
 

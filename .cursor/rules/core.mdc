@@ -1,16 +1,13 @@
 ---
-description: Core Martian Mappers rules — follow AGENTS.md; no early build, no secrets, logs, privacy
+description: Core Martian Mappers rules — follow AGENTS.md; no secrets, privacy, honest sources
 alwaysApply: true
 ---
 
 # Core rules
 
-**[AGENTS.md](../../AGENTS.md) is the single source of truth.** Follow it. Do not treat this file as a second project guide. Session start: pull; read [BOARD.md](../../docs/coordination/BOARD.md), [HANDOFFS.md](../../docs/coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../../docs/coordination/AGENT_LOG.md) entries, and all [docs/team/profiles/](../../docs/team/profiles/). First session with the human: run the onboarding interview **before other work**.
+**[AGENTS.md](../../AGENTS.md) is the single source of truth.** Follow it. Do not treat this file as a second project guide.
 
-- **No application code and no project data pipeline before 14 November 2026.** Docs, installs, practice PRs, and interviews are fine.
-- **No secrets.** Never commit `.env`, API keys, or credentials. `NASA_API_KEY` and the planned `DEMO_SAFE` flag exist only as environment names (see `.env.example`).
-- **Log every change** in `docs/coordination/AGENT_LOG.md` in the **same commit** (`Commit: this commit`). Do not amend or force-push just to add a hash. Tester 1 rolls that log into `docs/AI_USE.md` for the submission.
-- **No photos, video, voices, or likenesses of under-18s.** Profiles: first name or nickname only — no phone, email, address, school name, or other personal data.
-- **Cite sources.** Do not invent facts. Mark gaps **UNVERIFIED**. Keep this repository **private**. No Vercel or hosting integrations. Do not force-push `main`.
-- **Claim a board task** before starting. Stay in owned folders. A bug tester reviews every PR. Contract field changes need `docs/contracts/CHANGES.md` plus a handoff and a board question.
-- Product summary, timing, demo-safe spec, and folder ownership: AGENTS.md and [ROADMAP.md](../../ROADMAP.md).
+- **No secrets.** Never commit `.env`, API keys, or credentials. `NASA_API_KEY` and `DEMO_SAFE` exist only as environment names (see `.env.example`).
+- **No photos, video, voices, or likenesses of under-18s.** Name team members by first name or nickname only — no phone, email, address, school name, or other personal data.
+- **Cite sources.** Do not invent facts. Mark gaps **UNVERIFIED**. Keep this repository **private**. No hosting integrations. Do not force-push `main`.
+- `?demo=1` makes zero network requests. Contract field changes need a row in `docs/contracts/CHANGES.md` and updated fixtures.

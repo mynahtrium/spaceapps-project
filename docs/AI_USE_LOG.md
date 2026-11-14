@@ -1,3 +1,5 @@
+> **Historical record.** This was the append-only agent log (formerly `docs/coordination/AGENT_LOG.md`) until 15 November 2026, when the team dropped agent orchestration. It is kept as source material for the AI-use description in [AI_USE.md](./AI_USE.md). It is no longer appended on every commit.
+
 # Agent log
 
 Append-only record of **every change**. One entry per change (one PR, or one commit if you are landing a single docs fix). Newest entry at the **bottom**.
@@ -991,6 +993,16 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Merge `origin/main` (orbit view + high-res terrain upscale), verify tests, push `main`, and pull `main`.
 
+### 2026-11-15 00:31 Europe/Istanbul — Softer footsteps audio & remove HUD O2 gauge
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: frontend-1 (requested HUD/audio polish)
+- Task id: n/a
+- Files changed: `web/hud/footsteps.js`, `web/index.html`, `web/hud/hud3d.js`, `web/styles.css`, `docs/coordination/AGENT_LOG.md`
+- Why: Softened synthesized footstep audio in `web/hud/footsteps.js` (added smooth 14 ms attack ramp, lowered thud frequency/gain, smoothed regolith noise with a low-pass leaky integrator and bell envelope, lowered cutoff/gain) and removed the visor `O₂` indicator (`#hud-o2`, `#hud-o2-fill`, `.o2-bar`, `.o2-fill`, and HUD update logic) per user request. Verified `node --check` on `footsteps.js`/`hud3d.js` and `node --test web/tests/*.mjs` (`43/43` pass).
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` and verify live; note `AGENTS.md` lists `suit O₂` as a MUST HUD field if needed back for judging.
 ### 2026-11-15 00:22 Europe/Istanbul — Custom right-click menu
 
 - Human: Doruk
@@ -1002,13 +1014,46 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Eymen checks it in the browser (Linux and Windows right-click timing differ).
 
-### 2026-11-15 00:25 Europe/Istanbul — Hybrid WebGL2 GPU Ray Tracing & untitled UI restore
+### 2026-11-15 00:25 Europe/Istanbul — Hybrid WebGL2 GPU Ray Tracing
 
 - Human: Doruk
 - Agent tool + model: Antigravity (Gemini 4 Hydrogen)
 - Role: frontend graphics (branch main)
 - Task id: RT-01
-- Files changed: `web/hud/ray-tracer.js`, `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/app.js`, `web/shared/dev-settings.js`, `web/index.html`, `web/tests/fallback.test.mjs`, `docs/coordination/AGENT_LOG.md`
-- Why: Added toggleable WebGL2 GPU hybrid ray tracing (`R` key and Developer Settings `#dev-ray-tracing`): 16-bit mirrored heightfield texture (`buildHeightfieldRtTexture`), per-pixel penumbra soft sun shadows (`rtTraceShadow`), 6-direction hemisphere bounce GI/AO (`rtTraceGI`), object reflection rays (`rtTraceReflectionRay` on MMSEV, historic rovers, astronaut suit/visor, rocks), and depth-buffer screen-space ray marching (`SSR`, `RTAO/SSGI`, `FXAA` in `LENS_FRAG`). Restored `untitled` HUD layout/styles and merged `origin/main` (`feat/orbit-view` & `2401223`). Verified `node --check` and `node --test web/tests/*.test.mjs`.
+- Files changed: `web/hud/ray-tracer.js`, `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/app.js`, `web/shared/dev-settings.js`, `web/index.html`, `web/tests/fallback.test.mjs`, `docs/AI_USE_LOG.md`
+- Why: Added toggleable WebGL2 GPU hybrid ray tracing (`R` key and Developer Settings `#dev-ray-tracing`): 16-bit mirrored heightfield texture (`buildHeightfieldRtTexture`), per-pixel penumbra soft sun shadows (`rtTraceShadow`), 6-direction hemisphere bounce GI/AO (`rtTraceGI`), object reflection rays (`rtTraceReflectionRay` on MMSEV, historic rovers, astronaut suit/visor, rocks), and depth-buffer screen-space ray marching (`SSR`, `RTAO/SSGI`, `FXAA` in `LENS_FRAG`). Merged with `20ee6cc` cleanly. Verified `node --check` and `node --test web/tests/*.test.mjs`.
 - Commit: this commit
-- Next step: Hard-reload browser (`Ctrl+Shift+R`) to inspect.
+- Next step: Push `main` and hard-reload browser (`Ctrl+Shift+R`).
+
+### 2026-11-15 00:48 Europe/Istanbul — Remove Planner UI, add translucent ESC command menu
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: frontend-1 (requested UI/menu restructure)
+- Task id: n/a
+- Files changed: `web/index.html`, `web/app.js`, `web/hud/hud3d.js`, `web/styles.css`, `docs/coordination/AGENT_LOG.md`
+- Why: Removed the 2D Planner view/tab/start-menu item and replaced `Escape` back-to-planner with a translucent `#esc-menu` command menu accessible via `ESC` (both Bodycam pointer-lock/unlocked and Orbit View) and `Menu (ESC)` button, exposing all existing controls (`Resume`, `EVA Bodycam`, `Orbit View`, `Elevation Map`, `Rovers (5)`, `Sun`, `Gold Visor`, `Lamp`, `Tex`, `Drop Pin`, `Rover POV`, `Crew`, `Developer Settings`, `Sources & Honesty`, `Title Screen`, and `EN/TR` switcher). Made `#start-screen`, `#esc-menu`, `.modal-backdrop`, `.modal-card`, `.topbar`, and `.crew-drawer` backgrounds semi-transparent with blur so Mars shows through. Verified `node --check` on `app.js`/`hud3d.js` and `node --test web/tests/*.mjs` (`46/46` pass).
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` and test `ESC` menu flow in EVA Bodycam and Orbit View.
+
+### 2026-11-15 00:56 Europe/Istanbul — Unify cyan HUD theme, 20% curved black visor bezel, E interact & F flashlight
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 / tester-2 (`main`)
+- Task id: UI theme & HUD finish
+- Files changed: `web/index.html`, `web/styles.css`, `web/app.js`, `web/hud/hud3d.js`, `web/planner/planner.js`, `docs/AI_USE_LOG.md`
+- Why: Merged `origin/main` through `96a866a` (keeping removed Planner view, translucent `#esc-menu`, custom `.ctx-menu`, softened footsteps, and removed `#hud-o2`), completed unified dark cyan (`#67e8f9` / `#a5f3fc`) styling across `#start-screen`, `.topbar`, `#esc-menu`, `.ctx-menu`, `#orbit-view`, `#crew-drawer`, `#modal-backdrop`, `#hud-map-overlay`, `.hud-fleet-panel`, `.hud-wrap-notice`, `.hud-rover-target`, and `.hud-reticle.locked`. Restored default ~20% curved solid-black visor frame aperture (`uBezelScale = 1.0`, `uDistort = 0.14`, `uVignette = 0.72` in `LENS_FRAG` / `syncDrivingCameraVisualState`) with tightened `.visor-top`/`.visor-bottom` typography inside the black frame border. Standardized universal `E` Interact and `F` Flashlight across `hud3d.js`, `index.html`, `#esc-menu`, right-click context menu, and Dev Settings copy. Verified zero conflict markers, `node --check` across all non-vendor `web/` JS/MJS files, and `node --test web/tests/*.test.mjs` (`46/46` pass). Not browser-tested after the final pull/merge edit (server stays ready locally).
+- Commit: this commit
+- Next step: Push `main` to `origin/main` and hard-refresh in browser (`Ctrl+Shift+R`).
+
+### 2026-11-15 01:10 Europe/Istanbul — Remove tactical map overlay, bind M to Orbit View
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (requested HUD/navigation cleanup & stash merge)
+- Task id: n/a
+- Files changed: `web/index.html`, `web/app.js`, `web/hud/hud3d.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Removed the HUD tactical elevation map overlay (`#hud-map-overlay`, `#hud-map-btn`, `#esc-open-map`, `.hud-map-*` CSS, and `renderTacticalMap` / `setMapOpen` implementation) and rebound `M` in the EVA HUD to open Orbit View (`onOpenOrbit?.()`), updating HUD hints, `#hud-orbit-btn` (`Orbit (M)`), `#esc-go-orbit` (`Orbit View (M)`), and context menu hints accordingly. Resolved merge conflicts with upstream `27891f0` and `dbaa678` while preserving upstream `E` Interact, `F` Flashlight, unified cyan styling, 20% curved black visor bezel, and astronaut rig updates. Verified zero conflict markers, `node --check web/app.js`, `node --check web/hud/hud3d.js`, and `node --test web/tests/*.test.mjs` (`46/46` pass).
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` (`Ctrl+Shift+R`) and verify pressing `M` in EVA Bodycam opens Orbit View.

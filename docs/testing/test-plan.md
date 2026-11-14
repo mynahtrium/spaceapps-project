@@ -26,7 +26,6 @@ Do this on the PR diff. One tester approval is enough. The author does not merge
 - [ ] The diff stays in that role’s folders ([ROADMAP.md](../../ROADMAP.md) §2). Testers may edit `docs/testing/`, `docs/AI_USE.md`, their comms note, and their own board and log lines.
 - [ ] No `.env`, API key, token, or private key. `NASA_API_KEY` appears only as a name.
 - [ ] No `data/raw/`, and no `*.tif`, PDS `.IMG`, or JP2.
-- [ ] `docs/coordination/AGENT_LOG.md` has a new entry in the same commit, with `Commit: this commit`.
 - [ ] If a **contract field name or meaning** changed: example JSON, [docs/contracts/CHANGES.md](../contracts/CHANGES.md), a handoff, and a board question are in the same PR. Tell Frontend 1 and both testers.
 - [ ] Processed JSON still loads with the fallback in `docs/contracts/` (see the contract checklist).
 - [ ] New AI help has a row in [docs/AI_USE.md](../AI_USE.md), or this log already names that tool and purpose.

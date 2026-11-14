@@ -9,7 +9,7 @@ Do **not** write application code in `web/` before 14 November 2026. This skill 
 
 The 12 November 2026 team decision: this MapLibre planner is how the crew **picks and inspects** a route. The main immersive display is the 3D first-person HUD (`skills/hud-3d`). The planner **sends the route** to that view (`mm:set-route` or `web/shared/` helper). Format is a web app; WebXR is stretch only and lives in the 3D view, not here.
 
-Role sheet: [docs/roles/frontend-1-hud.md](../../docs/roles/frontend-1-hud.md). Contracts: [docs/contracts/README.md](../../docs/contracts/README.md). Timing: [ROADMAP.md](../../ROADMAP.md).
+Contracts: [docs/contracts/README.md](../../docs/contracts/README.md). Timing: [ROADMAP.md](../../ROADMAP.md).
 
 ## Base layers
 

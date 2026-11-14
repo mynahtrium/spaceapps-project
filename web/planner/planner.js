@@ -263,7 +263,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, onOpenRoverInfo, onVi
       adapter.addGeoJsonLayer(
         "eva-route",
         { type: "FeatureCollection", features: [route] },
-        { type: "line", color: "#ffffff", width: 2.8, visible: true }
+        { type: "line", color: "#67e8f9", width: 2.8, visible: true }
       );
     }
 
@@ -272,7 +272,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, onOpenRoverInfo, onVi
         type: "circle",
         radius: 6.5,
         radiusExpr: ["interpolate", ["linear"], ["zoom"], 11, 3.5, 13.5, 5.5, 16, 8.5],
-        color: "#ffffff",
+        color: "#a5f3fc",
         strokeWidth: 1.8,
         strokeColor: "#000000",
         visible: true,
@@ -378,7 +378,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, onOpenRoverInfo, onVi
         activePopup = new window.maplibregl.Popup()
           .setLngLat(nearest.geometry.coordinates)
           .setHTML(
-            `<div style="color:#fff;font-size:12px;"><strong>${nearest.properties.name}</strong><br/><em>${nearest.properties.kind}</em></div>`
+            `<div style="color:var(--cyan-bright,#a5f3fc);font-size:12px;"><strong>${nearest.properties.name}</strong><br/><em>${nearest.properties.kind}</em></div>`
           )
           .addTo(adapter.map);
       }
@@ -596,10 +596,10 @@ function renderProfileSvg(profile, onSelectDist) {
   const area = `${pad},${H - pad} ${poly} ${W - pad},${H - pad}`;
 
   svg.innerHTML = `
-    <polygon points="${area}" fill="rgba(56,189,248,0.18)" />
-    <polyline points="${poly}" fill="none" stroke="#ffffff" stroke-width="1.5" />
-    <text x="${pad}" y="11" fill="rgba(255,255,255,0.55)" font-size="9" font-family="monospace">${maxE.toFixed(1)} m</text>
-    <text x="${pad}" y="${H - 3}" fill="rgba(255,255,255,0.55)" font-size="9" font-family="monospace">${minE.toFixed(1)} m · 0 m → ${maxS.toFixed(0)} m</text>
+    <polygon points="${area}" fill="rgba(34,211,238,0.18)" />
+    <polyline points="${poly}" fill="none" stroke="#67e8f9" stroke-width="1.5" />
+    <text x="${pad}" y="11" fill="rgba(103,232,249,0.72)" font-size="9" font-family="monospace">${maxE.toFixed(1)} m</text>
+    <text x="${pad}" y="${H - 3}" fill="rgba(103,232,249,0.72)" font-size="9" font-family="monospace">${minE.toFixed(1)} m · 0 m → ${maxS.toFixed(0)} m</text>
   `;
 
   svg.style.cursor = "pointer";
