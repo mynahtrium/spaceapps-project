@@ -34,6 +34,7 @@ const RUN_SPEED_MS = 2.5; // a light suited run (Shift); clearly faster than wal
 const MARS_G = 3.71; // m/s^2
 const JUMP_SPEED_MS = 1.7; // about 0.4 m apex under Mars gravity
 const PARTNER_AHEAD_M = 6;
+const PARTNER_COLLISION_R = 1.05; // solid suit + backpack + 0.36 m visor clearance
 const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
 
 // NASA 3D Resources models, tried in order (first one that loads wins). The Z2 suit
@@ -877,6 +878,22 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
         const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
         freePos.addScaledVector(moveDir, v * dt);
       }
+      // Solid collision against the partner astronaut so free-roam cannot walk through them
+      if (partner && partner.group.visible) {
+        const pdx = freePos.x - partner.group.position.x;
+        const pdz = freePos.z - partner.group.position.z;
+        const pdy = Math.abs((player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)) - partner.group.position.y);
+        const pDist = Math.hypot(pdx, pdz);
+        if (pdy < ASTRONAUT_HEIGHT_M * 0.9 && pDist < PARTNER_COLLISION_R) {
+          if (pDist > 1e-4) {
+            freePos.x = partner.group.position.x + (pdx / pDist) * PARTNER_COLLISION_R;
+            freePos.z = partner.group.position.z + (pdz / pDist) * PARTNER_COLLISION_R;
+          } else {
+            freePos.x -= fwd.x * PARTNER_COLLISION_R;
+            freePos.z -= fwd.z * PARTNER_COLLISION_R;
+          }
+        }
+      }
       px = freePos.x;
       pz = freePos.z;
     } else {
@@ -955,6 +972,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       const maxStep = (keys.has("shift") && !freeRoam ? RUN_SPEED_MS : WALK_SPEED_MS * SPEEDS[speedIdx]) * 1.2 * dt;
       partnerS += Math.max(-maxStep, Math.min(maxStep, wantS - partnerS));
       if (Math.abs(wantS - partnerS) > 30) partnerS = wantS; // scrubber jump
+      if (!freeRoam && Math.abs(partnerS - alongM) < 1.5) partnerS = alongM + PARTNER_AHEAD_M;
       const pa = routePoint(partnerS);
       const pStep = Math.abs(partnerS - prevS);
       partner.group.position.set(pa.x, pa.y, pa.z);
