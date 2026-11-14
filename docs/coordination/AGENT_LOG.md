@@ -649,3 +649,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan asked for the map to repeat with no visible border. A raw DEM tile does not tile (about 480 m of relief, with different north and south edges), so the HUD now surrounds the real tile with mirrored copies that share edges exactly, keeps the ring centred on the camera, and mirror-wraps height sampling for free-roam. The mirror maths was checked numerically (edge u = 1 from both sides). Page loads in ?demo=1 with no console errors; the edge crossing itself was not observed by the agent.
 - Commit: this commit
 - Next step: Divarci reviews; Eymen walks past the edge once.
+
+### 2026-11-14 15:59 Europe/Istanbul — SHOULD-07 / MUST-12 (app launcher scripts)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: SHOULD-07, MUST-12
+- Files changed: start.bat (new), scripts/start-app.sh (new), docs/coordination/AGENT_LOG.md
+- Why: Added one-click/one-command local launcher scripts (`start.bat` for Windows, `scripts/start-app.sh` for bash/macOS/Linux) that start `http.server` on port 8000 and open `http://localhost:8000/web/?demo=1`. Also verified the live app in `?demo=1` mode via browser preview (2D MapLibre planner + 3D three.js helmet HUD + playback, 0 console errors).
+- Commit: this commit
+- Next step: Team can double-click `start.bat` to launch the demo locally.
