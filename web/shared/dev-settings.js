@@ -11,8 +11,22 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   frameStrength: 1.0,
   speedMultiplier: 1.0,
   superGraphics: false,
+  experimentalRover: false,
+  realisticTextures: false,
+  realisticDust: true,
+  realisticPhysics: true,
+  realisticWeather: true,
   fov: 78,
   cleanHud: false,
+});
+
+export const FULL_REALISM_PRESET = Object.freeze({
+  superGraphics: true,
+  experimentalRover: true,
+  realisticTextures: true,
+  realisticDust: true,
+  realisticPhysics: true,
+  realisticWeather: true,
 });
 
 function clampNum(v, min, max, fallback) {
@@ -27,6 +41,15 @@ export function normalizeDevSettings(raw = {}) {
     frameStrength: clampNum(raw.frameStrength, 0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
     speedMultiplier: clampNum(raw.speedMultiplier, 0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
     superGraphics: raw.superGraphics !== undefined ? Boolean(raw.superGraphics) : DEFAULT_DEV_SETTINGS.superGraphics,
+    experimentalRover:
+      raw.experimentalRover !== undefined ? Boolean(raw.experimentalRover) : DEFAULT_DEV_SETTINGS.experimentalRover,
+    realisticTextures:
+      raw.realisticTextures !== undefined ? Boolean(raw.realisticTextures) : DEFAULT_DEV_SETTINGS.realisticTextures,
+    realisticDust: raw.realisticDust !== undefined ? Boolean(raw.realisticDust) : DEFAULT_DEV_SETTINGS.realisticDust,
+    realisticPhysics:
+      raw.realisticPhysics !== undefined ? Boolean(raw.realisticPhysics) : DEFAULT_DEV_SETTINGS.realisticPhysics,
+    realisticWeather:
+      raw.realisticWeather !== undefined ? Boolean(raw.realisticWeather) : DEFAULT_DEV_SETTINGS.realisticWeather,
     fov: clampNum(raw.fov, 60, 110, DEFAULT_DEV_SETTINGS.fov),
     cleanHud: raw.cleanHud !== undefined ? Boolean(raw.cleanHud) : DEFAULT_DEV_SETTINGS.cleanHud,
   };

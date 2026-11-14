@@ -6,7 +6,13 @@ import { fileURLToPath } from "node:url";
 
 import { makeLocalTangentOrigin, decodeTerrariumPixel } from "../map/Geodesy.js";
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
-import { DEFAULT_DEV_SETTINGS, normalizeDevSettings } from "../shared/dev-settings.js";
+import { DEFAULT_DEV_SETTINGS, FULL_REALISM_PRESET, normalizeDevSettings } from "../shared/dev-settings.js";
+import {
+  MARS_GRAVITY_MS2,
+  computeSpawnBesideOffset,
+  resolveRoverObbCollision,
+  stepRoverBallisticPhysics,
+} from "../hud/experimental-rover.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
 import { TerrainWorkerPool } from "../map/TerrainWorkerPool.js";
@@ -337,7 +343,10 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
     frameEffect: false,
     frameStrength: 9,
     speedMultiplier: 12,
-    superGraphics: true,
+    ...FULL_REALISM_PRESET,
+    realisticDust: false,
+    realisticPhysics: false,
+    realisticWeather: false,
     fov: 15,
     cleanHud: true,
   });
@@ -345,7 +354,104 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(clean.frameStrength, 1.5);
   assert.equal(clean.speedMultiplier, 8.0);
   assert.equal(clean.superGraphics, true);
+  assert.equal(clean.experimentalRover, true);
+  assert.equal(clean.realisticTextures, true);
+  assert.equal(clean.realisticDust, false);
+  assert.equal(clean.realisticPhysics, false);
+  assert.equal(clean.realisticWeather, false);
   assert.equal(clean.fov, 60);
   assert.equal(clean.cleanHud, true);
-  assert.equal(normalizeDevSettings().speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
+  const defs = normalizeDevSettings();
+  assert.equal(defs.speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
+  assert.equal(defs.experimentalRover, false);
+  assert.equal(defs.realisticTextures, false);
+  assert.equal(defs.realisticDust, true);
+  assert.equal(defs.realisticPhysics, true);
+  assert.equal(defs.realisticWeather, true);
+});
+
+test("bundled offline NASA MMSEV rover GLB asset is a valid binary", () => {
+  for (const relPath of ["assets/nasa-3d/mmsev-rover.glb"]) {
+    const abs = path.join(WEB_DIR, relPath);
+    assert.equal(fs.existsSync(abs), true, `Missing offline GLB asset: ${relPath}`);
+    const fd = fs.openSync(abs, "r");
+    const hdr = Buffer.alloc(4);
+    fs.readSync(fd, hdr, 0, 4, 0);
+    fs.closeSync(fd);
+    assert.equal(hdr.toString("ascii"), "glTF", `${relPath} must have valid glTF binary header`);
+  }
+});
+
+test("experimental-rover computeSpawnBesideOffset places rover forward-right relative to walker yaw", () => {
+  const zeroYaw = computeSpawnBesideOffset(10, 20, 0, 3.4, 2.4);
+  assert.ok(Math.abs(zeroYaw.x - 13.4) < 1e-6);
+  assert.ok(Math.abs(zeroYaw.z - 17.6) < 1e-6);
+
+  const turned90 = computeSpawnBesideOffset(0, 0, Math.PI / 2, 3.4, 2.4);
+  // yaw=+90deg faces -X, right is -Z
+  assert.ok(Math.abs(turned90.x - -2.4) < 1e-6);
+  assert.ok(Math.abs(turned90.z - -3.4) < 1e-6);
+});
+
+test("resolveRoverObbCollision keeps nose, sides, corners, and wheel pods solid at any rotation", () => {
+  // Approaching straight at front cantilevered cockpit (-Z) inside hull edge
+  const frontHit = resolveRoverObbCollision(0, 0, 0, 0, 0.2, -2.5, 0.42, 0.0);
+  assert.equal(frontHit.hit, true);
+  assert.ok(frontHit.z <= -2.42 - 0.42 + 1e-6, `Expected front push outside -2.84m, got ${frontHit.z}`);
+
+  // Approaching diagonal wheel pod corner under 45-degree rover rotation
+  const cornerRot = resolveRoverObbCollision(10, 20, Math.PI / 4, 5.0, 10 + 2.8, 20 + 0.1, 0.42, 5.2);
+  assert.equal(cornerRot.hit, true);
+  assert.ok(cornerRot.pen > 0);
+  const recheck = resolveRoverObbCollision(10, 20, Math.PI / 4, 5.0, cornerRot.x, cornerRot.z, 0.42, 5.2);
+  assert.equal(recheck.hit, false);
+
+  // Far clear position does not trigger collision
+  const miss = resolveRoverObbCollision(0, 0, 0, 0, 5.0, 5.0, 0.42, 0.0);
+  assert.equal(miss.hit, false);
+
+  // High jump above rover roof clears cleanly
+  const highJump = resolveRoverObbCollision(0, 0, 0, 0, 0.0, 0.0, 0.42, 4.0);
+  assert.equal(highJump.hit, false);
+});
+
+test("stepRoverBallisticPhysics keeps slow crawl planted and launches high-speed crests under 3.71 m/s^2 gravity", () => {
+  const s = { posY: 0, velY: 0, prevGroundY: 0, airborne: false, airTime: 0, peakLaunchVy: 0 };
+  const slow = stepRoverBallisticPhysics(s, { groundY: 0.04, slopeClimbVy: 0.4, horizSpeed: 2.0, dt: 0.016 });
+  assert.equal(slow.launched, false);
+  assert.equal(s.airborne, false);
+
+  // Smooth uphill ramp climb stays planted, then launches airborne at the crest dropoff
+  const ramp = stepRoverBallisticPhysics(s, { groundY: 0.105, slopeClimbVy: 4.2, horizSpeed: 15.0, dt: 0.016 });
+  assert.equal(ramp.launched, false);
+  const crest = stepRoverBallisticPhysics(s, { groundY: 0.1, slopeClimbVy: 0.0, horizSpeed: 15.0, dt: 0.016 });
+  assert.equal(crest.launched, true);
+  assert.equal(s.airborne, true);
+  assert.ok(s.velY >= 3.5);
+
+  let landedStep = null;
+  for (let i = 0; i < 300; i++) {
+    const res = stepRoverBallisticPhysics(s, {
+      groundY: 0.1,
+      horizSpeed: 15.0,
+      dt: 0.016,
+      marsG: MARS_GRAVITY_MS2,
+    });
+    if (res.landed) {
+      landedStep = res;
+      break;
+    }
+  }
+  assert.ok(landedStep && landedStep.landed, "Rover must return to terrain under Mars gravity");
+  assert.equal(s.airborne, false);
+  assert.ok(landedStep.impactSpeed > 2.5, "Touchdown should report vertical impact velocity");
+
+  const whip = stepRoverBallisticPhysics(s, {
+    groundY: 0.1,
+    bumpImpulseVy: 2.6,
+    horizSpeed: 11.0,
+    dt: 0.016,
+  });
+  assert.equal(whip.launched, true);
+  assert.equal(s.airborne, true);
 });

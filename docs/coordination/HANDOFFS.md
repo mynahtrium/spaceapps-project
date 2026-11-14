@@ -327,3 +327,26 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Please do next: Divarci / Doruk / Cagan review cross-folder `web/` changes.
 - Received:
+
+### HANDOFF-20261114-2005 — from Tester 2 (Eymen) to Frontend 1 (Divarci) / Tester 1 (Ahmet)
+
+- Date (Europe/Istanbul): 2026-11-14 20:05
+- From (role, first name or nickname only, agent tool): bug tester 2, Eymen, Antigravity (Gemini)
+- To (role, name if known): Frontend 1 (Divarci, owner of `web/`), Tester 1 (Ahmet), Cagan, Doruk
+- Board task id: MUST-09 / MUST-10 / MUST-12 follow-up
+- What is ready:
+  1. **NASA MMSEV Rover + Full 6-DOF Mars Vehicle Physics (`web/hud/experimental-rover.js`, `web/hud/hud3d.js`, `web/assets/nasa-3d/mmsev-rover.glb`):**
+     - Replaced `Begin EVA` button and removed Mixamo animation pack completely, returning to clean NASA spacesuit procedural kinematics (`web/hud/astronaut-rig.js`, `web/shared/dev-settings.js`, `web/app.js`).
+     - Fixed NASA MMSEV orientation (`wrapper.rotation.y = 0`, `-Z` dual-windshield cockpit forward), stripped static GLB wheel triangles in favor of 6 articulated spring-mesh dual-wheel bogie pods (`MMSEV_POD_AXLES = [-1.708, -0.370, +0.969]`), added flush twin headlights + forward `SpotLight` high-beam + rear LED tailbars, solid OBB collision (`resolveRoverObbCollision`), and 3-point per-pod anti-sink ground floor locking so tires ride atop ripples cleanly.
+     - Added full Mars rover physics: powered up electric drive (`12.5 m/s` cruise, `21.0 m/s` Shift boost, `-8.0 m/s` reverse), slope gravity loading (`3.71 m/s^2`), loose regolith high-speed powerslide drift + dynamic roll/squat suspension weight transfer, **crest/abrupt-maneuver airborne takeoff & Mars `0.38g` parabolic flight** (`stepRoverBallisticPhysics`), plus touchdown shockwave dust bursts.
+  2. **Center Tactical Crosshair & Pointer Lock (`web/hud/hud3d.js`, `web/index.html`, `web/styles.css`):**
+     - Enabled `.hud-reticle` crosshair centered over the 3D viewport (auto-hidden when tactical map `M` is open; cyan-highlighted `.hud-reticle.locked` when mouse is captured).
+     - Added click-to-capture Pointer Lock (`requestPointerLock()` + smooth `movementX`/`movementY` aim with drag fallback), automatically released via `Esc` (`pointerlockchange`), opening the map (`M`), modals/drawers, or leaving `#hud-view`.
+  3. **Martian Atmosphere & Impact Dust Upgrades (`web/hud/mars-fx.js`, `web/hud/hud3d.js`):**
+     - Lowered & thinned ambient dust wisps (`WISP_COUNT = 100`, `MOTE_COUNT = 160`) for horizon clarity, upgraded astronaut jump/landing + rover touchdown FX (`emitJumpBurst`: expanding shockwave torus ring + ballistic regolith clods under `3.71 m/s^2`), and added `FULL_REALISM_PRESET` in Dev Settings.
+- Paths (files or folders): `web/app.js`, `web/index.html`, `web/styles.css`, `web/shared/dev-settings.js`, `web/hud/astronaut-rig.js`, `web/hud/experimental-rover.js`, `web/hud/mars-fx.js`, `web/hud/hud3d.js`, `web/assets/nasa-3d/mmsev-rover.glb`, `web/tests/fallback.test.mjs`, `docs/coordination/HANDOFFS.md`, `docs/coordination/AGENT_LOG.md`
+- How to try it: Checkout `tester-2/rover-crosshair-fx`, serve `web/`, open `?demo=1`, enable `Full Realism Preset` in Menu -> Developer Settings, enter 3D Bodycam, click canvas to capture mouse (`Esc` releases), walk to MMSEV & press `F` to drive (`W/S/A/D`, hold `Shift` for boost over ridges to launch airborne).
+- What is not done / known limits: Syntax check across all 27 non-vendor JS/MJS files and 28/28 Node unit tests (including `stepRoverBallisticPhysics` and `resolveRoverObbCollision`) passed after final edits. Mixamo removal, `.hud-reticle`, unflipped cockpit, wheel anti-sink contact, solid OBB collision, 3P driving, and Mars jump shockwave were live-verified in headless Chromium (`0` console/network errors); final Pointer Lock & ballistic rover airtime edits were pushed immediately without running a separate live browser pass per tester request.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Please do next: Divarci reviews `web/` changes on branch `tester-2/rover-crosshair-fx` and Ahmet verifies airborne driving + Pointer Lock feel live in browser.
+- Received:

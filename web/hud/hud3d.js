@@ -30,6 +30,12 @@ import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
+import {
+  computeSpawnBesideOffset,
+  createExperimentalRover,
+  stepRoverBallisticPhysics,
+} from "./experimental-rover.js";
+import { createMarsFxSystem } from "./mars-fx.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -662,6 +668,48 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const pbr = createMartianPbrTextureSets(THREE, 256);
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
   pbr.dustNormalTex.repeat.set(640, 640);
+  let pbrHigh = null;
+  let terrainShaderRef = null;
+  let suitWeaveTex = null;
+
+  function ensureHighResPbr() {
+    if (pbrHigh) return pbrHigh;
+    pbrHigh = createMartianPbrTextureSets(THREE, 512);
+    for (const t of [pbrHigh.dustAlbedoTex, pbrHigh.rockAlbedoTex, pbrHigh.dustNormalTex, pbrHigh.rockNormalTex]) {
+      t.anisotropy = maxAniso;
+    }
+    pbrHigh.dustNormalTex.repeat.set(640, 640);
+    return pbrHigh;
+  }
+
+  function ensureSuitWeaveNormal() {
+    if (suitWeaveTex) return suitWeaveTex;
+    const sz = 128;
+    const data = new Uint8Array(sz * sz * 4);
+    for (let y = 0; y < sz; y++) {
+      for (let x = 0; x < sz; x++) {
+        // Woven ortho-fabric micro-ripstop pattern
+        const gx = Math.sin((x / sz) * Math.PI * 32) * 0.25;
+        const gy = Math.sin((y / sz) * Math.PI * 32) * 0.25;
+        const seam = x % 16 === 0 || y % 16 === 0 ? -0.35 : 0.0;
+        const dx = gx + seam * 0.25;
+        const dy = gy + seam * 0.25;
+        const inv = 1 / Math.hypot(dx, dy, 1);
+        const i = (y * sz + x) * 4;
+        data[i] = Math.round(((dx * inv) * 0.5 + 0.5) * 255);
+        data[i + 1] = Math.round(((dy * inv) * 0.5 + 0.5) * 255);
+        data[i + 2] = Math.round((inv * 0.5 + 0.5) * 255);
+        data[i + 3] = 255;
+      }
+    }
+    const tex = new THREE.DataTexture(data, sz, sz, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(14, 14);
+    tex.needsUpdate = true;
+    suitWeaveTex = tex;
+    return tex;
+  }
 
   const terrainMat = new THREE.MeshStandardMaterial({
     map: reliefTex,
@@ -672,15 +720,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   });
   terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
   const superDetailUniform = { value: 0 };
+  const realisticTexUniform = { value: 0 };
   terrainMat.onBeforeCompile = (shader) => {
+    terrainShaderRef = shader;
     shader.uniforms.detailMap = { value: detailTex };
-    shader.uniforms.pbrDust = { value: pbr.dustAlbedoTex };
-    shader.uniforms.pbrRock = { value: pbr.rockAlbedoTex };
+    shader.uniforms.pbrDust = { value: devCfg.realisticTextures ? ensureHighResPbr().dustAlbedoTex : pbr.dustAlbedoTex };
+    shader.uniforms.pbrRock = { value: devCfg.realisticTextures ? ensureHighResPbr().rockAlbedoTex : pbr.rockAlbedoTex };
     shader.uniforms.sunMask = { value: sunMask };
     shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
     shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
     shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
     shader.uniforms.uSuperDetail = superDetailUniform;
+    shader.uniforms.uRealisticTex = realisticTexUniform;
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec2 vMmWorldXZ;")
       .replace(
@@ -703,7 +754,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       )
       .replace(
         "#include <map_pars_fragment>",
-        "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;\nuniform float uSuperDetail;"
+        "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;\nuniform float uSuperDetail;\nuniform float uRealisticTex;"
       )
       .replace(
         "#include <map_fragment>",
@@ -711,15 +762,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         #ifdef USE_MAP
           float dA = texture2D(detailMap, vMapUv * 173.0).r;
           float dB = texture2D(detailMap, vMapUv * 911.0).r;
-          float detailGain = mix(0.40, 0.54, uSuperDetail);
+          float detailGain = mix(0.40, 0.56, max(uSuperDetail, uRealisticTex * 0.85));
           diffuseColor.rgb *= (1.0 - detailGain * 0.65) + detailGain * dA * 0.6 + detailGain * dB * 0.4;
           // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
-          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(640.0, 920.0, uSuperDetail)).rgb;
-          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(290.0, 440.0, uSuperDetail) + 0.37).rgb;
+          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(640.0, 960.0, max(uSuperDetail, uRealisticTex))).rgb;
+          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(290.0, 460.0, max(uSuperDetail, uRealisticTex)) + 0.37).rgb;
           float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
           vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
           float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
-          diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.30, 1.75), mix(0.7, 0.92, uSuperDetail));
+          float mmRichLum = mix(mmLum, pow(clamp(mmLum, 0.18, 2.1), 1.38), uRealisticTex);
+          float mmMineralGlint = uRealisticTex * smoothstep(0.92, 0.995, dB) * 0.18;
+          diffuseColor.rgb *= mix(1.0, clamp(mmRichLum, 0.22, 1.95), mix(0.7, 0.96, max(uSuperDetail, uRealisticTex)));
+          diffuseColor.rgb += vec3(mmMineralGlint, mmMineralGlint * 0.72, mmMineralGlint * 0.48);
         #endif`
       );
   };
@@ -861,7 +915,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return Math.atan2(-(b.x - a.x), -(b.z - a.z));
   }
 
-  // ---------- astronauts (NASA 3D Resources, procedural rig) ----------
+  // ---------- astronauts (NASA 3D Resources, procedural walk/run/jump suit rig) ----------
   let suitRig = null;
   let self = null;
   let partner = null;
@@ -877,14 +931,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     g.add(body);
     return { group: g, update() {}, phase: 0, amount: 0 };
   };
+  const sharedDraco = new DRACOLoader();
+  sharedDraco.setDecoderPath("./vendor/addons/libs/draco/gltf/");
+  const sharedGltfLoader = new GLTFLoader();
+  sharedGltfLoader.setDRACOLoader(sharedDraco);
   {
-    const draco = new DRACOLoader();
-    draco.setDecoderPath("./vendor/addons/libs/draco/gltf/");
-    const loader = new GLTFLoader();
-    loader.setDRACOLoader(draco);
     for (const m of SUIT_MODELS) {
       try {
-        const rig = await loadSuitRig(loader, m.url, ASTRONAUT_HEIGHT_M);
+        const rig = await loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M);
         suitRig = rig;
         self = createAstronaut(rig, { hideHead: true });
         suitLabel = m.label + " · RIGGED";
@@ -901,6 +955,47 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
   scene.add(self.group); // single astronaut: you
+
+  const suitMatBaselines = [];
+  self.group.traverse((obj) => {
+    if (obj.isMesh && obj.material && !Array.isArray(obj.material)) {
+      suitMatBaselines.push({
+        mat: obj.material,
+        normalMap: obj.material.normalMap || null,
+        normalScale: obj.material.normalScale ? obj.material.normalScale.clone() : new THREE.Vector2(1, 1),
+        roughness: obj.material.roughness ?? 0.65,
+        metalness: obj.material.metalness ?? 0.05,
+      });
+    }
+  });
+  function applySuitRealism(enabled) {
+    const weave = enabled ? ensureSuitWeaveNormal() : null;
+    for (const entry of suitMatBaselines) {
+      if (enabled) {
+        if (!entry.normalMap) {
+          entry.mat.normalMap = weave;
+          entry.mat.normalScale?.set(0.32, 0.32);
+        } else {
+          entry.mat.normalScale?.set(
+            Math.max(0.45, entry.normalScale.x * 1.45),
+            Math.max(0.45, entry.normalScale.y * 1.45)
+          );
+        }
+        entry.mat.roughness = Math.max(0.22, entry.roughness * 0.88);
+      } else {
+        entry.mat.normalMap = entry.normalMap;
+        entry.mat.normalScale?.copy(entry.normalScale);
+        entry.mat.roughness = entry.roughness;
+      }
+      entry.mat.needsUpdate = true;
+    }
+  }
+
+  const rover = createExperimentalRover(THREE);
+  rover.group.visible = false;
+  scene.add(rover.group);
+  rover.attachRealModel(sharedGltfLoader);
+  const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
 
   // ---------- contact shadows under the boots ----------
   // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
@@ -1198,27 +1293,121 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
   let partnerS = PARTNER_AHEAD_M;
   let justTeleportedOrWrapped = false;
+  let drivingRover = false;
+  let roverThrottleVel = 0;
+  let roverVelX = 0;
+  let roverVelZ = 0;
+  let roverSteer = 0;
+  let prevRoverSteer = 0;
+  let roverLandingImpact = 0;
+  const roverAirState = {
+    posY: null,
+    velY: 0,
+    prevGroundY: null,
+    airborne: false,
+    airTime: 0,
+    peakLaunchVy: 0,
+  };
+  function resetRoverMotionState() {
+    roverThrottleVel = 0;
+    roverVelX = 0;
+    roverVelZ = 0;
+    roverSteer = 0;
+    prevRoverSteer = 0;
+    roverLandingImpact = 0;
+    roverAirState.posY = null;
+    roverAirState.velY = 0;
+    roverAirState.prevGroundY = null;
+    roverAirState.airborne = false;
+    roverAirState.airTime = 0;
+    roverAirState.peakLaunchVy = 0;
+  }
+  let roverWasOn = false;
+  let nearRoverPrompted = false;
+  let prevFirstPersonPitch = -0.12;
+  let chaseCamInit = false;
+  const chaseCamPos = new THREE.Vector3();
+  const chaseLookTarget = new THREE.Vector3();
+  let baseSunIntensity = 3.6;
+  let walkVelX = 0;
+  let walkVelZ = 0;
+  let prevFootStepCount = 0;
+  let roverDustAcc = 0;
   const keys = new Set();
 
+  const hudView = document.getElementById("hud-view");
+  const reticleEl = document.querySelector(".hud-reticle");
   const mapOverlayEl = document.getElementById("hud-map-overlay");
   const isMapOpen = () => Boolean(mapOverlayEl?.classList.contains("open"));
+  const isHudActive = () => Boolean(hudView?.classList.contains("active"));
+  const isPointerLocked = () => document.pointerLockElement === renderer.domElement;
+  const hasOpenModalOverlay = () => Boolean(document.querySelector(".modal-backdrop.open, #crew-drawer.open"));
+
+  function releasePointerLock() {
+    if (document.pointerLockElement) {
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
+  }
+
+  function requestCrosshairLock() {
+    if (!isHudActive() || isMapOpen() || hasOpenModalOverlay() || isPointerLocked()) return;
+    try {
+      const p = renderer.domElement.requestPointerLock?.();
+      if (p?.catch) p.catch(() => {});
+    } catch {}
+  }
 
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
   renderer.domElement.addEventListener("pointerdown", (e) => {
-    if (isMapOpen()) return;
+    if (isMapOpen() || !isHudActive()) return;
+    if (e.button === 0) requestCrosshairLock();
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
   });
   window.addEventListener("pointerup", () => (dragging = false));
-  window.addEventListener("pointermove", (e) => {
-    if (!dragging || isMapOpen()) return;
-    userYaw -= (e.clientX - lastX) * 0.0035;
-    pitch = Math.max(-1.35, Math.min(1.42, pitch - (e.clientY - lastY) * 0.003));
+  document.addEventListener("pointerlockchange", () => {
+    const locked = isPointerLocked();
+    dragging = false;
+    reticleEl?.classList.toggle("locked", locked);
+    if (locked && (isMapOpen() || !isHudActive() || hasOpenModalOverlay())) {
+      releasePointerLock();
+    }
+  });
+  if (hudView && typeof MutationObserver !== "undefined") {
+    new MutationObserver(() => {
+      if (!isHudActive()) {
+        dragging = false;
+        releasePointerLock();
+      }
+    }).observe(hudView, { attributes: true, attributeFilter: ["class"] });
+  }
+  document.addEventListener("mousemove", (e) => {
+    const locked = isPointerLocked();
+    if (!locked && !dragging) return;
+    if (isMapOpen() || !isHudActive()) {
+      dragging = false;
+      if (locked) releasePointerLock();
+      return;
+    }
+    const rawDx = locked ? e.movementX || 0 : e.clientX - lastX;
+    const rawDy = locked ? e.movementY || 0 : e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
+    // Clamp transient Pointer Lock cursor warp spikes
+    const dx = Math.abs(rawDx) > 320 ? 0 : rawDx;
+    const dy = Math.abs(rawDy) > 320 ? 0 : rawDy;
+    if (dx === 0 && dy === 0) return;
+    const sensX = locked ? 0.0024 : 0.0035;
+    const sensY = locked ? 0.0021 : 0.003;
+    userYaw -= dx * sensX;
+    const minPitch = drivingRover ? -1.08 : -1.35;
+    const maxPitch = drivingRover ? -0.06 : 1.42;
+    pitch = Math.max(minPitch, Math.min(maxPitch, pitch - dy * sensY));
   });
   const dropLocalPing = (label = "Science Beacon") => {
     if (!mp) return null;
@@ -1230,9 +1419,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return mp.dropPing({ lon, lat, elevM: elev, label });
   };
 
-  const hudView = document.getElementById("hud-view");
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
-  window.addEventListener("blur", () => keys.clear());
+  window.addEventListener("blur", () => {
+    keys.clear();
+    dragging = false;
+    releasePointerLock();
+  });
 
   const btnPlay = document.getElementById("hud-play");
   const scrubber = document.getElementById("hud-scrubber");
@@ -1326,6 +1518,16 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       partnerPos.set(p.x, 0, p.z);
       player.init = false;
       justTeleportedOrWrapped = true;
+      drivingRover = false;
+      roverThrottleVel = 0;
+      chaseCamInit = false;
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = true;
+      if (devCfg.experimentalRover && rover) {
+        rover.group.visible = true;
+        rover.spawnBeside(p.x, p.z, userYaw, sampleElevSceneY);
+        nearRoverPrompted = false;
+      }
     }
   });
 
@@ -1638,9 +1840,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (!mapOverlayEl) return;
     const next = Boolean(open);
     mapOverlayEl.classList.toggle("open", next);
+    document.querySelector(".hud-reticle")?.classList.toggle("hidden", next);
     if (next) {
       keys.clear();
       dragging = false;
+      releasePointerLock();
       syncMapStaticText();
       renderTacticalMap();
     } else {
@@ -1848,22 +2052,95 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       setMapOpen(!isMapOpen());
       return;
     }
-    if (e.key === "Escape" && isMapOpen()) {
-      e.preventDefault();
-      setMapOpen(false);
-      return;
+    if (e.key === "Escape") {
+      if (isPointerLocked()) {
+        releasePointerLock();
+        return;
+      }
+      if (isMapOpen()) {
+        e.preventDefault();
+        setMapOpen(false);
+        return;
+      }
     }
     if (isMapOpen()) return;
 
     keys.add(k);
+    if (k === "f" && !e.repeat && devCfg.experimentalRover && rover.group.visible) {
+      const tr = isTrLang();
+      if (drivingRover) {
+        drivingRover = false;
+        resetRoverMotionState();
+        chaseCamInit = false;
+        pitch = prevFirstPersonPitch;
+        const exitPt = computeSpawnBesideOffset(
+          rover.group.position.x,
+          rover.group.position.z,
+          rover.group.rotation.y,
+          -2.75,
+          0.0
+        );
+        let wx = wrapSceneCoord(exitPt.x, worldW).val;
+        let wz = wrapSceneCoord(exitPt.z, worldH).val;
+        const wy = sampleElevSceneY(wx, wz);
+        const outCol = rover.resolveCollision(wx, wz, PARTNER_COLLISION_R + 0.08, wy);
+        if (outCol.hit) {
+          wx = wrapSceneCoord(outCol.x, worldW).val;
+          wz = wrapSceneCoord(outCol.z, worldH).val;
+        }
+        freePos.set(wx, 0, wz);
+        player.x = wx;
+        player.z = wz;
+        player.y = sampleElevSceneY(wx, wz);
+        player.vy = 0;
+        player.grounded = true;
+        player.init = true;
+        justTeleportedOrWrapped = true;
+        syncDrivingCameraVisualState(false);
+        if (self?.group) self.group.visible = true;
+        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: F)" : "EXITED MARS ROVER (PRESS F TO BOARD)");
+      } else {
+        const dist = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
+        if (dist <= 5.4) {
+          drivingRover = true;
+          resetRoverMotionState();
+          prevFirstPersonPitch = pitch;
+          pitch = -0.25;
+          autoYaw = 0;
+          userYaw = rover.group.rotation.y;
+          chaseCamInit = false;
+          syncDrivingCameraVisualState(true);
+          if (self?.group) self.group.visible = false;
+          showWrapNotice(
+            tr
+              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SHIFT TURBO · F İN"
+              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SHIFT BOOST · F EXIT"
+          );
+        }
+      }
+      return;
+    }
     if (k === "p") {
       dropLocalPing("EVA Waypoint");
     }
-    if (k === " ") {
+    if (k === " " && !drivingRover) {
       e.preventDefault();
       if (player.grounded) {
         player.vy = JUMP_SPEED_MS;
         player.grounded = false;
+        if (devCfg.realisticDust) {
+          const jYaw = autoYaw + userYaw;
+          marsFx.emitJumpBurst(freePos.x, player.y, freePos.z, {
+            mode: "takeoff",
+            impactSpeed: 1.55,
+            rightX: Math.cos(jYaw),
+            rightZ: -Math.sin(jYaw),
+            fwdX: -Math.sin(jYaw),
+            fwdZ: -Math.cos(jYaw),
+            vx: walkVelX,
+            vz: walkVelZ,
+          });
+        }
       }
     }
   });
@@ -1956,19 +2233,36 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
   };
 
+  function syncDrivingCameraVisualState(isDriving3p) {
+    const visorOverlay = document.querySelector(".visor-overlay");
+    if (visorOverlay) {
+      visorOverlay.classList.toggle("driving-3p", Boolean(isDriving3p));
+    }
+    if (isDriving3p) {
+      lensMat.uniforms.uFrameZoom.value = 1.0;
+      lensMat.uniforms.uDistort.value = 0.0;
+      lensMat.uniforms.uAberration.value = 0.0012;
+      lensMat.uniforms.uVignette.value = 0.25;
+    } else {
+      const strength = devCfg.frameEffect ? devCfg.frameStrength : 0;
+      lensMat.uniforms.uFrameZoom.value = devCfg.frameEffect ? 1.0 - 0.12 * Math.min(1, strength) : 1.0;
+      lensMat.uniforms.uDistort.value = 0.26 * strength;
+      lensMat.uniforms.uAberration.value = 0.006 * strength;
+      lensMat.uniforms.uVignette.value = 1.05 * strength;
+    }
+  }
+
   function applyDevSettings(cfg) {
     devCfg = cfg;
     const visorOverlay = document.querySelector(".visor-overlay");
     if (visorOverlay) {
       visorOverlay.classList.toggle("no-frame", !cfg.frameEffect);
       visorOverlay.classList.toggle("clean-hud", Boolean(cfg.cleanHud));
+      visorOverlay.classList.toggle("driving-3p", Boolean(drivingRover));
     }
 
+    syncDrivingCameraVisualState(drivingRover);
     const strength = cfg.frameEffect ? cfg.frameStrength : 0;
-    lensMat.uniforms.uFrameZoom.value = cfg.frameEffect ? 1.0 - 0.12 * Math.min(1, strength) : 1.0;
-    lensMat.uniforms.uDistort.value = 0.26 * strength;
-    lensMat.uniforms.uAberration.value = 0.006 * strength;
-    lensMat.uniforms.uVignette.value = 1.05 * strength;
     lensMat.uniforms.uGrain.value = cfg.superGraphics ? 0.025 * strength : 0.07 * strength;
 
     if (camera.fov !== cfg.fov) {
@@ -2009,11 +2303,50 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       renderer.shadowMap.needsUpdate = true;
     }
 
-    terrainMat.normalScale.set(wantSuper ? 0.95 : 0.55, wantSuper ? 0.95 : 0.55);
+    const wantRealTex = Boolean(cfg.realisticTextures);
+    const activePbr = wantRealTex ? ensureHighResPbr() : pbr;
+    if (terrainMat.normalMap !== activePbr.dustNormalTex) {
+      terrainMat.normalMap = activePbr.dustNormalTex;
+      terrainMat.needsUpdate = true;
+    }
+    if (terrainShaderRef?.uniforms) {
+      terrainShaderRef.uniforms.pbrDust.value = activePbr.dustAlbedoTex;
+      terrainShaderRef.uniforms.pbrRock.value = activePbr.rockAlbedoTex;
+    }
+    realisticTexUniform.value = wantRealTex ? 1.0 : 0.0;
+    const baseNorm = wantSuper ? 0.95 : 0.55;
+    const normScale = wantRealTex ? baseNorm + 0.45 : baseNorm;
+    terrainMat.normalScale.set(normScale, normScale);
+    terrainMat.roughness = wantRealTex ? 0.85 : 0.96;
+    applySuitRealism(wantRealTex);
+
     superDetailUniform.value = wantSuper ? 1.0 : 0.0;
-    sun.intensity = wantSuper ? 3.95 : 3.6;
+    baseSunIntensity = wantSuper ? 3.95 : 3.6;
+    sun.intensity = baseSunIntensity;
     hemiLight.intensity = wantSuper ? 0.28 : 0.22;
     renderer.toneMappingExposure = wantSuper ? 1.06 : 1.0;
+
+    const wantRover = Boolean(cfg.experimentalRover);
+    rover.group.visible = wantRover;
+    if (wantRover && !roverWasOn) {
+      resetRoverMotionState();
+      rover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleElevSceneY);
+      nearRoverPrompted = false;
+      if (hudView.classList.contains("active")) {
+        showWrapNotice(
+          isTrLang()
+            ? "DENEYSEL MARS ARACI YANINDA OLUŞTU (BİNMEK/İNMEK: F)"
+            : "EXPERIMENTAL MARS ROVER SPAWNED BESIDE YOU (PRESS F TO DRIVE)"
+        );
+      }
+    } else if (!wantRover && drivingRover) {
+      drivingRover = false;
+      resetRoverMotionState();
+      chaseCamInit = false;
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = true;
+    }
+    roverWasOn = wantRover;
     onResize();
   }
 
@@ -2047,19 +2380,19 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let lastSentPose = null;
   let hudTimer = 1;
 
-  const pushApart = (targetPos) => {
+  const pushApart = (targetPos, minRadius = PARTNER_COLLISION_R) => {
     if (!targetPos) return;
     const pdx = freePos.x - targetPos.x;
     const pdz = freePos.z - targetPos.z;
     const pdy = Math.abs((player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)) - targetPos.y);
     const pDist = Math.hypot(pdx, pdz);
-    if (pdy < ASTRONAUT_HEIGHT_M * 0.9 && pDist < PARTNER_COLLISION_R) {
+    if (pdy < ASTRONAUT_HEIGHT_M * 1.15 && pDist < minRadius) {
       if (pDist > 1e-4) {
-        freePos.x = targetPos.x + (pdx / pDist) * PARTNER_COLLISION_R;
-        freePos.z = targetPos.z + (pdz / pDist) * PARTNER_COLLISION_R;
+        freePos.x = targetPos.x + (pdx / pDist) * minRadius;
+        freePos.z = targetPos.z + (pdz / pDist) * minRadius;
       } else {
-        freePos.x -= fwd.x * PARTNER_COLLISION_R;
-        freePos.z -= fwd.z * PARTNER_COLLISION_R;
+        freePos.x -= fwd.x * minRadius;
+        freePos.z -= fwd.z * minRadius;
       }
     }
   };
@@ -2076,7 +2409,230 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
     let px;
     let pz;
-    if (freeRoam) {
+    let walkerSlopeRad = 0;
+    let roverLateralSpeed = 0;
+    if (freeRoam && drivingRover && devCfg.experimentalRover && rover.group.visible) {
+      const rYaw0 = rover.group.rotation.y;
+      const fx0 = -Math.sin(rYaw0);
+      const fz0 = -Math.cos(rYaw0);
+      const rx0 = Math.cos(rYaw0);
+      const rz0 = -Math.sin(rYaw0);
+      let vFwd = roverVelX * fx0 + roverVelZ * fz0;
+      let vLat = roverVelX * rx0 + roverVelZ * rz0;
+      let steerJerk = 0;
+
+      if (!isMapOpen()) {
+        const run = keys.has("shift");
+        const throttle =
+          (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+        const steerIn =
+          (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
+        prevRoverSteer = roverSteer;
+        roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 9.5);
+        steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
+
+        const mult = devCfg.speedMultiplier || 1;
+        const targetVel = throttle > 0 ? (run ? 21.0 : 12.5) * mult : throttle < 0 ? -8.0 * mult : 0;
+
+        if (!roverAirState.airborne) {
+          const gHere = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
+          const gAheadSlope = sampleElevSceneY(
+            rover.group.position.x + fx0 * 1.4,
+            rover.group.position.z + fz0 * 1.4
+          );
+          const gBehindSlope = sampleElevSceneY(
+            rover.group.position.x - fx0 * 1.4,
+            rover.group.position.z - fz0 * 1.4
+          );
+          const slopePitch = Math.atan2(gAheadSlope - gBehindSlope, 2.8);
+          const reversingInput = throttle !== 0 && throttle * vFwd < -0.6;
+          const driveRate = reversingInput ? 13.5 : throttle !== 0 ? (run ? 10.5 : 7.5) : 2.8;
+          let nextVFwd = vFwd + (targetVel - vFwd) * Math.min(1, dt * driveRate);
+          if (devCfg.realisticPhysics) {
+            // Mars 3.71 m/s^2 gravity pulls downhill / loads steep uphill climbs
+            nextVFwd -= MARS_G * Math.sin(slopePitch) * dt * 1.05;
+          }
+
+          // Steep cliff guard only (> 52 deg sheer wall)
+          const probeAhead = sampleElevSceneY(
+            rover.group.position.x + Math.sign(nextVFwd || 1) * fx0 * 2.2,
+            rover.group.position.z + Math.sign(nextVFwd || 1) * fz0 * 2.2
+          );
+          const slopeAheadDeg = Math.abs(Math.atan2(probeAhead - gHere, 2.2)) * (180 / Math.PI);
+          if (devCfg.realisticPhysics && slopeAheadDeg > 52 && probeAhead > gHere) {
+            nextVFwd *= Math.exp(-dt * 8);
+          }
+
+          const speedAuth = Math.min(1, Math.abs(nextVFwd) / 3.2) * 0.78 + 0.22;
+          const turnDir = Math.abs(nextVFwd) > 0.35 ? Math.sign(nextVFwd) : 0.45;
+          const deltaYaw = roverSteer * turnDir * 1.65 * speedAuth * dt;
+          rover.group.rotation.y += deltaYaw;
+          userYaw += deltaYaw;
+
+          // Loose Martian regolith powerslide when whipping sharply at high speed
+          const rYaw1 = rover.group.rotation.y;
+          const fx1 = -Math.sin(rYaw1);
+          const fz1 = -Math.cos(rYaw1);
+          const rx1 = Math.cos(rYaw1);
+          const rz1 = -Math.sin(rYaw1);
+          const curVx = fx0 * nextVFwd + rx0 * vLat;
+          const curVz = fz0 * nextVFwd + rz0 * vLat;
+          const projFwd = curVx * fx1 + curVz * fz1;
+          const projLat = curVx * rx1 + curVz * rz1;
+          const driftingTurn = Math.abs(roverSteer) > 0.45 && Math.abs(projFwd) > 8.5;
+          const latGrip = driftingTurn ? 3.8 : 10.5;
+          const dampedLat = projLat * Math.exp(-dt * latGrip);
+          roverVelX = fx1 * projFwd + rx1 * dampedLat;
+          roverVelZ = fz1 * projFwd + rz1 * dampedLat;
+          roverThrottleVel = projFwd;
+          roverLateralSpeed = dampedLat;
+        } else {
+          // Mid-air attitude yaw + ballistic momentum preservation
+          const deltaYaw = roverSteer * 0.48 * dt;
+          rover.group.rotation.y += deltaYaw;
+          userYaw += deltaYaw;
+          const drag = Math.exp(-dt * 0.06);
+          roverVelX *= drag;
+          roverVelZ *= drag;
+          const rYaw1 = rover.group.rotation.y;
+          roverThrottleVel = roverVelX * -Math.sin(rYaw1) + roverVelZ * -Math.cos(rYaw1);
+          roverLateralSpeed = roverVelX * Math.cos(rYaw1) - roverVelZ * Math.sin(rYaw1);
+        }
+      } else {
+        roverVelX *= Math.exp(-dt * 4);
+        roverVelZ *= Math.exp(-dt * 4);
+        roverThrottleVel *= Math.exp(-dt * 4);
+      }
+
+      rover.group.position.x += roverVelX * dt;
+      rover.group.position.z += roverVelZ * dt;
+
+      // Solid OBB collision while driving so rover never ghosts through crew astronauts
+      const resolveDrivingActor = (actorPos) => {
+        if (!actorPos) return;
+        const hit = rover.resolveCollision(actorPos.x, actorPos.z, PARTNER_COLLISION_R + 0.08, actorPos.y);
+        if (hit.hit) {
+          rover.group.position.x -= hit.nx * hit.pen;
+          rover.group.position.z -= hit.nz * hit.pen;
+          roverVelX *= 0.25;
+          roverVelZ *= 0.25;
+          roverThrottleVel *= 0.25;
+        }
+      };
+      if (partner && partner.group.visible) resolveDrivingActor(partner.group.position);
+      for (const remote of remoteAvatars.values()) resolveDrivingActor(remote.group.position);
+
+      const wx = wrapSceneCoord(rover.group.position.x, worldW);
+      const wz = wrapSceneCoord(rover.group.position.z, worldH);
+      if (wx.wrapped || wz.wrapped) {
+        rover.group.position.x = wx.val;
+        rover.group.position.z = wz.val;
+        roverAirState.posY = null;
+        roverAirState.prevGroundY = null;
+        roverAirState.airborne = false;
+        justTeleportedOrWrapped = true;
+      }
+
+      // 3D crest launch, Martian 0.38g parabolic flight, and spring-shock touchdown impact
+      const horizSpeed = Math.hypot(roverVelX, roverVelZ);
+      const supportGroundY = rover.sampleSupportGroundY(sampleElevSceneY);
+      let slopeClimbVy = 0;
+      let bumpImpulseVy = 0;
+      if (horizSpeed > 0.8 && !roverAirState.airborne) {
+        const dirX = roverVelX / horizSpeed;
+        const dirZ = roverVelZ / horizSpeed;
+        const hBackVel = sampleElevSceneY(rover.group.position.x - dirX * 1.15, rover.group.position.z - dirZ * 1.15);
+        const hNow = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
+        slopeClimbVy = Math.max(0, (hNow - hBackVel) / 1.15) * horizSpeed;
+        // Sudden lateral whip, powerslide drift, or uneven wheel bump pops suspension vertically
+        const hLeft = sampleElevSceneY(
+          rover.group.position.x + Math.cos(rover.group.rotation.y) * 1.34,
+          rover.group.position.z - Math.sin(rover.group.rotation.y) * 1.34
+        );
+        const hRight = sampleElevSceneY(
+          rover.group.position.x - Math.cos(rover.group.rotation.y) * 1.34,
+          rover.group.position.z + Math.sin(rover.group.rotation.y) * 1.34
+        );
+        const crossBump = Math.abs(hLeft - hRight);
+        if ((steerJerk > 1.4 || Math.abs(roverLateralSpeed) > 3.6) && horizSpeed > 7.5 && (crossBump > 0.045 || slopeClimbVy > 0.7)) {
+          bumpImpulseVy = Math.min(4.0, steerJerk * 0.35 + crossBump * 3.0 + Math.abs(roverLateralSpeed) * 0.32);
+        }
+      }
+      const airStep = stepRoverBallisticPhysics(roverAirState, {
+        groundY: supportGroundY,
+        slopeClimbVy,
+        bumpImpulseVy,
+        horizSpeed,
+        dt,
+        marsG: MARS_G,
+      });
+      if (airStep.launched && devCfg.realisticDust) {
+        for (const sideSign of [-1, 1]) {
+          const emit = rover.getWheelDustEmitPoint(sideSign);
+          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 5, 1.35, -roverVelX * 0.2, -roverVelZ * 0.2);
+        }
+      }
+      roverLandingImpact = airStep.landed ? airStep.impactSpeed : 0;
+      if (airStep.landed && devCfg.realisticDust && airStep.impactSpeed > 1.0) {
+        const rYawL = rover.group.rotation.y;
+        marsFx.emitJumpBurst(rover.group.position.x, supportGroundY, rover.group.position.z, {
+          mode: "land",
+          impactSpeed: Math.max(1.2, airStep.impactSpeed * 1.15),
+          rightX: Math.cos(rYawL),
+          rightZ: -Math.sin(rYawL),
+          fwdX: -Math.sin(rYawL),
+          fwdZ: -Math.cos(rYawL),
+          vx: roverVelX,
+          vz: roverVelZ,
+        });
+        for (const sideSign of [-1, 1]) {
+          const emit = rover.getWheelDustEmitPoint(sideSign);
+          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 6, 1.75, -roverVelX * 0.28, -roverVelZ * 0.28);
+        }
+      }
+
+      rover.update(dt, {
+        sampleElevY: sampleElevSceneY,
+        speed: roverThrottleVel,
+        steer: roverSteer,
+        clockT,
+        driving: true,
+        physicsEnabled: Boolean(devCfg.realisticPhysics),
+        airborne: roverAirState.airborne,
+        worldY: roverAirState.posY,
+        velY: roverAirState.velY,
+        lateralSpeed: roverLateralSpeed,
+        landingImpact: roverLandingImpact,
+      });
+      if (devCfg.realisticDust && !roverAirState.airborne && (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2)) {
+        const speedMag = Math.hypot(roverThrottleVel, roverLateralSpeed);
+        roverDustAcc += dt * Math.min(44, 10 + speedMag * 2.8);
+        const burstCount = Math.floor(roverDustAcc);
+        if (burstCount > 0) {
+          roverDustAcc -= burstCount;
+          const rYaw = rover.group.rotation.y;
+          const fx = -Math.sin(rYaw);
+          const fz = -Math.cos(rYaw);
+          const sideSign = Math.random() < 0.5 ? -1 : 1;
+          const emit = rover.getWheelDustEmitPoint(sideSign);
+          marsFx.emitBurst(
+            emit.x,
+            sampleElevSceneY(emit.x, emit.z),
+            emit.z,
+            Math.min(6, burstCount),
+            Math.min(1.95, 0.7 + speedMag * 0.12),
+            -fx * roverThrottleVel * 0.24,
+            -fz * roverThrottleVel * 0.24
+          );
+        }
+      }
+      freePos.x = rover.group.position.x;
+      freePos.z = rover.group.position.z;
+      walkVelX = 0;
+      walkVelZ = 0;
+      px = freePos.x;
+      pz = freePos.z;
+    } else if (freeRoam) {
       if (!isMapOpen()) {
         const run = keys.has("shift");
         fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
@@ -2086,19 +2642,57 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
         if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
         if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
+        const hereY = sampleElevSceneY(freePos.x, freePos.z);
+        let desiredVx = 0;
+        let desiredVz = 0;
         if (moveDir.lengthSq() > 0) {
           moveDir.normalize();
           // slow down on steep ground (uphill or downhill), like a suited walker would
-          const here = sampleElevSceneY(freePos.x, freePos.z);
           const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
-          const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
-          const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
+          const signedPitch = Math.atan2(ahead - hereY, 1.5);
+          walkerSlopeRad = signedPitch;
+          const slopeDeg = Math.abs(signedPitch) * (180 / Math.PI);
+          const slowdown = devCfg.realisticPhysics
+            ? Math.min(1, Math.max(0.26, 1 - Math.max(0, slopeDeg - 9) / 21))
+            : Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
           const v =
             (run ? RUN_SPEED_MS : WALK_SPEED_MS) *
             (devCfg.speedMultiplier || 1) *
             slowdown *
-            (player.grounded ? 1 : 0.6);
-          freePos.addScaledVector(moveDir, v * dt);
+            (player.grounded ? 1 : 0.65);
+          desiredVx = moveDir.x * v;
+          desiredVz = moveDir.z * v;
+        } else {
+          const aheadIdle = sampleElevSceneY(freePos.x + fwd.x * 1.2, freePos.z + fwd.z * 1.2);
+          walkerSlopeRad = Math.atan2(aheadIdle - hereY, 1.2);
+        }
+
+        if (devCfg.realisticPhysics) {
+          // Physical regolith momentum + inertia, and loose scree slide down slopes > 22 deg
+          const accelK = moveDir.lengthSq() > 0 ? (player.grounded ? 11.5 : 2.2) : player.grounded ? 9.5 : 0.6;
+          const alpha = Math.min(1, dt * accelK);
+          walkVelX += (desiredVx - walkVelX) * alpha;
+          walkVelZ += (desiredVz - walkVelZ) * alpha;
+
+          if (player.grounded) {
+            const e = 0.8;
+            const gx = (sampleElevSceneY(freePos.x + e, freePos.z) - sampleElevSceneY(freePos.x - e, freePos.z)) / (2 * e);
+            const gz = (sampleElevSceneY(freePos.x, freePos.z + e) - sampleElevSceneY(freePos.x, freePos.z - e)) / (2 * e);
+            const gradMag = Math.hypot(gx, gz);
+            const slopeDegHere = Math.atan(gradMag) * (180 / Math.PI);
+            if (slopeDegHere > 22 && gradMag > 1e-4) {
+              const slip = Math.min(2.6, (slopeDegHere - 22) * 0.14);
+              walkVelX += (-gx / gradMag) * slip * dt * 4.5;
+              walkVelZ += (-gz / gradMag) * slip * dt * 4.5;
+            }
+          }
+          freePos.x += walkVelX * dt;
+          freePos.z += walkVelZ * dt;
+        } else {
+          walkVelX = desiredVx;
+          walkVelZ = desiredVz;
+          freePos.x += desiredVx * dt;
+          freePos.z += desiredVz * dt;
         }
       }
       // Wrap around to the opposite edge when crossing the 3D map boundary (Mars globe-style loop)
@@ -2123,9 +2717,43 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         );
       }
 
-      // Solid collision against visible NPC partner or live crewmates so free-roam cannot clip through them
+      // Solid collision against visible NPC partner, parked rover, or live crewmates so free-roam cannot clip through them
       if (partner && partner.group.visible) {
         pushApart(partner.group.position);
+      }
+      if (devCfg.experimentalRover && rover.group.visible) {
+        const col = rover.resolveCollision(
+          freePos.x,
+          freePos.z,
+          PARTNER_COLLISION_R,
+          player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)
+        );
+        if (col.hit) {
+          freePos.x = col.x;
+          freePos.z = col.z;
+          const vn = walkVelX * col.nx + walkVelZ * col.nz;
+          if (vn < 0) {
+            walkVelX -= col.nx * vn;
+            walkVelZ -= col.nz * vn;
+          }
+        }
+        rover.update(dt, {
+          sampleElevY: sampleElevSceneY,
+          speed: 0,
+          steer: 0,
+          clockT,
+          driving: false,
+          physicsEnabled: Boolean(devCfg.realisticPhysics),
+        });
+        const distR = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
+        if (distR <= 4.6 && !nearRoverPrompted) {
+          nearRoverPrompted = true;
+          showWrapNotice(
+            isTrLang() ? "DENEYSEL MARS ARACI · BİNMEK İÇİN [F] TUŞUNA BAS" : "EXPERIMENTAL MARS ROVER · PRESS [F] TO DRIVE"
+          );
+        } else if (distR > 6.2) {
+          nearRoverPrompted = false;
+        }
       }
       for (const remote of remoteAvatars.values()) {
         pushApart(remote.group.position);
@@ -2166,14 +2794,29 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       player.vy -= MARS_G * dt;
       player.y += player.vy * dt;
       if (player.y <= ground) {
+        const impactVy = Math.abs(player.vy);
         player.y = ground;
         player.vy = 0;
         player.grounded = true;
+        if (devCfg.realisticDust && !drivingRover && impactVy > 0.6) {
+          const jYaw = autoYaw + userYaw;
+          marsFx.emitJumpBurst(px, ground, pz, {
+            mode: "landing",
+            impactSpeed: impactVy,
+            rightX: Math.cos(jYaw),
+            rightZ: -Math.sin(jYaw),
+            fwdX: -Math.sin(jYaw),
+            fwdZ: -Math.cos(jYaw),
+            vx: walkVelX,
+            vz: walkVelZ,
+          });
+        }
       }
     } else {
       player.y = ground;
     }
     const yaw = autoYaw + userYaw;
+    const snappedThisFrame = justTeleportedOrWrapped;
     const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0; // ignore teleport/wrap jumps
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
@@ -2181,6 +2824,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     // own body: rigged walk driven by distance actually covered
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
+    if (drivingRover) {
+      self.group.visible = false;
+    } else {
+      self.group.visible = suitRig != null;
+    }
     // walking direction in the body frame, so strafing side-steps and S walks backwards
     let gaitDir = null;
     if (step > 1e-5) {
@@ -2191,7 +2839,25 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     self.update(dt, step, groundSpeed, !player.grounded, gaitDir);
     self.group.updateMatrixWorld(true);
 
-    // helmet camera at the visor, with only a few millimetres of walking sway
+    // Bootstep Martian regolith kickup puffs on foot plant while walking/running
+    const footStepIdx = Math.floor((self.phase ?? 0) / Math.PI);
+    if (footStepIdx !== prevFootStepCount) {
+      prevFootStepCount = footStepIdx;
+      if (devCfg.realisticDust && !drivingRover && player.grounded && groundSpeed > 0.35 && movedXZ > 1e-5) {
+        const runFast = groundSpeed > 1.9;
+        marsFx.emitBurst(
+          px,
+          ground,
+          pz,
+          runFast ? 7 : 4,
+          runFast ? 1.15 : 0.72,
+          -(mvx / movedXZ) * groundSpeed * 0.18,
+          -(mvz / movedXZ) * groundSpeed * 0.18
+        );
+      }
+    }
+
+    // helmet camera at the visor (or cupola view when driving the experimental rover)
     const ph = self.phase ?? 0;
     const amt = Math.min(1, self.amount ?? 0);
     fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
@@ -2199,18 +2865,56 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const swayY = Math.sin(ph * 2) * 0.004 * amt;
     const swayX = Math.sin(ph) * 0.003 * amt;
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
-    // looking down tips the head forward a little, like a real neck
-    const tip = Math.max(0, -pitch);
-    const eyeFwd = EYE_FORWARD_M + tip * 0.1;
-    camera.position.set(
-      px + fwd.x * eyeFwd + right.x * swayX,
-      player.y + EYE_HEIGHT_M - tip * 0.07 + swayY,
-      pz + fwd.z * eyeFwd + right.z * swayX
-    );
-    camera.rotation.order = "YXZ";
-    camera.rotation.y = yaw + micro(0.6, 0.0007);
-    camera.rotation.x = pitch + micro(0.9, 0.0006);
-    camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
+    if (drivingRover && rover.group.visible) {
+      const rPos = rover.group.position;
+      const rYaw = rover.group.rotation.y;
+      const camDist = 6.9 + Math.min(1.6, Math.abs(roverThrottleVel) * 0.065) + (roverAirState.airborne ? 0.75 : 0);
+      const elevAng = Math.max(0.06, Math.min(1.08, -pitch));
+      const horizDist = camDist * Math.cos(elevAng);
+      const heightOff = camDist * Math.sin(elevAng);
+      const targetX = rPos.x - Math.sin(rYaw) * 0.4;
+      const targetY = rPos.y + 1.45;
+      const targetZ = rPos.z - Math.cos(rYaw) * 0.4;
+      const desiredX = targetX + Math.sin(yaw) * horizDist;
+      const desiredZ = targetZ + Math.cos(yaw) * horizDist;
+      const groundUnderCam = sampleElevSceneY(desiredX, desiredZ);
+      const desiredY = Math.max(targetY + heightOff, groundUnderCam + 0.65);
+
+      if (!chaseCamInit || snappedThisFrame) {
+        chaseCamPos.set(desiredX, desiredY, desiredZ);
+        chaseLookTarget.set(targetX, targetY, targetZ);
+        chaseCamInit = true;
+      } else {
+        const kCam = Math.min(1, dt * 11);
+        chaseCamPos.x += (desiredX - chaseCamPos.x) * kCam;
+        chaseCamPos.y += (desiredY - chaseCamPos.y) * kCam;
+        chaseCamPos.z += (desiredZ - chaseCamPos.z) * kCam;
+        const kTgt = Math.min(1, dt * 15);
+        chaseLookTarget.x += (targetX - chaseLookTarget.x) * kTgt;
+        chaseLookTarget.y += (targetY - chaseLookTarget.y) * kTgt;
+        chaseLookTarget.z += (targetZ - chaseLookTarget.z) * kTgt;
+      }
+      const shake = Math.min(0.025, Math.abs(roverThrottleVel) * 0.0022);
+      camera.position.set(
+        chaseCamPos.x,
+        chaseCamPos.y + Math.sin(clockT * 16) * shake,
+        chaseCamPos.z
+      );
+      camera.lookAt(chaseLookTarget);
+    } else {
+      // looking down tips the head forward a little, like a real neck
+      const tip = Math.max(0, -pitch);
+      const eyeFwd = EYE_FORWARD_M + tip * 0.1;
+      camera.position.set(
+        px + fwd.x * eyeFwd + right.x * swayX,
+        player.y + EYE_HEIGHT_M - tip * 0.07 + swayY,
+        pz + fwd.z * eyeFwd + right.z * swayX
+      );
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = yaw + micro(0.6, 0.0007);
+      camera.rotation.x = pitch + micro(0.9, 0.0006);
+      camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
+    }
 
     // Smoothly animate live multiplayer crewmates
     const lerpAlpha = Math.min(1, dt * 12);
@@ -2225,7 +2929,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const rSpeed = dt > 0 ? Math.max(rStep / dt, remote.target.speed * 0.5) : 0;
       remote.group.position.set(remote.cur.x, remote.cur.y, remote.cur.z);
       remote.group.rotation.y = remote.cur.yaw;
-      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne);
+      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne, null);
     }
 
     // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
@@ -2256,6 +2960,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       onLocalPose?.(posePayload);
     }
     updateContactShadows();
+
+    // Update windblown Mars aerosol dust, kickup plumes & REMS atmospheric haze
+    const atm = marsFx.update(dt, camera.position, clockT, {
+      dustEnabled: Boolean(devCfg.realisticDust),
+      weatherEnabled: Boolean(devCfg.realisticWeather),
+    });
+    sun.intensity = baseSunIntensity * (devCfg.realisticWeather ? 1.0 - atm.gustFactor * 0.14 : 1.0);
 
     // sun, moons and shadow box follow the walker
     const texel = (2 * shadowHalfM) / shadowMapPx;

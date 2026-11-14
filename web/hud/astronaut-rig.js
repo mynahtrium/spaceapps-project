@@ -306,14 +306,20 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   }
   const qSwing = new THREE.Quaternion();
   const qOut = new THREE.Quaternion();
+  const qElbow = new THREE.Quaternion();
   const AX = new THREE.Vector3(1, 0, 0);
   const AZ = new THREE.Vector3(0, 0, 1);
-  function poseArm(bone, foreBone, side, swing, out) {
+  function poseArm(bone, foreBone, side, swing, out, elbowFlex = 0) {
     const r = armRest[side];
     qSwing.setFromAxisAngle(AX, swing);
     qOut.setFromAxisAngle(AZ, -r.sign * out);
     bone.quaternion.copy(qOut).multiply(qSwing).multiply(r.qS);
-    foreBone.quaternion.copy(r.qE);
+    if (elbowFlex !== 0) {
+      qElbow.setFromAxisAngle(AX, elbowFlex);
+      foreBone.quaternion.copy(r.qE).multiply(qElbow);
+    } else {
+      foreBone.quaternion.copy(r.qE);
+    }
   }
   poseArm(armL, foreL, "L", 0, 0);
   poseArm(armR, foreR, "R", 0, 0);
@@ -347,11 +353,13 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     const fw = dirF; // forward share of the step (negative = walking backwards)
     const sd = dirS; // sideways share (positive = to the right)
     const side = Math.abs(sd);
+
     const legPose = (p) => {
-      const hip = a * 0.33 * Math.sin(p) * fw; // fore-aft swing only for the forward part
+      const hip = a * 0.33 * Math.sin(p) * fw; // fore-aft swing
       // knees lift the swinging foot in any direction; side steps use a shorter, higher lift
       const knee = a * (0.05 + (running ? 0.85 : 0.6) * (1 - 0.25 * side) * Math.max(0, Math.cos(p)) ** 2);
-      return { hip, knee, ankle: -(hip - knee) * 0.7 };
+      const ankle = -(hip - knee) * 0.7;
+      return { hip, knee, ankle };
     };
     const L = legPose(phase);
     const R = legPose(phase + Math.PI);
@@ -376,17 +384,28 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     pelvis.position.y = basePelvisY - a * 0.022 * Math.abs(Math.sin(phase)) - air * 0.03;
     pelvis.rotation.y = a * 0.07 * Math.sin(phase) * Math.abs(fw);
     // weight shifts over the standing leg; leaning slightly into a side step
-    pelvis.rotation.z = a * 0.025 * Math.cos(phase) - sd * a * 0.04;
+    pelvis.rotation.z = a * 0.025 * Math.cos(phase) - sd * a * 0.045;
     spine.rotation.y = -a * 0.05 * Math.sin(phase);
-    spine.rotation.x = a * (running ? 0.12 : 0.04);
+    spine.rotation.x = a * (running ? 0.14 : 0.05);
     chest.rotation.y = -a * 0.03 * Math.sin(phase);
     // arms swing opposite to the legs (more when running); forward and out for balance in the air
     const swing = a * (running ? 0.32 : 0.2) * Math.abs(fw); // little arm swing when side-stepping
     const balance = a * side * 0.12; // arms ease out a little for balance on a side step
-    poseArm(armL, foreL, "L", -swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.3, air * 0.25 + balance);
-    poseArm(armR, foreR, "R", swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.3, air * 0.25 + balance);
-    head.rotation.y = a * 0.02 * Math.sin(phase);
+    const armPhase = Math.sin(phase) * Math.sign(fw || 1);
+    poseArm(armL, foreL, "L", -swing * armPhase + air * 0.3, air * 0.25 + balance);
+    poseArm(armR, foreR, "R", swing * armPhase + air * 0.3, air * 0.25 + balance);
+    head.rotation.y = a * 0.025 * Math.sin(phase);
   }
 
-  return { group, bones: { root, pelvis, spine, chest, head, footL, footR }, update, get phase() { return phase; }, get amount() { return amount; } };
+  return {
+    group,
+    bones: { root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR },
+    update,
+    get phase() {
+      return phase;
+    },
+    get amount() {
+      return amount;
+    },
+  };
 }

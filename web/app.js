@@ -10,7 +10,7 @@ import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
 import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
-import { loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
 
 const I18N = {
   en: {
@@ -191,7 +191,6 @@ async function boot() {
   const hudView = document.getElementById("hud-view");
   const btnTabPlanner = document.getElementById("btn-tab-planner");
   const btnTabHud = document.getElementById("btn-tab-hud");
-  const btnStartEva = document.getElementById("btn-start-eva");
   const btnCredits = document.getElementById("btn-credits");
 
   const modalBackdrop = document.getElementById("modal-backdrop");
@@ -235,7 +234,9 @@ async function boot() {
           <li><strong>MRO CRISM:</strong> 9 MTRDR product records via PDS Geosciences ODE REST</li>
           <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
-          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head, shoulders) and drives a walk / run cycle from distance walked; the model's forward-reaching arms are lowered at the shoulders and swing opposite to the legs. Mars gravity (3.71 m/s²) is used for jumps and falls; walking pace (1.4 m/s) and a light run with Shift (2.5 m/s) are placeholders.</li><li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
+          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh. Mars gravity (3.71 m/s²) drives jumps, falls, momentum, slope traction, and dust settling.</li>
+          <li><strong>Pressurized Rover &amp; Environment:</strong> Official NASA 3D Resources <code>Space Exploration Vehicle</code> (MMSEV Draco GLB, fetched 2026-11-14) with 4-point DEM slope alignment &amp; spring-damper suspension, plus REMS-inspired dust haze and surface wind gust particles.</li>
+          <li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
         <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
         <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
@@ -310,6 +311,71 @@ async function boot() {
           <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
         </label>
 
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
+              <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + F tuşuyla sürüş)."
+                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press F to drive)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Gerçekçi Dokular (PBR+)" : "Realistic Textures (PBR+)"}
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "512 px yüksek çözünürlüklü prosedürel regolit ve çatlak kiltaşı normal haritası, derin kırık kontrastı, mineral parıltısı ve uzay giysisi mikro dokusunu açar."
+                : "Upgrades terrain to 512 px procedural regolith & fractured mudstone normal maps, deep crack relief, mineral sheen & suit weave detail."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-tex" ${s.realisticTextures ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Toz Efektleri (Ayak, Tekerlek & Rüzgar)" : "Realistic Mars Dust FX (Boots, Wheels & Wind)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Rüzgarla sürüklenen Mars aerosol toz tanecikleri ile adım, iniş ve tekerlek toz bulutlarını açar."
+                : "Enables wind-drifted Martian aerosol dust grains plus bootstep, landing impact & wheel dust plumes."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-dust" ${s.realisticDust ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Slope Slide & Suspension)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Adım ataleti/momentumu, 24° üstü dik yokuşta regolit kayması, iniş tepkisi ve rover süspansiyon yaylanmasını uygular."
+                : "Applies walker inertia/momentum, steep >24° regolith slope slip, landing shock & rover spring-damper suspension."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-physics" ${s.realisticPhysics ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Mars Havası (Atmosferik Pus & Rüzgar)" : "Realistic Mars Weather (Atmospheric Haze & Gusts)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "REMS verisiyle kalibreli tereyağı-hardal Mars atmosfer pusu ve döngüsel toz fırtınası rüzgarlarını simüle eder."
+                : "Simulates REMS-calibrated butterscotch Martian dust haze fog and dynamic surface wind gust fronts."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-weather" ${s.realisticWeather ? "checked" : ""} />
+        </label>
+
         <div class="dev-row">
           <div>
             <div class="dev-label">${tr ? "Kamera Görüş Açısı (FOV)" : "Camera Field of View (FOV)"}</div>
@@ -329,6 +395,7 @@ async function boot() {
         </label>
 
         <div class="dev-actions">
+          <button class="btn primary" type="button" id="dev-full-realism">${tr ? "Tüm Gerçekçiliği Aç" : "Enable Full Realism"}</button>
           <button class="btn" type="button" id="dev-reset">${tr ? "Varsayılanlara Sıfırla" : "Reset Defaults"}</button>
         </div>
       </div>
@@ -340,9 +407,15 @@ async function boot() {
     const speedRange = document.getElementById("dev-speed");
     const speedVal = document.getElementById("dev-speed-val");
     const superToggle = document.getElementById("dev-super-gfx");
+    const expRoverToggle = document.getElementById("dev-exp-rover");
+    const realisticTexToggle = document.getElementById("dev-realistic-tex");
+    const realisticDustToggle = document.getElementById("dev-realistic-dust");
+    const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
+    const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
     const fovRange = document.getElementById("dev-fov");
     const fovVal = document.getElementById("dev-fov-val");
     const cleanToggle = document.getElementById("dev-clean-hud");
+    const fullRealismBtn = document.getElementById("dev-full-realism");
     const resetBtn = document.getElementById("dev-reset");
 
     const syncUi = (cfg) => {
@@ -355,6 +428,11 @@ async function boot() {
       if (speedRange) speedRange.value = String(cfg.speedMultiplier);
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
       if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
+      if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
+      if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
+      if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
+      if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
       if (fovRange) fovRange.value = String(cfg.fov);
       if (fovVal) fovVal.textContent = `${Math.round(cfg.fov)}°`;
       if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
@@ -368,8 +446,24 @@ async function boot() {
       btn.addEventListener("click", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(btn.dataset.speed) })));
     });
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    expRoverToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
+    );
+    realisticTexToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticTextures: realisticTexToggle.checked }))
+    );
+    realisticDustToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticDust: realisticDustToggle.checked }))
+    );
+    realisticPhysicsToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticPhysics: realisticPhysicsToggle.checked }))
+    );
+    realisticWeatherToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticWeather: realisticWeatherToggle.checked }))
+    );
     fovRange?.addEventListener("input", () => syncUi(saveDevSettings({ fov: parseFloat(fovRange.value) })));
     cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
+    fullRealismBtn?.addEventListener("click", () => syncUi(saveDevSettings(FULL_REALISM_PRESET)));
     resetBtn?.addEventListener("click", () => syncUi(resetDevSettings()));
 
     modalBackdrop.classList.add("open");
@@ -594,15 +688,16 @@ async function boot() {
     requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
   }
 
-  btnTabPlanner.onclick = switchToPlanner;
-  btnTabHud.onclick = switchToHud;
-  btnStartEva.onclick = () => {
+  const startEva = () => {
     if (data.route) dispatchSetRoute(data.route, 0);
     switchToHud();
   };
 
+  btnTabPlanner.onclick = switchToPlanner;
+  btnTabHud.onclick = switchToHud;
+
   resolveReady({
-    eva: () => btnStartEva.onclick(),
+    eva: startEva,
     planner: switchToPlanner,
     credits: openCreditsModal,
     dev: openDevSettingsModal,
