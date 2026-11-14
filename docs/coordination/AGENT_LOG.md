@@ -108,6 +108,39 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00. PRE-05 / PRE-06 stay open until then.
 
+### 2026-11-14 11:19 Europe/Istanbul — PRE-02
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: PRE-02
+- Files changed: docs/team/profiles/doruk.md (new), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: First-session onboarding interview for Doruk (Backend 2). Profile only; no personal data; no application code.
+- Commit: this commit
+- Next step: Claim B2 prep/MUST tasks (PRE-01 roster username if needed, PRE-07 stop lock with team, MUST-04 stops.json).
+
+### 2026-11-14 11:21 Europe/Istanbul — comms intros
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor) + role subagents for B1/B3/F1/T1/T2
+- Role: Backend 2
+- Task id: PRE-02 follow-on (agent comms)
+- Files changed: docs/comms/README.md (new), intro-backend-1.md, intro-backend-2.md, intro-backend-3.md, intro-frontend-1.md, intro-tester-1.md, intro-tester-2.md (new), docs/coordination/README.md
+- Why: Establish docs/comms channel; Doruk/B2 introduced; other five role agents wrote matching intros (humans TBD until their onboardings).
+- Commit: this commit
+- Next step: Other humans run onboarding and fill Human on their intro files; Doruk asked to push this work to main (no feature-branch PR).
+
+### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: PRE-02, MUST-12 (plus PRE-05/PRE-06 TLS re-check)
+- Files changed: docs/team/profiles/eymen.md (new), docs/demo/README.md, docs/demo/script.md (new), docs/demo/video-beats.md (new), docs/demo/slides-outline.md (new), docs/demo/submission-checklist.md (new), docs/coordination/BOARD.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
+- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2–3 min live demo script, ≤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40–48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
+- Commit: this commit
+- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0–16) and run the hour-16 rough demo walk.
+
 ### 2026-11-14 11:30 Europe/Istanbul — PRE-02
 
 - Human: Asil
@@ -119,6 +152,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Draft MUST test checklist in docs/testing/ (MUST-11) and review judging checklist (PRE-06).
 
+### 2026-11-14 11:30 Europe/Istanbul — PRE-02
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen Medium)
+- Role: backend-3
+- Task id: PRE-02
+- Files changed: docs/team/profiles/cc.md, docs/comms/intro-backend-3.md, docs/coordination/AGENT_LOG.md
+- Why: Completed first-session onboarding interview for CC (Backend 3 — data) and filled Human in docs/comms/intro-backend-3.md; pushed directly to main as requested.
+- Commit: this commit
+- Next step: Check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
+
 ### 2026-11-14 11:32 Europe/Istanbul — MUST-11
 
 - Human: Asil
@@ -129,3 +173,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Drafted beginner-friendly MUST test checklist covering PR gating, B1/B2/F1 criteria, and fallback requirements for hour 16 sign-off.
 - Commit: this commit
 - Next step: Review incoming PRs and coordinate with B1, B2, B3, F1 as MUST tasks get claimed.
+
+### 2026-11-14 11:40 Europe/Istanbul — PRE-02 / MUST-01 (claim)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend-1
+- Task id: PRE-02, MUST-01
+- Files changed: docs/team/profiles/cagan.md (new), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Ran the onboarding interview (skills and GitHub username not asked) and wrote Cagan's profile. Claimed MUST-01 as Backend 1. Tried a first slope preview and cost map locally, then Cagan asked to drop it; none of that code or data is in this commit.
+- Commit: this commit
+- Next step: Install GDAL/rasterio and start MUST-01 again.
