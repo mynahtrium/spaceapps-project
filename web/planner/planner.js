@@ -122,18 +122,23 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
       terrain3d: terrain3dDefault,
     });
 
-    // Strict 15° overlay (raw MapLibre image layer; hidden until toggled)
-    if (adapter.map && costMap?.cost_row_major) {
-      adapter._runOrQueue(() => {
-        adapter.map.addSource("strict-15", { type: "image", url: buildStrict15Canvas(costMap), coordinates: imgCoords });
-        adapter.map.addLayer({
-          id: "strict-15",
-          type: "raster",
-          source: "strict-15",
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": 0.75 },
+    // Strict 15° overlay (raw MapLibre image layer or Fallback2DMap raster overlay; hidden until toggled)
+    if (costMap?.cost_row_major) {
+      const strictUrl = buildStrict15Canvas(costMap);
+      if (adapter.map) {
+        adapter._runOrQueue(() => {
+          adapter.map.addSource("strict-15", { type: "image", url: strictUrl, coordinates: imgCoords });
+          adapter.map.addLayer({
+            id: "strict-15",
+            type: "raster",
+            source: "strict-15",
+            layout: { visibility: "none" },
+            paint: { "raster-opacity": 0.75 },
+          });
         });
-      });
+      } else if (adapter._fallback?.loadRasterOverlay) {
+        adapter._fallback.loadRasterOverlay("strict-15", strictUrl, false);
+      }
     }
 
     if (crism?.products?.length) {
@@ -190,6 +195,10 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
       const slope = evt.slopeDeg != null ? `${evt.slopeDeg.toFixed(1)}°` : "—";
       return `${evt.lat.toFixed(5)}°, ${evt.lon.toFixed(5)}° · ${elev} · slope ${slope}`;
     };
+
+    adapter.on("hover", (evt) => {
+      if (!selectedTarget && probeTextEl) probeTextEl.textContent = formatProbe(evt);
+    });
 
     adapter.on("click", (evt) => {
       if (probeTextEl) probeTextEl.textContent = formatProbe(evt);

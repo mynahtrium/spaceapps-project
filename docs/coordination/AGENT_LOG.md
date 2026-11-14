@@ -794,3 +794,13 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan said the astronaut looked like it walked forward while strafing. hud3d.js now passes the walking direction in the body frame to the rig; the fore-aft leg swing scales with the forward part (reversed when walking backwards), and the sideways part drives a side-step (leading leg reaches out, trailing leg closes, feet do not cross, soles kept flat, pelvis leans into the step, arm swing reduced). Checked with front-view renders of a right and a left side-step.
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-14 17:38 Europe/Istanbul — MAP-01 / MUST-09 follow-up: MOLA offline ramp, PNG fallback buffer, buffered teleport, Stickney orientation & unit tests
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: tester-2
+- Task id: MAP-01, MUST-09
+- Files changed: `web/hud/hud3d.js`, `web/map/Fallback2DMap.js`, `web/map/MapLibreMarsAdapter.js`, `web/map/TileSourceRegistry.js`, `web/planner/planner.js`, `web/shared/route-bridge.js`, `web/tests/fallback.test.mjs`, `web/tests/route-bridge.test.mjs`, `docs/coordination/HANDOFFS.md`, `docs/coordination/AGENT_LOG.md`
+- Why: Polished map protocol & fallback edge cases on top of `612223b` (keeping Cagan's single-astronaut free-roam HUD & boot contact shadows intact): replaced empty `ArrayBuffer(0)` returns with a valid 1x1 transparent PNG in `MapLibreMarsAdapter.js`, added offline hypsometric `renderMolaColorTileRgba()` for `mola-color`, wired `strict-15` and `unmount()` cleanup in `Fallback2DMap.js`, added pre-selection hover probe in `planner.js`, buffered `dispatchTeleport`/`onTeleport` in `route-bridge.js` for startup calls before `hud3d.js` finishes init, pointed Stickney crater (`+Z`) and `phobos`/`deimos.lookAt(camera.position)` toward the camera in `hud3d.js`, accepted `alongM ?? along_m` in `onSetRoute`, and added unit tests in `web/tests/route-bridge.test.mjs` and `web/tests/fallback.test.mjs`. Verified `node --check` on 22 JS/MJS files and 18/18 Node unit tests.
+- Commit: this commit
+- Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) to visually inspect MOLA offline color, double-click teleport, and Phobos/Deimos in browser.

@@ -7,9 +7,13 @@ import {
   MARS_RADIUS_MEAN_M,
   marsBearingDeg,
   marsDistanceM,
+  toLngLat,
 } from "../map/Geodesy.js";
 
 export { MARS_RADIUS_MEAN_M, marsDistanceM, marsBearingDeg };
+
+let pendingTeleport = null;
+const teleportListeners = new Set();
 
 export function dispatchSetRoute(route, alongM = 0) {
   if (typeof window === "undefined") return;
@@ -25,16 +29,34 @@ export function onSetRoute(handler) {
   return () => window.removeEventListener("mm:set-route", wrapped);
 }
 
-export function dispatchTeleport(target) {
-  if (typeof window === "undefined" || !target) return;
-  window.dispatchEvent(new CustomEvent("mm:teleport", { detail: target }));
+/**
+ * Teleport the 3D bodycam walker to any Mars [lon, lat] or { lon, lat } coordinate.
+ * Buffers the target if the 3D HUD has not finished initializing yet.
+ */
+export function dispatchTeleport(lonLat) {
+  const [lon, lat] = toLngLat(lonLat);
+  const detail = { lon, lat };
+  if (teleportListeners.size === 0) {
+    pendingTeleport = detail;
+  } else {
+    pendingTeleport = null;
+    for (const fn of [...teleportListeners]) fn(detail);
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("mm:teleport", { detail }));
+  }
+  return detail;
 }
 
 export function onTeleport(handler) {
-  if (typeof window === "undefined") return () => {};
-  const wrapped = (e) => handler(e.detail);
-  window.addEventListener("mm:teleport", wrapped);
-  return () => window.removeEventListener("mm:teleport", wrapped);
+  if (typeof handler !== "function") return () => {};
+  teleportListeners.add(handler);
+  if (pendingTeleport) {
+    const detail = pendingTeleport;
+    pendingTeleport = null;
+    handler(detail);
+  }
+  return () => teleportListeners.delete(handler);
 }
 
 export function buildCumulativeDistances(coords) {

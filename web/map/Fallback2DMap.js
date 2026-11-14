@@ -49,6 +49,8 @@ export class Fallback2DMap extends BaseMapAdapter {
     this._dragMoved = false;
     this._lastPt = null;
     this._ro = null;
+    this._onWindowMove = null;
+    this._onWindowUp = null;
     this._attributions = [
       {
         id: "hirise-dtm-local",
@@ -80,7 +82,7 @@ export class Fallback2DMap extends BaseMapAdapter {
 
     this._loadOverlayImage("slope-preview", this.slopePreviewUrl, true);
     if (this.orthoPreviewUrl) {
-      this._loadOverlayImage("hirise-ortho", this.orthoPreviewUrl, true);
+      this._loadOverlayImage("hirise-ortho", this.orthoPreviewUrl, false);
     }
 
     this._bindEvents(canvas);
@@ -102,6 +104,10 @@ export class Fallback2DMap extends BaseMapAdapter {
     img.src = url;
   }
 
+  loadRasterOverlay(id, url, visible = false) {
+    this._loadOverlayImage(id, url, visible);
+  }
+
   _bindEvents(canvas) {
     canvas.addEventListener("pointerdown", (e) => {
       this._dragging = true;
@@ -109,7 +115,7 @@ export class Fallback2DMap extends BaseMapAdapter {
       this._lastPt = [e.clientX, e.clientY];
       canvas.style.cursor = "grabbing";
     });
-    window.addEventListener("pointermove", (e) => {
+    this._onWindowMove = (e) => {
       if (this._dragging && this._lastPt) {
         const dx = e.clientX - this._lastPt[0];
         const dy = e.clientY - this._lastPt[1];
@@ -134,13 +140,15 @@ export class Fallback2DMap extends BaseMapAdapter {
           });
         }
       }
-    });
-    window.addEventListener("pointerup", () => {
+    };
+    this._onWindowUp = () => {
       if (this._dragging) {
         this._dragging = false;
         canvas.style.cursor = "grab";
       }
-    });
+    };
+    window.addEventListener("pointermove", this._onWindowMove);
+    window.addEventListener("pointerup", this._onWindowUp);
     canvas.addEventListener("click", (e) => {
       if (this._dragMoved) return;
       const rect = canvas.getBoundingClientRect();
@@ -194,6 +202,14 @@ export class Fallback2DMap extends BaseMapAdapter {
   }
 
   unmount() {
+    if (this._onWindowMove) {
+      window.removeEventListener("pointermove", this._onWindowMove);
+      this._onWindowMove = null;
+    }
+    if (this._onWindowUp) {
+      window.removeEventListener("pointerup", this._onWindowUp);
+      this._onWindowUp = null;
+    }
     if (this._ro) {
       this._ro.disconnect();
       this._ro = null;
