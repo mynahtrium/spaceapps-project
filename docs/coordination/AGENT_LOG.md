@@ -891,3 +891,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Strictly scoped to `?demo=1` (`demoSafe`) mode: replaced edge teleportation with true spherical Mars geodesic stepping (`R = 3,389.5 km`, `mars-globe.js`, curved ground patch + local sphere-tangent gravity/horizon), launched initial demo state inside a mandatory orbital 3D globe landing selector (`landing-hero` modern UI overlay that cannot be closed before choosing a landing spot), and integrated offline real NASA MGS MOLA MEGDR 4ppd topography (`MEGT90N000CB.IMG`, -8,068 m to +21,134 m) and NASA/USGS Mars Viking MDIM 2.1 color mosaic (`mars-viking-global.jpg`) blended seamlessly with the 1 m HiRISE Gale DTM and documented in `mars-global-sources.json` and the Sources modal. Verified `node --check` across edited JS files and 28/28 `web/tests/*.mjs` tests.
 - Commit: this commit
 - Next step: Push to `demo-1`.
+
+### 2026-11-14 20:40 Europe/Istanbul — Real NASA terrain layers on walkable maps, 1/3g Mars gait, and footstep dust FX (`demo-1`)
+
+- Human: Cinar
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend implementer (`demo-1`)
+- Task id: MUST-09 / MUST-10 demo polish
+- Files changed: `web/hud/mars-terrain-colors.js`, `web/hud/mars-globe.js`, `web/hud/mars-gait.js`, `web/hud/astronaut-rig.js`, `web/hud/dust-fx.js`, `web/hud/hud3d.js`, `web/app.js`, `web/index.html`, `web/shared/data-loader.js`, `web/assets/dust/mars-dust-atlas.png`, `data/demo/mars-mola-dem.png`, `data/demo/mars-viking-global.jpg`, `data/demo/mars-mola-shaded.jpg`, `data/demo/mars-global-sources.json`, `web/tests/dust-fx.test.mjs`, `web/tests/mars-gait.test.mjs`, `web/tests/mars-terrain-colors.test.mjs`, `docs/coordination/AGENT_LOG.md`
+- Why: Upgraded offline NASA MGS MOLA DEM (`16ppd`), Viking MDIM 2.1, MOLA Shaded Relief & Sources metadata; added Martian footstep/takeoff/landing sprite+grain dust system (`dust-fx.js`, walking dust ~60% lighter than running intensity `1.55`); updated `1/3g` inverted-pendulum Mars walking kinematics (`mars-gait.js`, `astronaut-rig.js`); and brought MOLA hypsometric elevation colors, rock/cliff strata shading, surface normals, `T` / `#hud-tex` layer cycling (`relief`/`mola`/`ortho`/`slope`), and MOLA relief mode in the `M` tactical map onto both `/web/` and `?demo=1` walkable maps. Verified `node --check` on edited HUD modules and `41/41` `web/tests/*.mjs` unit tests.
+- Commit: this commit
+- Next step: Merge `demo-1` with `origin/main` and push `main`.

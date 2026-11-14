@@ -178,9 +178,7 @@ export async function loadAllProjectData() {
             `${base}/data/demo/layers-crism.json`,
           ]
     ),
-    demoSafe
-      ? fetchWithCascade([`${base}/data/demo/mars-global-sources.json`])
-      : Promise.resolve({ data: null, sourcePath: null }),
+    fetchWithCascade([`${base}/data/demo/mars-global-sources.json`]),
   ]);
 
   const themis = themisRes.data?.day ? themisRes.data : themisRes.data?.themis ?? null;
@@ -203,6 +201,7 @@ export async function loadAllProjectData() {
     themisTileBaseUrl: `${base}/data/demo/tiles/themis`,
     demoGlobalMolaDemUrl: demoSafe ? `${base}/data/demo/mars-mola-dem.png` : null,
     demoGlobalVikingMosaicUrl: demoSafe ? `${base}/data/demo/mars-viking-global.jpg` : null,
+    demoGlobalMolaShadedUrl: demoSafe ? `${base}/data/demo/mars-mola-shaded.jpg` : null,
   };
 
   const sources = collectSources([

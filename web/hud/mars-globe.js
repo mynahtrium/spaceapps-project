@@ -244,6 +244,21 @@ function fbm3D(x, y, z, octaves = 5) {
   return sum / (norm || 1);
 }
 
+function ridgedFbm3D(x, y, z, octaves = 3) {
+  let sum = 0;
+  let amp = 0.5;
+  let freq = 1.0;
+  let norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    const n = 1 - Math.abs(valueNoise3D(x * freq, y * freq, z * freq) * 2 - 1);
+    sum += n * n * amp;
+    norm += amp;
+    amp *= 0.5;
+    freq *= 2.08;
+  }
+  return sum / (norm || 1) - 0.5;
+}
+
 /** Fast cellular crater field evaluated on 3D sphere coords (ux, uy, uz) so poles & antimeridian stay seamless. */
 function craterField3D(px, py, pz, scale, depthM) {
   const sx = px * scale;
@@ -426,12 +441,25 @@ export function createMarsGlobalModel({
     const u = lonLatToUnitVec(lon, lat);
 
     if (hasRealMola) {
-      // Exact NASA MGS MOLA MEGDR elevation + sub-15km walkable regolith/crater micro-relief
-      let h = sampleRealMolaM(lon, lat);
-      h += craterField3D(u.ux, u.uy, u.uz, 420, 38);
-      h += craterField3D(u.ux, u.uy, u.uz, 1800, 11);
-      h += fbm3D(u.ux * 950, u.uy * 950, u.uz * 950, 3) * 12;
-      h += fbm3D(u.ux * 7500, u.uy * 7500, u.uz * 7500, 3) * 2.4;
+      // Exact NASA MGS MOLA MEGDR elevation + regional/walkable 3D relief:
+      // Steeper canyons/rims/shield flanks get crisper terraces, craters, and wind-carved scarps.
+      const dLonS = 0.08;
+      const dLatS = 0.08;
+      const e0 = sampleRealMolaM(lon, lat);
+      const slopeEstM = Math.max(
+        Math.abs(sampleRealMolaM(lon + dLonS, lat) - sampleRealMolaM(lon - dLonS, lat)),
+        Math.abs(sampleRealMolaM(lon, Math.min(89.8, lat + dLatS)) - sampleRealMolaM(lon, Math.max(-89.8, lat - dLatS)))
+      );
+      const reliefGain = 0.85 + Math.min(1.6, slopeEstM / 420);
+      let h = e0;
+      // Regional crater fields (~2 km, ~480 m, and walkable ~110 m impact bowls/rims)
+      h += craterField3D(u.ux, u.uy, u.uz, 420, 32 * reliefGain);
+      h += craterField3D(u.ux, u.uy, u.uz, 2400, 14 * reliefGain);
+      h += craterField3D(u.ux, u.uy, u.uz, 28000, 4.6 * reliefGain);
+      // Stratified mesas, scarps & wind-scoured yardang ridges (subtle total envelope, crisp slope angles)
+      h += ridgedFbm3D(u.ux * 22000, u.uy * 22000, u.uz * 22000, 3) * (5.2 * reliefGain);
+      h += ridgedFbm3D(u.ux * 85000, u.uy * 85000, u.uz * 85000, 2) * (1.8 * reliefGain);
+      h += fbm3D(u.ux * 190000, u.uy * 190000, u.uz * 190000, 2) * 0.55;
       return h;
     }
 

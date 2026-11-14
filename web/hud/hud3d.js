@@ -27,26 +27,40 @@ import {
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
+import { createMarsDustSystem } from "./dust-fx.js";
+import {
+  MARS_WALK_STRIDE_M,
+  MARS_WALK_VELOCITY_MS,
+  computeFootstepDustIntensity,
+  computeMarsCameraSway,
+} from "./mars-gait.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { marsDistanceM, normalizeLonDeg } from "../map/Geodesy.js";
 import {
-  MARS_CIRCUMFERENCE_M,
   MARS_LANDMARKS,
+  MARS_CIRCUMFERENCE_M,
   MARS_RADIUS_MEAN_M,
   createMarsGlobalModel,
   decodeMolaDemRgba,
   localSceneXZToLonLat,
+  lonLatToUnitVec,
   marsLonLatAltToLocalScene,
   sphereNormalAtLocal,
   stepOnMarsSphere,
+  unitVecToLonLat,
 } from "./mars-globe.js";
+import {
+  buildMolaPaletteGlsl,
+  sampleMolaPaletteRgb,
+  sampleSlopeHazardColor,
+} from "./mars-terrain-colors.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
 const EYE_FORWARD_M = 0.36; // at the visor, ahead of the suit's deep chest so the legs show when looking down
-const WALK_SPEED_MS = 1.4; // placeholder walking pace (Earth hiking stand-in)
-const RUN_SPEED_MS = 2.5; // a light suited run (Shift); clearly faster than walking, not a sprint
+const WALK_SPEED_MS = MARS_WALK_VELOCITY_MS; // 0.80 m/s Mars 1/3g inverted-pendulum walk (1.08 m stride)
+const RUN_SPEED_MS = 2.25; // light suited jog/bound (Shift) under Mars 1/3g gravity
 const MARS_G = 3.71; // m/s^2
 const JUMP_SPEED_MS = 1.7; // about 0.4 m apex under Mars gravity
 const PARTNER_AHEAD_M = 6;
@@ -507,6 +521,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let vikingRgb = null;
   let vikingW = 0;
   let vikingH = 0;
+  let vikingImgEl = null;
+  let molaShadedImgEl = null;
   if (isDemoSphere) {
     const readImgRgba = async (url) => {
       if (!url) return null;
@@ -516,11 +532,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       cv.height = im.height;
       const cx = cv.getContext("2d");
       cx.drawImage(im, 0, 0);
-      return { w: im.width, h: im.height, data: cx.getImageData(0, 0, im.width, im.height).data };
+      return { img: im, w: im.width, h: im.height, data: cx.getImageData(0, 0, im.width, im.height).data };
     };
-    const [molaRes, vikingRes] = await Promise.all([
+    const [molaRes, vikingRes, shadedRes] = await Promise.all([
       readImgRgba(assets.demoGlobalMolaDemUrl).catch(() => null),
       readImgRgba(assets.demoGlobalVikingMosaicUrl).catch(() => null),
+      loadImage(assets.demoGlobalMolaShadedUrl).catch(() => null),
     ]);
     if (molaRes) {
       molaW = molaRes.w;
@@ -531,6 +548,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       vikingW = vikingRes.w;
       vikingH = vikingRes.h;
       vikingRgb = vikingRes.data;
+      vikingImgEl = vikingRes.img;
+    }
+    if (shadedRes) {
+      molaShadedImgEl = shadedRes;
     }
   }
 
@@ -752,14 +773,35 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
   pbr.dustNormalTex.repeat.set(640, 640);
 
+  const fallbackSolidTex = (() => {
+    const t = new THREE.DataTexture(new Uint8Array([192, 128, 92, 255]), 1, 1, THREE.RGBAFormat);
+    t.needsUpdate = true;
+    return t;
+  })();
+  const makeEquirectTex = (src) => {
+    if (!src) return null;
+    const t = new THREE.Texture(src);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.ClampToEdgeWrapping;
+    t.anisotropy = maxAniso;
+    t.needsUpdate = true;
+    return t;
+  };
+  const sharedVikingTex = makeEquirectTex(vikingImgEl);
+  const sharedMolaShadedTex = makeEquirectTex(molaShadedImgEl);
+
   const anchorModUniform = { value: new THREE.Vector2(0, 0) };
   const worldSizeUniform = { value: new THREE.Vector2(worldW, worldH) };
+  const texModeUniform = { value: 0 }; // 0: relief + geology, 1: MOLA elevation color, 2: ortho/Viking, 3: slope hazard
+  const elevRangeUniform = { value: new THREE.Vector2(elevMin, Math.max(elevMin + 1, elevMax)) };
+  const molaPaletteGlsl = buildMolaPaletteGlsl();
 
   const terrainMat = new THREE.MeshStandardMaterial({
     map: reliefTex,
-    normalMap: isDemoSphere ? null : pbr.dustNormalTex,
-    normalScale: new THREE.Vector2(0.55, 0.55),
-    roughness: 0.96,
+    normalMap: pbr.dustNormalTex,
+    normalScale: new THREE.Vector2(isDemoSphere ? 0.78 : 0.62, isDemoSphere ? 0.78 : 0.62),
+    roughness: 0.94,
     metalness: 0.0,
   });
   terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
@@ -767,21 +809,52 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     shader.uniforms.detailMap = { value: detailTex };
     shader.uniforms.pbrDust = { value: pbr.dustAlbedoTex };
     shader.uniforms.pbrRock = { value: pbr.rockAlbedoTex };
+    shader.uniforms.uTexMode = texModeUniform;
+    shader.uniforms.uElevRange = elevRangeUniform;
+    shader.uniforms.uVikingMap = { value: sharedVikingTex || fallbackSolidTex };
+    shader.uniforms.uMolaShadedMap = { value: sharedMolaShadedTex || fallbackSolidTex };
+    shader.uniforms.uHasVikingMap = { value: sharedVikingTex ? 1.0 : 0.0 };
+    shader.uniforms.uHasMolaShadedMap = { value: sharedMolaShadedTex ? 1.0 : 0.0 };
     shader.uniforms.sunMask = { value: sunMask };
     shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
     shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
     shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
+
+    const sharedFragHelpers = `
+uniform sampler2D detailMap;
+uniform sampler2D pbrDust;
+uniform sampler2D pbrRock;
+uniform float uTexMode;
+uniform vec2 uElevRange;
+uniform sampler2D uVikingMap;
+uniform sampler2D uMolaShadedMap;
+uniform float uHasVikingMap;
+uniform float uHasMolaShadedMap;
+${molaPaletteGlsl}
+float mmContour(float h, float stepM) {
+  float f = fract(h / stepM);
+  float d = min(f, 1.0 - f);
+  return 1.0 - smoothstep(0.0, 0.055, d);
+}
+vec3 mmHazardRamp(float slopeDeg) {
+  if (slopeDeg > 20.0) return vec3(0.66, 0.33, 0.97);
+  if (slopeDeg > 15.0) return vec3(0.94, 0.27, 0.27);
+  if (slopeDeg > 10.0) return vec3(0.96, 0.62, 0.04);
+  return vec3(0.13, 0.77, 0.37);
+}
+`;
+
     if (isDemoSphere) {
       shader.uniforms.uAnchorModUV = anchorModUniform;
       shader.uniforms.uWorldSize = worldSizeUniform;
       shader.vertexShader = shader.vertexShader
         .replace(
           "#include <common>",
-          "#include <common>\nattribute float aHiRiseW;\nattribute vec3 aMarsAlbedo;\nuniform vec2 uAnchorModUV;\nuniform vec2 uWorldSize;\nvarying float vHiRiseW;\nvarying vec3 vMarsAlbedo;\nvarying vec2 vSeamlessUv;"
+          "#include <common>\nattribute float aHiRiseW;\nattribute vec3 aMarsAlbedo;\nattribute vec2 aGlobeUv;\nattribute float aElevM;\nattribute float aSlopeDeg;\nuniform vec2 uAnchorModUV;\nuniform vec2 uWorldSize;\nvarying float vHiRiseW;\nvarying vec3 vMarsAlbedo;\nvarying vec2 vGlobeUv;\nvarying float vElevM;\nvarying float vSlopeDeg;\nvarying vec2 vSeamlessUv;"
         )
         .replace(
           "#include <project_vertex>",
-          "#include <project_vertex>\nvHiRiseW = aHiRiseW;\nvMarsAlbedo = aMarsAlbedo;\nvSeamlessUv = (transformed.xz / uWorldSize) + uAnchorModUV;"
+          "#include <project_vertex>\nvHiRiseW = aHiRiseW;\nvMarsAlbedo = aMarsAlbedo;\nvGlobeUv = aGlobeUv;\nvElevM = aElevM;\nvSlopeDeg = aSlopeDeg;\nvSeamlessUv = (transformed.xz / uWorldSize) + uAnchorModUV;"
         );
       const sunChunkSphere = THREE.ShaderChunk.lights_fragment_begin.replace(
         "getDirectionalLightInfo( directionalLight, directLight );",
@@ -790,7 +863,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       shader.fragmentShader = shader.fragmentShader
         .replace(
           "#include <common>",
-          "#include <common>\nvarying float vHiRiseW;\nvarying vec3 vMarsAlbedo;\nvarying vec2 vSeamlessUv;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;"
+          "#include <common>\nvarying float vHiRiseW;\nvarying vec3 vMarsAlbedo;\nvarying vec2 vGlobeUv;\nvarying float vElevM;\nvarying float vSlopeDeg;\nvarying vec2 vSeamlessUv;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;"
         )
         .replace(
           "#include <lights_fragment_begin>",
@@ -799,30 +872,71 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         )
         .replace(
           "#include <map_pars_fragment>",
-          "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;"
+          `#include <map_pars_fragment>\n${sharedFragHelpers}`
         )
         .replace(
           "#include <map_fragment>",
           `#include <map_fragment>
           #ifdef USE_MAP
-            diffuseColor.rgb = mix(vMarsAlbedo, diffuseColor.rgb, clamp(vHiRiseW, 0.0, 1.0));
             float dA = texture2D(detailMap, vSeamlessUv * 173.0).r;
             float dB = texture2D(detailMap, vSeamlessUv * 911.0).r;
-            diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
             vec3 mmDust = texture2D(pbrDust, vSeamlessUv * 640.0).rgb;
             vec3 mmRock = texture2D(pbrRock, vSeamlessUv * 290.0 + 0.37).rgb;
-            float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vSeamlessUv * 41.0 + 0.11).r);
-            vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
-            float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
-            diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.35, 1.6), 0.7);
+            float mmRockMask = smoothstep(0.45, 0.65, texture2D(detailMap, vSeamlessUv * 41.0 + 0.11).r);
+            float slopeFactor = smoothstep(9.0, 23.0, vSlopeDeg);
+            vec3 mmGround = mix(mmDust, mmRock, clamp(mmRockMask * 0.55 + slopeFactor * 0.72, 0.0, 1.0));
+            float mmLum = clamp(dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40, 0.38, 1.58);
+            float hiW = clamp(vHiRiseW, 0.0, 1.0);
+
+            vec3 globalViking = uHasVikingMap > 0.5 ? texture2D(uVikingMap, vGlobeUv).rgb : vMarsAlbedo;
+            vec3 naturalGlobal = mix(vMarsAlbedo, globalViking, 0.88);
+            vec3 galeLocal = diffuseColor.rgb;
+            vec3 baseColor = mix(naturalGlobal, galeLocal, hiW);
+
+            if (uTexMode < 0.5) {
+              // Natural geological relief: sedimentary cliff strata + exposed dark volcanic rock on steep walls + basin/crest tint
+              float strata = 0.5 + 0.5 * sin(vElevM * 0.44 + dA * 2.4);
+              vec3 cliffBedrock = mix(vec3(0.24, 0.17, 0.14), vec3(0.44, 0.31, 0.25), strata);
+              float elevT = clamp((vElevM + 8135.0) / 29294.0, 0.0, 1.0);
+              vec3 elevTint = mix(vec3(0.90, 0.87, 0.85), vec3(1.10, 1.02, 0.96), elevT);
+              baseColor = mix(baseColor * elevTint, cliffBedrock, slopeFactor * 0.46);
+              baseColor *= 0.76 + 0.36 * dA * 0.6 + 0.36 * dB * 0.4;
+              baseColor *= mix(1.0, mmLum, 0.68);
+            } else if (uTexMode < 1.5) {
+              // NASA MOLA Hypsometric Elevation Color + topographic contour lines
+              float globNorm = clamp((vElevM + 8135.0) / 29294.0, 0.0, 1.0);
+              float locNorm = clamp((vElevM - uElevRange.x) / max(1.0, uElevRange.y - uElevRange.x), 0.0, 1.0);
+              vec3 molaSample = uHasMolaShadedMap > 0.5 ? texture2D(uMolaShadedMap, vGlobeUv).rgb : mmSampleMolaRamp(globNorm);
+              vec3 localRamp = mmSampleMolaRamp(mix(globNorm, locNorm, hiW * 0.85));
+              vec3 molaCol = mix(mix(molaSample, localRamp, 0.32), localRamp, hiW * 0.75);
+              float cMin = mmContour(vElevM, 20.0);
+              float cMaj = mmContour(vElevM, 80.0);
+              molaCol = mix(molaCol, molaCol * 0.62, cMin * 0.45);
+              molaCol = mix(molaCol, vec3(0.97, 0.90, 0.78), cMaj * 0.55);
+              baseColor = molaCol * mix(0.84, 1.16, clamp(mmLum * 0.75, 0.0, 1.0));
+            } else if (uTexMode < 2.5) {
+              // Optical imagery (Viking / HiRISE ortho)
+              baseColor = mix(globalViking, galeLocal, hiW);
+              baseColor *= 0.80 + 0.30 * dA * 0.6 + 0.30 * dB * 0.4;
+              baseColor *= mix(1.0, mmLum, 0.55);
+            } else {
+              // Live Slope / Hazard overlay across the entire planet
+              vec3 haz = mmHazardRamp(vSlopeDeg);
+              float hAlpha = vSlopeDeg > 20.0 ? 0.64 : (vSlopeDeg > 15.0 ? 0.54 : (vSlopeDeg > 10.0 ? 0.44 : 0.30));
+              baseColor = mix(baseColor * mix(0.85, mmLum, 0.5), haz, hAlpha);
+            }
+            diffuseColor.rgb = baseColor;
           #endif`
         );
     } else {
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\nvarying vec2 vMmWorldXZ;")
+        .replace(
+          "#include <common>",
+          "#include <common>\nuniform vec2 uElevRange;\nvarying vec2 vMmWorldXZ;\nvarying float vElevM;\nvarying float vSlopeDeg;"
+        )
         .replace(
           "#include <project_vertex>",
-          "#include <project_vertex>\nvMmWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;"
+          "#include <project_vertex>\nvMmWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;\nvElevM = uElevRange.x + transformed.y;\nvSlopeDeg = degrees(acos(clamp(abs(normal.y), 0.0, 1.0)));"
         );
       const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
         "getDirectionalLightInfo( directionalLight, directLight );",
@@ -831,7 +945,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       shader.fragmentShader = shader.fragmentShader
         .replace(
           "#include <common>",
-          "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
+          "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vElevM;\nvarying float vSlopeDeg;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
         )
         .replace(
           "#include <lights_fragment_begin>",
@@ -840,7 +954,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         )
         .replace(
           "#include <map_pars_fragment>",
-          "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;"
+          `#include <map_pars_fragment>\n${sharedFragHelpers}`
         )
         .replace(
           "#include <map_fragment>",
@@ -848,14 +962,39 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           #ifdef USE_MAP
             float dA = texture2D(detailMap, vMapUv * 173.0).r;
             float dB = texture2D(detailMap, vMapUv * 911.0).r;
-            diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
-            // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
             vec3 mmDust = texture2D(pbrDust, vMapUv * 640.0).rgb;
             vec3 mmRock = texture2D(pbrRock, vMapUv * 290.0 + 0.37).rgb;
-            float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
-            vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
-            float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
-            diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.35, 1.6), 0.7);
+            float mmRockMask = smoothstep(0.45, 0.65, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
+            float slopeFactor = smoothstep(10.0, 23.0, vSlopeDeg);
+            vec3 mmGround = mix(mmDust, mmRock, clamp(mmRockMask * 0.55 + slopeFactor * 0.72, 0.0, 1.0));
+            float mmLum = clamp(dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40, 0.36, 1.60);
+            float elevNorm = clamp((vElevM - uElevRange.x) / max(1.0, uElevRange.y - uElevRange.x), 0.0, 1.0);
+
+            if (uTexMode < 0.5) {
+              // Enriched Gale geology: elevation-toned basins/ridges + stratified mudstone/basalt cliff bands
+              float strata = 0.5 + 0.5 * sin(vElevM * 0.52 + dA * 2.3);
+              vec3 cliffBedrock = mix(vec3(0.25, 0.17, 0.14), vec3(0.47, 0.32, 0.25), strata);
+              vec3 elevTint = mix(vec3(0.90, 0.86, 0.83), vec3(1.10, 1.02, 0.95), elevNorm);
+              diffuseColor.rgb = mix(diffuseColor.rgb * elevTint, cliffBedrock, slopeFactor * 0.42);
+              diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
+              diffuseColor.rgb *= mix(1.0, mmLum, 0.70);
+            } else if (uTexMode < 1.5) {
+              // MOLA Elevation Hypsometry Mode: NASA elevation color gradient + 10 m / 50 m contours
+              vec3 molaCol = mmSampleMolaRamp(elevNorm);
+              float cMin = mmContour(vElevM, 10.0);
+              float cMaj = mmContour(vElevM, 50.0);
+              molaCol = mix(molaCol, molaCol * 0.58, cMin * 0.46);
+              molaCol = mix(molaCol, vec3(0.98, 0.91, 0.78), cMaj * 0.58);
+              diffuseColor.rgb = molaCol * mix(0.84, 1.16, clamp(mmLum * 0.75, 0.0, 1.0));
+            } else if (uTexMode < 2.5) {
+              // HiRISE optical imagery
+              diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
+              diffuseColor.rgb *= mix(1.0, mmLum, 0.70);
+            } else {
+              // Slope / Hazard map
+              diffuseColor.rgb *= 0.80 + 0.30 * dA * 0.6 + 0.30 * dB * 0.4;
+              diffuseColor.rgb *= mix(1.0, mmLum, 0.55);
+            }
           #endif`
         );
     }
@@ -872,14 +1011,15 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   function buildInnerSphereGeometry(refLonDeg, refLatDeg, refElevM) {
-    const seg = 136;
+    const seg = 184;
     const n = seg + 1;
-    const halfSpanM = 480;
+    const halfSpanM = 460;
     const stepM = (halfSpanM * 2) / seg;
     const count = n * n;
     const elevs = new Float64Array(count);
-    const lons = new Float64Array(count);
-    const lats = new Float64Array(count);
+    const slopes = new Float32Array(count);
+    const globeUvs = new Float32Array(count * 2);
+    const sphereNorms = new Float32Array(count * 3);
     const basePos = new Float32Array(count * 3);
     const baseUv = new Float32Array(count * 2);
     const baseNrm = new Float32Array(count * 3);
@@ -895,16 +1035,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         const xOff = -halfSpanM + c * stepM;
         const idx = r * n + c;
         const { lonDeg, latDeg } = localSceneXZToLonLat(xOff, zOff, refLonDeg, refLatDeg);
+        const unwrappedLon = refLonDeg + (((lonDeg - refLonDeg + 540) % 360) - 180);
         const altM = marsGlobal.sampleElevM(lonDeg, latDeg);
-        lons[idx] = lonDeg;
-        lats[idx] = latDeg;
         elevs[idx] = altM;
         const p = marsLonLatAltToLocalScene(lonDeg, latDeg, altM, refLonDeg, refLatDeg, refElevM);
         basePos[idx * 3] = p.x;
         basePos[idx * 3 + 1] = p.y;
         basePos[idx * 3 + 2] = p.z;
-        baseUv[idx * 2] = (lonDeg - bounds.west_lon_deg) / dLonBounds;
+        const [snx, sny, snz] = sphereNormalAtLocal(p.x, p.y, p.z);
+        sphereNorms[idx * 3] = snx;
+        sphereNorms[idx * 3 + 1] = sny;
+        sphereNorms[idx * 3 + 2] = snz;
+        baseUv[idx * 2] = (unwrappedLon - bounds.west_lon_deg) / dLonBounds;
         baseUv[idx * 2 + 1] = (latDeg - bounds.south_lat_deg) / dLatBounds;
+        globeUvs[idx * 2] = (unwrappedLon + 180) / 360;
+        globeUvs[idx * 2 + 1] = (latDeg + 90) / 180;
         baseHiW[idx] = marsGlobal.hiRiseWeightAt(lonDeg, latDeg, 260);
         const col = marsGlobal.sampleAlbedoRgb(lonDeg, latDeg, altM);
         baseAlbedo[idx * 3] = col[0];
@@ -924,10 +1069,17 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         const dz = (r1 - r0 || 1) * stepM;
         const gx = (elevs[r * n + c1] - elevs[r * n + c0]) / dx;
         const gz = (elevs[r1 * n + c] - elevs[r0 * n + c]) / dz;
-        const inv = 1 / (Math.hypot(-gx, 1, -gz) || 1);
-        baseNrm[idx * 3] = -gx * inv;
-        baseNrm[idx * 3 + 1] = inv;
-        baseNrm[idx * 3 + 2] = -gz * inv;
+        const snx = sphereNorms[idx * 3];
+        const sny = sphereNorms[idx * 3 + 1];
+        const snz = sphereNorms[idx * 3 + 2];
+        const nx = snx - gx * sny;
+        const ny = sny;
+        const nz = snz - gz * sny;
+        const inv = 1 / (Math.hypot(nx, ny, nz) || 1);
+        baseNrm[idx * 3] = nx * inv;
+        baseNrm[idx * 3 + 1] = ny * inv;
+        baseNrm[idx * 3 + 2] = nz * inv;
+        slopes[idx] = Math.atan(Math.hypot(gx, gz)) * (180 / Math.PI);
       }
     }
 
@@ -941,14 +1093,20 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const total = count + 2 * m;
     const P = new Float32Array(total * 3);
     const U = new Float32Array(total * 2);
+    const G = new Float32Array(total * 2);
     const N = new Float32Array(total * 3);
     const W = new Float32Array(total);
     const A = new Float32Array(total * 3);
+    const E = new Float32Array(total);
+    const S = new Float32Array(total);
     P.set(basePos);
     U.set(baseUv);
+    G.set(globeUvs);
     N.set(baseNrm);
     W.set(baseHiW);
     A.set(baseAlbedo);
+    for (let i = 0; i < count; i++) E[i] = elevs[i];
+    S.set(slopes);
 
     const indices = [];
     for (let r = 0; r < seg; r++) {
@@ -971,6 +1129,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         P[o * 3 + 2] = basePos[src * 3 + 2];
         U[o * 2] = baseUv[src * 2];
         U[o * 2 + 1] = baseUv[src * 2 + 1];
+        G[o * 2] = globeUvs[src * 2];
+        G[o * 2 + 1] = globeUvs[src * 2 + 1];
         N[o * 3] = baseNrm[src * 3];
         N[o * 3 + 1] = baseNrm[src * 3 + 1];
         N[o * 3 + 2] = baseNrm[src * 3 + 2];
@@ -978,6 +1138,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         A[o * 3] = baseAlbedo[src * 3];
         A[o * 3 + 1] = baseAlbedo[src * 3 + 1];
         A[o * 3 + 2] = baseAlbedo[src * 3 + 2];
+        E[o] = elevs[src];
+        S[o] = slopes[src];
       }
     }
     for (let k = 0; k < m; k++) {
@@ -989,25 +1151,31 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(P, 3));
     g.setAttribute("uv", new THREE.BufferAttribute(U, 2));
+    g.setAttribute("aGlobeUv", new THREE.BufferAttribute(G, 2));
     g.setAttribute("normal", new THREE.BufferAttribute(N, 3));
     g.setAttribute("aHiRiseW", new THREE.BufferAttribute(W, 1));
     g.setAttribute("aMarsAlbedo", new THREE.BufferAttribute(A, 3));
+    g.setAttribute("aElevM", new THREE.BufferAttribute(E, 1));
+    g.setAttribute("aSlopeDeg", new THREE.BufferAttribute(S, 1));
     g.setIndex(indices);
     g.computeBoundingSphere();
     return g;
   }
 
   function buildOuterHorizonGeometry(refLonDeg, refLatDeg, refElevM) {
-    const rings = 56;
-    const sectors = 112;
-    const rMin = 380;
+    const rings = 64;
+    const sectors = 128;
+    const rMin = 365;
     const rMax = 30000;
     const vCount = rings * sectors;
     const P = new Float32Array(vCount * 3);
     const U = new Float32Array(vCount * 2);
+    const G = new Float32Array(vCount * 2);
     const N = new Float32Array(vCount * 3);
     const W = new Float32Array(vCount);
     const A = new Float32Array(vCount * 3);
+    const E = new Float32Array(vCount);
+    const S = new Float32Array(vCount);
     const dLonBounds = Math.max(1e-6, bounds.east_lon_deg - bounds.west_lon_deg);
     const dLatBounds = Math.max(1e-6, bounds.north_lat_deg - bounds.south_lat_deg);
 
@@ -1021,14 +1189,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         const zOff = Math.sin(ang) * radM;
         const idx = ri * sectors + si;
         const { lonDeg, latDeg } = localSceneXZToLonLat(xOff, zOff, refLonDeg, refLatDeg);
+        const unwrappedLon = refLonDeg + (((lonDeg - refLonDeg + 540) % 360) - 180);
         const altM = marsGlobal.sampleElevM(lonDeg, latDeg);
         const p = marsLonLatAltToLocalScene(lonDeg, latDeg, altM, refLonDeg, refLatDeg, refElevM);
         P[idx * 3] = p.x;
         P[idx * 3 + 1] = p.y;
         P[idx * 3 + 2] = p.z;
-        U[idx * 2] = (lonDeg - bounds.west_lon_deg) / dLonBounds;
+        U[idx * 2] = (unwrappedLon - bounds.west_lon_deg) / dLonBounds;
         U[idx * 2 + 1] = (latDeg - bounds.south_lat_deg) / dLatBounds;
+        G[idx * 2] = (unwrappedLon + 180) / 360;
+        G[idx * 2 + 1] = (latDeg + 90) / 180;
         W[idx] = marsGlobal.hiRiseWeightAt(lonDeg, latDeg, 260);
+        E[idx] = altM;
         const col = marsGlobal.sampleAlbedoRgb(lonDeg, latDeg, altM);
         A[idx * 3] = col[0];
         A[idx * 3 + 1] = col[1];
@@ -1040,6 +1212,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         const pN = localSceneXZToLonLat(xOff, zOff - fd, refLonDeg, refLatDeg);
         const gx = (marsGlobal.sampleElevM(pE.lonDeg, pE.latDeg) - marsGlobal.sampleElevM(pW.lonDeg, pW.latDeg)) / (2 * fd);
         const gz = (marsGlobal.sampleElevM(pS.lonDeg, pS.latDeg) - marsGlobal.sampleElevM(pN.lonDeg, pN.latDeg)) / (2 * fd);
+        S[idx] = Math.atan(Math.hypot(gx, gz)) * (180 / Math.PI);
         const [snx, sny, snz] = sphereNormalAtLocal(p.x, p.y, p.z);
         const nx = snx - gx * sny;
         const ny = sny;
@@ -1066,9 +1239,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(P, 3));
     g.setAttribute("uv", new THREE.BufferAttribute(U, 2));
+    g.setAttribute("aGlobeUv", new THREE.BufferAttribute(G, 2));
     g.setAttribute("normal", new THREE.BufferAttribute(N, 3));
     g.setAttribute("aHiRiseW", new THREE.BufferAttribute(W, 1));
     g.setAttribute("aMarsAlbedo", new THREE.BufferAttribute(A, 3));
+    g.setAttribute("aElevM", new THREE.BufferAttribute(E, 1));
+    g.setAttribute("aSlopeDeg", new THREE.BufferAttribute(S, 1));
     g.setIndex(indices);
     g.computeBoundingSphere();
     return g;
@@ -1357,9 +1533,73 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const m = new THREE.Mesh(contactGeom, mat);
       m.renderOrder = 2;
       scene.add(m);
-      contacts.push({ who, foot, mesh: m });
+      contacts.push({ who, foot, mesh: m, prevLift: null, dustCooldown: 0 });
     }
   }
+  const dustFx = createMarsDustSystem({
+    THREE,
+    scene,
+    atlasUrl: "./assets/dust/mars-dust-atlas.png",
+    horizonColor: HORIZON,
+    sunDir,
+    marsG: MARS_G,
+  });
+  let lastFootstepFxMs = 0;
+  let stepDustFallbackDist = 0;
+  const _dustMoveVec = new THREE.Vector3(0, 0, -1);
+  const _dustPlayerGroundPos = new THREE.Vector3();
+  const _dustPlayerNrm = new THREE.Vector3(0, 1, 0);
+
+  function computeTerrainNormalAtLocalXZ(lx, lz, outNrm) {
+    const e = 0.35;
+    if (isDemoSphere && marsGlobal) {
+      const centerGeo = localSceneXZToLonLat(lx, lz, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const centerAlt = marsGlobal.sampleElevM(centerGeo.lonDeg, centerGeo.latDeg);
+      const centerPos = marsLonLatAltToLocalScene(
+        centerGeo.lonDeg,
+        centerGeo.latDeg,
+        centerAlt,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      );
+      const [snx, sny, snz] = sphereNormalAtLocal(centerPos.x, centerPos.y, centerPos.z);
+      const gE = localSceneXZToLonLat(lx + e, lz, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const gW = localSceneXZToLonLat(lx - e, lz, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const gS = localSceneXZToLonLat(lx, lz + e, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const gN = localSceneXZToLonLat(lx, lz - e, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const gx = (marsGlobal.sampleElevM(gE.lonDeg, gE.latDeg) - marsGlobal.sampleElevM(gW.lonDeg, gW.latDeg)) / (2 * e);
+      const gz = (marsGlobal.sampleElevM(gS.lonDeg, gS.latDeg) - marsGlobal.sampleElevM(gN.lonDeg, gN.latDeg)) / (2 * e);
+      return outNrm.set(snx - gx * sny, sny, snz - gz * sny).normalize();
+    }
+    return outNrm
+      .set(
+        sampleElevSceneY(lx - e, lz) - sampleElevSceneY(lx + e, lz),
+        2 * e,
+        sampleElevSceneY(lx, lz - e) - sampleElevSceneY(lx, lz + e)
+      )
+      .normalize();
+  }
+
+  function resolvePlayerGroundContact(lx, lz, outPos, outNrm) {
+    if (isDemoSphere && marsGlobal) {
+      const geo = localSceneXZToLonLat(lx, lz, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const altM = marsGlobal.sampleElevM(geo.lonDeg, geo.latDeg);
+      const gp = marsLonLatAltToLocalScene(
+        geo.lonDeg,
+        geo.latDeg,
+        altM,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      );
+      outPos.set(gp.x, gp.y, gp.z);
+    } else {
+      outPos.set(lx, sampleElevSceneY(lx, lz), lz);
+    }
+    computeTerrainNormalAtLocalXZ(lx, lz, outNrm);
+  }
+
   const footPos = new THREE.Vector3();
   const nrm = new THREE.Vector3();
   const qTilt = new THREE.Quaternion();
@@ -1367,11 +1607,15 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const Y_AXIS = new THREE.Vector3(0, 1, 0);
   const _footOff = new THREE.Vector3();
   const _footNorm = new THREE.Vector3();
-  function updateContactShadows() {
+  function updateContactShadows(dt = 0.016, groundSpeed = 0, airborne = false, moveDirVec = null, nowMs = 0) {
+    const canStepDust = !airborne && groundSpeed > 0.14;
+    const stepIntensity = computeFootstepDustIntensity(groundSpeed, WALK_SPEED_MS, RUN_SPEED_MS);
     for (const c of contacts) {
       c.mesh.visible = c.who.group.visible;
       if (!c.mesh.visible) continue;
+      c.dustCooldown = Math.max(0, c.dustCooldown - dt);
       c.foot.getWorldPosition(footPos);
+      let lift = 0;
       if (isDemoSphere && marsGlobal) {
         const geo = localSceneXZToLonLat(footPos.x, footPos.z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
         const gAlt = marsGlobal.sampleElevM(geo.lonDeg, geo.latDeg);
@@ -1387,7 +1631,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         _footNorm.set(snx, sny, snz);
         _footOff.set(footPos.x - gPos.x, footPos.y - gPos.y, footPos.z - gPos.z);
         const radialHeight = _footOff.dot(_footNorm);
-        const lift = Math.max(0, radialHeight - 0.08);
+        lift = Math.max(0, radialHeight - 0.08);
         c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
         const e = 0.3;
         const gE = localSceneXZToLonLat(footPos.x + e, footPos.z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
@@ -1401,11 +1645,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         qYaw.setFromAxisAngle(Y_AXIS, autoYaw + userYaw);
         c.mesh.quaternion.copy(qTilt).multiply(qYaw);
         c.mesh.position.set(gPos.x + _footNorm.x * 0.02, gPos.y + _footNorm.y * 0.02, gPos.z + _footNorm.z * 0.02);
-        const sc = 1 + lift * 1.5;
-        c.mesh.scale.set(sc, 1, sc);
       } else {
         const gy = sampleElevSceneY(footPos.x, footPos.z);
-        const lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
+        lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
         c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
         const e = 0.3;
         nrm
@@ -1419,9 +1661,16 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         qYaw.setFromAxisAngle(Y_AXIS, c.who.group.rotation.y);
         c.mesh.quaternion.copy(qTilt).multiply(qYaw);
         c.mesh.position.set(footPos.x, gy + 0.02, footPos.z);
-        const sc = 1 + lift * 1.5;
-        c.mesh.scale.set(sc, 1, sc);
       }
+      const sc = 1 + lift * 1.5;
+      c.mesh.scale.set(sc, 1, sc);
+      if (canStepDust && c.prevLift !== null && c.prevLift > 0.022 && lift <= 0.022 && c.dustCooldown <= 0) {
+        dustFx.emitFootstep(c.mesh.position, nrm, moveDirVec, stepIntensity);
+        c.dustCooldown = 0.22;
+        lastFootstepFxMs = nowMs;
+        stepDustFallbackDist = 0;
+      }
+      c.prevLift = lift;
     }
   }
   const suitEl = document.getElementById("hud-suit");
@@ -1839,16 +2088,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     btnSpeed.textContent = `${SPEEDS[speedIdx]}x walk`;
   });
 
-  // texture modes: relief (default), ortho, slope
+  // texture modes: relief (natural geology), mola (MOLA elevation color), ortho (Viking/HiRISE), slope (hazard)
   const TEX = [
-    { tex: reliefTex, label: "relief" },
-    { tex: orthoTex, label: "ortho" },
-    { tex: slopeTex, label: "slope" },
+    { tex: reliefTex, mode: 0, label: "relief" },
+    { tex: reliefTex, mode: 1, label: "mola" },
+    { tex: orthoTex, mode: 2, label: "ortho" },
+    { tex: slopeTex, mode: 3, label: "slope" },
   ];
   function setTexMode(i) {
     texMode = i;
     if (texMode === 0 && !reliefOk) texMode = 1;
     terrainMat.map = TEX[texMode].tex;
+    texModeUniform.value = TEX[texMode].mode;
     terrainMat.needsUpdate = true;
     const b = document.getElementById("hud-tex");
     if (b) b.textContent = `Tex: ${TEX[texMode].label}`;
@@ -1929,6 +2180,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   function rebaseSphereOrigin(centerLonDeg, centerLatDeg) {
     if (!isDemoSphere || !marsGlobal) return;
+    const oldPx = player.x;
+    const oldPy = player.y;
+    const oldPz = player.z;
     rebuildSphericalTerrain(centerLonDeg, centerLatDeg);
     repositionSphereEntities();
     const p = marsLonLatAltToLocalScene(
@@ -1943,6 +2197,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     player.x = p.x;
     player.y = p.y;
     player.z = p.z;
+    if (Number.isFinite(oldPx) && Number.isFinite(oldPy) && Number.isFinite(oldPz)) {
+      dustFx.shiftOrigin(p.x - oldPx, p.y - oldPy, p.z - oldPz);
+    }
   }
 
   // A new route from the planner (Begin EVA): stand at its start, facing along it.
@@ -2113,11 +2370,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
   };
 
-  let mapLayerMode = "elevation"; // "elevation" | "hazard"
+  let mapLayerMode = "elevation"; // "elevation" | "mola" | "hazard"
   let mapScope = isDemoSphere ? "globe" : "local"; // "globe" | "world" | "local"
   let awaitingInitialLanding = Boolean(isDemoSphere);
   let globeCenterLon = playerGeo.lon;
   let globeCenterLat = playerGeo.lat;
+  let globeZoom = 1.0;
   let pendingTeleport = null; // { tx, tz, lon, lat, elevMola, slopeDeg, distM, region? }
   let hoverTarget = null;
 
@@ -2128,12 +2386,17 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const elevCanvas = document.createElement("canvas");
     elevCanvas.width = w;
     elevCanvas.height = h;
+    const molaCanvas = document.createElement("canvas");
+    molaCanvas.width = w;
+    molaCanvas.height = h;
     const hazCanvas = document.createElement("canvas");
     hazCanvas.width = w;
     hazCanvas.height = h;
     const eCtx = elevCanvas.getContext("2d");
+    const mCtx = molaCanvas.getContext("2d");
     const hCtx = hazCanvas.getContext("2d");
     const eImg = eCtx.createImageData(w, h);
+    const mImg = mCtx.createImageData(w, h);
     const hImg = hCtx.createImageData(w, h);
 
     let minE = elevMin;
@@ -2176,6 +2439,25 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const last = stopsCol[stopsCol.length - 1];
       return [last[1], last[2], last[3]];
     };
+    const shadeWithContours = (baseR, baseG, baseB, shade, isMajor, isMinor) => {
+      let cr = baseR * shade;
+      let cg = baseG * shade;
+      let cb = baseB * shade;
+      if (isMajor) {
+        cr = cr * 0.52 + 245 * 0.48;
+        cg = cg * 0.52 + 206 * 0.48;
+        cb = cb * 0.52 + 166 * 0.48;
+      } else if (isMinor) {
+        cr *= 0.74;
+        cg *= 0.74;
+        cb *= 0.74;
+      }
+      return [
+        Math.max(0, Math.min(255, Math.round(cr))),
+        Math.max(0, Math.min(255, Math.round(cg))),
+        Math.max(0, Math.min(255, Math.round(cb))),
+      ];
+    };
 
     const sunMaskData = sunMask?.image?.data || null;
     const sunMaskW = sunMask?.image?.width || 0;
@@ -2211,11 +2493,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         }
 
         const shade = (0.44 + 0.78 * ndotl) * (0.76 + 0.24 * sunVis);
-        const baseRgb = sampleMarsRamp((eC - minE) / spanE);
-
-        let r = baseRgb[0] * shade;
-        let g = baseRgb[1] * shade;
-        let b = baseRgb[2] * shade;
+        const elevT = (eC - minE) / spanE;
 
         // Elevation contour lines (20 m minor, 60 m major)
         const minorBand = Math.floor((eC - minE) / minorInterval);
@@ -2228,54 +2506,47 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           Math.floor((eR - minE) / majorInterval),
           Math.floor((eD - minE) / majorInterval)
         );
-        if (majorBand !== majNeighborBand) {
-          r = r * 0.52 + 245 * 0.48;
-          g = g * 0.52 + 206 * 0.48;
-          b = b * 0.52 + 166 * 0.48;
-        } else if (minorBand !== minNeighborBand) {
-          r *= 0.74;
-          g *= 0.74;
-          b *= 0.74;
-        }
+        const isMajor = majorBand !== majNeighborBand;
+        const isMinor = !isMajor && minorBand !== minNeighborBand;
+
+        const baseRgb = sampleMarsRamp(elevT);
+        const [er, eg, eb] = shadeWithContours(baseRgb[0], baseRgb[1], baseRgb[2], shade, isMajor, isMinor);
 
         const p = (y * w + x) * 4;
-        eImg.data[p] = Math.max(0, Math.min(255, Math.round(r)));
-        eImg.data[p + 1] = Math.max(0, Math.min(255, Math.round(g)));
-        eImg.data[p + 2] = Math.max(0, Math.min(255, Math.round(b)));
+        eImg.data[p] = er;
+        eImg.data[p + 1] = eg;
+        eImg.data[p + 2] = eb;
         eImg.data[p + 3] = 255;
+
+        // NASA MOLA hypsometric color + 3D terrain hillshade & contours
+        const molaRgb = sampleMolaPaletteRgb(elevT);
+        const [mr, mg, mb] = shadeWithContours(
+          molaRgb[0] * 255,
+          molaRgb[1] * 255,
+          molaRgb[2] * 255,
+          shade,
+          isMajor,
+          isMinor
+        );
+        mImg.data[p] = mr;
+        mImg.data[p + 1] = mg;
+        mImg.data[p + 2] = mb;
+        mImg.data[p + 3] = 255;
 
         // Hazard overlay: blend slope class on top of Martian hillshade
         const slopeDeg = Math.atan(Math.hypot(gx, gz)) * (180 / Math.PI);
-        let hr = 34;
-        let hg = 197;
-        let hb = 94;
-        let alpha = 0.28;
-        if (slopeDeg > 20) {
-          hr = 168;
-          hg = 85;
-          hb = 247;
-          alpha = 0.62;
-        } else if (slopeDeg > 15) {
-          hr = 239;
-          hg = 68;
-          hb = 68;
-          alpha = 0.5;
-        } else if (slopeDeg > 10) {
-          hr = 245;
-          hg = 158;
-          hb = 11;
-          alpha = 0.38;
-        }
-        hImg.data[p] = Math.round(r * (1 - alpha) + hr * alpha);
-        hImg.data[p + 1] = Math.round(g * (1 - alpha) + hg * alpha);
-        hImg.data[p + 2] = Math.round(b * (1 - alpha) + hb * alpha);
+        const haz = sampleSlopeHazardColor(slopeDeg);
+        hImg.data[p] = Math.round(er * (1 - haz.alpha) + haz.r * haz.alpha);
+        hImg.data[p + 1] = Math.round(eg * (1 - haz.alpha) + haz.g * haz.alpha);
+        hImg.data[p + 2] = Math.round(eb * (1 - haz.alpha) + haz.b * haz.alpha);
         hImg.data[p + 3] = 255;
       }
     }
 
     eCtx.putImageData(eImg, 0, 0);
+    mCtx.putImageData(mImg, 0, 0);
     hCtx.putImageData(hImg, 0, 0);
-    return { elevCanvas, hazCanvas, minE, maxE };
+    return { elevCanvas, molaCanvas, hazCanvas, minE, maxE };
   })();
 
   // Precompute global Mars MOLA equirectangular shaded textures (demo sphere mode only)
@@ -2382,6 +2653,215 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return { size, canvas: c, ctx, img: ctx.createImageData(size, size) };
   })();
 
+  // Real 3D WebGL terrain-displaced Mars globe (NASA MOLA 16ppd relief + normal map + Viking / MOLA Shaded)
+  const globe3DState = (() => {
+    if (!isDemoSphere || !marsGlobal) return null;
+    try {
+      const GL_SIZE = 540;
+      const EXAGGERATION = 9.5;
+      const glRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
+      glRenderer.setSize(GL_SIZE, GL_SIZE, false);
+      glRenderer.setPixelRatio(1);
+      glRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      glRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      glRenderer.toneMappingExposure = 1.06;
+
+      const glScene = new THREE.Scene();
+      const glCam = new THREE.PerspectiveCamera(34, 1, 0.1, 20);
+
+      const segLon = 240;
+      const segLat = 120;
+      const cols = segLon + 1;
+      const rows = segLat + 1;
+      const vCount = cols * rows;
+      const positions = new Float32Array(vCount * 3);
+      const uvs = new Float32Array(vCount * 2);
+
+      for (let r = 0; r < rows; r++) {
+        const vFrac = r / segLat;
+        const lat = -90 + vFrac * 180;
+        for (let c = 0; c < cols; c++) {
+          const uFrac = c / segLon;
+          const lon = -180 + uFrac * 360;
+          const u = lonLatToUnitVec(lon, lat);
+          const elevM = marsGlobal.sampleElevM(lon, lat);
+          const rad = 1.0 + (elevM / MARS_RADIUS_MEAN_M) * EXAGGERATION;
+          const idx = r * cols + c;
+          positions[idx * 3] = u.ux * rad;
+          positions[idx * 3 + 1] = u.uy * rad;
+          positions[idx * 3 + 2] = u.uz * rad;
+          uvs[idx * 2] = uFrac;
+          uvs[idx * 2 + 1] = vFrac;
+        }
+      }
+
+      const indices = [];
+      for (let r = 0; r < segLat; r++) {
+        for (let c = 0; c < segLon; c++) {
+          const a = r * cols + c;
+          const b = a + 1;
+          const cIdx = (r + 1) * cols + c;
+          const d = cIdx + 1;
+          indices.push(a, b, d, a, d, cIdx);
+        }
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+      geom.setIndex(indices);
+      geom.computeVertexNormals();
+
+      // Build crisp 1440x720 tangent-space normal map directly from MOLA elevation gradients
+      const nw = 1440;
+      const nh = 720;
+      const nData = new Uint8Array(nw * nh * 4);
+      const dLon = 360 / nw;
+      const dLat = 180 / nh;
+      const cellSpanM = (MARS_CIRCUMFERENCE_M / nw) * 0.45;
+      for (let r = 0; r < nh; r++) {
+        // v = r / (nh - 1) maps -90 (south) .. +90 (north) matching flipY=false
+        const lat = -90 + (r + 0.5) * dLat;
+        const latN = Math.min(89.8, lat + dLat);
+        const latS = Math.max(-89.8, lat - dLat);
+        const cosLat = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+        for (let c = 0; c < nw; c++) {
+          const lon = -180 + (c + 0.5) * dLon;
+          const eW = marsGlobal.sampleElevM(lon - dLon, lat);
+          const eE = marsGlobal.sampleElevM(lon + dLon, lat);
+          const eS = marsGlobal.sampleElevM(lon, latS);
+          const eN = marsGlobal.sampleElevM(lon, latN);
+          const gx = ((eE - eW) / (2 * cellSpanM * cosLat)) * 11.5;
+          const gy = ((eN - eS) / (2 * cellSpanM)) * 11.5;
+          const inv = 1 / (Math.hypot(-gx, -gy, 1) || 1);
+          const o = (r * nw + c) * 4;
+          nData[o] = Math.max(0, Math.min(255, Math.round((-gx * inv * 0.5 + 0.5) * 255)));
+          nData[o + 1] = Math.max(0, Math.min(255, Math.round((-gy * inv * 0.5 + 0.5) * 255)));
+          nData[o + 2] = Math.max(0, Math.min(255, Math.round((inv * 0.5 + 0.5) * 255)));
+          nData[o + 3] = 255;
+        }
+      }
+      const normalTex = new THREE.DataTexture(nData, nw, nh, THREE.RGBAFormat);
+      normalTex.flipY = false;
+      normalTex.wrapS = THREE.RepeatWrapping;
+      normalTex.wrapT = THREE.ClampToEdgeWrapping;
+      normalTex.needsUpdate = true;
+
+      const makeTex = (src) => {
+        if (!src) return null;
+        const t = new THREE.Texture(src);
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.wrapS = THREE.RepeatWrapping;
+        t.wrapT = THREE.ClampToEdgeWrapping;
+        t.anisotropy = Math.min(8, glRenderer.capabilities.getMaxAnisotropy?.() || 4);
+        t.needsUpdate = true;
+        return t;
+      };
+
+      const vikingTex = makeTex(vikingImgEl) || makeTex(globalMarsBases?.elevCanvas);
+      const molaShadedTex = makeTex(molaShadedImgEl) || makeTex(globalMarsBases?.elevCanvas);
+      const hazardTex = makeTex(globalMarsBases?.hazCanvas) || vikingTex;
+
+      const mat = new THREE.MeshStandardMaterial({
+        map: vikingTex,
+        normalMap: normalTex,
+        normalScale: new THREE.Vector2(2.35, 2.35),
+        roughness: 0.9,
+        metalness: 0.03,
+      });
+
+      const globeMesh = new THREE.Mesh(geom, mat);
+      glScene.add(globeMesh);
+
+      const hemiLight = new THREE.HemisphereLight(0xffdfc4, 0x24120c, 0.58);
+      glScene.add(hemiLight);
+      const sunLight = new THREE.DirectionalLight(0xfff1e0, 2.35);
+      glScene.add(sunLight);
+
+      const raycaster = new THREE.Raycaster();
+      const _camRight = new THREE.Vector3();
+      const _camUp = new THREE.Vector3();
+      const _camFwd = new THREE.Vector3();
+      const _sunV = new THREE.Vector3();
+      const _pt = new THREE.Vector3();
+      let lastKey = "";
+
+      const syncCamera = (cLon, cLat, zoom) => {
+        const zClamped = Math.max(0.85, Math.min(3.2, zoom));
+        const u = lonLatToUnitVec(cLon, cLat);
+        const camDist = 3.65 / zClamped;
+        glCam.position.set(u.ux * camDist, u.uy * camDist, u.uz * camDist);
+        glCam.up.set(0, 1, 0);
+        glCam.lookAt(0, 0, 0);
+        glCam.updateMatrixWorld();
+
+        // Keep directional Sun offset ~34 deg East-North relative to current view so shadows show crisp 3D relief
+        _camFwd.copy(glCam.position).normalize();
+        _camRight.crossVectors(glCam.up, _camFwd).normalize();
+        _camUp.crossVectors(_camFwd, _camRight).normalize();
+        _sunV
+          .copy(_camFwd)
+          .multiplyScalar(0.84)
+          .addScaledVector(_camRight, 0.44)
+          .addScaledVector(_camUp, 0.34)
+          .normalize();
+        sunLight.position.copy(_sunV).multiplyScalar(10);
+      };
+
+      const render = (cLon, cLat, zoom, layerMode) => {
+        const targetTex =
+          layerMode === "hazard" ? hazardTex : layerMode === "mola" ? molaShadedTex : vikingTex;
+        if (targetTex && mat.map !== targetTex) {
+          mat.map = targetTex;
+          mat.needsUpdate = true;
+        }
+        const key = `${cLon.toFixed(3)}|${cLat.toFixed(3)}|${zoom.toFixed(3)}|${layerMode}`;
+        if (key !== lastKey) {
+          syncCamera(cLon, cLat, zoom);
+          glRenderer.render(glScene, glCam);
+          lastKey = key;
+        }
+        return glRenderer.domElement;
+      };
+
+      const raycastScreen = (uNorm, vNorm, cLon, cLat, zoom) => {
+        syncCamera(cLon, cLat, zoom);
+        raycaster.setFromCamera({ x: uNorm * 2 - 1, y: -(vNorm * 2 - 1) }, glCam);
+        const hits = raycaster.intersectObject(globeMesh, false);
+        if (!hits.length) return null;
+        const pt = hits[0].point.clone().normalize();
+        return unitVecToLonLat(pt.x, pt.y, pt.z);
+      };
+
+      const projectLonLat = (lon, lat, W, H, cLon, cLat, zoom) => {
+        syncCamera(cLon, cLat, zoom);
+        const u = lonLatToUnitVec(lon, lat);
+        const altM = marsGlobal.sampleElevM(lon, lat);
+        const rad = 1.0 + (altM / MARS_RADIUS_MEAN_M) * EXAGGERATION;
+        _pt.set(u.ux * rad, u.uy * rad, u.uz * rad);
+        const toCamX = glCam.position.x - _pt.x;
+        const toCamY = glCam.position.y - _pt.y;
+        const toCamZ = glCam.position.z - _pt.z;
+        const visible = u.ux * toCamX + u.uy * toCamY + u.uz * toCamZ > 0.05;
+        _pt.project(glCam);
+        return {
+          x: (_pt.x * 0.5 + 0.5) * W,
+          y: (-_pt.y * 0.5 + 0.5) * H,
+          visible,
+        };
+      };
+
+      return {
+        canvas: glRenderer.domElement,
+        render,
+        raycastScreen,
+        projectLonLat,
+      };
+    } catch {
+      return null;
+    }
+  })();
+
   if (isDemoSphere && mapScopeRowEl) {
     mapScopeRowEl.style.display = "flex";
   }
@@ -2470,13 +2950,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
             : "20 m minor / 60 m major contours · seamlessly anchored on the spherical Mars globe.";
         }
       } else {
-        if (elevMaxLabel) elevMaxLabel.textContent = "+21,134 m";
-        if (elevMidLabel) elevMidLabel.textContent = "+6,533 m";
-        if (elevMinLabel) elevMinLabel.textContent = "-8,068 m";
+        if (elevMaxLabel) elevMaxLabel.textContent = "+21,159 m";
+        if (elevMidLabel) elevMidLabel.textContent = "+6,512 m";
+        if (elevMinLabel) elevMinLabel.textContent = "-8,135 m";
         if (cnEl) {
           cnEl.textContent = tr
-            ? "Gerçek NASA MGS MOLA MEGDR 4ppd + Viking MDIM 2.1 · Olympus (+21.1 km) → Hellas (-8.1 km) · R = 3.389,5 km."
-            : "Real NASA MGS MOLA MEGDR 4ppd + Viking MDIM 2.1 · Olympus (+21.1 km) → Hellas (-8.1 km) · R = 3,389.5 km.";
+            ? "Gerçek NASA MGS MOLA 16ppd + Viking MDIM 2.1 + MOLA Kabartma · Olympus (+21.2 km) → Hellas (-8.1 km)."
+            : "Real NASA MGS MOLA 16ppd + Viking MDIM 2.1 + MOLA Relief · Olympus (+21.2 km) → Hellas (-8.1 km).";
         }
       }
       if (ktEl) ktEl.textContent = tr ? "İŞARETLER VE KÜRE" : "MARKERS & GLOBE";
@@ -2513,14 +2993,17 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
 
     if (mapModeBtn) {
-      mapModeBtn.textContent =
-        mapLayerMode === "elevation"
+      const molaLabel = tr ? "Katman: MOLA Kabartma 3B" : "Layer: MOLA Relief 3D";
+      const hazLabel = tr ? "Katman: Eğim Tehlikesi" : "Layer: Slope Hazard";
+      const elevLabel =
+        isDemoSphere && mapScope !== "local"
           ? tr
-            ? "Katman: Yükselti 3B"
-            : "Layer: Elevation 3D"
+            ? "Katman: Viking + MOLA 3B"
+            : "Layer: Viking + MOLA 3D"
           : tr
-            ? "Katman: Eğim Tehlikesi"
-            : "Layer: Slope Hazard";
+            ? "Katman: Yükselti 3B"
+            : "Layer: Elevation 3D";
+      mapModeBtn.textContent = mapLayerMode === "mola" ? molaLabel : mapLayerMode === "hazard" ? hazLabel : elevLabel;
     }
     if (mapCloseBtn) mapCloseBtn.textContent = tr ? "Kapat (M)" : "Close (M)";
     if (mapConfirmQEl) {
@@ -2647,7 +3130,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (e.target === mapOverlayEl) setMapOpen(false);
   });
   mapModeBtn?.addEventListener("click", () => {
-    mapLayerMode = mapLayerMode === "elevation" ? "hazard" : "elevation";
+    mapLayerMode = mapLayerMode === "elevation" ? "mola" : mapLayerMode === "mola" ? "hazard" : "elevation";
     syncMapStaticText();
     renderTacticalMap();
   });
@@ -2658,6 +3141,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (nextScope === "globe") {
       globeCenterLon = playerGeo.lon;
       globeCenterLat = Math.max(-85, Math.min(85, playerGeo.lat));
+      globeZoom = 1.0;
     }
     syncMapStaticText();
     renderTacticalMap();
@@ -2733,6 +3217,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const pointerToTarget = (e) => {
       const { u, v, cx, cy } = canvasCoords(e);
       if (isDemoSphere && mapScope === "globe") {
+        if (globe3DState) {
+          const hit3D = globe3DState.raycastScreen(u, v, globeCenterLon, globeCenterLat, globeZoom);
+          return hit3D ? formatLonLatMetrics(hit3D.lonDeg, hit3D.latDeg) : null;
+        }
         const W = mapCanvasEl.width;
         const H = mapCanvasEl.height;
         const rPx = Math.min(W, H) * 0.415;
@@ -2746,6 +3234,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       }
       return formatPointMetrics((u - 0.5) * worldW, (v - 0.5) * worldH);
     };
+
+    mapCanvasEl.addEventListener(
+      "wheel",
+      (e) => {
+        if (!isDemoSphere || mapScope !== "globe") return;
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 0.9 : 1.11;
+        globeZoom = Math.max(0.85, Math.min(3.2, globeZoom * factor));
+        renderTacticalMap();
+      },
+      { passive: false }
+    );
 
     mapCanvasEl.addEventListener("pointerdown", (e) => {
       if (isDemoSphere && mapScope === "globe") {
@@ -2765,8 +3265,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       mapDragState.moved = Math.max(mapDragState.moved, Math.hypot(dx, dy));
       if (mapDragState.moved > 3) {
         const cosLat = Math.max(0.35, Math.cos((mapDragState.lat0 * Math.PI) / 180));
-        globeCenterLon = normalizeLonDeg(mapDragState.lon0 - (dx * 0.35) / cosLat);
-        globeCenterLat = Math.max(-85, Math.min(85, mapDragState.lat0 + dy * 0.35));
+        const dragScale = 0.35 / Math.max(0.85, globeZoom);
+        globeCenterLon = normalizeLonDeg(mapDragState.lon0 - (dx * dragScale) / cosLat);
+        globeCenterLat = Math.max(-85, Math.min(85, mapDragState.lat0 + dy * dragScale));
         renderTacticalMap();
       }
     });
@@ -2816,14 +3317,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   function renderGlobe3D(W, H) {
-    if (!globalMarsBases || !globeScratch) return;
+    if (!globalMarsBases && !globe3DState) return;
     const tr = isTrLang();
     mapCtx.fillStyle = "#06080d";
     mapCtx.fillRect(0, 0, W, H);
 
     // Subtle background starfield (deterministic)
-    mapCtx.fillStyle = "rgba(255,255,255,0.45)";
-    for (let i = 0; i < 42; i++) {
+    mapCtx.fillStyle = "rgba(255,255,255,0.48)";
+    for (let i = 0; i < 48; i++) {
       const sx = ((i * 197 + 31) % 997) / 997 * W;
       const sy = ((i * 353 + 79) % 991) / 991 * H;
       mapCtx.fillRect(sx, sy, i % 4 === 0 ? 1.6 : 1, i % 4 === 0 ? 1.6 : 1);
@@ -2831,90 +3332,107 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
     const cx = W * 0.5;
     const cy = H * 0.5;
-    const rPx = Math.min(W, H) * 0.415;
+    const fovRad = (34 * Math.PI) / 180;
+    const camDist = 3.65 / Math.max(0.85, Math.min(3.2, globeZoom));
+    const appRadiusPx = globe3DState
+      ? ((H * 0.5) / Math.tan(fovRad * 0.5)) * (1 / Math.sqrt(Math.max(0.25, camDist * camDist - 1)))
+      : Math.min(W, H) * 0.415;
 
     // Martian dusty atmosphere limb glow
-    const halo = mapCtx.createRadialGradient(cx, cy, rPx * 0.94, cx, cy, rPx * 1.12);
-    halo.addColorStop(0, "rgba(232, 139, 92, 0.35)");
-    halo.addColorStop(0.55, "rgba(184, 96, 58, 0.14)");
+    const halo = mapCtx.createRadialGradient(cx, cy, appRadiusPx * 0.92, cx, cy, appRadiusPx * 1.15);
+    halo.addColorStop(0, "rgba(232, 139, 92, 0.34)");
+    halo.addColorStop(0.55, "rgba(184, 96, 58, 0.12)");
     halo.addColorStop(1, "rgba(6, 8, 13, 0)");
     mapCtx.fillStyle = halo;
     mapCtx.beginPath();
-    mapCtx.arc(cx, cy, rPx * 1.12, 0, Math.PI * 2);
+    mapCtx.arc(cx, cy, appRadiusPx * 1.15, 0, Math.PI * 2);
     mapCtx.fill();
 
-    // Render shaded orthographic sphere into scratch buffer
-    const S = globeScratch.size;
-    const imgData = globeScratch.img;
-    const pxOut = imgData.data;
-    const texData = mapLayerMode === "hazard" ? globalMarsBases.hData : globalMarsBases.eData;
-    const gw = globalMarsBases.width;
-    const gh = globalMarsBases.height;
-    const d2r = Math.PI / 180;
-    const phi0 = globeCenterLat * d2r;
-    const lam0 = globeCenterLon * d2r;
-    const sinP0 = Math.sin(phi0);
-    const cosP0 = Math.cos(phi0);
-    const halfS = S * 0.5;
-    const invHalf = 1 / halfS;
-    const lx = 0.46;
-    const ly = 0.38;
-    const lz = 0.80;
+    const projectPoint = (lon, lat) =>
+      globe3DState
+        ? globe3DState.projectLonLat(lon, lat, W, H, globeCenterLon, globeCenterLat, globeZoom)
+        : projectOrthoGlobe(lon, lat, globeCenterLon, globeCenterLat, cx, cy, appRadiusPx);
 
-    for (let py = 0; py < S; py++) {
-      const ny = (halfS - py - 0.5) * invHalf;
-      for (let px = 0; px < S; px++) {
-        const nx = (px + 0.5 - halfS) * invHalf;
-        const r2 = nx * nx + ny * ny;
-        const o = (py * S + px) * 4;
-        if (r2 > 1) {
-          pxOut[o + 3] = 0;
-          continue;
+    if (globe3DState) {
+      const glCanvas = globe3DState.render(globeCenterLon, globeCenterLat, globeZoom, mapLayerMode);
+      mapCtx.drawImage(glCanvas, 0, 0, W, H);
+    } else if (globeScratch) {
+      // Headless / 2D-only fallback sphere
+      const rPx = appRadiusPx;
+      const S = globeScratch.size;
+      const imgData = globeScratch.img;
+      const pxOut = imgData.data;
+      const texData = mapLayerMode === "hazard" ? globalMarsBases.hData : globalMarsBases.eData;
+      const gw = globalMarsBases.width;
+      const gh = globalMarsBases.height;
+      const d2r = Math.PI / 180;
+      const phi0 = globeCenterLat * d2r;
+      const lam0 = globeCenterLon * d2r;
+      const sinP0 = Math.sin(phi0);
+      const cosP0 = Math.cos(phi0);
+      const halfS = S * 0.5;
+      const invHalf = 1 / halfS;
+      const lx = 0.46;
+      const ly = 0.38;
+      const lz = 0.8;
+
+      for (let py = 0; py < S; py++) {
+        const ny = (halfS - py - 0.5) * invHalf;
+        for (let px = 0; px < S; px++) {
+          const nx = (px + 0.5 - halfS) * invHalf;
+          const r2 = nx * nx + ny * ny;
+          const o = (py * S + px) * 4;
+          if (r2 > 1) {
+            pxOut[o + 3] = 0;
+            continue;
+          }
+          const nz = Math.sqrt(1 - r2);
+          const rho = Math.sqrt(r2);
+          let latDeg = globeCenterLat;
+          let lonDeg = globeCenterLon;
+          if (rho > 1e-6) {
+            const c = Math.asin(Math.min(1, rho));
+            const sinC = Math.sin(c);
+            const cosC = nz;
+            const phi = Math.asin(Math.max(-1, Math.min(1, cosC * sinP0 + (ny * sinC * cosP0) / rho)));
+            const lam = lam0 + Math.atan2(nx * sinC, rho * cosP0 * cosC - ny * sinP0 * sinC);
+            lonDeg = lam / d2r;
+            latDeg = phi / d2r;
+          }
+          let uIdx = Math.floor(((normalizeLonDeg(lonDeg) + 180) / 360) * gw);
+          uIdx = ((uIdx % gw) + gw) % gw;
+          const vIdx = Math.max(0, Math.min(gh - 1, Math.floor(((90 - latDeg) / 180) * gh)));
+          const ti = (vIdx * gw + uIdx) * 4;
+
+          const ndotl = Math.max(0, nx * lx + ny * ly + nz * lz);
+          const limbRim = Math.pow(1 - nz, 2.4);
+          const shade = 0.42 + 0.72 * ndotl;
+
+          pxOut[o] = Math.min(255, Math.round(texData[ti] * shade + 195 * limbRim * 0.25));
+          pxOut[o + 1] = Math.min(255, Math.round(texData[ti + 1] * shade + 115 * limbRim * 0.25));
+          pxOut[o + 2] = Math.min(255, Math.round(texData[ti + 2] * shade + 82 * limbRim * 0.25));
+          pxOut[o + 3] = 255;
         }
-        const nz = Math.sqrt(1 - r2);
-        const rho = Math.sqrt(r2);
-        let latDeg = globeCenterLat;
-        let lonDeg = globeCenterLon;
-        if (rho > 1e-6) {
-          const c = Math.asin(Math.min(1, rho));
-          const sinC = Math.sin(c);
-          const cosC = nz;
-          const phi = Math.asin(Math.max(-1, Math.min(1, cosC * sinP0 + (ny * sinC * cosP0) / rho)));
-          const lam = lam0 + Math.atan2(nx * sinC, rho * cosP0 * cosC - ny * sinP0 * sinC);
-          lonDeg = lam / d2r;
-          latDeg = phi / d2r;
-        }
-        let uIdx = Math.floor(((normalizeLonDeg(lonDeg) + 180) / 360) * gw);
-        uIdx = ((uIdx % gw) + gw) % gw;
-        const vIdx = Math.max(0, Math.min(gh - 1, Math.floor(((90 - latDeg) / 180) * gh)));
-        const ti = (vIdx * gw + uIdx) * 4;
-
-        const ndotl = Math.max(0, nx * lx + ny * ly + nz * lz);
-        const limbRim = Math.pow(1 - nz, 2.4);
-        const shade = 0.42 + 0.72 * ndotl;
-
-        pxOut[o] = Math.min(255, Math.round(texData[ti] * shade + 195 * limbRim * 0.25));
-        pxOut[o + 1] = Math.min(255, Math.round(texData[ti + 1] * shade + 115 * limbRim * 0.25));
-        pxOut[o + 2] = Math.min(255, Math.round(texData[ti + 2] * shade + 82 * limbRim * 0.25));
-        pxOut[o + 3] = 255;
       }
+      globeScratch.ctx.putImageData(imgData, 0, 0);
+      mapCtx.save();
+      mapCtx.beginPath();
+      mapCtx.arc(cx, cy, rPx, 0, Math.PI * 2);
+      mapCtx.clip();
+      mapCtx.imageSmoothingEnabled = true;
+      mapCtx.drawImage(globeScratch.canvas, cx - rPx, cy - rPx, rPx * 2, rPx * 2);
+      mapCtx.restore();
     }
-    globeScratch.ctx.putImageData(imgData, 0, 0);
-    mapCtx.save();
-    mapCtx.beginPath();
-    mapCtx.arc(cx, cy, rPx, 0, Math.PI * 2);
-    mapCtx.clip();
-    mapCtx.imageSmoothingEnabled = true;
-    mapCtx.drawImage(globeScratch.canvas, cx - rPx, cy - rPx, rPx * 2, rPx * 2);
 
+    mapCtx.save();
     // 30 deg graticule meridians and parallels on visible hemisphere
-    mapCtx.strokeStyle = "rgba(255, 224, 194, 0.16)";
+    mapCtx.strokeStyle = "rgba(255, 224, 194, 0.15)";
     mapCtx.lineWidth = 1;
     for (let lon = -150; lon <= 180; lon += 30) {
       mapCtx.beginPath();
       let pen = false;
       for (let lat = -85; lat <= 85; lat += 5) {
-        const pr = projectOrthoGlobe(lon, lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+        const pr = projectPoint(lon, lat);
         if (pr.visible) {
           if (!pen) {
             mapCtx.moveTo(pr.x, pr.y);
@@ -2932,7 +3450,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       mapCtx.beginPath();
       let pen = false;
       for (let lon = -180; lon <= 180; lon += 5) {
-        const pr = projectOrthoGlobe(lon, lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+        const pr = projectPoint(lon, lat);
         if (pr.visible) {
           if (!pen) {
             mapCtx.moveTo(pr.x, pr.y);
@@ -2950,7 +3468,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     // Major Mars landmarks
     mapCtx.font = "600 10px monospace";
     for (const lm of MARS_LANDMARKS) {
-      const pr = projectOrthoGlobe(lm.lon, lm.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      const pr = projectPoint(lm.lon, lm.lat);
       if (!pr.visible) continue;
       const isGale = lm.id === "gale";
       mapCtx.beginPath();
@@ -2963,8 +3481,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
       const label = tr ? lm.nameTr : lm.nameEn;
       const tw = mapCtx.measureText(label).width;
-      const lxTxt = Math.min(cx + rPx - tw - 6, pr.x + 7);
-      const lyTxt = Math.max(cy - rPx + 14, pr.y - 5);
+      const lxTxt = Math.min(W - tw - 10, pr.x + 7);
+      const lyTxt = Math.max(16, pr.y - 5);
       mapCtx.fillStyle = "rgba(6, 8, 13, 0.72)";
       mapCtx.fillRect(lxTxt - 3, lyTxt - 9, tw + 6, 13);
       mapCtx.fillStyle = isGale ? "#bbf7d0" : "#fef3c7";
@@ -2973,7 +3491,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
     // Pending teleport crosshair / hover marker
     if (pendingTeleport) {
-      const pr = projectOrthoGlobe(pendingTeleport.lon, pendingTeleport.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      const pr = projectPoint(pendingTeleport.lon, pendingTeleport.lat);
       if (pr.visible) {
         mapCtx.strokeStyle = "#fbbf24";
         mapCtx.lineWidth = 2;
@@ -2986,7 +3504,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         mapCtx.stroke();
       }
     } else if (hoverTarget) {
-      const pr = projectOrthoGlobe(hoverTarget.lon, hoverTarget.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      const pr = projectPoint(hoverTarget.lon, hoverTarget.lat);
       if (pr.visible) {
         mapCtx.strokeStyle = "rgba(255,255,255,0.7)";
         mapCtx.lineWidth = 1.2;
@@ -2997,11 +3515,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
 
     // Astronaut position + gaze direction on globe
-    const pPr = projectOrthoGlobe(playerGeo.lon, playerGeo.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+    const pPr = projectPoint(playerGeo.lon, playerGeo.lat);
     if (pPr.visible) {
       const totalYaw = autoYaw + userYaw;
       const ahead = stepOnMarsSphere(playerGeo.lon, playerGeo.lat, playerGeo.altM, -Math.sin(totalYaw) * 90000, -Math.cos(totalYaw) * 90000, totalYaw);
-      const aPr = projectOrthoGlobe(ahead.lonDeg, ahead.latDeg, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      const aPr = projectPoint(ahead.lonDeg, ahead.latDeg);
       const ang = Math.atan2(aPr.y - pPr.y, aPr.x - pPr.x);
       mapCtx.beginPath();
       mapCtx.moveTo(pPr.x, pPr.y);
@@ -3020,19 +3538,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     mapCtx.restore();
 
-    // Outer limb stroke & telemetry caption
-    mapCtx.strokeStyle = "rgba(251, 191, 142, 0.45)";
-    mapCtx.lineWidth = 1.5;
-    mapCtx.beginPath();
-    mapCtx.arc(cx, cy, rPx, 0, Math.PI * 2);
-    mapCtx.stroke();
-
     mapCtx.fillStyle = "rgba(10, 6, 4, 0.78)";
-    mapCtx.fillRect(10, H - 30, 290, 20);
+    mapCtx.fillRect(10, H - 30, 326, 20);
     mapCtx.fillStyle = "#f7dec4";
     mapCtx.font = "bold 10px monospace";
     mapCtx.fillText(
-      tr ? "R = 3.389,5 km · ÇEVRE = 21.297 km" : "R = 3,389.5 km · CIRC = 21,297 km",
+      tr
+        ? `R = 3.389,5 km · MOLA 3B KABARTMA · YAKINLAŞTIR: ${globeZoom.toFixed(1)}×`
+        : `R = 3,389.5 km · MOLA 3D RELIEF · ZOOM: ${globeZoom.toFixed(1)}×`,
       18,
       H - 16
     );
@@ -3042,7 +3555,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   function renderGlobalMars2D(W, H) {
     if (!globalMarsBases) return;
     const tr = isTrLang();
-    const img = mapLayerMode === "hazard" ? globalMarsBases.hazCanvas : globalMarsBases.elevCanvas;
+    const img =
+      mapLayerMode === "hazard"
+        ? globalMarsBases.hazCanvas
+        : mapLayerMode === "mola" && molaShadedImgEl
+          ? molaShadedImgEl
+          : globalMarsBases.elevCanvas;
     mapCtx.clearRect(0, 0, W, H);
     mapCtx.imageSmoothingEnabled = true;
     mapCtx.drawImage(img, 0, 0, W, H);
@@ -3143,7 +3661,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       return;
     }
 
-    const baseImg = mapLayerMode === "hazard" ? mapBases.hazCanvas : mapBases.elevCanvas;
+    const baseImg =
+      mapLayerMode === "mola"
+        ? mapBases.molaCanvas
+        : mapLayerMode === "hazard"
+          ? mapBases.hazCanvas
+          : mapBases.elevCanvas;
 
     mapCtx.clearRect(0, 0, W, H);
     mapCtx.imageSmoothingEnabled = true;
@@ -3294,6 +3817,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     if (isMapOpen()) return;
 
+    if (k === "t" && !e.repeat) {
+      e.preventDefault();
+      setTexMode((texMode + 1) % TEX.length);
+      return;
+    }
+
     keys.add(k);
     if (k === "p") {
       dropLocalPing("EVA Waypoint");
@@ -3303,6 +3832,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       if (player.grounded) {
         player.vy = JUMP_SPEED_MS;
         player.grounded = false;
+        const jumpYaw = autoYaw + userYaw;
+        _dustMoveVec.set(-Math.sin(jumpYaw), 0, -Math.cos(jumpYaw));
+        resolvePlayerGroundContact(player.x, player.z, _dustPlayerGroundPos, _dustPlayerNrm);
+        dustFx.emitTakeoff(_dustPlayerGroundPos, _dustPlayerNrm, _dustMoveVec);
       }
     }
   });
@@ -3480,6 +4013,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     let ground;
     let sphereStepM = 0;
     let sphereGaitDir = null;
+    let landingImpactSpeed = 0;
 
     if (isDemoSphere && marsGlobal) {
       let moveE = 0;
@@ -3545,11 +4079,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       // Radial Mars gravity along sphere altitude `playerGeo.altM` (invariant under origin rebase)
       const groundAltM = marsGlobal.sampleElevM(playerGeo.lon, playerGeo.lat);
       if (!player.init || justTeleportedOrWrapped) {
+        if (justTeleportedOrWrapped) dustFx.clear();
         playerGeo.altM = groundAltM;
         player.vy = 0;
         player.grounded = true;
         player.init = true;
       }
+      const prevGrounded = player.grounded;
+      const prevVy = player.vy;
       if (player.grounded && playerGeo.altM - groundAltM > 0.25) {
         player.grounded = false;
       }
@@ -3560,6 +4097,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           playerGeo.altM = groundAltM;
           player.vy = 0;
           player.grounded = true;
+          if (!prevGrounded && !justTeleportedOrWrapped) {
+            landingImpactSpeed = Math.max(1.2, Math.abs(prevVy));
+          }
         }
       } else {
         playerGeo.altM = groundAltM;
@@ -3694,10 +4234,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       player.z = pz;
       if (justTeleportedOrWrapped || movedXZ > 20) {
         // Teleport, wrap-around, or route reset moved us to a new terrain height: land cleanly on ground
+        dustFx.clear();
         player.y = ground;
         player.vy = 0;
         player.grounded = true;
       }
+      const prevGrounded = player.grounded;
+      const prevVy = player.vy;
       if (player.grounded && player.y - ground > 0.25) player.grounded = false; // stepped off a drop
       if (!player.grounded) {
         player.vy -= MARS_G * dt;
@@ -3706,6 +4249,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           player.y = ground;
           player.vy = 0;
           player.grounded = true;
+          if (!prevGrounded && !justTeleportedOrWrapped && movedXZ < 20) {
+            landingImpactSpeed = Math.max(1.2, Math.abs(prevVy));
+          }
         }
       } else {
         player.y = ground;
@@ -3724,6 +4270,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const step = justTeleportedOrWrapped ? 0 : sphereStepM;
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
+    _dustMoveVec.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    if (landingImpactSpeed > 0) {
+      resolvePlayerGroundContact(px, pz, _dustPlayerGroundPos, _dustPlayerNrm);
+      dustFx.emitLanding(_dustPlayerGroundPos, _dustPlayerNrm, landingImpactSpeed, _dustMoveVec);
+    }
 
     // own body: rigged walk driven by distance actually covered
     self.group.position.set(px, py, pz);
@@ -3739,11 +4290,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     self.update(dt, step, groundSpeed, !player.grounded, sphereGaitDir);
     self.group.updateMatrixWorld(true);
 
-    // helmet camera at the visor, with only a few millimetres of walking sway
+    // helmet camera at the visor: gentle 1/3g inverted-pendulum buoying aligned with the 1.08 m stride
     const ph = self.phase ?? 0;
-    const amt = Math.min(1, self.amount ?? 0);
-    const swayY = Math.sin(ph * 2) * 0.004 * amt;
-    const swayX = Math.sin(ph) * 0.003 * amt;
+    const amt = Math.min(1.25, self.amount ?? 0);
+    const { swayY, swayX, swayRoll } = computeMarsCameraSway(ph, amt);
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
     // looking down tips the head forward a little, like a real neck
     const tip = Math.max(0, -pitch);
@@ -3760,7 +4310,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       _eulerCam.set(
         pitch + micro(0.9, 0.0006),
         yaw + micro(0.6, 0.0007),
-        Math.sin(ph) * 0.0025 * amt,
+        swayRoll,
         "YXZ"
       );
       _qCamHead.setFromEuler(_eulerCam);
@@ -3776,7 +4326,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       camera.rotation.order = "YXZ";
       camera.rotation.y = yaw + micro(0.6, 0.0007);
       camera.rotation.x = pitch + micro(0.9, 0.0006);
-      camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
+      camera.rotation.z = swayRoll;
     }
 
     // Smoothly animate live multiplayer crewmates
@@ -3806,6 +4356,23 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         remote.group.rotation.y = remote.cur.yaw;
       }
       remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne);
+      if (remote.group.visible && rStep > 0 && rStep < 20 && !remote.target.airborne) {
+        remote.dustDist = (remote.dustDist || 0) + rStep;
+        if (remote.dustDist >= MARS_WALK_STRIDE_M * 0.5) {
+          remote.dustDist = 0;
+          const distToCam = remote.group.position.distanceTo(camera.position);
+          if (distToCam < 45) {
+            resolvePlayerGroundContact(remote.cur.x, remote.cur.z, _dustPlayerGroundPos, _dustPlayerNrm);
+            _dustMoveVec.set(-Math.sin(remote.cur.yaw), 0, -Math.cos(remote.cur.yaw));
+            dustFx.emitFootstep(
+              _dustPlayerGroundPos,
+              _dustPlayerNrm,
+              _dustMoveVec,
+              computeFootstepDustIntensity(rSpeed, WALK_SPEED_MS, RUN_SPEED_MS)
+            );
+          }
+        }
+      }
     }
 
     // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
@@ -3836,7 +4403,24 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       mp?.sendState(posePayload);
       onLocalPose?.(posePayload);
     }
-    updateContactShadows();
+    updateContactShadows(dt, groundSpeed, !player.grounded, _dustMoveVec, now);
+    // Stride fallback when the suit rig bones have not yet triggered a step while walking/running
+    if (player.grounded && groundSpeed > 0.16 && step > 0) {
+      stepDustFallbackDist += step;
+      if (now - lastFootstepFxMs > 460 && stepDustFallbackDist >= MARS_WALK_STRIDE_M * 0.5) {
+        stepDustFallbackDist = 0;
+        lastFootstepFxMs = now;
+        resolvePlayerGroundContact(px, pz, _dustPlayerGroundPos, _dustPlayerNrm);
+        dustFx.emitFootstep(
+          _dustPlayerGroundPos,
+          _dustPlayerNrm,
+          _dustMoveVec,
+          computeFootstepDustIntensity(groundSpeed, WALK_SPEED_MS, RUN_SPEED_MS)
+        );
+      }
+    } else {
+      stepDustFallbackDist = 0;
+    }
 
     // sun, moons and shadow box follow the walker
     const texel = (2 * SHADOW_HALF_M) / SHADOW_MAP_PX;
@@ -3862,6 +4446,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (isMapOpen()) renderTacticalMap();
 
     adaptResolution(dt * 1000, now);
+    dustFx.update(dt, camera, sun.visible ? 1.0 : 0.45);
     lensMat.uniforms.uTime.value = clockT;
     lensMat.uniforms.uExposure.value = 1.0 + Math.sin(clockT * 0.7) * 0.015 + Math.sin(clockT * 13.0) * 0.006;
     renderer.setRenderTarget(rt);
