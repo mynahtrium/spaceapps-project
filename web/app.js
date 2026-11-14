@@ -11,6 +11,7 @@ import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInf
 import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
+import { initOrbitView } from "./orbit/orbit-view.js";
 import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
 
 const I18N = {
@@ -23,6 +24,7 @@ const I18N = {
       "TERRAIN: HiRISE DTEEC_019698 · ROUTE: EXAMPLE, STOPS NOT LOCKED",
     ],
     menu_eva: "BEGIN EVA",
+    menu_orbit: "ORBIT VIEW",
     menu_planner: "ROUTE PLANNER",
     menu_credits: "SOURCES & HONESTY",
     menu_dev: "DEV",
@@ -38,6 +40,7 @@ const I18N = {
       "ARAZİ: HiRISE DTEEC_019698 · ROTA: ÖRNEK, DURAKLAR KİLİTLİ DEĞİL",
     ],
     menu_eva: "EVA'YA BAŞLA",
+    menu_orbit: "YÖRÜNGE GÖRÜNÜMÜ",
     menu_planner: "ROTA PLANLAYICI",
     menu_credits: "KAYNAKLAR VE DÜRÜSTLÜK",
     menu_dev: "GELİŞTİRİCİ",
@@ -54,7 +57,7 @@ function readLang() {
   }
 }
 
-function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
+function initStartScreen({ onEva, onOrbit, onPlanner, onCredits, onDev }) {
   const screen = document.getElementById("start-screen");
   const linesEl = document.getElementById("start-lines");
   const menu = document.getElementById("start-menu");
@@ -119,7 +122,7 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
     setFocus(0);
   }
 
-  const actions = { eva: onEva, planner: onPlanner, credits: onCredits };
+  const actions = { eva: onEva, orbit: onOrbit, planner: onPlanner, credits: onCredits };
   items.forEach((el, k) => {
     el.addEventListener("mouseenter", () => setFocus(k));
     el.addEventListener("click", () => {
@@ -166,6 +169,7 @@ async function boot() {
   const ready = new Promise((r) => (resolveReady = r));
   const start = initStartScreen({
     onEva: () => ready.then((a) => a.eva()),
+    onOrbit: () => ready.then((a) => a.orbit()),
     onPlanner: () => ready.then((a) => a.planner()),
     onCredits: () => ready.then((a) => a.credits()),
     onDev: () => ready.then((a) => a.dev()),
@@ -190,8 +194,10 @@ async function boot() {
 
   const plannerView = document.getElementById("planner-view");
   const hudView = document.getElementById("hud-view");
+  const orbitView = document.getElementById("orbit-view");
   const btnTabPlanner = document.getElementById("btn-tab-planner");
   const btnTabHud = document.getElementById("btn-tab-hud");
+  const btnTabOrbit = document.getElementById("btn-tab-orbit");
   const btnCredits = document.getElementById("btn-credits");
 
   const modalBackdrop = document.getElementById("modal-backdrop");
@@ -330,6 +336,7 @@ async function boot() {
           <li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
         <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
+        <p><strong>Orbit view:</strong> globe texture is the NASA/USGS Viking MDIM 2.1 colour mosaic (alternate layer: MGS MOLA colour-shaded relief), stitched from NASA Mars Trek tiles at 4096×2048 (about 5 km per pixel) and bundled for offline use; during a landing zoom, online mode overlays ~330 m/px Viking tiles around the target. Day/night uses the real subsolar point from the NASA GISS Mars24 algorithm (Allison &amp; McEwen 2000). Mars orientation follows the IAU WGCCRE pole and prime meridian. Phobos and Deimos positions come from a series fitted to JPL Horizons vectors (agrees with Horizons to ~0.1°); their <em>sizes</em> are drawn 8× larger than scale so they are visible, while orbits are to scale. Sun, Earth and the bright stars are real directions; the faint background star field is decorative. Fine surface grain at very low altitude is procedural. Landing anywhere other than the Gale HiRISE tile uses seeded procedural relief, not mapped topography; the Bodycam sun then follows the real local true solar time of that spot (or a fixed 15:00 daylight mode).</p>
         <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
       </div>
     `;
@@ -818,24 +825,69 @@ async function boot() {
     showToast(`${sync.by || "CREW"} synced route to ${Number(sync.alongM).toFixed(0)} m`);
   });
 
-  function switchToHud() {
-    document.body.classList.add("in-hud");
-    plannerView.classList.remove("active");
-    hudView.classList.add("active");
-    btnTabPlanner.classList.remove("active");
-    btnTabHud.classList.add("active");
-    mp.setRole("eva");
-    if (hudApi) hudApi.onResize();
+  let orbitApi = null;
+  function ensureOrbit() {
+    if (orbitApi || !orbitView) return orbitApi;
+    orbitApi = initOrbitView(orbitView, {
+      demoSafe: data.demoSafe,
+      isTr: () => readLang() === "tr",
+      getPlayerLonLat: () => hudApi?.getLonLat?.() || (lastSelfPose?.lon != null ? lastSelfPose : null),
+      onLand: (lon, lat, { sunMode, roverId } = {}) => landFromOrbit(lon, lat, { sunMode, roverId }),
+    });
+    return orbitApi;
   }
 
-  function switchToPlanner() {
-    document.body.classList.remove("in-hud");
-    hudView.classList.remove("active");
-    plannerView.classList.add("active");
-    btnTabHud.classList.remove("active");
-    btnTabPlanner.classList.add("active");
-    mp.setRole("planner");
-    requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
+  /** Show exactly one of the three views ("planner" | "orbit" | "hud"). */
+  function switchView(name, opts = {}) {
+    document.body.classList.toggle("in-hud", name === "hud");
+    const views = { planner: plannerView, orbit: orbitView, hud: hudView };
+    const tabs = { planner: btnTabPlanner, orbit: btnTabOrbit, hud: btnTabHud };
+    for (const [k, el] of Object.entries(views)) el?.classList.toggle("active", k === name);
+    for (const [k, el] of Object.entries(tabs)) el?.classList.toggle("active", k === name);
+    if (name !== "orbit") orbitApi?.hide();
+    if (name === "hud") {
+      mp.setRole("eva");
+      hudApi?.onResize();
+    } else if (name === "planner") {
+      mp.setRole("planner");
+      requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
+    } else if (name === "orbit") {
+      if (document.pointerLockElement) {
+        try {
+          document.exitPointerLock?.();
+        } catch {}
+      }
+      ensureOrbit()?.show(opts);
+    }
+  }
+  const switchToHud = () => switchView("hud");
+  const switchToPlanner = () => switchView("planner");
+  const switchToOrbit = () => {
+    const from = hudView.classList.contains("active") ? hudApi?.getLonLat?.() : null;
+    switchView("orbit", { from });
+  };
+
+  let pendingLanding = null;
+  function landFromOrbit(lon, lat, { sunMode = "local", roverId = null } = {}) {
+    if (!hudApi) {
+      // The 3D view is still loading (suit / terrain); land as soon as it is ready.
+      pendingLanding = [lon, lat, { sunMode, roverId }];
+      switchView("hud");
+      return;
+    }
+    if (roverId && roverId !== "curiosity") {
+      dispatchVisitRoverSite(roverId);
+      hudApi.setSunMode?.(sunMode);
+    } else {
+      hudApi.visitLocation(lon, lat, { keepYaw: true, sun: sunMode });
+    }
+    switchView("hud");
+    hudApi.playArrivalDrop?.();
+    const flash = document.createElement("div");
+    flash.className = "arrival-flash";
+    document.body.appendChild(flash);
+    requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.add("out")));
+    setTimeout(() => flash.remove(), 1200);
   }
 
   const startEva = () => {
@@ -845,6 +897,7 @@ async function boot() {
 
   btnTabPlanner.onclick = switchToPlanner;
   btnTabHud.onclick = switchToHud;
+  if (btnTabOrbit) btnTabOrbit.onclick = switchToOrbit;
 
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
@@ -864,6 +917,7 @@ async function boot() {
 
   resolveReady({
     eva: startEva,
+    orbit: switchToOrbit,
     planner: switchToPlanner,
     credits: openCreditsModal,
     dev: openDevSettingsModal,
@@ -894,6 +948,9 @@ async function boot() {
     get hudApi() {
       return hudApi;
     },
+    get orbitApi() {
+      return orbitApi;
+    },
   };
   hudApi = await initHud3D(data, {
     mp,
@@ -904,7 +961,13 @@ async function boot() {
     onBackToPlanner: switchToPlanner,
     onOpenPov: openPovModal,
     onOpenRoverInfo: openHistoricRoverModal,
+    onOpenOrbit: switchToOrbit,
   });
+  if (pendingLanding) {
+    const args = pendingLanding;
+    pendingLanding = null;
+    landFromOrbit(...args);
+  }
 }
 
 boot();
