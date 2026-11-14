@@ -581,3 +581,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Completed Divarci's nickname grill and PRE-02 profile, confirmed the four gate JSONs on disk, and rebuilt `web/` on branch `frontend/planner-hud` as one unified first-person astronaut visor per `docs/roles/prompts/divarci.md`: moved the MapLibre tactical map + elevation profile onto the visor with a live astronaut marker and `mars-eq://` geographic tile alignment for CTX/THEMIS, added 3D AR route tubes + stop beacons + live-distance AR labels on the terrain mesh, enforced `"no NASA value"` empty states + exact DONKI skipped-fetch messaging, and isolated `?demo=1` strictly to `data/demo/`.
 - Commit: this commit
 - Next step: Push `frontend/planner-hud` and open PR for Eymen to review; merge to `main` only when Doruk asks.
+
+### 2026-11-14 15:40 Europe/Istanbul — MUST-09 (1st-Person Camera-Relative WASD & 1.7m Terrain Grounding)
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (UI designer)
+- Task id: MUST-09
+- Files changed: web/hud/hud3d.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Switched 1st-person HUD default to free camera-relative WASD walking (`W/A/S/D`, arrow keys, `Shift` sprint) anchored to the look yaw without forced camera turns; matched the Three.js terrain mesh geometry 1:1 to `height-preview.png` (`segW = imgW - 1`, `segH = imgH - 1`), added exact triangle-interpolated `sampleMeshY` + 0.6m near-plane cliff collar clearance at 1.7m human eye height (`EYE_HEIGHT_M = 1.7`), clamped movement inside terrain bounds, and synced live position/distance/slope from free-roam coordinates to the HUD and MapLibre visor marker. Verified all JS files via `node --check` and ephemeral HTTP 200 check.
+- Commit: this commit
+- Next step: Push `frontend/planner-hud` so Eymen can test 1st-person WASD movement in the browser.

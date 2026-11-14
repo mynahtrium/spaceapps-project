@@ -116,8 +116,13 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
   const latToZ = (lat) =>
     (0.5 - (lat - bounds.south_lat_deg) / (bounds.north_lat_deg - bounds.south_lat_deg)) * worldH;
+  const xToLon = (x) =>
+    bounds.west_lon_deg + (x / worldW + 0.5) * (bounds.east_lon_deg - bounds.west_lon_deg);
+  const zToLat = (z) =>
+    bounds.south_lat_deg + (0.5 - z / worldH) * (bounds.north_lat_deg - bounds.south_lat_deg);
 
-  // Scene, Camera, Renderer
+  // Scene, Camera, Renderer (near=0.2m for close-up 1.7m eye-height exploration without near-clip)
+  const EYE_HEIGHT_M = 1.7;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x21140f);
   scene.fog = new THREE.FogExp2(0x3a2319, 0.00072);
@@ -125,7 +130,7 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   const camera = new THREE.PerspectiveCamera(
     68,
     wrap.clientWidth / Math.max(1, wrap.clientHeight),
-    0.5,
+    0.2,
     4000
   );
 
@@ -139,12 +144,7 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   scene.add(sun);
   scene.add(new THREE.AmbientLight(0x9a7b6c, 0.68));
 
-  // Decode height-preview.png (8-bit RGB: R*256 + G)
-  const segW = 197;
-  const segH = 197;
-  const geom = new THREE.PlaneGeometry(worldW, worldH, segW, segH);
-  geom.rotateX(-Math.PI / 2);
-
+  // Decode height-preview.png (8-bit RGB: R*256 + G) and match mesh vertices 1:1 to elevGrid
   let elevGrid = null;
   let imgW = 0;
   let imgH = 0;
@@ -167,41 +167,79 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
       const val = r * 256 + g;
       elevGrid[i] = val === 0 ? elevMin : elevMin + (val / 65535) * (elevMax - elevMin);
     }
-
-    const pos = geom.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const vx = pos.getX(i);
-      const vz = pos.getZ(i);
-      const u = Math.max(0, Math.min(1, vx / worldW + 0.5));
-      const v = Math.max(0, Math.min(1, vz / worldH + 0.5));
-      const ix = Math.min(imgW - 1, Math.floor(u * (imgW - 1)));
-      const iy = Math.min(imgH - 1, Math.floor(v * (imgH - 1)));
-      pos.setY(i, elevGrid[iy * imgW + ix] - elevMin);
-    }
-    geom.computeVertexNormals();
   } catch {
     // Fallback: flat terrain
   }
 
-  function sampleElevSceneY(x, z) {
+  const segW = elevGrid && imgW > 1 ? imgW - 1 : 197;
+  const segH = elevGrid && imgH > 1 ? imgH - 1 : 197;
+  const geom = new THREE.PlaneGeometry(worldW, worldH, segW, segH);
+  geom.rotateX(-Math.PI / 2);
+
+  if (elevGrid) {
+    const pos = geom.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const ix = i % imgW;
+      const iy = Math.floor(i / imgW);
+      if (ix < imgW && iy < imgH) {
+        pos.setY(i, elevGrid[iy * imgW + ix] - elevMin);
+      }
+    }
+    geom.computeVertexNormals();
+  }
+
+  // Exact triangle-interpolated surface height matching PlaneGeometry triangulation
+  function sampleMeshY(x, z) {
     if (!elevGrid) return 0;
     const u = Math.max(0, Math.min(1, x / worldW + 0.5));
     const v = Math.max(0, Math.min(1, z / worldH + 0.5));
     const fx = u * (imgW - 1);
     const fy = v * (imgH - 1);
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const x1 = Math.min(imgW - 1, x0 + 1);
-    const y1 = Math.min(imgH - 1, y0 + 1);
+    const x0 = Math.min(imgW - 2, Math.floor(fx));
+    const y0 = Math.min(imgH - 2, Math.floor(fy));
+    const x1 = x0 + 1;
+    const y1 = y0 + 1;
     const tx = fx - x0;
     const ty = fy - y0;
-    const e00 = elevGrid[y0 * imgW + x0];
-    const e10 = elevGrid[y0 * imgW + x1];
-    const e01 = elevGrid[y1 * imgW + x0];
-    const e11 = elevGrid[y1 * imgW + x1];
-    const top = e00 + (e10 - e00) * tx;
-    const bot = e01 + (e11 - e01) * tx;
-    return top + (bot - top) * ty - elevMin;
+    const ha = elevGrid[y0 * imgW + x0] - elevMin;
+    const hb = elevGrid[y1 * imgW + x0] - elevMin;
+    const hc = elevGrid[y1 * imgW + x1] - elevMin;
+    const hd = elevGrid[y0 * imgW + x1] - elevMin;
+    if (tx + ty <= 1) {
+      return ha + (hd - ha) * tx + (hb - ha) * ty;
+    }
+    const ux = 1 - tx;
+    const uy = 1 - ty;
+    return hc + (hb - hc) * ux + (hd - hc) * uy;
+  }
+  const sampleElevSceneY = sampleMeshY;
+
+  const COLLAR_OFFSETS = [
+    [0.6, 0],
+    [-0.6, 0],
+    [0, 0.6],
+    [0, -0.6],
+    [0.42, 0.42],
+    [-0.42, 0.42],
+    [0.42, -0.42],
+    [-0.42, -0.42],
+  ];
+
+  function getSafeEyeY(x, z) {
+    let eyeY = sampleMeshY(x, z) + EYE_HEIGHT_M;
+    for (let i = 0; i < COLLAR_OFFSETS.length; i++) {
+      const ny = sampleMeshY(x + COLLAR_OFFSETS[i][0], z + COLLAR_OFFSETS[i][1]);
+      if (ny + 0.55 > eyeY) eyeY = ny + 0.55;
+    }
+    return eyeY;
+  }
+
+  function sampleSlopeDeg(x, z) {
+    if (!elevGrid) return null;
+    const d = Math.max(2, cellSizeM * 0.5);
+    const gx = (sampleMeshY(x + d, z) - sampleMeshY(x - d, z)) / (2 * d);
+    const gz = (sampleMeshY(x, z + d) - sampleMeshY(x, z - d)) / (2 * d);
+    return (Math.atan(Math.hypot(gx, gz)) * 180) / Math.PI;
   }
 
   // Textures (use slopePreviewUrl strictly when orthoPreviewUrl is null in ?demo=1)
@@ -308,13 +346,31 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
 
   if (activeRoute) rebuildRouteRibbon(activeRoute);
 
-  // State & Controls
+  // State & Controls (Default: 1st-person WASD walking at 1.7m human eye height)
+  const clamp = (val, lo, hi) => Math.max(lo, Math.min(hi, val));
+  const halfW = worldW * 0.5 - 2;
+  const halfH = worldH * 0.5 - 2;
+
+  const startLon = routeCoords[0]?.[0] ?? (bounds.west_lon_deg + bounds.east_lon_deg) * 0.5;
+  const startLat = routeCoords[0]?.[1] ?? (bounds.south_lat_deg + bounds.north_lat_deg) * 0.5;
+  const startX = clamp(lonToX(startLon), -halfW, halfW);
+  const startZ = clamp(latToZ(startLat), -halfH, halfH);
+
+  let initialYaw = 0;
+  if (routeCoords.length > 1) {
+    const ahead = routeCoords[Math.min(4, routeCoords.length - 1)];
+    const adx = lonToX(ahead[0]) - startX;
+    const adz = latToZ(ahead[1]) - startZ;
+    if (Math.hypot(adx, adz) > 0.5) initialYaw = Math.atan2(-adx, -adz);
+  }
+
   let playing = false;
   let speedMult = 1;
-  let freeRoam = false;
-  let yawOffset = 0;
-  let pitchOffset = -0.06;
-  const freePos = new THREE.Vector3(0, 10, 0);
+  let freeRoam = true;
+  let yawOffset = initialYaw;
+  let pitchOffset = -0.04;
+  let walkedM = 0;
+  const freePos = new THREE.Vector3(startX, getSafeEyeY(startX, startZ), startZ);
   const keys = new Set();
 
   // Mouse drag look
@@ -330,13 +386,22 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   window.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     yawOffset -= (e.clientX - lastX) * 0.004;
-    pitchOffset = Math.max(-0.8, Math.min(0.8, pitchOffset - (e.clientY - lastY) * 0.003));
+    pitchOffset = Math.max(-1.25, Math.min(1.15, pitchOffset - (e.clientY - lastY) * 0.003));
     lastX = e.clientX;
     lastY = e.clientY;
   });
 
-  window.addEventListener("keydown", (e) => keys.add(e.key.toLowerCase()));
+  window.addEventListener("keydown", (e) => {
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    const k = e.key.toLowerCase();
+    if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "shift"].includes(k)) {
+      if (k.startsWith("arrow")) e.preventDefault();
+      keys.add(k);
+    }
+  });
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+  window.addEventListener("blur", () => keys.clear());
 
   // UI Controls
   const btnPlay = document.getElementById("hud-play");
@@ -352,14 +417,27 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     btnTex.textContent = useSlopeTex ? "Tex: Slope" : "Tex: Ortho";
     if (!assets.orthoPreviewUrl) btnTex.disabled = true;
   }
+  if (btnFreeRoam) {
+    btnFreeRoam.textContent = "Free-Roam: ON (WASD)";
+  }
 
   btnPlay?.addEventListener("click", () => {
     playing = !playing;
+    if (playing) {
+      freeRoam = false;
+      if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: OFF";
+    }
     btnPlay.textContent = playing ? "⏸ Pause" : "▶ Walk EVA";
   });
 
   scrubber?.addEventListener("input", () => {
     alongM = parseFloat(scrubber.value) || 0;
+    if (freeRoam) {
+      const s = sampleAlongRoute(routeCoords, cumDist, alongM);
+      const rx = clamp(lonToX(s.lon), -halfW, halfW);
+      const rz = clamp(latToZ(s.lat), -halfH, halfH);
+      freePos.set(rx, getSafeEyeY(rx, rz), rz);
+    }
   });
 
   btnSpeed?.addEventListener("click", () => {
@@ -382,21 +460,29 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
 
   btnFreeRoam?.addEventListener("click", () => {
     freeRoam = !freeRoam;
+    if (freeRoam) {
+      playing = false;
+      if (btnPlay) btnPlay.textContent = "▶ Walk EVA";
+      freePos.x = clamp(camera.position.x, -halfW, halfW);
+      freePos.z = clamp(camera.position.z, -halfH, halfH);
+      freePos.y = getSafeEyeY(freePos.x, freePos.z);
+    }
     btnFreeRoam.textContent = freeRoam ? "Free-Roam: ON (WASD)" : "Free-Roam: OFF";
-    if (freeRoam) freePos.copy(camera.position);
   });
 
   btnResetLook?.addEventListener("click", () => {
-    yawOffset = 0;
-    pitchOffset = -0.06;
+    yawOffset = initialYaw;
+    pitchOffset = -0.04;
   });
 
-  // Listen for mm:set-route
+  // Listen for mm:set-route (moves astronaut to chosen stop / route point without locking WASD)
   onSetRoute(({ route: newRoute, along_m }) => {
     alongM = along_m || 0;
-    freeRoam = false;
-    if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: OFF";
     rebuildRouteRibbon(newRoute);
+    const s = sampleAlongRoute(routeCoords, cumDist, alongM);
+    const rx = clamp(lonToX(s.lon), -halfW, halfW);
+    const rz = clamp(latToZ(s.lat), -halfH, halfH);
+    freePos.set(rx, getSafeEyeY(rx, rz), rz);
   });
 
   const compassEl = document.getElementById("hud-compass");
@@ -415,7 +501,7 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
 
     // Honest empty state if route & telemetry are both missing
     const primaryTel = telemetry?.primary || telemetry;
-    if (!activeRoute && !primaryTel) {
+    if (!activeRoute && !primaryTel && !elevGrid) {
       document.getElementById("hud-dist").textContent = "no NASA value";
       document.getElementById("hud-dist-sub").textContent = "route.json / hud-telemetry.json missing";
       document.getElementById("hud-slope").textContent = "no NASA value";
@@ -425,15 +511,14 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
       return;
     }
 
-    const frac = totalDist > 0 ? sM / totalDist : 0;
-    const rem = Math.max(0, totalDist - sM);
-
     const prof = activeRoute?.profile || [];
-    let slopeDeg = primaryTel?.slope_deg ?? null;
-    if (prof.length > 1) {
+    let slopeDeg = freeRoam ? sampleSlopeDeg(camX, camZ) : (primaryTel?.slope_deg ?? null);
+    if (!freeRoam && prof.length > 1) {
       let i = 0;
       while (i < prof.length - 2 && prof[i + 1].s_m < sM) i++;
       slopeDeg = prof[i].slope_deg ?? slopeDeg;
+    } else if (slopeDeg == null) {
+      slopeDeg = sampleSlopeDeg(camX, camZ);
     }
     const slopeClass = classifySlope(slopeDeg, 20);
 
@@ -441,8 +526,8 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     let minStopDist = Infinity;
     if (stops?.features?.length) {
       for (const f of stops.features) {
-        const dx = lonToX(f.geometry.coordinates[0]) - lonToX(lon);
-        const dz = latToZ(f.geometry.coordinates[1]) - latToZ(lat);
+        const dx = lonToX(f.geometry.coordinates[0]) - camX;
+        const dz = latToZ(f.geometry.coordinates[1]) - camZ;
         const d = Math.hypot(dx, dz);
         if (d < minStopDist) {
           minStopDist = d;
@@ -451,14 +536,18 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
       }
     }
 
+    const budgetM = totalDist > 0 ? totalDist : 2500;
+    const frac = Math.min(1, sM / budgetM);
+    const rem = totalDist > 0 ? Math.max(0, totalDist - sM) : null;
     const o2Pct =
       sM === 0 && primaryTel?.suit_o2_remaining_percent != null && !activeRoute
         ? primaryTel.suit_o2_remaining_percent
         : Math.max(0, 100 * (1 - frac));
 
     document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    document.getElementById("hud-dist-sub").textContent =
-      `Rem: ${rem.toFixed(1)} m · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`;
+    document.getElementById("hud-dist-sub").textContent = freeRoam
+      ? `WASD Walk · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`
+      : `Rem: ${rem != null ? rem.toFixed(1) + " m" : "—"} · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`;
     document.getElementById("hud-slope").textContent =
       slopeDeg != null ? `${Number(slopeDeg).toFixed(1)}°` : "no NASA value";
 
@@ -498,12 +587,35 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   };
   window.addEventListener("resize", onResize);
 
-  // Animation Loop (no forced camera yaw on turns — user keeps full control of look direction)
+  // Reusable movement vectors for camera-relative WASD
+  const moveForward = new THREE.Vector3();
+  const moveRight = new THREE.Vector3();
+  const moveVec = new THREE.Vector3();
+
+  // Animation Loop (camera-relative WASD at 1.7m eye height, no forced yaw turns)
   let prevT = performance.now();
   function animate(now) {
     requestAnimationFrame(animate);
     const dt = Math.min(0.1, (now - prevT) / 1000);
     prevT = now;
+
+    const fwdInput =
+      (keys.has("w") || keys.has("arrowup") ? 1 : 0) -
+      (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+    const strafeInput =
+      (keys.has("d") || keys.has("arrowright") ? 1 : 0) -
+      (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
+    const anyWalkKey = fwdInput !== 0 || strafeInput !== 0;
+
+    // Pressing WASD switches seamlessly back to 1st-person manual control from current position
+    if (anyWalkKey && !freeRoam) {
+      freeRoam = true;
+      playing = false;
+      if (btnPlay) btnPlay.textContent = "▶ Walk EVA";
+      if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: ON (WASD)";
+      freePos.x = clamp(camera.position.x, -halfW, halfW);
+      freePos.z = clamp(camera.position.z, -halfH, halfH);
+    }
 
     if (playing && !freeRoam) {
       alongM += dt * 12 * speedMult;
@@ -511,33 +623,51 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
       if (scrubber) scrubber.value = alongM.toFixed(1);
     }
 
-    const sample = sampleAlongRoute(routeCoords, cumDist, alongM);
-    const rx = lonToX(sample.lon);
-    const rz = latToZ(sample.lat);
+    let hudLon;
+    let hudLat;
+    let hudDistM;
 
     if (freeRoam) {
-      const moveSpeed = 30 * dt;
-      const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yawOffset);
-      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yawOffset);
-      if (keys.has("w") || keys.has("arrowup")) freePos.addScaledVector(forward, moveSpeed);
-      if (keys.has("s") || keys.has("arrowdown")) freePos.addScaledVector(forward, -moveSpeed);
-      if (keys.has("d") || keys.has("arrowright")) freePos.addScaledVector(right, moveSpeed);
-      if (keys.has("a") || keys.has("arrowleft")) freePos.addScaledVector(right, -moveSpeed);
-      freePos.y = sampleElevSceneY(freePos.x, freePos.z) + 2.2;
+      if (anyWalkKey) {
+        const sprint = keys.has("shift") ? 2.2 : 1;
+        const moveSpeed = 10 * speedMult * sprint;
+        // Derive horizontal forward & right axes directly from current camera yawOffset
+        moveForward.set(-Math.sin(yawOffset), 0, -Math.cos(yawOffset));
+        moveRight.set(Math.cos(yawOffset), 0, -Math.sin(yawOffset));
+        moveVec
+          .set(0, 0, 0)
+          .addScaledVector(moveForward, fwdInput)
+          .addScaledVector(moveRight, strafeInput);
+        if (moveVec.lengthSq() > 0) {
+          moveVec.normalize();
+          const prevX = freePos.x;
+          const prevZ = freePos.z;
+          freePos.x = clamp(freePos.x + moveVec.x * moveSpeed * dt, -halfW, halfW);
+          freePos.z = clamp(freePos.z + moveVec.z * moveSpeed * dt, -halfH, halfH);
+          walkedM += Math.hypot(freePos.x - prevX, freePos.z - prevZ);
+        }
+      }
+      freePos.y = getSafeEyeY(freePos.x, freePos.z);
       camera.position.copy(freePos);
-      camera.rotation.order = "YXZ";
-      camera.rotation.y = yawOffset;
-      camera.rotation.x = pitchOffset;
+      hudLon = xToLon(freePos.x);
+      hudLat = zToLat(freePos.z);
+      hudDistM = walkedM;
     } else {
-      const ry = sampleElevSceneY(rx, rz);
-      camera.position.set(rx, ry + 2.2, rz);
-      camera.rotation.order = "YXZ";
-      camera.rotation.y = yawOffset;
-      camera.rotation.x = pitchOffset;
+      const sample = sampleAlongRoute(routeCoords, cumDist, alongM);
+      const rx = clamp(lonToX(sample.lon), -halfW, halfW);
+      const rz = clamp(latToZ(sample.lat), -halfH, halfH);
+      camera.position.set(rx, getSafeEyeY(rx, rz), rz);
+      hudLon = sample.lon;
+      hudLat = sample.lat;
+      hudDistM = sample.sM;
     }
 
-    updateHudReadouts(sample.sM, sample.lon, sample.lat, camera.position.x, camera.position.z);
-    if (onPositionChange) onPositionChange(sample.lon, sample.lat, sample.sM);
+    camera.rotation.order = "YXZ";
+    camera.rotation.y = yawOffset;
+    camera.rotation.x = pitchOffset;
+
+    updateHudReadouts(hudDistM, hudLon, hudLat, camera.position.x, camera.position.z);
+    if (onPositionChange) onPositionChange(hudLon, hudLat, hudDistM);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(animate);
