@@ -947,3 +947,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Pull `main` and test live at `http://localhost:8000/web/`.
 
+### 2026-11-14 23:21 Europe/Istanbul — Subtle minimalist sun glint rays in 3D visor shader
+
+- Human: Asil
+- Agent tool + model: Antigravity (Gemini)
+- Role: tester-1 (requested visor sun-ray edit in `web/hud/hud3d.js`)
+- Task id: MUST-09 follow-up
+- Files changed: `web/hud/hud3d.js`, `docs/coordination/AGENT_LOG.md`
+- Why: Replaced the high-frequency periodic sine-grid visor glare (`sin(c.x * 140.0 + c.y * 40.0)`) in `LENS_FRAG` when looking toward the sun with a subtle, minimalistic three-streak lens glint (`streakH`, `streakD1`, `streakD2`) with radial falloff (`fadeR`), tightened angular activation (`pow(max(0.0, uGlint), 3.5)`), and reduced brightness (`0.08` -> `0.022`) without changing anything else. Verified `node --check web/hud/hud3d.js` and `node --test web/tests/fallback.test.mjs` (18/18 pass).
+- Commit: this commit
+- Next step: Verify visually in browser (`Ctrl+Shift+R`).
+
+
