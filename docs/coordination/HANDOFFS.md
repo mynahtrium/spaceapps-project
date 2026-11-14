@@ -49,3 +49,17 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Lock the four stops (or reject candidates and supply alternates inside DTEEC_019698). Testers copy the locked ids into `docs/testing/`. Then Backend 2 runs MUST-04.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
+### HANDOFF-20261114-1200 — from backend-1 to backend-2, frontend-1, testers
+
+- Date (Europe/Istanbul): 2026-11-14 12:00
+- From (role, first name or nickname only, agent tool): backend-1, Cagan, Claude Code
+- To (role, name if known): backend-2 (Doruk), frontend-1, tester-1, tester-2 (Eymen)
+- Board task id: MUST-02
+- What is ready: first-pass cost map for a 2 km x 2 km crop of DTEEC_019698 (395 x 395 cells, ~5.06 m), slope colour preview, 16-bit height preview, ortho preview.
+- Paths (files or folders): `data/processed/terrain/cost-map.json`, `slope-preview.png`, `height-preview.png`, `ortho-preview.png`; scripts in `pipeline/terrain/`
+- How to try it: `.venv/Scripts/python pipeline/terrain/make_slope.py` then `make_cost_map.py` (packages in `pipeline/terrain/requirements.txt`). Bounds are in `cost-map.json` (about 4.813–4.847°S, 137.373–137.407°E). Cost is a multiplier; multiply by step length. `9e99` = blocked (no-data or slope above 20°; 18% of cells). Rows run north to south.
+- What is not done / known limits: crop centre is a placeholder (near Curiosity Sol 5070); re-run once stops are locked (PRE-07). No ortho-based obstacles yet. Not checked against Curiosity tilt (MUST-03). Slope limits are lunar stand-ins; the DTM under-reads rover tilt. Height preview is scaled 0–65535 over `height_preview_elevation_range_m` (about -3575 to -3219 m).
+- Please do next: Backend 2 can start routing on this grid; Frontend 1 can load the height preview in the 3D view; testers check the bounds against HiView.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
+- Received:

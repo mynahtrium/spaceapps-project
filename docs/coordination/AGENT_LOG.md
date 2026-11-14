@@ -228,3 +228,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cropped 2 km x 2 km of DTEEC_019698 (HTTP range reads), averaged 1 m to ~5 m cells, computed slope (median 9.7 deg; 28% of cells above 15 deg, 18% above 20 deg; no no-data in this crop) and wrote a class-coloured preview. Cropped the 25 cm RED_A orthoimage to the same footprint (read at about 2 m per pixel, 1000 x 1000 preview). The two previews show the same gully and ridge pattern. Raw crops are in data/raw/ and are not committed. The crop centre (4.83 S, 137.39 E, near Curiosity Sol 5070) is a placeholder until the stops are locked (PRE-07). Slope limits are lunar stand-ins and the DTM under-reads rover tilt.
 - Commit: this commit
 - Next step: MUST-02 cost map and height preview for the 3D view; re-crop when stops are locked; tilt check vs MSL waypoints (MUST-03).
+
+### 2026-11-14 12:00 Europe/Istanbul — MUST-02 (first-pass cost map)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5 / Opus 5.5)
+- Role: backend-1
+- Task id: MUST-02
+- Files changed: pipeline/terrain/make_cost_map.py (new), data/processed/terrain/cost-map.json, height-preview.png (new), docs/contracts/CHANGES.md, docs/coordination/HANDOFFS.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Added TRI roughness, the cost grid (multiplier; 9e99 = blocked, 18% of cells) and a 16-bit height preview for the 3D view. cost-map.json (~0.8 MB) parses in Python and Node with no Infinity/NaN. Contract field names kept; additive fields logged in CHANGES.md and handed off to backend-2, frontend-1 and testers. Crop centre is still a placeholder until PRE-07.
+- Commit: this commit
+- Next step: Tilt check vs MSL waypoints (MUST-03); re-run both scripts when stops are locked.
