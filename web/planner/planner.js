@@ -7,8 +7,18 @@
 import { shouldUseHighResMap } from "../map/IMapAdapter.js";
 import { LegacyMapAdapter } from "../map/LegacyMapAdapter.js";
 import { MapLibreMarsAdapter } from "../map/MapLibreMarsAdapter.js";
-import { dispatchSetRoute, dispatchTeleport } from "../shared/route-bridge.js";
-import { initMapGamepad } from "./map-gamepad.js";
+import {
+  MARS_HISTORIC_ROVERS,
+  buildHistoricRoversGeoJson,
+  formatMarsLonLat,
+  getHistoricRoverById,
+} from "../shared/mars-rovers.js";
+import {
+  dispatchOpenRoverInfo,
+  dispatchSetRoute,
+  dispatchTeleport,
+  dispatchVisitRoverSite,
+} from "../shared/route-bridge.js";
 
 /**
  * Build an RGBA data URL from costMap.cost_row_major for the 15° strict vs 20° mask toggle.
@@ -46,7 +56,7 @@ function buildStrict15Canvas(costMap) {
   return canvas.toDataURL();
 }
 
-export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry, mp }) {
+export function initPlanner(data, { onOpenPov, onStartEva, onOpenRoverInfo, onVisitRoverSite, demSampler, registry, mp }) {
   const { costMap, stops, route, alerts, dose, weather, povIndex, crism, demoSafe, assets } = data;
 
   const bounds = costMap?.bounds || {
@@ -164,7 +174,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     await adapter.mount(container, {
       center,
       zoom: 14.7,
-      minZoom: 11.2,
+      minZoom: 1.1,
       maxZoom: 18,
       pitch: terrain3dDefault ? 50 : 0,
       bearing: terrain3dDefault ? -14 : 0,
@@ -218,6 +228,9 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
         });
       } else if (adapter._fallback?.loadRasterOverlay) {
         adapter._fallback.loadRasterOverlay("strict-15", strictUrl, false);
+      } else if (typeof adapter.loadRasterOverlay === "function") {
+        // ?legacyMap=1: the adapter itself is a Fallback2DMap
+        adapter.loadRasterOverlay("strict-15", strictUrl, false);
       }
     }
 
@@ -250,7 +263,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
       adapter.addGeoJsonLayer(
         "eva-route",
         { type: "FeatureCollection", features: [route] },
-        { type: "line", color: "#ffffff", width: 2.8, visible: true }
+        { type: "line", color: "#67e8f9", width: 2.8, visible: true }
       );
     }
 
@@ -259,12 +272,22 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
         type: "circle",
         radius: 6.5,
         radiusExpr: ["interpolate", ["linear"], ["zoom"], 11, 3.5, 13.5, 5.5, 16, 8.5],
-        color: "#ffffff",
+        color: "#a5f3fc",
         strokeWidth: 1.8,
         strokeColor: "#000000",
         visible: true,
       });
     }
+
+    adapter.addGeoJsonLayer("historic-rovers", buildHistoricRoversGeoJson(), {
+      type: "circle",
+      radius: 8,
+      radiusExpr: ["interpolate", ["linear"], ["zoom"], 1, 6.5, 5, 7.5, 15, 10],
+      colorExpr: ["coalesce", ["get", "color"], "#4ade80"],
+      strokeWidth: 2.2,
+      strokeColor: "#000000",
+      visible: true,
+    });
 
     pinsFc = buildPinsFc(mp?.pins || []);
     adapter.addGeoJsonLayer("eva-pings", pinsFc, {
@@ -310,6 +333,29 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     });
 
     adapter.on("click", (evt) => {
+      // First check if the user clicked one of the 5 NASA Mars rover pins (works at any zoom level!)
+      let clickedRover = null;
+      if (typeof evt.x === "number" && typeof evt.y === "number" && typeof adapter.project === "function") {
+        let bestPx = 22;
+        for (const r of MARS_HISTORIC_ROVERS) {
+          const proj = adapter.project([r.lon, r.lat]);
+          if (!proj) continue;
+          const dPx = Math.hypot(proj[0] - evt.x, proj[1] - evt.y);
+          if (dPx < bestPx) {
+            bestPx = dPx;
+            clickedRover = r;
+          }
+        }
+      }
+      if (clickedRover) {
+        if (probeTextEl) {
+          probeTextEl.textContent = `${clickedRover.name.toUpperCase()} (${clickedRover.mission}) · ${formatMarsLonLat(clickedRover.lon, clickedRover.lat)}`;
+        }
+        if (onOpenRoverInfo) onOpenRoverInfo(clickedRover);
+        else dispatchOpenRoverInfo(clickedRover.id);
+        return;
+      }
+
       lastProbePoint = { lon: evt.lon, lat: evt.lat, elevM: evt.elevM ?? null };
       if (probeTextEl) probeTextEl.textContent = formatProbe(evt);
       setTeleportMarker(evt.lon, evt.lat);
@@ -332,7 +378,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
         activePopup = new window.maplibregl.Popup()
           .setLngLat(nearest.geometry.coordinates)
           .setHTML(
-            `<div style="color:#fff;font-size:12px;"><strong>${nearest.properties.name}</strong><br/><em>${nearest.properties.kind}</em></div>`
+            `<div style="color:var(--cyan-bright,#a5f3fc);font-size:12px;"><strong>${nearest.properties.name}</strong><br/><em>${nearest.properties.kind}</em></div>`
           )
           .addTo(adapter.map);
       }
@@ -362,19 +408,6 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     toggle3d.addEventListener("change", () => adapter.setTerrain3D?.(toggle3d.checked));
   }
 
-  // Controller on the planner map: crosshair target, turn / tilt / zoom, A teleports (B back: app.js)
-  const plannerView = document.getElementById("planner-view");
-  const padMap = container
-    ? initMapGamepad({
-        adapter,
-        container,
-        isActive: () => plannerView?.classList.contains("active") && document.getElementById("start-screen")?.classList.contains("hidden"),
-        is3d: () => Boolean(toggle3d?.checked),
-        onTeleport: (lon, lat) => triggerTeleport(lon, lat),
-        probeTextEl,
-      })
-    : null;
-
   // Strict 15° toggle
   const strictToggle = document.getElementById("toggle-strict-15");
   const legendLimit = document.getElementById("legend-limit");
@@ -401,9 +434,55 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
   renderProfileSvg(route?.profile || [], (sM) => {
     if (route) {
       dispatchSetRoute(route, sM);
-      onStartEva();
+      onStartEva?.();
     }
   });
+
+  // NASA Historic Mars Rovers list (all 5 real sites)
+  const fleetListEl = document.getElementById("fleet-list");
+  if (fleetListEl) {
+    fleetListEl.innerHTML = "";
+    for (const r of MARS_HISTORIC_ROVERS) {
+      const card = document.createElement("div");
+      card.className = "fleet-item";
+      const isAct = r.status === "ACTIVE";
+      card.innerHTML = `
+        <div class="fleet-head">
+          <div class="fleet-name-wrap">
+            <span class="fleet-dot" style="background:${r.color};"></span>
+            <strong>${r.name}</strong>
+          </div>
+          <span class="fleet-status ${isAct ? "active" : ""}">${r.status}</span>
+        </div>
+        <div class="fleet-meta">
+          ${r.siteShortName} · ${formatMarsLonLat(r.lon, r.lat)}<br/>
+          ${r.landingDate} · ${r.distanceLabel}
+        </div>
+        <div class="fleet-actions">
+          <button class="btn" type="button" data-rover-fly>Zoom</button>
+          <button class="btn" type="button" data-rover-info>Info</button>
+          <button class="btn primary" type="button" data-rover-3d>Visit 3D</button>
+        </div>
+      `;
+      card.querySelector("[data-rover-fly]")?.addEventListener("click", () => {
+        adapter.flyTo?.({
+          center: [r.lon, r.lat],
+          zoom: r.isHiRiseGaleSite ? 15.2 : 5.5,
+          pitch: toggle3d?.checked ? 45 : 0,
+        });
+      });
+      card.querySelector("[data-rover-info]")?.addEventListener("click", () => {
+        if (onOpenRoverInfo) onOpenRoverInfo(r);
+        else dispatchOpenRoverInfo(r.id);
+      });
+      card.querySelector("[data-rover-3d]")?.addEventListener("click", () => {
+        if (onVisitRoverSite) onVisitRoverSite(r.id);
+        else dispatchVisitRoverSite(r.id);
+        onStartEva?.();
+      });
+      fleetListEl.appendChild(card);
+    }
+  }
 
   // Stops list
   const stopsList = document.getElementById("stops-list");
@@ -464,8 +543,25 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     adapter,
     ready,
     getLastProbePoint: () => ({ ...lastProbePoint }),
-    padConfirm: () => padMap?.confirm() ?? false,
-    padFocus: (lon, lat) => padMap?.focus(lon, lat),
+    /** Mars lon/lat under a viewport point, or null when off the map. */
+    lonLatAt: (clientX, clientY) => {
+      if (!container) return null;
+      const r = container.getBoundingClientRect();
+      if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+      const ll = adapter.unproject?.([clientX - r.left, clientY - r.top]);
+      return ll && Number.isFinite(ll[0]) && Number.isFinite(ll[1]) ? { lon: ll[0], lat: ll[1] } : null;
+    },
+    teleportTo: (lon, lat) => triggerTeleport(lon, lat),
+    fitEva: () => fitBtn?.click(),
+    flyToRover: (roverId) => {
+      const r = getHistoricRoverById(roverId);
+      if (!r) return;
+      adapter.flyTo?.({
+        center: [r.lon, r.lat],
+        zoom: r.isHiRiseGaleSite ? 15.2 : 5.5,
+        pitch: toggle3d?.checked ? 45 : 0,
+      });
+    },
     updateCrewOverlay: (selfPose) => {
       crewFc = buildCrewFc(selfPose);
       adapter.updateGeoJsonLayer("eva-crew", crewFc);
@@ -500,10 +596,10 @@ function renderProfileSvg(profile, onSelectDist) {
   const area = `${pad},${H - pad} ${poly} ${W - pad},${H - pad}`;
 
   svg.innerHTML = `
-    <polygon points="${area}" fill="rgba(56,189,248,0.18)" />
-    <polyline points="${poly}" fill="none" stroke="#ffffff" stroke-width="1.5" />
-    <text x="${pad}" y="11" fill="rgba(255,255,255,0.55)" font-size="9" font-family="monospace">${maxE.toFixed(1)} m</text>
-    <text x="${pad}" y="${H - 3}" fill="rgba(255,255,255,0.55)" font-size="9" font-family="monospace">${minE.toFixed(1)} m · 0 m → ${maxS.toFixed(0)} m</text>
+    <polygon points="${area}" fill="rgba(34,211,238,0.18)" />
+    <polyline points="${poly}" fill="none" stroke="#67e8f9" stroke-width="1.5" />
+    <text x="${pad}" y="11" fill="rgba(103,232,249,0.72)" font-size="9" font-family="monospace">${maxE.toFixed(1)} m</text>
+    <text x="${pad}" y="${H - 3}" fill="rgba(103,232,249,0.72)" font-size="9" font-family="monospace">${minE.toFixed(1)} m · 0 m → ${maxS.toFixed(0)} m</text>
   `;
 
   svg.style.cursor = "pointer";

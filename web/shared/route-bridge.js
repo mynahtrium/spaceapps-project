@@ -159,3 +159,56 @@ export function resolveNextStopAlongRoute(route, stops, sM, lonLat) {
   }
   return { stop: nearest, distanceM: minStopDist, mode: "nearest" };
 }
+
+let pendingRoverSite = null;
+const roverSiteListeners = new Set();
+const roverInfoListeners = new Set();
+
+/**
+ * Switch the 3D exploration view to a historic NASA rover's real Martian landing site
+ * (or walk directly up to Curiosity inside Gale Crater).
+ */
+export function dispatchVisitRoverSite(roverId) {
+  const detail = { roverId: String(roverId || "curiosity").toLowerCase() };
+  if (roverSiteListeners.size === 0) {
+    pendingRoverSite = detail;
+  } else {
+    pendingRoverSite = null;
+    for (const fn of [...roverSiteListeners]) fn(detail);
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("mm:visit-rover-site", { detail }));
+  }
+  return detail;
+}
+
+export function onVisitRoverSite(handler) {
+  if (typeof handler !== "function") return () => {};
+  roverSiteListeners.add(handler);
+  if (pendingRoverSite) {
+    const detail = pendingRoverSite;
+    pendingRoverSite = null;
+    handler(detail);
+  }
+  return () => roverSiteListeners.delete(handler);
+}
+
+/**
+ * Open the NASA dossier info modal for a historic rover ID (`sojourner`, `spirit`,
+ * `opportunity`, `curiosity`, `perseverance`).
+ */
+export function dispatchOpenRoverInfo(roverId) {
+  const detail = { roverId: String(roverId || "").toLowerCase() };
+  for (const fn of [...roverInfoListeners]) fn(detail);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("mm:open-rover-info", { detail }));
+  }
+  return detail;
+}
+
+export function onOpenRoverInfo(handler) {
+  if (typeof handler !== "function") return () => {};
+  roverInfoListeners.add(handler);
+  return () => roverInfoListeners.delete(handler);
+}
+

@@ -1,16 +1,18 @@
 /**
  * Main entry point (`web/app.js`).
- * Loads processed / demo-safe / contract data, initializes the 2D Planner and 3D Helmet HUD,
- * and handles view switching and modals (Curiosity POV + Credits & Honesty).
+ * Loads processed / demo-safe / contract data, initializes the 3D Helmet HUD and Orbit View,
+ * and handles view switching, the ESC command menu, and modals (Curiosity POV + Credits & Honesty).
  */
 
 import { loadAllProjectData, loadDemSamplerFromData } from "./shared/data-loader.js";
 import { TileSourceRegistry } from "./map/TileSourceRegistry.js";
 import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
-import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
-import { initPlanner } from "./planner/planner.js";
+import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInfo } from "./shared/route-bridge.js";
+import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
 import { initHud3D } from "./hud/hud3d.js";
-import { loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import { initOrbitView } from "./orbit/orbit-view.js";
+import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import { initContextMenu } from "./shared/context-menu.js";
 import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "./shared/gamepad.js";
 import { initGamepadSetup } from "./shared/gamepad-ui.js";
 
@@ -24,7 +26,7 @@ const I18N = {
       "TERRAIN: HiRISE DTEEC_019698 · ROUTE: EXAMPLE, STOPS NOT LOCKED",
     ],
     menu_eva: "BEGIN EVA",
-    menu_planner: "ROUTE PLANNER",
+    menu_orbit: "ORBIT VIEW",
     menu_credits: "SOURCES & HONESTY",
     menu_dev: "DEV",
     foot_sources:
@@ -39,7 +41,7 @@ const I18N = {
       "ARAZİ: HiRISE DTEEC_019698 · ROTA: ÖRNEK, DURAKLAR KİLİTLİ DEĞİL",
     ],
     menu_eva: "EVA'YA BAŞLA",
-    menu_planner: "ROTA PLANLAYICI",
+    menu_orbit: "YÖRÜNGE GÖRÜNÜMÜ",
     menu_credits: "KAYNAKLAR VE DÜRÜSTLÜK",
     menu_dev: "GELİŞTİRİCİ",
     foot_sources:
@@ -55,7 +57,7 @@ function readLang() {
   }
 }
 
-function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
+function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
   const screen = document.getElementById("start-screen");
   const linesEl = document.getElementById("start-lines");
   const menu = document.getElementById("start-menu");
@@ -71,8 +73,8 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
       const key = el.dataset.i18n;
       if (t[key]) el.textContent = t[key];
     });
-    document.getElementById("lang-en").style.color = lang === "en" ? "#fff" : "";
-    document.getElementById("lang-tr").style.color = lang === "tr" ? "#fff" : "";
+    document.getElementById("lang-en").style.color = lang === "en" ? "#a5f3fc" : "";
+    document.getElementById("lang-tr").style.color = lang === "tr" ? "#a5f3fc" : "";
   }
 
   async function typeIntro() {
@@ -128,7 +130,7 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
     setFocus(0);
   }
 
-  const actions = { eva: onEva, planner: onPlanner, credits: onCredits };
+  const actions = { eva: onEva, orbit: onOrbit, credits: onCredits };
   items.forEach((el, k) => {
     el.addEventListener("mouseenter", () => setFocus(k));
     el.addEventListener("click", () => {
@@ -161,7 +163,8 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
       /* storage blocked: keep the in-memory choice */
     }
     applyLang();
-    typeIntro();
+    if (!screen.classList.contains("hidden")) typeIntro();
+    onLangChange?.(l);
   };
   document.getElementById("lang-en").onclick = () => setLang("en");
   document.getElementById("lang-tr").onclick = () => setLang("tr");
@@ -170,20 +173,22 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
 
   applyLang();
   show();
-  return { show, hide };
+  return { show, hide, setLang };
 }
 
 async function boot() {
+  document.body.classList.add("in-hud");
   // Show the start screen at once; its actions wait until the data and views are ready.
   let resolveReady;
   const ready = new Promise((r) => (resolveReady = r));
+  let syncEscMenuRef = () => {};
   const start = initStartScreen({
     onEva: () => ready.then((a) => a.eva()),
-    onPlanner: () => ready.then((a) => a.planner()),
+    onOrbit: () => ready.then((a) => a.orbit()),
     onCredits: () => ready.then((a) => a.credits()),
     onDev: () => ready.then((a) => a.dev()),
+    onLangChange: () => syncEscMenuRef(),
   });
-  document.getElementById("btn-menu").onclick = () => start.show();
 
   // Controller routing (layout in shared/gamepad.js): Menu = Esc menu, View = map, A confirm, B back;
   // D-pad or left stick move through menus. In-game actions live in hud3d.js, the maps handle
@@ -195,9 +200,8 @@ async function boot() {
   const appReady = () => Boolean(window.__MM_APP__);
 
   function toggleMap() {
-    const hud = window.__MM_APP__?.hudApi;
-    if (isOn("hud-view", "active")) return hud?.toggleMap?.(); // the 3D view's map overlay
-    if (isOn("planner-view", "active")) document.getElementById("btn-tab-hud")?.click(); // back to 3D
+    if (isOn("hud-view", "active")) document.getElementById("hud-orbit-btn")?.click(); // 3D view -> orbit globe
+    else if (isOn("orbit-view", "active")) document.getElementById("btn-tab-hud")?.click(); // back to 3D
   }
 
   // move keyboard focus through the controls of an open panel (controller setup)
@@ -245,11 +249,7 @@ async function boot() {
     if (actions.includes("menu")) return start.show();
     if (actions.includes("setup")) return padSetup.open();
     if (actions.includes("map")) return toggleMap(); // opens and closes the map
-    if (window.__MM_APP__?.hudApi?.isMapOpen?.()) return; // the map overlay has its own A / B
-    if (isOn("planner-view", "active")) {
-      if (button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
-      else if (button === CONFIRM_BUTTON) window.__MM_APP__?.plannerApi?.padConfirm?.();
-    }
+    if (isOn("orbit-view", "active") && button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
   });
 
   const data = await loadAllProjectData();
@@ -268,22 +268,27 @@ async function boot() {
     document.getElementById("badge-example").style.display = "inline-block";
   }
 
-  const plannerView = document.getElementById("planner-view");
   const hudView = document.getElementById("hud-view");
-  const btnTabPlanner = document.getElementById("btn-tab-planner");
+  const orbitView = document.getElementById("orbit-view");
   const btnTabHud = document.getElementById("btn-tab-hud");
-  const btnStartEva = document.getElementById("btn-start-eva");
+  const btnTabOrbit = document.getElementById("btn-tab-orbit");
   const btnCredits = document.getElementById("btn-credits");
 
   const modalBackdrop = document.getElementById("modal-backdrop");
   const modalTitle = document.getElementById("modal-title");
   const modalBody = document.getElementById("modal-body");
-  document.getElementById("modal-close").onclick = () => modalBackdrop.classList.remove("open");
+  let modalToggleKey = null;
+  function closeModal() {
+    modalBackdrop.classList.remove("open");
+    modalToggleKey = null;
+  }
+  document.getElementById("modal-close").onclick = closeModal;
   modalBackdrop.onclick = (e) => {
-    if (e.target === modalBackdrop) modalBackdrop.classList.remove("open");
+    if (e.target === modalBackdrop) closeModal();
   };
 
   function openPovModal(povEntry) {
+    modalToggleKey = null;
     modalTitle.textContent = `Curiosity Rover POV — ${povEntry.stop_name}`;
     const imgUrl = `${data.assets.povBaseUrl}/${povEntry.stop_id}.jpg`;
     modalBody.innerHTML = `
@@ -298,7 +303,96 @@ async function boot() {
     modalBackdrop.classList.add("open");
   }
 
+  function openHistoricRoverModal(roverOrId, { toggleKey = null } = {}) {
+    if (document.pointerLockElement) {
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
+    const rover = typeof roverOrId === "string" ? getHistoricRoverById(roverOrId) : roverOrId;
+    if (!rover) return;
+    modalToggleKey = toggleKey || null;
+    const tr = readLang() === "tr";
+    const statusTr = rover.status === "ACTIVE" ? (tr ? "AKTİF GÖREV" : "ACTIVE") : tr ? "TAMAMLANDI" : "COMPLETED";
+    const coordsText = formatMarsLonLat(rover.lon, rover.lat, 4);
+    modalTitle.textContent = `${rover.name.toUpperCase()} — ${rover.mission}`;
+    modalBody.innerHTML = `
+      <div style="font-size:12px;line-height:1.55;">
+        <div class="rover-modal-hero">
+          <div>
+            <div style="font-size:15px;color:var(--cyan-bright);letter-spacing:0.08em;"><strong>${rover.name}</strong> · ${rover.agency}</div>
+            <div style="color:var(--faint);font-size:11px;">${rover.landingSite}</div>
+            ${rover.landingCoordsNote ? `<div style="color:var(--muted);font-size:10px;margin-top:3px;">${rover.landingCoordsNote}</div>` : ""}
+          </div>
+          <span class="fleet-status ${rover.status === "ACTIVE" ? "active" : ""}">${statusTr}</span>
+        </div>
+
+        <div class="rover-modal-grid">
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "MARS KONUMU" : "MARS COORDINATES"}</div>
+            <div class="rover-stat-v">${coordsText}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "KATEDİLEN MESAFE" : "DISTANCE DRIVEN"}</div>
+            <div class="rover-stat-v">${rover.distanceLabel}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "FIRLATMA / İNİŞ" : "LAUNCH / LANDING"}</div>
+            <div class="rover-stat-v">${rover.launchDate} → ${rover.landingDate}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "GÖREV SÜRESİ" : "SOLS / LIFESPAN"}</div>
+            <div class="rover-stat-v">${rover.sols.toLocaleString()} sols${rover.endDate ? ` (ended ${rover.endDate})` : " (ongoing)"}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "KÜTLE & BOYUT" : "MASS & DIMENSIONS"}</div>
+            <div class="rover-stat-v">${rover.massKg} kg · ${rover.dimensionsM}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "GÜÇ KAYNAĞI" : "POWER SOURCE"}</div>
+            <div class="rover-stat-v">${rover.powerSource}</div>
+          </div>
+        </div>
+
+        <p style="margin-bottom:8px;">
+          <strong>${tr ? "Bilimsel Keşifler:" : "Science Highlights:"}</strong>
+          ${tr ? rover.highlightsTr : rover.highlightsEn}
+        </p>
+        <p style="margin-bottom:8px;">
+          <strong>${tr ? "Ana Enstrümanlar:" : "Key Instruments:"}</strong>
+          ${rover.instruments.join(" · ")}
+        </p>
+        <div class="honesty-note">
+          <strong>3D Asset:</strong> ${rover.modelSourceNote}.
+          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;">NASA Mission Page ↗</a>
+        </div>
+
+        <div class="rover-modal-actions">
+          <button id="rover-modal-visit-3d" class="btn primary" type="button">
+            ${tr ? "3D Bölgeye Git (Aracın Yanına)" : "Visit 3D Site (Stand by Rover)"}
+          </button>
+          <button id="rover-modal-show-orbit" class="btn" type="button">
+            ${tr ? "Yörünge Görünümü" : "Orbit View"}
+          </button>
+        </div>
+      </div>
+    `;
+    modalBody.querySelector("#rover-modal-visit-3d")?.addEventListener("click", () => {
+      closeModal();
+      dispatchVisitRoverSite(rover.id);
+      switchToHud();
+    });
+    modalBody.querySelector("#rover-modal-show-orbit")?.addEventListener("click", () => {
+      closeModal();
+      switchToOrbit();
+    });
+    modalBackdrop.classList.add("open");
+  }
+
+  onOpenRoverInfo((detail) => openHistoricRoverModal(detail?.roverId, { toggleKey: detail?.toggleKey || null }));
+
   function openCreditsModal() {
+    modalToggleKey = null;
     modalTitle.textContent = "Data Sources, Citations & Honesty Notes";
     modalBody.innerHTML = `
       <div style="font-size:12px;line-height:1.55;">
@@ -306,7 +400,7 @@ async function boot() {
         <p><strong>Honesty &amp; Placeholders:</strong></p>
         <ul>
           <li><strong>Slope limits (20° / 15°):</strong> Illustrative lunar stand-ins (NASA Exploration EVA ConOps / LPSC 2023 #1413). DTM slope matches Curiosity rover tilt only weakly (5 m medians 9.0° vs 8.6° over 176 waypoints); keep a safety margin.</li>
-          <li><strong>Suit O₂ &amp; Walking Time:</strong> Illustrative linear / Earth-hiking placeholders, not validated Mars suit models. The visor also shows a Pandolf metabolic stand-in (watts and L/min). It does not replace the O₂ percentage.</li>
+          <li><strong>Suit O₂ &amp; Walking Time:</strong> Illustrative linear / Earth-hiking placeholders, not validated Mars suit models. The visor also shows a Pandolf metabolic stand-in (watts and L/min); it does not replace the O₂ percentage.</li>
           <li><strong>Walker physics:</strong> Suited mass is 180 kg; weight uses Gale crater gravity anchored at 3.717 m/s² (Lewis et al., Science 2019). Boot traction, facies friction, and sky-view shielding are illustrative stand-ins, not mapped geology or a radiation map.</li>
           <li><strong>Radiation Dose:</strong> Hassler et al. (Science 2014) Curiosity RAD baseline (0.64 ± 0.12 mSv/day) × EVA duration. No spatial rock radiation map.</li>
         </ul>
@@ -317,9 +411,13 @@ async function boot() {
           <li><strong>MRO CRISM:</strong> 9 MTRDR product records via PDS Geosciences ODE REST</li>
           <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
-          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head, shoulders) and drives a walk / run cycle from distance walked; the model's forward-reaching arms are lowered at the shoulders and swing opposite to the legs. Jumps and falls use Gale gravity (about 3.717 m/s²). Walking pace (1.4 m/s) and a light run with Shift (2.5 m/s) are placeholders. Horizontal speed has inertia: boots cannot steer in the air, and slopes steeper than the 20° (or strict 15°) lunar stand-in slip downhill.</li><li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
+          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Advanced Crew Escape Suit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh with two-bone leg IK and procedural gait. Gale gravity (3.717 m/s²) drives jumps, falls, momentum, steep-slope slip, and dust settling.</li>
+          <li><strong>Pressurized Rover &amp; Environment:</strong> Official NASA 3D Resources <code>Space Exploration Vehicle</code> (MMSEV Draco GLB, fetched 2026-11-14) with 4-point DEM slope alignment &amp; spring-damper suspension, plus REMS-inspired dust haze and surface wind gust particles.</li>
+          <li><strong>Historic NASA Mars Rovers (5 sites):</strong> Perseverance (Jezero Crater, NASA 3D Resources <code>Mars 2020 Perseverance Rover.glb</code>, fetched 2026-11-14), Curiosity (Gale Crater Sol 4534 waypoint, MSL scale assembly), Spirit (Gusev Crater, MER-A assembly), Opportunity (Meridiani Planum, MER-B assembly), Sojourner (Ares Vallis, Pathfinder scale assembly). Off-Gale terrain sites use seeded procedural site relief rather than downloaded regional HiRISE tiles.</li>
+          <li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
         <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
+        <p><strong>Orbit view:</strong> globe texture is the NASA/USGS Viking MDIM 2.1 colour mosaic (alternate layer: MGS MOLA colour-shaded relief), stitched from NASA Mars Trek tiles at 4096×2048 (about 5 km per pixel) and bundled for offline use; during a landing zoom, online mode overlays ~330 m/px Viking tiles around the target. Day/night uses the real subsolar point from the NASA GISS Mars24 algorithm (Allison &amp; McEwen 2000). Mars orientation follows the IAU WGCCRE pole and prime meridian. Phobos and Deimos positions come from a series fitted to JPL Horizons vectors (agrees with Horizons to ~0.1°); their <em>sizes</em> are drawn 8× larger than scale so they are visible, while orbits are to scale. Sun, Earth and the bright stars are real directions; the faint background star field is decorative. Fine surface grain at very low altitude is procedural. Landing anywhere other than the Gale HiRISE tile uses seeded procedural relief, not mapped topography; the Bodycam sun then follows the real local true solar time of that spot (or a fixed 15:00 daylight mode).</p>
         <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
       </div>
     `;
@@ -329,6 +427,7 @@ async function boot() {
   btnCredits.onclick = openCreditsModal;
 
   function openDevSettingsModal() {
+    modalToggleKey = null;
     const tr = readLang() === "tr";
     const s = loadDevSettings();
     modalTitle.textContent = tr ? "GELİŞTİRİCİ AYARLARI // DENEYSEL" : "DEVELOPER SETTINGS // EXPERIMENTAL";
@@ -337,18 +436,18 @@ async function boot() {
         <div class="dev-note">
           ${
             tr
-              ? "Değişiklikler anlık olarak kask görünümüne uygulanır ve tarayıcıda saklanır."
-              : "Changes apply live to the helmet view and persist locally in your browser."
+              ? "Değişiklikler anlık olarak 3D EVA görünümüne uygulanır ve tarayıcıda saklanır."
+              : "Changes apply live to the 3D EVA view and persist locally in your browser."
           }
         </div>
 
         <label class="dev-row">
           <div>
-            <div class="dev-label">${tr ? "Vizör lensi" : "Visor lens"}</div>
+            <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
             <div class="dev-sub">${
               tr
-                ? "Polikarbonat eğrilik, kenar kararması ve hafif renk sapması. Altın vizör G, büyütme Z."
-                : "Polycarbonate curvature, helmet-rim darkening, and a little chromatic aberration. Gold visor is G, magnifier is Z."
+                ? "Altın vizör filtresi (G), kask el feneri (F) ve optik büyütme (Z) ayarları."
+                : "Gold sun filter (G), EVA flashlight (F), optical zoom (Z), and subtle grain."
             }</div>
           </div>
           <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
@@ -377,6 +476,23 @@ async function boot() {
           <input class="dev-range" type="range" id="dev-speed" min="0.5" max="8" step="0.25" value="${s.speedMultiplier}" />
         </div>
 
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Araç (Rover) Sürüş Hızı" : "Rover Drive Speed Multiplier"}</div>
+            <div class="dev-sub">
+              <span id="dev-rover-speed-val">${s.roverSpeedMultiplier.toFixed(2)}×</span>
+              <span class="dev-presets">
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="0.5">0.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="1">1×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="1.5">1.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="2.5">2.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="3.5">3.5×</button>
+              </span>
+            </div>
+          </div>
+          <input class="dev-range" type="range" id="dev-rover-speed" min="0.3" max="4" step="0.1" value="${s.roverSpeedMultiplier}" />
+        </div>
+
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
@@ -390,6 +506,86 @@ async function boot() {
             }</div>
           </div>
           <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Gerçek Zamanlı Işın İzleme (Ray Tracing)" : "Real-Time Ray Tracing"}
+              <span class="dev-badge-exp">${tr ? "GPU RT" : "GPU RT"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "Piksel başına GPU yükseklik alanı ışın yürütme: dinamik yumuşak gölgeler, 6 yönlü küresel aydınlatma (GI/AO), araç/vizör/arazi yansıma ışınları ve derinlik tamponu SSR/SSGI (ağır GPU yükü, FPS düşürebilir — R tuşuyla da aç/kapa)."
+                : "Per-pixel GPU heightfield ray marching & screen-space rays: dynamic penumbra soft shadows, 6-dir indirect bounce GI/AO, rover/visor/terrain reflection rays & depth SSR (heavy GPU cost, lowers FPS — toggle with R key)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-ray-tracing" ${s.rayTracing ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
+              <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + E tuşuyla sürüş)."
+                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press E to drive)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Gerçekçi Dokular (PBR+)" : "Realistic Textures (PBR+)"}
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "512 px yüksek çözünürlüklü prosedürel regolit ve çatlak kiltaşı normal haritası, derin kırık kontrastı, mineral parıltısı ve uzay giysisi mikro dokusunu açar."
+                : "Upgrades terrain to 512 px procedural regolith & fractured mudstone normal maps, deep crack relief, mineral sheen & suit weave detail."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-tex" ${s.realisticTextures ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Toz Efektleri (Ayak, Tekerlek & Rüzgar)" : "Realistic Mars Dust FX (Boots, Wheels & Wind)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Rüzgarla sürüklenen Mars aerosol toz tanecikleri ile adım, iniş ve tekerlek toz bulutlarını açar."
+                : "Enables wind-drifted Martian aerosol dust grains plus bootstep, landing impact & wheel dust plumes."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-dust" ${s.realisticDust ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Slope Slide & Suspension)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Adım ataleti/momentumu, 24° üstü dik yokuşta regolit kayması, iniş tepkisi ve rover süspansiyon yaylanmasını uygular."
+                : "Applies walker inertia/momentum, steep >24° regolith slope slip, landing shock & rover spring-damper suspension."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-physics" ${s.realisticPhysics ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Mars Havası (Atmosferik Pus & Rüzgar)" : "Realistic Mars Weather (Atmospheric Haze & Gusts)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "REMS verisiyle kalibreli tereyağı-hardal Mars atmosfer pusu ve döngüsel toz fırtınası rüzgarlarını simüle eder."
+                : "Simulates REMS-calibrated butterscotch Martian dust haze fog and dynamic surface wind gust fronts."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-weather" ${s.realisticWeather ? "checked" : ""} />
         </label>
 
         <div class="dev-row">
@@ -431,6 +627,7 @@ async function boot() {
         </label>
 
         <div class="dev-actions">
+          <button class="btn primary" type="button" id="dev-full-realism">${tr ? "Tüm Gerçekçiliği Aç" : "Enable Full Realism"}</button>
           <button class="btn" type="button" id="dev-reset">${tr ? "Varsayılanlara Sıfırla" : "Reset Defaults"}</button>
         </div>
       </div>
@@ -441,13 +638,22 @@ async function boot() {
     const frameStrengthVal = document.getElementById("dev-frame-strength-val");
     const speedRange = document.getElementById("dev-speed");
     const speedVal = document.getElementById("dev-speed-val");
+    const roverSpeedRange = document.getElementById("dev-rover-speed");
+    const roverSpeedVal = document.getElementById("dev-rover-speed-val");
     const superToggle = document.getElementById("dev-super-gfx");
+    const rtToggle = document.getElementById("dev-ray-tracing");
+    const expRoverToggle = document.getElementById("dev-exp-rover");
+    const realisticTexToggle = document.getElementById("dev-realistic-tex");
+    const realisticDustToggle = document.getElementById("dev-realistic-dust");
+    const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
+    const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
     const fovRange = document.getElementById("dev-fov");
     const fovVal = document.getElementById("dev-fov-val");
-    const cleanToggle = document.getElementById("dev-clean-hud");
     const tauRange = document.getElementById("dev-tau");
     const tauVal = document.getElementById("dev-tau-val");
     const devilToggle = document.getElementById("dev-devil");
+    const cleanToggle = document.getElementById("dev-clean-hud");
+    const fullRealismBtn = document.getElementById("dev-full-realism");
     const resetBtn = document.getElementById("dev-reset");
 
     const syncUi = (cfg) => {
@@ -459,13 +665,21 @@ async function boot() {
       if (frameStrengthVal) frameStrengthVal.textContent = `${Math.round(cfg.frameStrength * 100)}%`;
       if (speedRange) speedRange.value = String(cfg.speedMultiplier);
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
+      if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
+      if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
       if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (rtToggle) rtToggle.checked = cfg.rayTracing;
+      if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
+      if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
+      if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
+      if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
+      if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
       if (fovRange) fovRange.value = String(cfg.fov);
       if (fovVal) fovVal.textContent = `${Math.round(cfg.fov)}°`;
-      if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
       if (tauRange) tauRange.value = String(cfg.dustTau);
       if (tauVal) tauVal.textContent = cfg.dustTau.toFixed(2);
       if (devilToggle) devilToggle.checked = cfg.dustDevil;
+      if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
     };
 
     syncUi(s);
@@ -475,11 +689,36 @@ async function boot() {
     modalBody.querySelectorAll(".dev-preset").forEach((btn) => {
       btn.addEventListener("click", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(btn.dataset.speed) })));
     });
+    roverSpeedRange?.addEventListener("input", () =>
+      syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(roverSpeedRange.value) }))
+    );
+    modalBody.querySelectorAll(".dev-rover-preset").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
+      );
+    });
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    rtToggle?.addEventListener("change", () => syncUi(saveDevSettings({ rayTracing: rtToggle.checked })));
+    expRoverToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
+    );
+    realisticTexToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticTextures: realisticTexToggle.checked }))
+    );
+    realisticDustToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticDust: realisticDustToggle.checked }))
+    );
+    realisticPhysicsToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticPhysics: realisticPhysicsToggle.checked }))
+    );
+    realisticWeatherToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticWeather: realisticWeatherToggle.checked }))
+    );
     fovRange?.addEventListener("input", () => syncUi(saveDevSettings({ fov: parseFloat(fovRange.value) })));
-    cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
     tauRange?.addEventListener("input", () => syncUi(saveDevSettings({ dustTau: parseFloat(tauRange.value) })));
     devilToggle?.addEventListener("change", () => syncUi(saveDevSettings({ dustDevil: devilToggle.checked })));
+    cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
+    fullRealismBtn?.addEventListener("click", () => syncUi(saveDevSettings(FULL_REALISM_PRESET)));
     resetBtn?.addEventListener("click", () => syncUi(resetDevSettings()));
 
     modalBackdrop.classList.add("open");
@@ -493,10 +732,9 @@ async function boot() {
   }
 
   let hudApi = null;
-  let plannerApi = null;
   let lastSelfPose = null;
 
-  const mp = new MultiplayerClient({ demoSafe: data.demoSafe, role: "planner" });
+  const mp = new MultiplayerClient({ demoSafe: data.demoSafe, role: "eva" });
 
   // ---------- Crew & EVA Multiplayer Drawer ----------
   const btnCrew = document.getElementById("btn-crew");
@@ -535,7 +773,7 @@ async function boot() {
     const row = document.createElement("div");
     row.className = "crew-chat-line";
     const badge = document.createElement("strong");
-    badge.style.color = color || "#38bdf8";
+    badge.style.color = color || "#67e8f9";
     badge.textContent = `[${callsign}] `;
     row.appendChild(badge);
     row.appendChild(document.createTextNode(text));
@@ -575,7 +813,7 @@ async function boot() {
         const left = document.createElement("span");
         const dot = document.createElement("span");
         dot.className = "crew-dot";
-        dot.style.background = peer.color || "#38bdf8";
+        dot.style.background = peer.color || "#67e8f9";
         left.appendChild(dot);
         let distTxt = peer.role?.toUpperCase() || "EVA";
         if (lastSelfPose?.lon != null && peer.state?.lon != null) {
@@ -629,11 +867,8 @@ async function boot() {
     }
   });
   mpDropPingBtn?.addEventListener("click", () => {
-    if (hudView.classList.contains("active") && hudApi?.dropLocalPing) {
+    if (hudApi?.dropLocalPing) {
       hudApi.dropLocalPing("Science Beacon");
-    } else if (plannerApi?.getLastProbePoint) {
-      const pt = plannerApi.getLastProbePoint();
-      mp.dropPing({ lon: pt.lon, lat: pt.lat, elevM: pt.elevM, label: "Planner Pin" });
     }
   });
   mpSyncRouteBtn?.addEventListener("click", () => {
@@ -652,27 +887,21 @@ async function boot() {
 
   mp.on("status", () => {
     renderCrewUi();
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
   });
   mp.on("peerjoin", (peer) => {
     showToast(`${peer.callsign} joined EVA room ${mp.room}`);
     appendChatLine({ callsign: "SYS", color: "#34d399", text: `${peer.callsign} connected` });
     renderCrewUi();
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
   });
   mp.on("peerleave", (peer) => {
     showToast(`${peer.callsign} left EVA`);
     appendChatLine({ callsign: "SYS", color: "#94a3b8", text: `${peer.callsign} disconnected` });
     renderCrewUi();
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
   });
   mp.on("peerstate", () => {
-    plannerApi?.updateCrewOverlay?.(lastSelfPose);
     if (crewDrawer?.classList.contains("open")) renderCrewUi();
   });
-  mp.on("pins", (pins) => {
-    plannerApi?.updatePinsOverlay?.(pins);
-  });
+  mp.on("pins", () => {});
   mp.on("ping", (pin) => {
     showToast(`${pin.by} dropped ${pin.label}`);
     appendChatLine({ callsign: pin.by, color: pin.color, text: `Dropped beacon (${pin.lat.toFixed(4)}°, ${pin.lon.toFixed(4)}°)` });
@@ -686,69 +915,382 @@ async function boot() {
     showToast(`${sync.by || "CREW"} synced route to ${Number(sync.alongM).toFixed(0)} m`);
   });
 
-  function switchToHud() {
-    document.body.classList.add("eva-live");
-    plannerView.classList.remove("active");
-    hudView.classList.add("active");
-    btnTabPlanner.classList.remove("active");
-    btnTabHud.classList.add("active");
-    mp.setRole("eva");
-    if (hudApi) hudApi.onResize();
+  let orbitApi = null;
+  function ensureOrbit() {
+    if (orbitApi || !orbitView) return orbitApi;
+    orbitApi = initOrbitView(orbitView, {
+      demoSafe: data.demoSafe,
+      isTr: () => readLang() === "tr",
+      getPlayerLonLat: () => hudApi?.getLonLat?.() || (lastSelfPose?.lon != null ? lastSelfPose : null),
+      onLand: (lon, lat, { sunMode, roverId } = {}) => landFromOrbit(lon, lat, { sunMode, roverId }),
+    });
+    return orbitApi;
   }
 
-  function switchToPlanner() {
-    document.body.classList.remove("eva-live");
-    hudView.classList.remove("active");
-    plannerView.classList.add("active");
-    btnTabHud.classList.remove("active");
-    btnTabPlanner.classList.add("active");
-    mp.setRole("planner");
-    requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
+  /** Show exactly one of the two views ("hud" | "orbit"). */
+  function switchView(name, opts = {}) {
+    document.body.classList.toggle("in-hud", name === "hud");
+    const views = { orbit: orbitView, hud: hudView };
+    const tabs = { orbit: btnTabOrbit, hud: btnTabHud };
+    for (const [k, el] of Object.entries(views)) el?.classList.toggle("active", k === name);
+    for (const [k, el] of Object.entries(tabs)) el?.classList.toggle("active", k === name);
+    if (name !== "orbit") orbitApi?.hide();
+    if (name === "hud") {
+      mp.setRole("eva");
+      hudApi?.onResize();
+    } else if (name === "orbit") {
+      if (document.pointerLockElement) {
+        try {
+          document.exitPointerLock?.();
+        } catch {}
+      }
+      ensureOrbit()?.show(opts);
+    }
+  }
+  const switchToHud = () => switchView("hud");
+  const switchToOrbit = () => {
+    const from = hudView.classList.contains("active") ? hudApi?.getLonLat?.() : null;
+    switchView("orbit", { from });
+  };
+
+  let pendingLanding = null;
+  function landFromOrbit(lon, lat, { sunMode = "local", roverId = null } = {}) {
+    if (!hudApi) {
+      // The 3D view is still loading (suit / terrain); land as soon as it is ready.
+      pendingLanding = [lon, lat, { sunMode, roverId }];
+      switchView("hud");
+      return;
+    }
+    if (roverId && roverId !== "curiosity") {
+      dispatchVisitRoverSite(roverId);
+      hudApi.setSunMode?.(sunMode);
+    } else {
+      hudApi.visitLocation(lon, lat, { keepYaw: true, sun: sunMode });
+    }
+    switchView("hud");
+    hudApi.playArrivalDrop?.();
+    const flash = document.createElement("div");
+    flash.className = "arrival-flash";
+    document.body.appendChild(flash);
+    requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.add("out")));
+    setTimeout(() => flash.remove(), 1200);
   }
 
-  window.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    const tag = e.target?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
-    if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
-    const modal = document.getElementById("modal-backdrop");
-    if (modal?.classList.contains("open")) {
-      e.preventDefault();
-      modal.classList.remove("open");
-      return;
-    }
-    if (crewDrawer?.classList.contains("open")) {
-      e.preventDefault();
-      crewDrawer.classList.remove("open");
-      return;
-    }
-    if (document.getElementById("hud-map-overlay")?.classList.contains("open")) return;
-    e.preventDefault();
-    if (hudView.classList.contains("active")) switchToPlanner();
-    else switchToHud();
-  });
-
-  btnTabPlanner.onclick = switchToPlanner;
-  btnTabHud.onclick = switchToHud;
-  btnStartEva.onclick = () => {
+  const startEva = () => {
     if (data.route) dispatchSetRoute(data.route, 0);
     switchToHud();
   };
 
+  btnTabHud.onclick = switchToHud;
+  if (btnTabOrbit) btnTabOrbit.onclick = switchToOrbit;
+
+  // ---------- ESC Command / Pause Menu ----------
+  const escMenu = document.getElementById("esc-menu");
+  const escSunBtn = document.getElementById("esc-sun");
+  const escGoldBtn = document.getElementById("esc-gold");
+  const escLampBtn = document.getElementById("esc-lamp");
+  const escTexBtn = document.getElementById("esc-tex");
+  const escCrewBtn = document.getElementById("esc-crew");
+  const escRoversBtn = document.getElementById("esc-open-rovers");
+  const escGoHudBtn = document.getElementById("esc-go-hud");
+  const escGoOrbitBtn = document.getElementById("esc-go-orbit");
+
+  function syncEscMenuUi() {
+    if (!escMenu) return;
+    const tr = readLang() === "tr";
+    const inOrbit = Boolean(orbitView?.classList.contains("active"));
+    const setText = (id, txt) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = txt;
+    };
+    setText("esc-title", tr ? "EVA KOMUT MENÜSÜ" : "EVA COMMAND MENU");
+    setText(
+      "esc-sub",
+      inOrbit
+        ? tr
+          ? "MARS YÖRÜNGE GÖRÜNÜMÜ"
+          : "MARS ORBIT VIEW"
+        : tr
+          ? "GALE KRATERİ · MOUNT SHARP"
+          : "GALE CRATER · MOUNT SHARP"
+    );
+    setText("esc-resume", tr ? "Devam Et (ESC)" : "Resume (ESC)");
+    setText("esc-lbl-views", tr ? "GÖRÜNÜMLER VE NAVİGASYON" : "VIEWS & NAVIGATION");
+    setText("esc-lbl-eva", tr ? "EVA VE OPTİK KONTROLLER" : "EVA & OPTICS CONTROLS");
+    setText("esc-lbl-system", tr ? "GÖREV VE AYARLAR" : "MISSION & SETTINGS");
+    setText("esc-go-hud", tr ? "EVA Vücut Kamerası" : "EVA Bodycam");
+    setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
+    setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
+    setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
+    setText("esc-dev", tr ? "Geliştirici Ayarları" : "Developer Settings");
+    setText("esc-sources", tr ? "Kaynaklar ve Dürüstlük" : "Sources & Honesty");
+    setText("esc-title-btn", tr ? "Başlangıç Ekranı" : "Title Screen");
+    setText("esc-hint", tr ? "DEVAM ETMEK İÇİN ESC" : "PRESS ESC TO RESUME");
+
+    const hudSun = document.getElementById("hud-sun-btn")?.textContent?.trim();
+    const hudGold = document.getElementById("hud-gold-btn");
+    const hudLamp = document.getElementById("hud-lamp-btn");
+    const hudTex = document.getElementById("hud-tex")?.textContent?.trim();
+    const hudFleet = document.getElementById("hud-fleet-btn")?.textContent?.trim();
+    if (escSunBtn && hudSun) escSunBtn.textContent = hudSun;
+    if (escGoldBtn) {
+      escGoldBtn.textContent = hudGold?.textContent?.trim() || (tr ? "Altın Vizör (G)" : "Gold Visor (G)");
+      escGoldBtn.classList.toggle("active", Boolean(hudGold?.classList.contains("active")));
+    }
+    if (escLampBtn) {
+      escLampBtn.textContent = hudLamp?.textContent?.trim() || (tr ? "El Feneri (F)" : "Flashlight (F)");
+      escLampBtn.classList.toggle("active", Boolean(hudLamp?.classList.contains("active")));
+    }
+    if (escTexBtn && hudTex) escTexBtn.textContent = hudTex;
+    if (escRoversBtn && hudFleet) escRoversBtn.textContent = hudFleet;
+    if (escCrewBtn && btnCrew) escCrewBtn.textContent = btnCrew.textContent.trim();
+    escGoHudBtn?.classList.toggle("active", !inOrbit);
+    escGoOrbitBtn?.classList.toggle("active", inOrbit);
+
+    const lang = readLang();
+    const lEn = document.getElementById("esc-lang-en");
+    const lTr = document.getElementById("esc-lang-tr");
+    if (lEn) lEn.style.color = lang === "en" ? "#a5f3fc" : "";
+    if (lTr) lTr.style.color = lang === "tr" ? "#a5f3fc" : "";
+  }
+  syncEscMenuRef = syncEscMenuUi;
+
+  function toggleEscMenu(force) {
+    if (!escMenu) return;
+    const next = typeof force === "boolean" ? force : !escMenu.classList.contains("open");
+    if (next && document.pointerLockElement) {
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
+    escMenu.classList.toggle("open", next);
+    if (next) syncEscMenuUi();
+  }
+
+  document.getElementById("btn-menu")?.addEventListener("click", () => toggleEscMenu(true));
+  document.getElementById("esc-resume")?.addEventListener("click", () => toggleEscMenu(false));
+  escMenu?.addEventListener("click", (e) => {
+    if (e.target === escMenu) toggleEscMenu(false);
+  });
+  escGoHudBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToHud();
+  });
+  escGoOrbitBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToOrbit();
+  });
+  escRoversBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToHud();
+    document.getElementById("hud-fleet-btn")?.click();
+  });
+  escSunBtn?.addEventListener("click", () => {
+    document.getElementById("hud-sun-btn")?.click();
+    syncEscMenuUi();
+  });
+  escGoldBtn?.addEventListener("click", () => {
+    document.getElementById("hud-gold-btn")?.click();
+    syncEscMenuUi();
+  });
+  escLampBtn?.addEventListener("click", () => {
+    document.getElementById("hud-lamp-btn")?.click();
+    syncEscMenuUi();
+  });
+  escTexBtn?.addEventListener("click", () => {
+    document.getElementById("hud-tex")?.click();
+    syncEscMenuUi();
+  });
+  document.getElementById("esc-pin")?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    switchToHud();
+    document.getElementById("hud-ping")?.click();
+  });
+  document.getElementById("esc-pov")?.addEventListener("click", () => {
+    document.getElementById("hud-pov-btn")?.click();
+  });
+  escCrewBtn?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    crewDrawer?.classList.add("open");
+    renderCrewUi();
+  });
+  document.getElementById("esc-dev")?.addEventListener("click", openDevSettingsModal);
+  document.getElementById("esc-sources")?.addEventListener("click", openCreditsModal);
+  document.getElementById("esc-title-btn")?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    start.show();
+  });
+  document.getElementById("esc-lang-en")?.addEventListener("click", () => start.setLang("en"));
+  document.getElementById("esc-lang-tr")?.addEventListener("click", () => start.setLang("tr"));
+
+  window.addEventListener("keydown", (e) => {
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+    const k = e.key?.toLowerCase?.() || "";
+
+    if (!e.repeat && modalBackdrop.classList.contains("open") && modalToggleKey && k === modalToggleKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation?.();
+      closeModal();
+      return;
+    }
+
+    if (e.key === "Escape") {
+      if (modalBackdrop.classList.contains("open")) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        closeModal();
+        return;
+      }
+      if (crewDrawer?.classList.contains("open")) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        crewDrawer.classList.remove("open");
+        return;
+      }
+      if (escMenu?.classList.contains("open")) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        toggleEscMenu(false);
+        return;
+      }
+      if (document.pointerLockElement) return;
+      const startScreen = document.getElementById("start-screen");
+      if (startScreen && !startScreen.classList.contains("hidden")) return;
+      if (orbitView?.classList.contains("active") || !hudApi) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        toggleEscMenu(true);
+      }
+      return;
+    }
+
+    if (e.repeat) return;
+    if (
+      modalBackdrop.classList.contains("open") ||
+      crewDrawer?.classList.contains("open") ||
+      escMenu?.classList.contains("open")
+    ) {
+      return;
+    }
+    const startScreen = document.getElementById("start-screen");
+    if (startScreen && !startScreen.classList.contains("hidden")) return;
+
+    if (k === "o" && orbitView?.classList.contains("active")) {
+      e.preventDefault();
+      e.stopImmediatePropagation?.();
+      switchToHud();
+    }
+  });
+
+  // ---------- Custom right-click menu ----------
+  function initAppContextMenu() {
+    const t = (en, trText) => (readLang() === "tr" ? trText : en);
+    const clickId = (id) => () => document.getElementById(id)?.click();
+    const activeView = () => (orbitView?.classList.contains("active") ? "orbit" : "hud");
+
+    async function copyCoords(lon, lat) {
+      const text = formatMarsLonLat(lon, lat, 5);
+      let ok = true;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        ok = false;
+        window.prompt(t("Copy coordinates:", "Koordinatları kopyala:"), text);
+      }
+      if (!ok) return;
+      showToast(`${t("COPIED", "KOPYALANDI")} · ${text}`);
+    }
+
+    function hudItems() {
+      const pos = hudApi?.getLonLat?.();
+      const btnLabel = (id, fallback) => document.getElementById(id)?.textContent?.trim() || fallback;
+      return [
+        { heading: t("BODYCAM", "VÜCUT KAMERASI") },
+        { label: t("Drop waypoint pin", "Yol işareti bırak"), hint: "P", action: clickId("hud-ping") },
+        { label: t("Orbit view", "Yörünge görünümü"), hint: "M", action: clickId("hud-orbit-btn") },
+        { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
+        { label: btnLabel("hud-gold-btn", "Gold (G)"), action: clickId("hud-gold-btn") },
+        { label: btnLabel("hud-lamp-btn", "Flashlight (F)"), action: clickId("hud-lamp-btn") },
+        { label: btnLabel("hud-tex", "Texture"), action: clickId("hud-tex") },
+        { label: btnLabel("hud-fleet-btn", "Rovers"), action: clickId("hud-fleet-btn") },
+        { label: t("Rover POV photo", "Gezgin POV fotoğrafı"), action: clickId("hud-pov-btn") },
+        {
+          label: t("Copy my coordinates", "Konumumu kopyala"),
+          hidden: !Number.isFinite(pos?.lon) || !Number.isFinite(pos?.lat),
+          action: () => copyCoords(pos.lon, pos.lat),
+        },
+        { separator: true },
+      ];
+    }
+
+    function orbitItems() {
+      return [
+        { heading: t("ORBIT", "YÖRÜNGE") },
+        { label: t("Find me", "Beni bul"), action: clickId("orbit-home") },
+        { label: btnLabel("orbit-layer", t("Change layer", "Katmanı değiştir")), action: clickId("orbit-layer") },
+        { label: t("Live time", "Canlı zaman"), action: () => document.querySelector('.orbit-warp[data-warp="1"]')?.click() },
+        { separator: true },
+      ];
+      function btnLabel(id, fallback) {
+        return document.getElementById(id)?.textContent?.trim() || fallback;
+      }
+    }
+
+    function globalItems() {
+      const view = activeView();
+      return [
+        { heading: t("GO TO", "GİT") },
+        { label: t("Orbit view", "Yörünge görünümü"), disabled: view === "orbit", action: switchToOrbit },
+        { label: t("Bodycam EVA", "Vücut kamerası EVA"), disabled: view === "hud", action: switchToHud },
+        { label: t("Command menu", "Komut menüsü"), hint: "Esc", action: () => toggleEscMenu(true) },
+        { separator: true },
+        { label: btnCrew?.textContent?.trim() || "Crew", action: () => btnCrew?.click() },
+        { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
+        { label: t("Developer settings", "Geliştirici ayarları"), action: openDevSettingsModal },
+        { label: t("Title screen", "Başlangıç ekranı"), action: () => start.show() },
+      ];
+    }
+
+    initContextMenu({
+      getItems(ctx) {
+        const el = ctx.target?.closest ? ctx.target : ctx.target?.parentElement;
+        const startScreen = document.getElementById("start-screen");
+        if (startScreen && !startScreen.classList.contains("hidden")) {
+          return [...startScreen.querySelectorAll(".menu-item")].map((b) => ({
+            label: b.textContent.trim(),
+            action: () => b.click(),
+          }));
+        }
+        if (modalBackdrop.classList.contains("open")) {
+          return [{ label: t("Close window", "Pencereyi kapat"), hint: "Esc", action: closeModal }];
+        }
+        if (escMenu?.classList.contains("open")) {
+          return [{ label: t("Resume", "Devam et"), hint: "Esc", action: () => toggleEscMenu(false) }];
+        }
+        if (el?.closest?.("#crew-drawer")) {
+          return [{ label: t("Close crew panel", "Ekip panelini kapat"), hint: "Esc", action: () => crewDrawer?.classList.remove("open") }];
+        }
+        const view = activeView();
+        const local =
+          view === "hud"
+            ? hudItems()
+            : view === "orbit"
+              ? orbitItems()
+              : [];
+        return [...local, ...globalItems()];
+      },
+    });
+  }
+
   resolveReady({
-    eva: () => btnStartEva.onclick(),
-    planner: switchToPlanner,
+    eva: startEva,
+    orbit: switchToOrbit,
     credits: openCreditsModal,
     dev: openDevSettingsModal,
   });
 
-  plannerApi = initPlanner(data, {
-    demSampler,
-    registry,
-    mp,
-    onOpenPov: openPovModal,
-    onStartEva: switchToHud,
-  });
+  initAppContextMenu();
 
   await mp.connect();
   renderCrewUi();
@@ -758,29 +1300,30 @@ async function boot() {
     demSampler,
     registry,
     mp,
-    get plannerApi() {
-      return plannerApi;
-    },
+    openHistoricRoverModal,
     get hudApi() {
       return hudApi;
+    },
+    get orbitApi() {
+      return orbitApi;
     },
   };
   hudApi = await initHud3D(data, {
     mp,
     onLocalPose: (pose) => {
       lastSelfPose = pose;
-      plannerApi?.updateCrewOverlay?.(pose);
     },
-    onBackToPlanner: switchToPlanner,
+    onOpenMenu: () => toggleEscMenu(true),
     onOpenPov: openPovModal,
+    onOpenRoverInfo: openHistoricRoverModal,
+    onOpenOrbit: switchToOrbit,
   });
-  const missionTex = document.getElementById("mission-tex");
-  const missionPov = document.getElementById("mission-pov");
-  missionTex?.addEventListener("click", () => {
-    const label = hudApi?.cycleTex?.();
-    if (label && missionTex) missionTex.textContent = `Ground: ${label}`;
-  });
-  missionPov?.addEventListener("click", () => hudApi?.openRoverPov?.());
+  if (data.route) dispatchSetRoute(data.route, 0);
+  if (pendingLanding) {
+    const args = pendingLanding;
+    pendingLanding = null;
+    landFromOrbit(...args);
+  }
 }
 
 boot();

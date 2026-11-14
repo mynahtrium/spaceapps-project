@@ -154,7 +154,8 @@ function ensureProtocolsRegistered(maplibregl) {
 
       const rowStart = Math.max(0, Math.min(tlTile.row, brTile.row));
       const rowEnd = Math.min(nRows - 1, Math.max(tlTile.row, brTile.row));
-      const colSpan = brTile.col >= tlTile.col ? brTile.col - tlTile.col : brTile.col + nCols - tlTile.col;
+      const rawColSpan = brTile.col >= tlTile.col ? brTile.col - tlTile.col : brTile.col + nCols - tlTile.col;
+      const colSpan = Math.min(nCols - 1, rawColSpan);
 
       // Collect unique equirectangular (col, row) tiles intersecting this Mercator tile
       const seenTiles = new Set();
@@ -314,12 +315,21 @@ function renderShadedReliefTileRgba(dem, z, x, y, size = 256) {
         lat <= dem.bounds.north_lat_deg;
       const idx = (py * size + px) * 4;
       if (!inside) {
-        const wave = Math.sin(lon * 190 + lat * 120) * 0.5 + Math.cos(lon * 430 - lat * 310) * 0.5;
-        const grain = ((((px * 73 + py * 139) ^ (px * py)) & 15) - 7) * 0.8;
-        const shade = Math.max(0.75, Math.min(1.25, 1.0 + wave * 0.14));
-        rgba[idx] = Math.min(255, Math.max(18, Math.round(46 * shade + grain)));
-        rgba[idx + 1] = Math.min(255, Math.max(12, Math.round(30 * shade + grain * 0.7)));
-        rgba[idx + 2] = Math.min(255, Math.max(10, Math.round(23 * shade + grain * 0.5)));
+        // Low-frequency planetary dichotomy / albedo provinces when zoomed out globally,
+        // blended smoothly into regional basalt/dust grain when zoomed in.
+        const globalAlbedo =
+          z <= 6
+            ? Math.sin((lon * Math.PI) / 90) * Math.cos((lat * Math.PI) / 70) * 0.28 +
+              Math.sin((lon - 45) * 0.07 + lat * 0.05) * 0.16
+            : Math.sin(lon * 190 + lat * 120) * 0.14 + Math.cos(lon * 430 - lat * 310) * 0.08;
+        const grain = ((((px * 73 + py * 139) ^ (px * py)) & 15) - 7) * 0.65;
+        const shade = Math.max(0.68, Math.min(1.32, 1.0 + globalAlbedo));
+        const baseR = z <= 6 ? 78 : 46;
+        const baseG = z <= 6 ? 46 : 30;
+        const baseB = z <= 6 ? 33 : 23;
+        rgba[idx] = Math.min(255, Math.max(18, Math.round(baseR * shade + grain)));
+        rgba[idx + 1] = Math.min(255, Math.max(12, Math.round(baseG * shade + grain * 0.7)));
+        rgba[idx + 2] = Math.min(255, Math.max(10, Math.round(baseB * shade + grain * 0.5)));
         rgba[idx + 3] = 255;
         continue;
       }
@@ -466,7 +476,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
         },
         "onmars-ctx": {
           type: "raster",
-          tiles: ["mars-eq://trek-ctx/{z}/{x}/{y}"],
+          tiles: ["mars-eq://onmars-ctx/{z}/{x}/{y}"],
           tileSize: 256,
           maxzoom: 16,
         },
@@ -580,7 +590,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
         container,
         center,
         zoom: options.zoom ?? 14.7,
-        minZoom: options.minZoom ?? 11.2,
+        minZoom: options.minZoom ?? 1.1,
         maxZoom: options.maxZoom ?? 18,
         pitch: options.pitch ?? (wantsTerrain3d ? 52 : 0),
         bearing: options.bearing ?? (wantsTerrain3d ? -14 : 0),
@@ -610,8 +620,14 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
 
       this.map = map;
 
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
+        // A style that never loads (WebGL lost, blocked worker, ...) must not hang the planner forever:
+        // after 20 s fall back to the 2D canvas map instead.
+        const timer = setTimeout(() => {
+          if (!this._styleLoaded) reject(new Error("MapLibre style did not load within 20 s"));
+        }, 20000);
         const onReady = () => {
+          clearTimeout(timer);
           this._styleLoaded = true;
           this._flushPendingOps();
           resolve();
@@ -676,6 +692,10 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
       return this;
     } catch (err) {
       console.warn("[MapLibreMarsAdapter] Falling back to 2D Canvas:", err);
+      try {
+        this.map?.remove?.();
+      } catch {}
+      this.map = null;
       return this._mountFallback(container, options);
     }
   }

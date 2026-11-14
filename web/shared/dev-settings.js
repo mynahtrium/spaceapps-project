@@ -8,13 +8,30 @@ export const DEV_SETTINGS_EVENT = "mm:dev-settings";
 
 export const DEFAULT_DEV_SETTINGS = Object.freeze({
   frameEffect: true,
-  frameStrength: 1.0,
+  frameStrength: 0.2,
   speedMultiplier: 1.0,
+  roverSpeedMultiplier: 1.0,
   superGraphics: false,
-  fov: 78,
-  cleanHud: false,
+  rayTracing: false,
+  experimentalRover: false,
+  realisticTextures: false,
+  realisticDust: true,
+  realisticPhysics: true,
+  realisticWeather: true,
   dustTau: 0.5,
   dustDevil: false,
+  fov: 78,
+  cleanHud: false,
+});
+
+export const FULL_REALISM_PRESET = Object.freeze({
+  superGraphics: true,
+  rayTracing: true,
+  experimentalRover: true,
+  realisticTextures: true,
+  realisticDust: true,
+  realisticPhysics: true,
+  realisticWeather: true,
 });
 
 function clampNum(v, min, max, fallback) {
@@ -28,11 +45,22 @@ export function normalizeDevSettings(raw = {}) {
     frameEffect: raw.frameEffect !== undefined ? Boolean(raw.frameEffect) : DEFAULT_DEV_SETTINGS.frameEffect,
     frameStrength: clampNum(raw.frameStrength, 0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
     speedMultiplier: clampNum(raw.speedMultiplier, 0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
+    roverSpeedMultiplier: clampNum(raw.roverSpeedMultiplier, 0.3, 4.0, DEFAULT_DEV_SETTINGS.roverSpeedMultiplier),
     superGraphics: raw.superGraphics !== undefined ? Boolean(raw.superGraphics) : DEFAULT_DEV_SETTINGS.superGraphics,
-    fov: clampNum(raw.fov, 60, 110, DEFAULT_DEV_SETTINGS.fov),
-    cleanHud: raw.cleanHud !== undefined ? Boolean(raw.cleanHud) : DEFAULT_DEV_SETTINGS.cleanHud,
+    rayTracing: raw.rayTracing !== undefined ? Boolean(raw.rayTracing) : DEFAULT_DEV_SETTINGS.rayTracing,
+    experimentalRover:
+      raw.experimentalRover !== undefined ? Boolean(raw.experimentalRover) : DEFAULT_DEV_SETTINGS.experimentalRover,
+    realisticTextures:
+      raw.realisticTextures !== undefined ? Boolean(raw.realisticTextures) : DEFAULT_DEV_SETTINGS.realisticTextures,
+    realisticDust: raw.realisticDust !== undefined ? Boolean(raw.realisticDust) : DEFAULT_DEV_SETTINGS.realisticDust,
+    realisticPhysics:
+      raw.realisticPhysics !== undefined ? Boolean(raw.realisticPhysics) : DEFAULT_DEV_SETTINGS.realisticPhysics,
+    realisticWeather:
+      raw.realisticWeather !== undefined ? Boolean(raw.realisticWeather) : DEFAULT_DEV_SETTINGS.realisticWeather,
     dustTau: clampNum(raw.dustTau, 0.35, 3, DEFAULT_DEV_SETTINGS.dustTau),
     dustDevil: raw.dustDevil !== undefined ? Boolean(raw.dustDevil) : DEFAULT_DEV_SETTINGS.dustDevil,
+    fov: clampNum(raw.fov, 60, 110, DEFAULT_DEV_SETTINGS.fov),
+    cleanHud: raw.cleanHud !== undefined ? Boolean(raw.cleanHud) : DEFAULT_DEV_SETTINGS.cleanHud,
   };
 }
 

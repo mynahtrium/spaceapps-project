@@ -2,7 +2,7 @@
 
 **Owner:** Bug tester 1 (Asil), with Bug tester 2  
 **Target:** Hour 16 Milestone Sign-off  
-**Reference:** [ROADMAP.md](../../ROADMAP.md) §7, [docs/roles/tester-1.md](../roles/tester-1.md)
+**Reference:** [ROADMAP.md](../../ROADMAP.md) §7
 
 **Belge incelemesi 2026-11-14 12:59 (Europe/Istanbul), `main` `d2c4695`:** Saat 16 onayı verilmedi. İngilizce yürüyüş: [test-plan.md](./test-plan.md). Alan kontrolü: [contract-checklist.md](./contract-checklist.md). Bölüm 2.1 ilk PASS olarak duruyor. Bölüm 2.2–2.5 işaretlenmedi: duraklar hâlâ örnek (PRE-07), rota HiRISE maliyet kırpmasının üzerinde değil, `web/` içinde uygulama yok.
 
@@ -15,7 +15,6 @@ Her pull request (PR) merge edilmeden önce aşağıdaki kontroller Tester 1 tar
 - [ ] `.env` veya gizli anahtar (API key) kesinlikle committe yok mu?
 - [ ] `data/raw/` klasörü veya büyük ham dosyalar (.tif, .IMG, .jp2) git'e eklenmemiş mi?
 - [ ] Veri sözleşmeleri (`docs/contracts/`) ile üretilen JSON şemaları eşleşiyor mu?
-- [ ] Değişiklik `docs/coordination/AGENT_LOG.md` içine `Commit: this commit` şeklinde işlenmiş mi?
 - [ ] En az 1 tester onayı alındı mı?
 
 ---

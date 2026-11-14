@@ -33,7 +33,7 @@
 - **Where:** 13 JSON files in `data/demo/`
 - **Note:** `web/shared/data-loader.js` already uses `baseTerrainDir` / `baseScienceDir` for top-level assets, which mitigates most of this, though `export_demo_fixtures.py` rewriting `data/processed/*/` → `data/demo/` would make the demo JSONs completely self-consistent.
 
-### [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
+### [OBSOLETE] [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
 - **Where:** `docs/team/ROSTER.md`
 
 ### [FIXED] [BUG-15] 3D HUD `NEXT` stop shows the *nearest* stop instead of the *upcoming* stop along `route.legs`

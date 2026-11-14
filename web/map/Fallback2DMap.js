@@ -122,7 +122,10 @@ export class Fallback2DMap extends BaseMapAdapter {
         if (Math.abs(dx) + Math.abs(dy) > 2) this._dragMoved = true;
         this._lastPt = [e.clientX, e.clientY];
         const scale = this._degPerPixel();
-        this.center = [this.center[0] - dx * scale.lon, this.center[1] + dy * scale.lat];
+        let cLon = this.center[0] - dx * scale.lon;
+        cLon = ((((cLon + 180) % 360) + 360) % 360) - 180;
+        const cLat = Math.max(-85, Math.min(85, this.center[1] + dy * scale.lat));
+        this.center = [cLon, cLat];
         this._render();
         this.emit("viewchange", this.getView());
       } else if (this._mounted && e.target === canvas) {
@@ -189,7 +192,7 @@ export class Fallback2DMap extends BaseMapAdapter {
       "wheel",
       (e) => {
         e.preventDefault();
-        this.zoom = Math.max(10, Math.min(19, this.zoom - Math.sign(e.deltaY) * 0.45));
+        this.zoom = Math.max(1.1, Math.min(19, this.zoom - Math.sign(e.deltaY) * 0.45));
         this._render();
         this.emit("viewchange", this.getView());
       },
@@ -235,7 +238,8 @@ export class Fallback2DMap extends BaseMapAdapter {
     const lonSpanBase = 0.036 / 2 ** (this.zoom - 14);
     const px = Math.max(200, this._cssWidth || 320);
     const lon = lonSpanBase / px;
-    const lat = lon / Math.max(0.2, Math.cos((this.center[1] * Math.PI) / 180));
+    // Equal ground scale: a degree of latitude spans more ground than a degree of longitude off the equator.
+    const lat = lon * Math.max(0.2, Math.cos((this.center[1] * Math.PI) / 180));
     return { lon, lat };
   }
 
@@ -284,10 +288,11 @@ export class Fallback2DMap extends BaseMapAdapter {
     const w = this._cssWidth || 320;
     const h = this._cssHeight || 220;
     const scale = this._degPerPixel();
-    return [
-      this.center[0] + (screenXY[0] - w / 2) * scale.lon,
-      this.center[1] - (screenXY[1] - h / 2) * scale.lat,
-    ];
+    // Clamp latitude (zoomed far out, screen rows can lie beyond the poles) and wrap longitude,
+    // so callers such as the scale bar's marsDistanceM never receive an invalid coordinate.
+    const lon = this.center[0] + (screenXY[0] - w / 2) * scale.lon;
+    const lat = this.center[1] - (screenXY[1] - h / 2) * scale.lat;
+    return [((((lon + 180) % 360) + 360) % 360) - 180, Math.max(-90, Math.min(90, lat))];
   }
 
   setTerrainSource(_providerId) {}
@@ -362,22 +367,44 @@ export class Fallback2DMap extends BaseMapAdapter {
       ctx.restore();
     }
 
-    // Subtle lat/lon graticule
+    // Adaptive lat/lon graticule (supports both global Mars overview and Gale local zoom)
     ctx.strokeStyle = "rgba(255, 210, 170, 0.12)";
     ctx.lineWidth = 1;
-    for (let lon = 137.36; lon <= 137.42; lon += 0.01) {
-      const [px] = this.project([lon, this.center[1]]);
-      ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, h);
-      ctx.stroke();
-    }
-    for (let lat = -4.83; lat <= -4.77; lat += 0.01) {
-      const [, py] = this.project([this.center[0], lat]);
-      ctx.beginPath();
-      ctx.moveTo(0, py);
-      ctx.lineTo(w, py);
-      ctx.stroke();
+    const degStep = this.zoom < 5 ? 30 : this.zoom < 9 ? 5 : 0.01;
+    if (degStep >= 5) {
+      for (let lon = -180; lon <= 180; lon += degStep) {
+        const [px] = this.project([lon, this.center[1]]);
+        if (px >= -2 && px <= w + 2) {
+          ctx.beginPath();
+          ctx.moveTo(px, 0);
+          ctx.lineTo(px, h);
+          ctx.stroke();
+        }
+      }
+      for (let lat = -75; lat <= 75; lat += degStep) {
+        const [, py] = this.project([this.center[0], lat]);
+        if (py >= -2 && py <= h + 2) {
+          ctx.beginPath();
+          ctx.moveTo(0, py);
+          ctx.lineTo(w, py);
+          ctx.stroke();
+        }
+      }
+    } else {
+      for (let lon = 137.36; lon <= 137.42; lon += 0.01) {
+        const [px] = this.project([lon, this.center[1]]);
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, h);
+        ctx.stroke();
+      }
+      for (let lat = -4.83; lat <= -4.77; lat += 0.01) {
+        const [, py] = this.project([this.center[0], lat]);
+        ctx.beginPath();
+        ctx.moveTo(0, py);
+        ctx.lineTo(w, py);
+        ctx.stroke();
+      }
     }
 
     // GeoJSON vector overlays
@@ -403,7 +430,9 @@ export class Fallback2DMap extends BaseMapAdapter {
           ctx.fillStyle =
             id === "astronaut-pos"
               ? "#22d3ee"
-              : layer.style.color || (feat.properties?.kind === "bonus" ? "#fbbf24" : "#34d399");
+              : feat.properties?.color ||
+                layer.style.color ||
+                (feat.properties?.kind === "bonus" ? "#fbbf24" : "#34d399");
           ctx.fill();
           ctx.strokeStyle = "#0b0f17";
           ctx.lineWidth = 1.5;

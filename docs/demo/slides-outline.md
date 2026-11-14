@@ -76,4 +76,4 @@
   - Example route only. PRE-07 outcrop lock is open. Stops are outside the current HiRISE cost crop. `?demo=1` has not been run: there is no web app yet. Science JSON and stills are copied under `data/demo/`.
 - **AI / SI Tools Disclosure (per NASA Space Apps guidelines):**
   - The project concept, site choice, and scientific framing were created by the human team.
-  - AI coding assistants (Grok Bot, Gemini / Antigravity, Claude) were used for documentation scaffolding, data pipeline scripts, and UI implementation, with all changes logged in `docs/coordination/AGENT_LOG.md` and `docs/AI_USE.md`. No NASA logos or branding were generated or modified by AI.
+  - AI coding assistants (Grok Bot, Gemini / Antigravity, Claude) were used for documentation scaffolding, data pipeline scripts, and UI implementation, with all changes logged in `docs/AI_USE_LOG.md` and `docs/AI_USE.md`. No NASA logos or branding were generated or modified by AI.

@@ -23,7 +23,7 @@ If you change a field name, meaning, or file, you must in the **same PR**:
 
 1. Update the example JSON in this folder, and after 14 November any matching `data/processed/` and `data/demo/` fixtures.
 2. Add a row to [CHANGES.md](./CHANGES.md).
-3. Notify the **owning role**, **Frontend 1**, and **both testers** with a [handoff](../coordination/HANDOFFS.md) and a question on [BOARD.md](../coordination/BOARD.md) (or a clearly ticked PR checklist that they acknowledge).
+3. Tell whoever uses that file.
 
 Do not silently rename fields. The same rule is in [AGENTS.md](../../AGENTS.md).
 

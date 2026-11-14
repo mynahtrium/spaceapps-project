@@ -7,7 +7,7 @@ description: Build a slope and hazard cost map and run A* or Dijkstra between Ma
 
 Do **not** write routing code before 14 November 2026. This skill is instructions only.
 
-Inputs: slope, roughness, and hazard rasters from `skills/dem-to-slope` (`data/processed/terrain/`). Output: `stops.json`, `route.json`, and HUD telemetry in `data/processed/routing/` for the MapLibre planner (`skills/map-ui`) and the 3D HUD (`skills/hud-3d`). Role sheet: [docs/roles/backend-2-routing.md](../../docs/roles/backend-2-routing.md). Contracts: [docs/contracts/](../../docs/contracts/).
+Inputs: slope, roughness, and hazard rasters from `skills/dem-to-slope` (`data/processed/terrain/`). Output: `stops.json`, `route.json`, and HUD telemetry in `data/processed/routing/` for the MapLibre planner (`skills/map-ui`) and the 3D HUD (`skills/hud-3d`). Contracts: [docs/contracts/](../../docs/contracts/).
 
 ## Stops (locked 12 November 2026 goal)
 

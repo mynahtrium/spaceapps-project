@@ -7,14 +7,10 @@ data/raw
 pipeline
 scripts
 skills
-docs/coordination
-docs/team
-docs/roles
-docs/comms
-docs/plans
 docs/testing
 docs/demo
 docs/AI_USE.md
+docs/AI_USE_LOG.md
 *.py
 *.stl
 __pycache__

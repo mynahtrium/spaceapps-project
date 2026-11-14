@@ -1,6 +1,6 @@
 # pipeline/terrain/
 
-Owned by **Backend 1**. Long-lived branch: `backend/terrain`. See [docs/roles/backend-1-terrain.md](../../docs/roles/backend-1-terrain.md).
+HiRISE DTM crop, slope, ortho, and tilt check. See [skills/dem-to-slope/SKILL.md](../../skills/dem-to-slope/SKILL.md).
 
 | Script | What it writes |
 |---|---|

@@ -26,31 +26,58 @@ import {
   buildCumulativeDistances,
   classifySlope,
   closestAlongM,
+  dispatchOpenRoverInfo,
+  marsBearingDeg,
   onSetRoute,
   onTeleport,
+  onVisitRoverSite,
   resolveNextStopAlongRoute,
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
-import { gamepad } from "../shared/gamepad.js";
-import { createVisorGlobe } from "./visor-globe.js";
 import { createFootsteps } from "./footsteps.js";
-import { galeSunState, PHOBOS_SKY_RATE_RAD_S, DEIMOS_SKY_RATE_RAD_S } from "./MarsEphemeris.js";
+import { formatHoursHM, moonFromSurface, sunStateAt } from "./MarsEphemeris.js";
 import { createCelestialSky } from "./MarsCelestialSky.js";
 import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
 import { createDustDevil } from "./DustDevil.js";
-import { createMarsDustSystem } from "./dust-fx.js";
 import { createWindDust } from "./wind-dust.js";
+import { gamepad } from "../shared/gamepad.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
-import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
+import { loadDevSettings, saveDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
 import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
 import { createMarsBody, stepPhysicsWorld } from "../physics/MarsPhysicsWorld.js";
-import { downhillLeanRad, torsoLeanRad } from "../physics/SuitBiomechanics.js";
+import { downhillLeanRad, JUMP_SPEED_MS, torsoLeanRad } from "../physics/SuitBiomechanics.js";
+import {
+  ROVER_FLIGHT_G,
+  computeSpawnBesideOffset,
+  createExperimentalRover,
+  getDrivableVehicleSpec,
+  stepAdvancedRoverPhysics,
+  stepRoverBallisticPhysics,
+} from "./experimental-rover.js";
+import { createMarsFxSystem } from "./mars-fx.js";
+import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
+import {
+  MARS_HISTORIC_ROVERS,
+  getHistoricRoverById,
+  makeCustomSiteSpec,
+  sampleProceduralSiteHeightM,
+  scatterHistoricRoverCoords,
+} from "../shared/mars-rovers.js";
+import { createHistoricRoverManager } from "./historic-rovers.js";
+import {
+  RT_HEIGHT_GLSL,
+  RT_LENS_PARS_GLSL,
+  buildHeightfieldRtData,
+  buildHeightfieldRtTexture,
+  createRayTracerUniforms,
+  patchObjectRayTracer,
+} from "./ray-tracer.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -64,14 +91,12 @@ const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
 // NASA 3D Resources models, tried in order (first one that loads wins). The Z2 suit
 // (16.9 MB, NASA's Mars-oriented prototype) can be added in front of this list once downloaded
 // to ./assets/nasa-3d/z2-spacesuit.glb.
-// The rig (arm rest pose, elbow and shoulder measurements) is tuned on the Mark III planetary suit;
-// the ACES launch/entry suit holds its arms differently and looks wrong with it, so it is only a fallback.
 const SUIT_MODELS = [
-  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III · PROCEDURAL GAIT" },
   {
     url: "./assets/nasa-3d/advanced-crew-escape-suit.glb",
     label: "NASA ACES · LAUNCH/ENTRY MESH · PROCEDURAL GAIT",
   },
+  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III · PROCEDURAL GAIT" },
 ];
 
 function loadImage(url) {
@@ -91,7 +116,7 @@ function mirrorWrap(t) {
 }
 
 // Small tileable value-noise texture for close-range ground detail (visual only).
-function makeDetailTexture(size = 256) {
+function makeDetailTexture(size = 512) {
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const ctx = c.getContext("2d");
@@ -102,10 +127,11 @@ function makeDetailTexture(size = 256) {
     return g;
   };
   const octaves = [
-    { n: 8, w: 0.45 },
-    { n: 16, w: 0.25 },
-    { n: 32, w: 0.17 },
+    { n: 8, w: 0.36 },
+    { n: 16, w: 0.24 },
+    { n: 32, w: 0.18 },
     { n: 64, w: 0.13 },
+    { n: 128, w: 0.09 },
   ].map((o) => ({ ...o, g: grid(o.n) }));
   const smooth = (t) => t * t * (3 - 2 * t);
   for (let y = 0; y < size; y++) {
@@ -161,15 +187,20 @@ const SKY_FRAG = /* glsl */ `
     vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
     col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
     col = mix(col, uGround, smoothstep(0.0, -0.08, h));
+    // Day/twilight/night: dusty Mars twilight lasts until the sun is ~18° down.
+    float day = smoothstep(-0.32, 0.12, uSunElev);
+    float above = smoothstep(-0.03, 0.01, uSunElev);
+    col *= mix(0.012, 1.0, day);
     float s = max(dot(d, normalize(uSunDir)), 0.0);
     float disc = smoothstep(uSunCos - 0.00002, min(0.9999992, uSunCos + 0.0000015), s);
-    col += vec3(1.6, 1.65, 1.8) * disc * exp(-0.18 * tau);
-    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
-    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
-    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    col += vec3(1.6, 1.65, 1.8) * disc * exp(-0.18 * tau) * above;
+    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0 * above;
+    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6 * day;
+    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35 * day;
     float lowSun = smoothstep(0.38, -0.02, uSunElev);
     float fwd = smoothstep(0.90, 0.992, s);
-    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22);
+    // Blue Martian sunset glow around the sun, fading out through twilight.
+    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22) * smoothstep(-0.3, -0.02, uSunElev);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -208,13 +239,15 @@ const MOON_FRAG = /* glsl */ `
     vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
     col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
     col = mix(col, uGround, smoothstep(0.0, -0.08, h));
+    float day = smoothstep(-0.32, 0.12, uSunElev);
+    col *= mix(0.012, 1.0, day);
     float s = max(dot(d, normalize(uSunDir)), 0.0);
-    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
-    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
-    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0 * day;
+    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6 * day;
+    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35 * day;
     float lowSun = smoothstep(0.38, -0.02, uSunElev);
     float fwd = smoothstep(0.90, 0.992, s);
-    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22);
+    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22) * smoothstep(-0.3, -0.02, uSunElev);
     return col;
   }
 
@@ -246,23 +279,27 @@ const LENS_VERT = /* glsl */ `
   }
 `;
 
-// Eyes through clear polycarbonate. Gold tint, magnifier, and rare cosmic-ray ticks are uniforms.
+// Optical lens pass: default 20% curved black visor bezel housing HUD text, gentle optical curve, gold filter (G), zoom (Z).
 const LENS_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform vec2 uResolution;
   uniform float uTime;
   uniform float uDistort;
   uniform float uFrameZoom;
+  uniform float uBezelScale;
   uniform float uAberration;
   uniform float uGrain;
   uniform float uVignette;
   uniform float uExposure;
   uniform float uGold;
+  uniform float uGoldSlide;
   uniform float uOptZoom;
   uniform float uGlint;
   uniform float uRay;
   uniform float uDust;
   varying vec2 vUv;
+
+  ${RT_LENS_PARS_GLSL}
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -271,41 +308,84 @@ const LENS_FRAG = /* glsl */ `
   }
 
   void main() {
-    float aspect = uResolution.x / uResolution.y;
+    float aspect = uResolution.x / max(1.0, uResolution.y);
     vec2 c = vUv - 0.5;
     c.x *= aspect;
     float r2 = dot(c, c);
-    vec2 d = c * (1.0 + uDistort * r2 + 0.35 * uDistort * r2 * r2);
-    d *= uFrameZoom / max(1.0, uOptZoom);
+    float dist = 1.0 + uDistort * r2 + 0.35 * uDistort * r2 * r2;
+    vec2 d = (c * dist * uFrameZoom) / max(1.0, uOptZoom);
     d.x /= aspect;
     vec2 uv = d + 0.5;
     vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
     float ca = uAberration * r2;
     vec3 col;
-    col.r = texture2D(tDiffuse, uv + dir * ca).r;
-    col.g = texture2D(tDiffuse, uv).g;
-    col.b = texture2D(tDiffuse, uv - dir * ca).b;
+    if (uRtEnabled > 0.5) {
+      vec3 rtBase = rtFxaaSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution);
+      float rtJ = hash(gl_FragCoord.xy + fract(uTime * 13.7) * 97.0);
+      vec3 rtCol = rtScreenSpacePass(tDiffuse, rtBase, clamp(uv, 0.0, 1.0), uResolution, rtJ);
+      if (ca > 0.0001) {
+        col.r = mix(rtCol.r, texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r, 0.35);
+        col.g = rtCol.g;
+        col.b = mix(rtCol.b, texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b, 0.35);
+      } else {
+        col = rtCol;
+      }
+    } else if (ca > 0.0001) {
+      col.r = texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r;
+      col.g = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).g;
+      col.b = texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b;
+    } else {
+      col = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).rgb;
+    }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
 
-    col *= uExposure;
-    vec3 gold = col * vec3(1.15, 0.78, 0.38);
-    gold = mix(gold, gold * vec3(0.72, 0.62, 0.4), 0.35);
-    col = mix(col, gold, uGold);
-    float helm = smoothstep(0.45, 1.25, length(c));
-    col *= mix(1.0, 0.12, helm * uVignette);
-    col += vec3(0.42, 0.32, 0.24) * helm * helm * 0.16 * (1.0 - 0.45 * uGold);
-    float scratch = uGlint * pow(max(0.0, 1.0 - abs(c.y) * 3.0), 2.0) * (0.5 + 0.5 * sin(c.x * 140.0 + c.y * 40.0));
-    col += vec3(1.0, 0.95, 0.85) * scratch * 0.08;
+    // Thin curved black visor frame (default 20% strength => sleek thin visor border)
+    float b = clamp(uBezelScale, 0.0, 1.5);
+    float bezel = 1.0;
+    float bezelRim = 0.0;
+    if (b > 0.001) {
+      float bNorm = b <= 0.2 ? (b / 0.2) : (1.0 + (b - 0.2) * 0.65);
+      vec2 q = (vUv - 0.5) * 2.0;
+      float bY = clamp(0.012 * bNorm, 0.0, 0.09);
+      float bCornerY = clamp(0.038 * bNorm, 0.0, 0.14);
+      float bX = clamp(0.015 * bNorm, 0.0, 0.08);
+      float bCornerX = clamp(0.034 * bNorm, 0.0, 0.12);
+      float yHalf = max(0.22, 1.0 - 2.0 * mix(bY, bCornerY, pow(max(abs(q.x), 1e-4), 1.85)));
+      float xHalf = max(0.32, 1.0 - 2.0 * mix(bX, bCornerX, pow(max(abs(q.y), 1e-4), 1.85)));
+      vec2 pBox = vec2(abs(q.x) * aspect, abs(q.y));
+      vec2 halfBox = vec2(xHalf * aspect, yHalf);
+      float cr = 0.068 * min(1.0, bNorm);
+      vec2 qBox = pBox - (halfBox - vec2(cr));
+      float dPx = length(max(qBox, 0.0)) + min(max(qBox.x, qBox.y), 0.0) - cr;
+      bezel = 1.0 - smoothstep(-0.003, 0.006, dPx);
+      bezelRim = smoothstep(-0.032, 0.0, dPx) * min(1.0, bNorm);
+    }
 
-    // dust on the outside of the visor: fixed specks that catch the light (more when you face the
-    // Sun) and a faint film low on the glass; both build up as you walk (uDust 0.2 .. 1)
-    vec2 gs = vUv * vec2(aspect, 1.0) * 70.0;
-    vec2 cid = floor(gs);
-    vec2 off = vec2(hash(cid + 3.1), hash(cid + 7.7)) - 0.5;
-    float speck = step(1.0 - 0.09 * uDust, hash(cid)) * smoothstep(0.2, 0.0, length(fract(gs) - 0.5 - off * 0.5));
-    col += vec3(0.95, 0.8, 0.62) * speck * (0.05 + 0.22 * uGlint);
-    float film = uDust * smoothstep(0.42, 0.0, vUv.y) * 0.35;
-    col = mix(col, col * vec3(1.02, 0.94, 0.86) + vec3(0.035, 0.024, 0.014), film);
+    col *= uExposure;
+    if (bezelRim > 0.001) {
+      col *= mix(1.0, 0.62, bezelRim);
+    }
+    if (uVignette > 0.001) {
+      float vig = smoothstep(1.30, 0.40, length(c) * uVignette);
+      col *= mix(0.45, 1.0, vig);
+    }
+
+    float goldAmt = clamp(max(uGoldSlide, uGold * 0.001), 0.0, 1.0);
+    if (goldAmt > 0.002) {
+      vec3 goldCol = (col / (1.0 + col * 0.14)) * vec3(1.16, 0.80, 0.36);
+      goldCol = mix(goldCol, goldCol * vec3(0.76, 0.65, 0.42), 0.3);
+      col = mix(col, goldCol, goldAmt);
+    }
+
+    float glint = pow(max(0.0, uGlint), 3.5);
+    if (glint > 0.002) {
+      float fadeR = exp(-length(c) * 3.4);
+      float streakH = 0.45 * exp(-abs(c.y) * 28.0) * exp(-abs(c.x) * 2.4);
+      float streakD1 = 0.25 * exp(-abs(c.y - c.x * 0.36) * 52.0);
+      float streakD2 = 0.25 * exp(-abs(c.y + c.x * 0.36) * 52.0);
+      float sunRays = glint * (streakH + (streakD1 + streakD2) * fadeR);
+      col += vec3(1.0, 0.95, 0.85) * sunRays * 0.018;
+    }
 
     float ray = 0.0;
     float tbin = floor(uTime * 12.0);
@@ -320,20 +400,43 @@ const LENS_FRAG = /* glsl */ `
     }
     col += vec3(0.75, 0.92, 1.0) * ray;
 
+    // dust on the outside of the visor: fixed specks that catch the light (more when you face the
+    // Sun) and a faint film low on the glass; both build up as you walk (uDust 0.2 .. 1)
+    vec2 gs = vUv * vec2(aspect, 1.0) * 70.0;
+    vec2 cid = floor(gs);
+    vec2 off = vec2(hash(cid + 3.1), hash(cid + 7.7)) - 0.5;
+    float speck = step(1.0 - 0.09 * uDust, hash(cid)) * smoothstep(0.2, 0.0, length(fract(gs) - 0.5 - off * 0.5));
+    col += vec3(0.95, 0.8, 0.62) * speck * (0.05 + 0.22 * pow(max(0.0, uGlint), 3.5));
+    float film = uDust * smoothstep(0.42, 0.0, vUv.y) * 0.35;
+    col = mix(col, col * vec3(1.02, 0.94, 0.86) + vec3(0.035, 0.024, 0.014), film);
+
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
 
     float g = hash(vUv * uResolution + fract(uTime * 37.0) * 91.0) - 0.5;
     gl_FragColor.rgb += g * uGrain * (1.0 - 0.6 * dot(gl_FragColor.rgb, vec3(0.333)));
+    gl_FragColor.rgb *= bezel;
   }
 `;
 
-export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, onLocalPose = null }) {
+export async function initHud3D(
+  data,
+  { onOpenMenu = null, onBackToPlanner, onOpenPov, onOpenRoverInfo = null, mp = null, onLocalPose = null, onOpenOrbit = null }
+) {
+  const openPauseMenu = onOpenMenu || onBackToPlanner;
   const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
   let surfaceG = 3.717;
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
+  let devCfg = loadDevSettings();
+  const isTrLang = () => {
+    try {
+      return localStorage.getItem("mm-lang") === "tr";
+    } catch {
+      return false;
+    }
+  };
 
   const bounds = costMap?.bounds || {
     west_lon_deg: 137.372831,
@@ -348,15 +451,58 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const worldH = nrows * cellSizeM;
   const [elevMin, elevMax] = costMap?.height_preview_elevation_range_m || [-3850.6, -3369.3];
 
-  // Convert [lon, lat] <-> local scene X, Z (metres, centred at 0,0)
-  const lonToX = (lon) =>
-    ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
-  const latToZ = (lat) =>
-    (0.5 - (lat - bounds.south_lat_deg) / (bounds.north_lat_deg - bounds.south_lat_deg)) * worldH;
-  const xToLon = (x) =>
-    bounds.west_lon_deg + (x / worldW + 0.5) * (bounds.east_lon_deg - bounds.west_lon_deg);
-  const zToLat = (z) =>
-    bounds.south_lat_deg + (0.5 - z / worldH) * (bounds.north_lat_deg - bounds.south_lat_deg);
+  let activeSiteRover = getHistoricRoverById("curiosity") || MARS_HISTORIC_ROVERS[0];
+  let activeSiteId = activeSiteRover.id;
+
+  // Convert [lon, lat] <-> local scene X, Z (metres, centred at 0,0) for active landing site
+  const isGaleSite = () => Boolean(activeSiteRover?.isHiRiseGaleSite);
+  /** True when a lon/lat lies on (or within ~1 km of) the real HiRISE Gale tile. */
+  const insideGaleTile = (lon, lat) => {
+    const padLon = (bounds.east_lon_deg - bounds.west_lon_deg) * 0.5;
+    const padLat = (bounds.north_lat_deg - bounds.south_lat_deg) * 0.5;
+    return (
+      lon >= bounds.west_lon_deg - padLon &&
+      lon <= bounds.east_lon_deg + padLon &&
+      lat >= bounds.south_lat_deg - padLat &&
+      lat <= bounds.north_lat_deg + padLat
+    );
+  };
+  const cosLatClamped = (latDeg) => Math.max(0.2, Math.cos(latDeg * (Math.PI / 180)));
+  const lonToX = (lon) => {
+    if (isGaleSite()) {
+      return ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
+    }
+    const rad = Math.PI / 180;
+    let dLon = lon - activeSiteRover.lon;
+    dLon = ((((dLon + 180) % 360) + 360) % 360) - 180;
+    return dLon * rad * MARS_RADIUS_MEAN_M * cosLatClamped(activeSiteRover.lat);
+  };
+  const latToZ = (lat) => {
+    if (isGaleSite()) {
+      return (0.5 - (lat - bounds.south_lat_deg) / (bounds.north_lat_deg - bounds.south_lat_deg)) * worldH;
+    }
+    const rad = Math.PI / 180;
+    return -(lat - activeSiteRover.lat) * rad * MARS_RADIUS_MEAN_M;
+  };
+  const xToLon = (x) => {
+    if (isGaleSite()) {
+      const u = mirrorWrap(x / worldW + 0.5);
+      return bounds.west_lon_deg + u * (bounds.east_lon_deg - bounds.west_lon_deg);
+    }
+    const rad = Math.PI / 180;
+    const mPerDeg = MARS_RADIUS_MEAN_M * cosLatClamped(activeSiteRover.lat) * rad;
+    const lon = activeSiteRover.lon + x / mPerDeg;
+    return ((((lon + 180) % 360) + 360) % 360) - 180;
+  };
+  const zToLat = (z) => {
+    if (isGaleSite()) {
+      const v = mirrorWrap(0.5 - z / worldH);
+      return bounds.south_lat_deg + v * (bounds.north_lat_deg - bounds.south_lat_deg);
+    }
+    const mPerDeg = MARS_RADIUS_MEAN_M * (Math.PI / 180);
+    return activeSiteRover.lat - z / mPerDeg;
+  };
+  const activeElevBaseM = () => (isGaleSite() ? elevMin : activeSiteRover.siteElevM ?? 0);
 
   // ---------- renderer, scene, camera ----------
   const scene = new THREE.Scene();
@@ -377,9 +523,16 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   wrap.appendChild(renderer.domElement);
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-  // Afternoon at Gale from the Mars24 solar longitude, not a fixed vector.
-  const sunState = galeSunState(new Date(), 15);
+  // Sun from the Mars24 algorithm at the active site. "local" = real local true solar time now;
+  // "day" = the same site at 15:00 LTST (the classic afternoon light). Gale starts in "day" mode.
+  let sunMode = "day";
+  const sunSite = { lat: -4.8, lon: 137.4 };
+  const computeSunState = () =>
+    sunStateAt(new Date(), { latDeg: sunSite.lat, lonEastDeg: sunSite.lon, ltstHours: sunMode === "day" ? 15 : null });
+  let sunState = computeSunState();
   const sunDir = new THREE.Vector3(sunState.x, sunState.y, sunState.z).normalize();
+  // 0 when the sun is well below the horizon, 1 above ~+6°; drives sun light, glint and night ambient.
+  const sunUp = (el) => Math.max(0, Math.min(1, (el + 0.02) / 0.12));
   let sunTransit = 1;
   // Mars sees a small sun disc (about 0.35 deg), so near shadows are crisp; the thin dusty sky
   // fills them with a weak reddish light rather than washing them out.
@@ -490,57 +643,53 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   const PHOBOS_ORBIT_R = 9600;
   const DEIMOS_ORBIT_R = 10400;
-  const moonSpin = new THREE.Vector3();
   const phobosDir = new THREE.Vector3();
   const deimosDir = new THREE.Vector3();
-  function dirNearSun(out, angleRad, elevBias) {
-    const c = Math.cos(angleRad);
-    const s = Math.sin(angleRad);
-    out.set(sunDir.x * c - sunDir.z * s, sunDir.y + elevBias, sunDir.x * s + sunDir.z * c);
-    if (out.lengthSq() < 1e-6) out.set(0, 1, 0);
-    return out.normalize();
-  }
-  function updateMoons(tSec, camPos = camera.position) {
-    // Epoch puts Phobos just west of the Sun so a real-rate transit starts soon after the visor opens.
-    const pAng = (tSec - 18) * PHOBOS_SKY_RATE_RAD_S;
-    dirNearSun(phobosDir, pAng, 0);
+  let sunStateStampMs = performance.now();
+  // Real topocentric Phobos / Deimos directions (JPL-fitted ephemeris) for the sky time in `sunState.date`.
+  // Their sky sizes keep the old artistic scale; the directions and rise/set are real.
+  function updateMoons(camPos = camera.position) {
+    const when = new Date(sunState.date.getTime() + (performance.now() - sunStateStampMs));
+    const p = moonFromSurface("phobos", when, sunSite.lat, sunSite.lon);
+    phobosDir.set(p.x, p.y, p.z).normalize();
     phobos.position.copy(phobosDir).multiplyScalar(PHOBOS_ORBIT_R);
+    phobos.visible = p.el > -0.05;
     phobos.lookAt(camPos);
-    const dAng = 1.15 + tSec * DEIMOS_SKY_RATE_RAD_S;
-    dirNearSun(deimosDir, dAng, 0.08);
+    const d = moonFromSurface("deimos", when, sunSite.lat, sunSite.lon);
+    deimosDir.set(d.x, d.y, d.z).normalize();
     deimos.position.copy(deimosDir).multiplyScalar(DEIMOS_ORBIT_R);
+    deimos.visible = d.el > -0.05;
     deimos.lookAt(camPos);
     const sep = Math.acos(Math.max(-1, Math.min(1, phobosDir.dot(sunDir))));
     const limit = sunState.sunAngularRad * 0.5 + 0.1 * (Math.PI / 180);
     sunTransit = sep < limit ? 1 - 0.35 * (1 - sep / limit) : 1;
   }
-  updateMoons(0);
+  updateMoons();
   const celestial = createCelestialSky(THREE);
-  celestial.update({ ...sunState, date: new Date() });
+  celestial.update(sunState);
   scene.add(celestial.group);
   const rockField = createRockField(THREE);
   scene.add(rockField.group);
   const galeVista = createGaleVista(THREE);
   scene.add(galeVista);
+  const windDust = createWindDust({ THREE, scene, groundY: (x, z) => sampleElevSceneY(x, z), sunDir });
   const dustDevil = createDustDevil(THREE);
   scene.add(dustDevil.points);
-  // boot dust (footsteps, take-off, landing) and the wind-blown dust around you
-  const dustFx = createMarsDustSystem({ THREE, scene, horizonColor: HORIZON, sunDir });
-  const windDust = createWindDust({ THREE, scene, groundY: (x, z) => sampleElevSceneY(x, z), sunDir });
-  const _dustPos = new THREE.Vector3();
-  const _dustNrm = new THREE.Vector3();
-  const _dustMove = new THREE.Vector3();
-  let fxWasGrounded = true;
 
   // Image-based light from the same sky, so suits and rocks pick up the dusty sky and ground bounce.
-  {
+  // Rebuilt whenever the sun moves enough to change the sky (time of day / site change).
+  const envSphereGeom = new THREE.SphereGeometry(50, 32, 16);
+  function rebuildEnvironment() {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envScene = new THREE.Scene();
-    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), sky.material));
+    envScene.add(new THREE.Mesh(envSphereGeom, sky.material));
+    const prev = scene.environment;
     scene.environment = pmrem.fromScene(envScene, 0.04).texture;
-    scene.environmentIntensity = 0.5;
+    prev?.dispose?.();
+    scene.environmentIntensity = 0.5 * (0.18 + 0.82 * sunUp(sunState.elevationRad));
     pmrem.dispose();
   }
+  rebuildEnvironment();
 
   // ---------- height grid ----------
   let elevGrid = null;
@@ -565,8 +714,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     // Flat terrain if the height preview fails
   }
 
-  // Bilinear height (scene Y, metres above elevMin), mirror-wrapped beyond the real tile.
+  // Bilinear height (scene Y, metres above site base), mirror-wrapped beyond the tile.
+  // At Gale (Curiosity), samples real HiRISE DTM; at other rover sites, uses deterministic site relief.
   function sampleElevSceneY(x, z) {
+    if (!isGaleSite()) {
+      const mx = (mirrorWrap(x / worldW + 0.5) - 0.5) * worldW;
+      const mz = (mirrorWrap(z / worldH + 0.5) - 0.5) * worldH;
+      return sampleProceduralSiteHeightM(activeSiteRover, mx, mz);
+    }
     if (!elevGrid) return 0;
     const fx = mirrorWrap(x / worldW + 0.5) * (imgW - 1);
     const fy = mirrorWrap(z / worldH + 0.5) * (imgH - 1);
@@ -584,6 +739,20 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const bot = e01 + (e11 - e01) * tx;
     return top + (bot - top) * ty - elevMin;
   }
+
+  const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 192);
+  const rtUniforms = createRayTracerUniforms(THREE, worldW, worldH, sunDir, rtHeightInfo);
+  function refreshRtHeightfield() {
+    const packed = buildHeightfieldRtData(sampleElevSceneY, worldW, worldH, 192);
+    if (rtHeightInfo?.texture?.image?.data) {
+      rtHeightInfo.texture.image.data.set(packed.data);
+      rtHeightInfo.texture.needsUpdate = true;
+    }
+    rtUniforms.uRtElevMin.value = packed.minH;
+    rtUniforms.uRtElevSpan.value = packed.span;
+  }
+  patchObjectRayTracer(THREE, rockField.group, rtUniforms, { reflectScale: 0.35 });
+  patchObjectRayTracer(THREE, galeVista, rtUniforms, { reflectScale: 0.25 });
 
   function sampleNormal(x, z) {
     const e = 0.35;
@@ -672,74 +841,67 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
-  const terrainGeom = buildTerrainGeometry(fullSeg);
+  let terrainGeom = buildTerrainGeometry(fullSeg);
   // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
-  const copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
+  let copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
 
   // ---------- far terrain shadows (baked) ----------
   // The real-time shadow map only covers the ground near the walker. For the rest, march from every
   // terrain cell towards the sun through the height grid and store how much of the sun is visible.
   // The mirrored terrain repeats every 2 tiles in world space, so one mask over that period, sampled
   // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
-  // Start-up cost: the old full-resolution bake took ~5 s before anything showed. Now it runs at
-  // half resolution (one texel per 2 x 2 DTM cells, ~10 m: the shadow edge is soft anyway), stops a
-  // ray as soon as it rises above the highest point of the terrain, and runs in small slices after
-  // the world is on screen. Until it finishes, the mask is all lit (no terrain shadows yet).
-  function createSunMaskBaker() {
+  function bakeSunMask() {
     const n = elevGrid ? imgW : 0;
     if (!n) return null;
-    const N = 2 * n; // DTM cells across one mirror period
-    const M = Math.ceil(N / 2); // mask texels across the period
+    const N = 2 * n; // cells across one mirror period
     const cell = worldW / n;
     const H = new Float32Array(N * N);
-    let hMax = -Infinity;
     for (let r = 0; r < N; r++) {
       const sr = r < n ? r : 2 * n - 1 - r;
       for (let c = 0; c < N; c++) {
         const sc = c < n ? c : 2 * n - 1 - c;
-        const h = elevGrid[sr * imgW + sc];
-        H[r * N + c] = h;
-        if (h > hMax) hMax = h;
+        H[r * N + c] = elevGrid[sr * imgW + sc];
       }
     }
-    const horiz = Math.hypot(sunDir.x, sunDir.z) || 1e-6;
+    const horiz = Math.max(1e-4, Math.hypot(sunDir.x, sunDir.z));
     const tanSun = sunDir.y / horiz;
-    const STEP = 2; // DTM cells per ray step
-    const dx = (sunDir.x / horiz) * STEP; // towards the sun (x = columns, east)
-    const dz = (sunDir.z / horiz) * STEP; // z = rows, south
-    const stepM = STEP * cell;
-    const maxSteps = Math.ceil(700 / stepM);
+    const dx = sunDir.x / horiz; // cells per step towards the sun (x = columns, east)
+    const dz = sunDir.z / horiz; // z = rows, south
+    const maxSteps = Math.ceil(700 / cell);
     const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
-    const out = new Uint8Array(M * M * 4).fill(255);
-    const wrap = (v) => ((v % N) + N) % N;
-    const tex = new THREE.DataTexture(out, M, M, THREE.RGBAFormat);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.magFilter = THREE.LinearFilter;
-    tex.minFilter = THREE.LinearFilter;
-    tex.needsUpdate = true;
-    let row = 0;
-    let shade = 0;
-    function bakeRow(mr) {
-      const r = Math.min(N - 1, mr * 2);
-      for (let mc = 0; mc < M; mc++) {
-        const c = Math.min(N - 1, mc * 2);
+    const out = new Uint8Array(N * N * 4);
+    if (sunDir.y <= 0.0) {
+      // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
+      for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
+      const dark = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+      dark.needsUpdate = true;
+      return dark;
+    }
+    if (sunDir.y > 0.995) {
+      out.fill(255); // sun at the zenith: no terrain shadows
+      const lit = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+      lit.needsUpdate = true;
+      return lit;
+    }
+    const wrapN = (v) => ((v % N) + N) % N;
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
         const h0 = H[r * N + c];
         let worst = -1e9;
         for (let k = 1; k <= maxSteps; k++) {
-          if (h0 + (tanSun + SOFT) * k * stepM > hMax) break; // the ray is above every hill now
           const fx = c + dx * k;
           const fz = r + dz * k;
           const x0 = Math.floor(fx);
           const z0 = Math.floor(fz);
           const tx = fx - x0;
           const tz = fz - z0;
-          const a = wrap(x0);
-          const b = wrap(x0 + 1);
-          const ra = wrap(z0) * N;
-          const rb = wrap(z0 + 1) * N;
+          const a = wrapN(x0);
+          const b = wrapN(x0 + 1);
+          const ra = wrapN(z0) * N;
+          const rb = wrapN(z0 + 1) * N;
           const h =
             (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
-          const t = (h - h0) / (k * stepM);
+          const t = (h - h0) / (k * cell);
           if (t > worst) {
             worst = t;
             if (worst > tanSun + SOFT) break; // fully in shadow
@@ -747,41 +909,25 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         }
         const lit = Math.min(1, Math.max(0, (tanSun - worst) / (2 * SOFT) + 0.5));
         // texture row 0 = smallest world z (north), matching the shader's lookup
-        const o = (mr * M + mc) * 4;
+        const o = (r * N + c) * 4;
         out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
-        if (lit < 0.5) shade++;
+        out[o + 3] = 255;
       }
     }
-    return {
-      tex,
-      /** Bake rows for up to `budgetMs`; true once the whole mask is done. */
-      step(budgetMs) {
-        const t0 = performance.now();
-        while (row < M && performance.now() - t0 < budgetMs) bakeRow(row++);
-        if (row >= M) {
-          tex.needsUpdate = true;
-          return true;
-        }
-        return false;
-      },
-      get shadeShare() {
-        return shade / (M * M);
-      },
-    };
+    const tex = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
   }
-  const sunBaker = createSunMaskBaker();
-  const sunMask = sunBaker?.tex || null;
-  if (sunBaker) {
-    const bakeT0 = performance.now();
-    const slice = () => {
-      if (sunBaker.step(10)) {
-        console.info(
-          `sun mask baked in the background in ${Math.round(performance.now() - bakeT0)} ms, ` +
-            `${(100 * sunBaker.shadeShare).toFixed(1)}% of ground in terrain shadow`
-        );
-      } else setTimeout(slice, 0);
-    };
-    setTimeout(slice, 300); // after the first frames are on screen
+  const bakeT0 = performance.now();
+  let sunMask = bakeSunMask();
+  if (sunMask) {
+    const d = sunMask.image.data;
+    let shade = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] < 128) shade++;
+    console.info(`sun mask baked in ${Math.round(performance.now() - bakeT0)} ms, ${((100 * shade) / (d.length / 4)).toFixed(1)}% of ground in terrain shadow`);
   }
 
   // ---------- terrain material ----------
@@ -791,13 +937,94 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     t.anisotropy = maxAniso;
     return t;
   };
-  const orthoTex = prepTex(texLoader.load(assets.orthoPreviewUrl));
-  const slopeTex = prepTex(texLoader.load(assets.slopePreviewUrl));
+  const maxTexDim = Math.min(4096, renderer?.capabilities?.maxTextureSize || 4096);
+  function upscaleWithFillers(tex) {
+    const img = tex?.image;
+    const sw = img?.naturalWidth || img?.width || 0;
+    const sh = img?.naturalHeight || img?.height || 0;
+    if (!sw || !sh || Math.max(sw, sh) >= maxTexDim) return tex;
+    const maxScale = Math.floor(maxTexDim / Math.max(sw, sh));
+    if (maxScale < 2) return tex;
+    const dw = sw * maxScale;
+    const dh = sh * maxScale;
+
+    // Progressive 2x steps preserve smooth diagonal contours & structure without single-pass blur/ringing.
+    let curSrc = img;
+    let cw = sw;
+    let ch = sh;
+    while (cw * 2 < dw && ch * 2 < dh) {
+      cw *= 2;
+      ch *= 2;
+      const stepCanvas = document.createElement("canvas");
+      stepCanvas.width = cw;
+      stepCanvas.height = ch;
+      const sctx = stepCanvas.getContext("2d");
+      if (!sctx) break;
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = "high";
+      sctx.drawImage(curSrc, 0, 0, cw, ch);
+      curSrc = stepCanvas;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = dw;
+    canvas.height = dh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return tex;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(curSrc, 0, 0, dw, dh);
+
+    // Multi-scale (1 px + upscale-radius) luminance-only unsharp sharpening + zero-mean micro filler pixels.
+    // Produces visibly crisp ridges & features while keeping RGB color balance, shapes, and smoothness exact.
+    const imgData = ctx.getImageData(0, 0, dw, dh);
+    const px = imgData.data;
+    const src = new Uint8ClampedArray(px);
+    const row = dw * 4;
+    const rad = Math.max(2, Math.round(maxScale * 0.45));
+    const radOff = rad * 4;
+    const radRow = rad * row;
+    for (let y = rad; y < dh - rad; y++) {
+      const yOff = y * row;
+      for (let x = rad; x < dw - rad; x++) {
+        const i = yOff + x * 4;
+        const lc = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
+        const ll = (src[i - 4] * 77 + src[i - 3] * 150 + src[i - 2] * 29) >> 8;
+        const lr = (src[i + 4] * 77 + src[i + 5] * 150 + src[i + 6] * 29) >> 8;
+        const lu = (src[i - row] * 77 + src[i - row + 1] * 150 + src[i - row + 2] * 29) >> 8;
+        const ld = (src[i + row] * 77 + src[i + row + 1] * 150 + src[i + row + 2] * 29) >> 8;
+        const wl = (src[i - radOff] * 77 + src[i - radOff + 1] * 150 + src[i - radOff + 2] * 29) >> 8;
+        const wr = (src[i + radOff] * 77 + src[i + radOff + 1] * 150 + src[i + radOff + 2] * 29) >> 8;
+        const wu = (src[i - radRow] * 77 + src[i - radRow + 1] * 150 + src[i - radRow + 2] * 29) >> 8;
+        const wd = (src[i + radRow] * 77 + src[i + radRow + 1] * 150 + src[i + radRow + 2] * 29) >> 8;
+        const grad = Math.abs(lr - ll) + Math.abs(ld - lu) + ((Math.abs(wr - wl) + Math.abs(wd - wu)) >> 1);
+        const lap1 = 4 * lc - ll - lr - lu - ld;
+        const lapWide = 4 * lc - wl - wr - wu - wd;
+        const sharp = Math.max(-24, Math.min(24, lap1 * 0.55 + lapWide * 0.38));
+        let micro = 0;
+        if (grad >= 6) {
+          const n = (((x * 73856093) ^ (y * 19349663)) & 255) / 255 - 0.5;
+          micro = n * Math.min(7, grad * 0.12);
+        }
+        const delta = Math.round(sharp + micro);
+        if (!delta) continue;
+        px[i] = Math.max(0, Math.min(255, src[i] + delta));
+        px[i + 1] = Math.max(0, Math.min(255, src[i + 1] + delta));
+        px[i + 2] = Math.max(0, Math.min(255, src[i + 2] + delta));
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    tex.image = canvas;
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const orthoTex = prepTex(texLoader.load(assets.orthoPreviewUrl, upscaleWithFillers));
+  const slopeTex = prepTex(texLoader.load(assets.slopePreviewUrl, upscaleWithFillers));
   const reliefUrl = assets.reliefTextureUrl || assets.heightPreviewUrl.replace(/height-preview\.png$/, "texture-relief.jpg");
   let reliefOk = true;
   let texMode = 0; // 0 relief, 1 ortho, 2 slope
   const reliefTex = prepTex(
-    texLoader.load(reliefUrl, undefined, undefined, () => {
+    texLoader.load(reliefUrl, upscaleWithFillers, undefined, () => {
       reliefOk = false;
       if (texMode === 0) {
         texMode = 1;
@@ -810,9 +1037,50 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   );
   const detailTex = makeDetailTexture();
   // Offline procedural Mars ground (map branch): wind-rippled regolith + fractured mudstone slabs.
-  const pbr = createMartianPbrTextureSets(THREE, 256);
+  const pbr = createMartianPbrTextureSets(THREE, 512);
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
-  pbr.dustNormalTex.repeat.set(640, 640);
+  pbr.dustNormalTex.repeat.set(960, 960);
+  let pbrHigh = null;
+  let terrainShaderRef = null;
+  let suitWeaveTex = null;
+
+  function ensureHighResPbr() {
+    if (pbrHigh) return pbrHigh;
+    pbrHigh = createMartianPbrTextureSets(THREE, 1024);
+    for (const t of [pbrHigh.dustAlbedoTex, pbrHigh.rockAlbedoTex, pbrHigh.dustNormalTex, pbrHigh.rockNormalTex]) {
+      t.anisotropy = maxAniso;
+    }
+    pbrHigh.dustNormalTex.repeat.set(960, 960);
+    return pbrHigh;
+  }
+
+  function ensureSuitWeaveNormal() {
+    if (suitWeaveTex) return suitWeaveTex;
+    const sz = 128;
+    const data = new Uint8Array(sz * sz * 4);
+    for (let y = 0; y < sz; y++) {
+      for (let x = 0; x < sz; x++) {
+        const gx = Math.sin((x / sz) * Math.PI * 32) * 0.25;
+        const gy = Math.sin((y / sz) * Math.PI * 32) * 0.25;
+        const seam = x % 16 === 0 || y % 16 === 0 ? -0.35 : 0.0;
+        const dx = gx + seam * 0.25;
+        const dy = gy + seam * 0.25;
+        const inv = 1 / Math.hypot(dx, dy, 1);
+        const i = (y * sz + x) * 4;
+        data[i] = Math.round(((dx * inv) * 0.5 + 0.5) * 255);
+        data[i + 1] = Math.round(((dy * inv) * 0.5 + 0.5) * 255);
+        data[i + 2] = Math.round((inv * 0.5 + 0.5) * 255);
+        data[i + 3] = 255;
+      }
+    }
+    const tex = new THREE.DataTexture(data, sz, sz, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(14, 14);
+    tex.needsUpdate = true;
+    suitWeaveTex = tex;
+    return tex;
+  }
 
   const galeRadii = ellipsoidMetersPerDeg(MARS_GEODESY.GALE_ANCHOR_LAT_DEG);
   const curvAnchor = { value: new THREE.Vector2() };
@@ -831,26 +1099,30 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   });
   terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
   const superDetailUniform = { value: 0 };
+  const realisticTexUniform = { value: 0 };
   terrainMat.onBeforeCompile = (shader) => {
+    terrainShaderRef = shader;
     shader.uniforms.detailMap = { value: detailTex };
     shader.uniforms.uCurvAnchor = curvAnchor;
     shader.uniforms.uCurvInv2N = curvInv2N;
     shader.uniforms.uCurvInv2M = curvInv2M;
-    shader.uniforms.pbrDust = { value: pbr.dustAlbedoTex };
-    shader.uniforms.pbrRock = { value: pbr.rockAlbedoTex };
+    shader.uniforms.pbrDust = { value: devCfg.realisticTextures ? ensureHighResPbr().dustAlbedoTex : pbr.dustAlbedoTex };
+    shader.uniforms.pbrRock = { value: devCfg.realisticTextures ? ensureHighResPbr().rockAlbedoTex : pbr.rockAlbedoTex };
     shader.uniforms.sunMask = { value: sunMask };
     shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
     shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
     shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
     shader.uniforms.uSuperDetail = superDetailUniform;
+    shader.uniforms.uRealisticTex = realisticTexUniform;
+    Object.assign(shader.uniforms, rtUniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
       )
       .replace(
         "#include <project_vertex>",
-        "vec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
+        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nvRtWorldPos = mmWorld.xyz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
       );
     const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
       "getDirectionalLightInfo( directionalLight, directLight );",
@@ -859,16 +1131,36 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
+        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\n${RT_HEIGHT_GLSL}`
       )
       .replace(
         "#include <lights_fragment_begin>",
-        "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
+        "float mmMaskVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\nfloat mmSunVis = mmMaskVis;\nif (uRtEnabled > 0.5) {\n  float rtShJ = rtIgn(gl_FragCoord.xy + fract(uRtTime) * 53.0);\n  float rtSh = rtTraceShadow(vRtWorldPos + vec3(0.0, 0.14, 0.0), uRtSunDir, 260.0, rtShJ);\n  mmSunVis = mix(rtSh, min(rtSh, mmMaskVis), 0.35);\n}\n" +
           sunChunk
       )
       .replace(
+        "#include <lights_fragment_end>",
+        `#include <lights_fragment_end>
+        if (uRtEnabled > 0.5) {
+          float rtJGi = rtIgn(gl_FragCoord.xy + fract(uRtTime * 1.37) * 79.0);
+          vec3 rtWN = normalize((vec4(geometryNormal, 0.0) * viewMatrix).xyz);
+          vec3 rtWV = normalize((vec4(geometryViewDir, 0.0) * viewMatrix).xyz);
+          float rtSkyVis;
+          vec3 rtBounce;
+          rtTraceGI(vRtWorldPos + rtWN * 0.08, rtWN, uRtSunDir, rtJGi, rtSkyVis, rtBounce);
+          reflectedLight.indirectDiffuse *= rtSkyVis;
+          reflectedLight.indirectDiffuse += diffuseColor.rgb * rtBounce;
+          float rtFresnel = pow(1.0 - clamp(dot(rtWN, rtWV), 0.0, 1.0), 5.0);
+          if (rtFresnel > 0.025) {
+            vec3 rtReflDir = reflect(-rtWV, rtWN);
+            vec3 rtSkySpec = rtMarsSky(rtReflDir, uRtSunDir);
+            reflectedLight.indirectSpecular += rtSkySpec * rtFresnel * 0.18 * rtSkyVis;
+          }
+        }`
+      )
+      .replace(
         "#include <map_pars_fragment>",
-        "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;\nuniform float uSuperDetail;"
+        "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;\nuniform float uSuperDetail;\nuniform float uRealisticTex;"
       )
       .replace(
         "#include <map_fragment>",
@@ -876,15 +1168,25 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         #ifdef USE_MAP
           float dA = texture2D(detailMap, vMapUv * 173.0).r;
           float dB = texture2D(detailMap, vMapUv * 911.0).r;
-          float detailGain = mix(0.40, 0.54, uSuperDetail);
+          float mmSlopeMix = smoothstep(0.03, 0.30, vMmSlope);
+          vec2 mmElevWarp = (vec2(dA - 0.5, dB - 0.5) * 0.0020 + vec2(sin(vMmElev * 0.42), cos(vMmElev * 0.42)) * 0.0010) * mmSlopeMix;
+          vec3 mmAltTex = texture2D(map, vMapUv + mmElevWarp).rgb;
+          diffuseColor.rgb = mix(diffuseColor.rgb, mmAltTex, 0.45 * mmSlopeMix);
+          float detailGain = mix(0.46, 0.62, max(uSuperDetail, uRealisticTex * 0.90));
           diffuseColor.rgb *= (1.0 - detailGain * 0.65) + detailGain * dA * 0.6 + detailGain * dB * 0.4;
-          // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
-          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(640.0, 920.0, uSuperDetail)).rgb;
-          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(290.0, 440.0, uSuperDetail) + 0.37).rgb;
-          float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
+          // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches + fine sub-meter grit.
+          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(720.0, 1080.0, max(uSuperDetail, uRealisticTex))).rgb;
+          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(320.0, 520.0, max(uSuperDetail, uRealisticTex)) + 0.37).rgb;
+          vec3 mmMicro = texture2D(pbrDust, vMapUv * mix(2200.0, 3200.0, max(uSuperDetail, uRealisticTex)) + 0.19).rgb;
+          float mmRockMask = clamp(max(smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r), mmSlopeMix * 0.62), 0.0, 1.0);
           vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
           float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
-          diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.30, 1.75), mix(0.7, 0.92, uSuperDetail));
+          float mmMicroLum = dot(mmMicro, vec3(0.299, 0.587, 0.114)) / 0.40;
+          float mmRichLum = mix(mmLum, pow(clamp(mmLum, 0.18, 2.1), 1.38), uRealisticTex);
+          float mmMineralGlint = uRealisticTex * smoothstep(0.92, 0.995, dB) * 0.18;
+          diffuseColor.rgb *= mix(1.0, clamp(mmRichLum, 0.22, 1.95), mix(0.82, 0.98, max(uSuperDetail, uRealisticTex)));
+          diffuseColor.rgb *= mix(1.0, clamp(mmMicroLum, 0.62, 1.42), 0.42);
+          diffuseColor.rgb += vec3(mmMineralGlint, mmMineralGlint * 0.72, mmMineralGlint * 0.48);
         #endif`
       );
   };
@@ -918,7 +1220,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     endless.userData.centre.visible = endless.position.x !== 0 || endless.position.z !== 0;
   }
 
-  // ---------- stop markers: survey poles with a small lamp ----------
+  // ---------- stop markers: survey poles with a small lamp (Gale site only) ----------
+  const galeStopsGroup = new THREE.Group();
+  scene.add(galeStopsGroup);
   const poleMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5, metalness: 0.2 });
   const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.5 });
   const startLampMat = new THREE.MeshStandardMaterial({
@@ -933,19 +1237,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const sz = latToZ(lat);
       const sy = sampleElevSceneY(sx, sz);
       const isStart = idx === 0 || f.properties?.kind === "habitat";
-      // You spawn on the start stop, so it gets no marker; the others are knee-high survey stakes
-      // (the old 2.4-4.6 m poles stood as a white line through the middle of the view).
+      // You spawn on the start stop: no marker there (the 4.6 m pole stood as a white line in the view).
       if (isStart) return;
-      const poleH = isStart ? 0.55 : 0.45;
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, poleH, 8), poleMat);
+      const poleH = 0.45; // knee-high survey stake
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(isStart ? 0.032 : 0.025, isStart ? 0.038 : 0.025, poleH, 8),
+        poleMat
+      );
       pole.position.set(sx, sy + poleH * 0.5, sz);
       pole.castShadow = true;
       const lamp = new THREE.Mesh(
-        new THREE.SphereGeometry(isStart ? 0.05 : 0.04, 12, 8),
+        new THREE.SphereGeometry(isStart ? 0.1 : 0.07, 12, 8),
         isStart ? startLampMat : lampMat
       );
-      lamp.position.set(sx, sy + poleH + 0.03, sz);
-      scene.add(pole, lamp);
+      lamp.position.set(sx, sy + poleH + (isStart ? 0.07 : 0.05), sz);
+      galeStopsGroup.add(pole, lamp);
     });
   }
   const fieldKits = createFieldKits(THREE, stops, lonToX, latToZ, sampleElevSceneY);
@@ -953,7 +1259,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const footsteps = createFootsteps(THREE, scene);
 
   // ---------- route ----------
-  let routeLineMesh = null;
   let activeRoute = route;
   let routeCoords = activeRoute?.geometry?.coordinates || [];
   let cumDist = buildCumulativeDistances(routeCoords);
@@ -964,24 +1269,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const toGeomDist = (s) => (geomTotalDist > 0 && totalDist > 0 ? (s / totalDist) * geomTotalDist : s);
 
   function rebuildRouteRibbon(r) {
-    if (routeLineMesh) scene.remove(routeLineMesh);
     activeRoute = r;
     routeCoords = r?.geometry?.coordinates || [];
     cumDist = buildCumulativeDistances(routeCoords);
     geomTotalDist = cumDist[cumDist.length - 1] || 1;
     totalDist = Number(activeRoute?.totals?.distance_m) > 0 ? Number(activeRoute.totals.distance_m) : geomTotalDist;
-    const pts = routeCoords.map(([lon, lat]) => {
-      const x = lonToX(lon);
-      const z = latToZ(lat);
-      return new THREE.Vector3(x, sampleElevSceneY(x, z) + 0.12, z);
-    });
-    if (pts.length > 1) {
-      routeLineMesh = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(pts),
-        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, fog: true })
-      );
-      // route line hidden in the 3D view (Cagan's request); the route data still drives the HUD
-    }
+    // The route line is intentionally not drawn in the 3D view; the route data still drives the HUD.
     const scrubberEl = document.getElementById("hud-scrubber");
     if (scrubberEl) {
       scrubberEl.max = totalDist.toFixed(1);
@@ -1043,17 +1336,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     body.position.y = ASTRONAUT_HEIGHT_M / 2;
     body.castShadow = true;
     g.add(body);
-    return { group: g, update() {}, phase: 0, amount: 0 };
+    return { group: g, update() {}, phase: 0, amount: 0, isStandIn: true };
   };
+  const sharedDraco = new DRACOLoader();
+  sharedDraco.setDecoderPath("./vendor/addons/libs/draco/gltf/");
+  const sharedGltfLoader = new GLTFLoader();
+  sharedGltfLoader.setDRACOLoader(sharedDraco);
   {
-    const draco = new DRACOLoader();
-    draco.setDecoderPath("./vendor/addons/libs/draco/gltf/");
-    const loader = new GLTFLoader();
-    loader.setDRACOLoader(draco);
     for (const m of SUIT_MODELS) {
       try {
-        const rig = await loadSuitRig(loader, m.url, ASTRONAUT_HEIGHT_M);
+        const rig = await loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M);
         suitRig = rig;
+        if (rig.bootBounds) footsteps.setSuitProfile(rig.bootBounds);
         self = createAstronaut(rig, { hideHead: true });
         suitLabel = m.label + " · RIGGED";
         break;
@@ -1069,6 +1363,73 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
   scene.add(self.group); // single astronaut: you
+  patchObjectRayTracer(THREE, self.group, rtUniforms, { reflectScale: 1.0 });
+
+  const suitMatBaselines = [];
+  self.group.traverse((obj) => {
+    if (obj.isMesh && obj.material && !Array.isArray(obj.material)) {
+      suitMatBaselines.push({
+        mat: obj.material,
+        normalMap: obj.material.normalMap || null,
+        normalScale: obj.material.normalScale ? obj.material.normalScale.clone() : new THREE.Vector2(1, 1),
+        roughness: obj.material.roughness ?? 0.65,
+        metalness: obj.material.metalness ?? 0.05,
+      });
+    }
+  });
+  function applySuitRealism(enabled) {
+    const weave = enabled ? ensureSuitWeaveNormal() : null;
+    for (const entry of suitMatBaselines) {
+      if (enabled) {
+        if (!entry.normalMap) {
+          entry.mat.normalMap = weave;
+          entry.mat.normalScale?.set(0.32, 0.32);
+        } else {
+          entry.mat.normalScale?.set(
+            Math.max(0.45, entry.normalScale.x * 1.45),
+            Math.max(0.45, entry.normalScale.y * 1.45)
+          );
+        }
+        entry.mat.roughness = Math.max(0.22, entry.roughness * 0.88);
+      } else {
+        entry.mat.normalMap = entry.normalMap;
+        entry.mat.normalScale?.copy(entry.normalScale);
+        entry.mat.roughness = entry.roughness;
+      }
+      entry.mat.needsUpdate = true;
+    }
+  }
+
+  const rover = createExperimentalRover(THREE);
+  rover.group.visible = false;
+  scene.add(rover.group);
+  patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  rover.attachRealModel(sharedGltfLoader).then((ok) => {
+    if (ok) patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  });
+
+  const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
+    onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
+  });
+  function reScatterHistoricRovers(originX = 0, originZ = 0) {
+    const placements = scatterHistoricRoverCoords({
+      sampleElevY: sampleElevSceneY,
+      worldW,
+      worldH,
+      originX,
+      originZ,
+      minSepM: 56,
+      maxSlopeDeg: 16,
+    });
+    historicRovers.spawnAllScattered(placements, {
+      sampleElevY: sampleElevSceneY,
+      focusId: activeSiteId,
+    });
+    return placements;
+  }
+  reScatterHistoricRovers(0, 0);
+
+  const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
 
   // ---------- contact shadows under the boots ----------
   // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
@@ -1191,6 +1552,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
     const badge = makeCallsignBadgeFor(peer);
     avatar.group.add(badge.spr);
+    patchObjectRayTracer(THREE, avatar.group, rtUniforms, { reflectScale: 0.95 });
     remoteGroup.add(avatar.group);
 
     const st = peer.state || {};
@@ -1229,6 +1591,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     entry.beacon.material.dispose();
     entry.badge.tex.dispose();
     entry.badge.mat.dispose();
+    if (entry.avatar?.isStandIn) {
+      entry.group.traverse((o) => {
+        o.geometry?.dispose?.();
+        o.material?.dispose?.();
+      });
+    }
     remoteAvatars.delete(peerId);
     updateCrewHudSummary();
   }
@@ -1276,7 +1644,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const summaryEl = document.getElementById("hud-crew-summary");
     if (crewEl) {
       const cs = mp?.callsign || "AST-1";
-      crewEl.innerHTML = `${cs} · 1.80 M · <span id="hud-suit">${suitLabel}</span>`;
+      const txt = `${cs} · 1.80 M · ${suitLabel}`;
+      if (crewEl.textContent !== txt) crewEl.textContent = txt;
     }
     if (summaryEl) {
       const gTxt = `MARS g ${surfaceG.toFixed(3)} M/S²`;
@@ -1319,9 +1688,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     updateCrewHudSummary();
   }
 
-  // ---------- bodycam lens pass ----------
+  // ---------- EVA floodlamp & optical visor pass (zero 3D helmet frame) ----------
+  const evaLamp = new THREE.SpotLight(0xfff5e4, 0, 52, Math.PI * 0.25, 0.52, 1.25);
+  evaLamp.castShadow = false;
+  scene.add(evaLamp, evaLamp.target);
+  let evaLampOn = false;
+  let goldSlide = 0;
+
+  const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  dummyDepthTex.needsUpdate = true;
   let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
   let rtSamples = 2;
+  let rtHasDepth = false;
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -1330,15 +1708,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     toneMapped: true,
     uniforms: {
       tDiffuse: { value: rt.texture },
+      tDepth: { value: dummyDepthTex },
+      uRtEnabled: rtUniforms.uRtEnabled,
+      uRtProj: { value: new THREE.Matrix4() },
+      uRtInvProj: { value: new THREE.Matrix4() },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
-      uDistort: { value: 0.26 },
-      uFrameZoom: { value: 0.88 },
-      uAberration: { value: 0.006 },
-      uGrain: { value: 0.07 },
-      uVignette: { value: 1.05 },
+      uDistort: { value: 0.14 },
+      uFrameZoom: { value: 1.0 },
+      uBezelScale: { value: 1.0 },
+      uAberration: { value: 0.0014 },
+      uGrain: { value: 0.008 },
+      uVignette: { value: 0.72 },
       uExposure: { value: 1.0 },
       uGold: { value: 0 },
+      uGoldSlide: { value: 0 },
       uDust: { value: 0.2 },
       uOptZoom: { value: 1 },
       uGlint: { value: 0 },
@@ -1350,6 +1734,95 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const lensQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), lensMat);
   lensQuad.frustumCulled = false;
   lensScene.add(lensQuad);
+
+  // Collimated top-frame compass tape & elevation/pitch readouts
+  const compassDegEl = document.getElementById("hud-compass-deg");
+  const compassTapeEl = document.getElementById("hud-compass-tape");
+  const compassStopEl = document.getElementById("hud-compass-stop");
+  const compassSunEl = document.getElementById("hud-compass-sun");
+  const pitchDegEl = document.getElementById("hud-pitch-deg");
+  const elevMolaEl = document.getElementById("hud-elev-mola");
+  const COMPASS_PX_PER_DEG = 4.0;
+  const COMPASS_LABELS = new Map([
+    [0, "N"],
+    [45, "NE"],
+    [90, "E"],
+    [135, "SE"],
+    [180, "S"],
+    [225, "SW"],
+    [270, "W"],
+    [315, "NW"],
+  ]);
+
+  if (compassTapeEl) {
+    compassTapeEl.innerHTML = "";
+    for (let d = -90; d <= 450; d += 5) {
+      const norm = ((d % 360) + 360) % 360;
+      const major = norm % 15 === 0;
+      const cardinal = COMPASS_LABELS.has(norm);
+      const tick = document.createElement("div");
+      tick.className = `c-tick${major ? " major" : ""}${cardinal ? " cardinal" : ""}`;
+      tick.style.left = `${(d * COMPASS_PX_PER_DEG).toFixed(1)}px`;
+      const bar = document.createElement("i");
+      tick.appendChild(bar);
+      if (major) {
+        const lbl = document.createElement("span");
+        lbl.textContent = cardinal ? COMPASS_LABELS.get(norm) : String(norm).padStart(3, "0");
+        tick.appendChild(lbl);
+      }
+      compassTapeEl.appendChild(tick);
+    }
+  }
+
+  function compassCardinalName(deg) {
+    const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+  }
+
+  let lastCompassTxt = "";
+  let lastPitchTxt = "";
+  let lastMolaTxt = "";
+  function updateWaveguideOptics(headingDeg, pitchDeg, elevMolaM, stopBearingDeg, sunBearingDeg) {
+    const h = ((headingDeg % 360) + 360) % 360;
+    if (compassTapeEl) {
+      compassTapeEl.style.transform = `translate3d(${(-h * COMPASS_PX_PER_DEG).toFixed(1)}px, 0, 0)`;
+    }
+    const cTxt = `${String(Math.round(h) % 360).padStart(3, "0")}° ${compassCardinalName(h)}`;
+    if (compassDegEl && cTxt !== lastCompassTxt) {
+      lastCompassTxt = cTxt;
+      compassDegEl.textContent = cTxt;
+    }
+
+    const placeMarker = (el, targetBearing) => {
+      if (!el) return;
+      if (!Number.isFinite(targetBearing)) {
+        el.hidden = true;
+        return;
+      }
+      el.hidden = false;
+      const diff = ((targetBearing - h + 540) % 360) - 180;
+      const clamped = Math.abs(diff) > 33;
+      const px = Math.max(-33, Math.min(33, diff)) * COMPASS_PX_PER_DEG;
+      el.style.transform = `translate3d(calc(-50% + ${px.toFixed(1)}px), 0, 0)`;
+      el.classList.toggle("clamped", clamped);
+    };
+    placeMarker(compassStopEl, stopBearingDeg);
+    placeMarker(compassSunEl, sunBearingDeg);
+
+    const pRound = Math.round(pitchDeg);
+    const pTxt = `${pRound > 0 ? "+" : ""}${pRound}°`;
+    if (pitchDegEl && pTxt !== lastPitchTxt) {
+      lastPitchTxt = pTxt;
+      pitchDegEl.textContent = pTxt;
+    }
+    if (elevMolaEl && Number.isFinite(elevMolaM)) {
+      const mTxt = `${Math.round(elevMolaM)} m MOLA`;
+      if (mTxt !== lastMolaTxt) {
+        lastMolaTxt = mTxt;
+        elevMolaEl.textContent = mTxt;
+      }
+    }
+  }
 
   // ---------- state & controls ----------
   let playing = false;
@@ -1373,7 +1846,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const phys = createMarsBody({ x: freePos.x, z: freePos.z, y: 0, grounded: true });
   const heightEnv = {
     sampleHeight: sampleElevSceneY,
-    molaElevM: (x, z) => elevMin + sampleElevSceneY(x, z),
+    molaElevM: (x, z) => activeElevBaseM() + sampleElevSceneY(x, z),
   };
   function syncPlayerFromPhys() {
     player.x = phys.x;
@@ -1399,34 +1872,240 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     phys.y = sampleElevSceneY(x, z);
     syncPlayerFromPhys();
     justTeleportedOrWrapped = true;
+    lastMoveYaw = null;
   }
   let partnerS = PARTNER_AHEAD_M;
   let justTeleportedOrWrapped = false;
+  let lastMoveYaw = null;
+  let drivingRover = false;
+  let roverThrottleVel = 0;
+  let roverVelX = 0;
+  let roverVelZ = 0;
+  let roverSteer = 0;
+  let prevRoverSteer = 0;
+  let roverLandingImpact = 0;
+  let roverAirState = {
+    posY: null,
+    velY: 0,
+    prevGroundY: null,
+    airborne: false,
+    airTime: 0,
+    peakLaunchVy: 0,
+    landingCooldown: 0,
+  };
+  const roverDynState = {
+    yaw: 0,
+    yawRate: 0,
+    velX: 0,
+    velZ: 0,
+    forwardSpeed: 0,
+    lateralSpeed: 0,
+    slipRatio: 0,
+    gear: 1,
+    rpmNorm: 0,
+    drifting: false,
+    braking: false,
+    airPitchVel: 0,
+    airRollVel: 0,
+    airPitchOffset: 0,
+    airRollOffset: 0,
+    lastSlopePitch: 0,
+  };
+  function resetRoverMotionState() {
+    roverThrottleVel = 0;
+    roverVelX = 0;
+    roverVelZ = 0;
+    roverSteer = 0;
+    prevRoverSteer = 0;
+    roverLandingImpact = 0;
+    roverAirState.posY = null;
+    roverAirState.velY = 0;
+    roverAirState.prevGroundY = null;
+    roverAirState.airborne = false;
+    roverAirState.airTime = 0;
+    roverAirState.peakLaunchVy = 0;
+    roverAirState.landingCooldown = 0;
+    roverDynState.yaw = rover?.group?.rotation?.y || 0;
+    roverDynState.yawRate = 0;
+    roverDynState.velX = 0;
+    roverDynState.velZ = 0;
+    roverDynState.forwardSpeed = 0;
+    roverDynState.lateralSpeed = 0;
+    roverDynState.slipRatio = 0;
+    roverDynState.gear = 1;
+    roverDynState.rpmNorm = 0;
+    roverDynState.drifting = false;
+    roverDynState.braking = false;
+    roverDynState.airPitchVel = 0;
+    roverDynState.airRollVel = 0;
+    roverDynState.airPitchOffset = 0;
+    roverDynState.airRollOffset = 0;
+    roverDynState.lastSlopePitch = 0;
+  }
+  let roverWasOn = false;
+  let nearRoverPrompted = false;
+  let prevFirstPersonPitch = -0.12;
+  let chaseCamInit = false;
+  const chaseCamPos = new THREE.Vector3();
+  const chaseLookTarget = new THREE.Vector3();
+  let baseSunIntensity = 3.6;
+  let roverDustAcc = 0;
   const keys = new Set();
   phys.y = sampleElevSceneY(phys.x, phys.z);
   syncPlayerFromPhys();
   justTeleportedOrWrapped = false;
 
-  const mapOverlayEl = document.getElementById("hud-map-overlay");
-  const isMapOpen = () => Boolean(mapOverlayEl?.classList.contains("open"));
+  const hudView = document.getElementById("hud-view");
+  const reticleEl = document.querySelector(".hud-reticle");
+  const roverTargetEl = document.getElementById("hud-rover-target");
+  const fleetBtnEl = document.getElementById("hud-fleet-btn");
+  const fleetPanelEl = document.getElementById("hud-fleet-panel");
+  const drvVehEl = document.getElementById("hud-drv-veh");
+  const drvSpdEl = document.getElementById("hud-drv-spd");
+  const drvGearEl = document.getElementById("hud-drv-gear");
+  const drvRpmEl = document.getElementById("hud-drv-rpm");
+  const drvSlipEl = document.getElementById("hud-drv-slip");
+  const isMapOpen = () => false;
+  const isHudActive = () => Boolean(hudView?.classList.contains("active"));
+  const isPointerLocked = () => document.pointerLockElement === renderer.domElement;
+  const hasOpenModalOverlay = () =>
+    Boolean(document.querySelector(".modal-backdrop.open, #crew-drawer.open, #esc-menu.open"));
+
+  const raycaster = new THREE.Raycaster();
+  const rayNdc = new THREE.Vector2();
+  const lastMouseClient = { x: 0, y: 0, valid: false };
+  let hoveredRoverSpec = null;
+
+  function pickHistoricRover(clientX = null, clientY = null) {
+    const groups = historicRovers.getInteractiveGroups();
+    if (!groups || groups.length === 0) return null;
+    if (isPointerLocked() || clientX == null || clientY == null) {
+      rayNdc.set(0, 0);
+    } else {
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      rayNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      rayNdc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    }
+    raycaster.setFromCamera(rayNdc, camera);
+    const hits = raycaster.intersectObjects(groups, true);
+    if (hits.length > 0 && hits[0].distance <= 115) {
+      let obj = hits[0].object;
+      while (obj && !obj.userData?.historicRoverId) obj = obj.parent;
+      const rId = obj?.userData?.historicRoverId;
+      return rId ? getHistoricRoverById(rId) : null;
+    }
+    return null;
+  }
+
+  let manualUnlockPending = false;
+  function releasePointerLock() {
+    if (document.pointerLockElement) {
+      manualUnlockPending = true;
+      setTimeout(() => {
+        manualUnlockPending = false;
+      }, 140);
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
+  }
+
+  function openRoverInfoSafe(spec, opts = {}) {
+    if (!spec) return;
+    dragging = false;
+    releasePointerLock();
+    if (onOpenRoverInfo) onOpenRoverInfo(spec, opts);
+    else dispatchOpenRoverInfo(spec.id);
+  }
+
+  function requestCrosshairLock() {
+    if (!isHudActive() || isMapOpen() || hasOpenModalOverlay() || isPointerLocked()) return;
+    try {
+      const p = renderer.domElement.requestPointerLock?.();
+      if (p?.catch) p.catch(() => {});
+    } catch {}
+  }
 
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
   renderer.domElement.addEventListener("pointerdown", (e) => {
     footsteps.resume();
-    if (isMapOpen()) return;
+    if (isMapOpen() || !isHudActive() || hasOpenModalOverlay()) return;
+    if (fleetPanelEl?.classList.contains("open")) fleetPanelEl.classList.remove("open");
+    if (e.button === 0) {
+      const directHit = pickHistoricRover(isPointerLocked() ? null : e.clientX, isPointerLocked() ? null : e.clientY);
+      if (directHit) {
+        e.preventDefault?.();
+        openRoverInfoSafe(directHit);
+        return;
+      }
+      requestCrosshairLock();
+    }
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
   });
   window.addEventListener("pointerup", () => (dragging = false));
-  window.addEventListener("pointermove", (e) => {
-    if (!dragging || isMapOpen()) return;
-    userYaw -= (e.clientX - lastX) * 0.0035;
-    pitch = Math.max(-1.35, Math.min(1.42, pitch - (e.clientY - lastY) * 0.003));
+  document.addEventListener("pointerlockchange", () => {
+    const locked = isPointerLocked();
+    dragging = false;
+    reticleEl?.classList.toggle("locked", locked);
+    if (locked && (isMapOpen() || !isHudActive() || hasOpenModalOverlay())) {
+      releasePointerLock();
+      return;
+    }
+    // Pressing ESC while pointer-locked releases lock; open the ESC menu when HUD was active.
+    if (!locked && !manualUnlockPending && isHudActive() && !isMapOpen() && !hasOpenModalOverlay()) {
+      setTimeout(() => {
+        if (
+          !manualUnlockPending &&
+          !isPointerLocked() &&
+          isHudActive() &&
+          !isMapOpen() &&
+          !hasOpenModalOverlay() &&
+          document.hasFocus() &&
+          !document.hidden
+        ) {
+          keys.clear();
+          openPauseMenu?.();
+        }
+      }, 25);
+    }
+  });
+  if (hudView && typeof MutationObserver !== "undefined") {
+    new MutationObserver(() => {
+      if (!isHudActive()) {
+        dragging = false;
+        releasePointerLock();
+      }
+    }).observe(hudView, { attributes: true, attributeFilter: ["class"] });
+  }
+  document.addEventListener("mousemove", (e) => {
+    lastMouseClient.x = e.clientX;
+    lastMouseClient.y = e.clientY;
+    lastMouseClient.valid = true;
+    const locked = isPointerLocked();
+    if (!locked && !dragging) return;
+    if (isMapOpen() || !isHudActive()) {
+      dragging = false;
+      if (locked) releasePointerLock();
+      return;
+    }
+    const rawDx = locked ? e.movementX || 0 : e.clientX - lastX;
+    const rawDy = locked ? e.movementY || 0 : e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
+    const dx = Math.abs(rawDx) > 320 ? 0 : rawDx;
+    const dy = Math.abs(rawDy) > 320 ? 0 : rawDy;
+    if (dx === 0 && dy === 0) return;
+    const sensX = locked ? 0.0024 : 0.0035;
+    const sensY = locked ? 0.0021 : 0.003;
+    userYaw -= dx * sensX;
+    const minPitch = drivingRover ? -1.08 : -1.35;
+    const maxPitch = drivingRover ? -0.06 : 1.42;
+    pitch = Math.max(minPitch, Math.min(maxPitch, pitch - dy * sensY));
   });
   const dropLocalPing = (label = "Science Beacon") => {
     if (!mp) return null;
@@ -1434,13 +2113,16 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const z = player.init ? player.z : latToZ(routeCoords[0]?.[1] ?? -4.8);
     const lon = xToLon(x);
     const lat = zToLat(z);
-    const elev = elevMin + sampleElevSceneY(x, z);
+    const elev = activeElevBaseM() + sampleElevSceneY(x, z);
     return mp.dropPing({ lon, lat, elevM: elev, label });
   };
 
-  const hudView = document.getElementById("hud-view");
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
-  window.addEventListener("blur", () => keys.clear());
+  window.addEventListener("blur", () => {
+    keys.clear();
+    dragging = false;
+    releasePointerLock();
+  });
 
   const btnPlay = document.getElementById("hud-play");
   const scrubber = document.getElementById("hud-scrubber");
@@ -1450,15 +2132,30 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const btnBack = document.getElementById("hud-back-planner");
   const btnPing = document.getElementById("hud-ping");
   const btnPov = document.getElementById("hud-pov-btn");
-  const btnMap = document.getElementById("hud-map-btn");
+  const btnGold = document.getElementById("hud-gold-btn");
+  const btnLamp = document.getElementById("hud-lamp-btn");
+  const optGoldPill = document.getElementById("hud-opt-gold");
+  const optLampPill = document.getElementById("hud-opt-lamp");
+  const optZoomPill = document.getElementById("hud-opt-zoom");
 
   btnPing?.addEventListener("click", () => dropLocalPing("EVA Waypoint"));
+  const openNextPov = () => {
+    const stop = nextPovStop;
+    const entry = povIndex?.stops?.find((s) => s.stop_id === stop?.properties?.id) || povIndex?.stops?.[0];
+    if (entry) onOpenPov(entry);
+  };
+  btnPov?.addEventListener("click", openNextPov);
+  const btnOrbit = document.getElementById("hud-orbit-btn");
+  btnOrbit?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    releasePointerLock();
+    onOpenOrbit?.();
+  });
 
   btnBack?.addEventListener("click", () => {
     playing = false;
     if (btnPlay) btnPlay.textContent = "Play";
-    setMapOpen(false);
-    onBackToPlanner();
+    openPauseMenu?.();
   });
   btnPlay?.addEventListener("click", () => {
     playing = !playing;
@@ -1521,6 +2218,57 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return { val: out, wrapped, crossedPosToNeg, crossedNegToPos };
   }
 
+  /**
+   * Performs a C^∞ seamless map-boundary loop across the exact mirror-symmetrical
+   * terrain period (`2 * worldW`, `2 * worldH`), shifting camera chase target, player,
+   * rover, active dust particles, and historic rovers together with ZERO snap/pop.
+   */
+  function applySeamlessWorldWrap(curX, curZ) {
+    const periodX = worldW * 2;
+    const periodZ = worldH * 2;
+    const wx = wrapSceneCoord(curX, periodX);
+    const wz = wrapSceneCoord(curZ, periodZ);
+    if (!wx.wrapped && !wz.wrapped) {
+      return { wrapped: false, x: curX, z: curZ, dx: 0, dz: 0, dirs: [] };
+    }
+    const dx = wx.val - curX;
+    const dz = wz.val - curZ;
+
+    phys.x += dx;
+    phys.z += dz;
+    phys.prevX += dx;
+    phys.prevZ += dz;
+    freePos.x += dx;
+    freePos.z += dz;
+    if (player.init) {
+      player.x += dx;
+      player.z += dz;
+    }
+    if (rover?.group) {
+      rover.group.position.x += dx;
+      rover.group.position.z += dz;
+    }
+    if (chaseCamInit) {
+      chaseCamPos.x += dx;
+      chaseCamPos.z += dz;
+      chaseLookTarget.x += dx;
+      chaseLookTarget.z += dz;
+    }
+    marsFx.shiftParticles(dx, dz);
+    historicRovers.wrapAllRelativeTo(freePos.x, freePos.z, periodX, periodZ);
+
+    const dirs = [];
+    if (wx.crossedPosToNeg) dirs.push(isTrLang() ? "DOĞU ↔ BATI" : "EAST ↔ WEST");
+    else if (wx.crossedNegToPos) dirs.push(isTrLang() ? "BATI ↔ DOĞU" : "WEST ↔ EAST");
+    if (wz.crossedPosToNeg) dirs.push(isTrLang() ? "GÜNEY ↔ KUZEY" : "SOUTH ↔ NORTH");
+    else if (wz.crossedNegToPos) dirs.push(isTrLang() ? "KUZEY ↔ GÜNEY" : "NORTH ↔ SOUTH");
+
+    showWrapNotice(
+      (isTrLang() ? "DÜNYA SINIRI DÖNGÜSÜ (KESİNTİSİZ): " : "SEAMLESS WORLD LOOP: ") + dirs.join(" · ")
+    );
+    return { wrapped: true, x: wx.val, z: wz.val, dx, dz, dirs };
+  }
+
   // A new route from the planner (Begin EVA): stand at its start, facing along it.
   onSetRoute((detail) => {
     const newRoute = detail?.route;
@@ -1533,6 +2281,17 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       userYaw = routeHeading(alongM);
       partnerPos.set(p.x, 0, p.z);
       snapPhys(p.x, p.z);
+      drivingRover = false;
+      resetRoverMotionState();
+      chaseCamInit = false;
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = suitRig != null;
+      if (devCfg.experimentalRover && rover) {
+        rover.group.visible = true;
+        rover.spawnBeside(p.x, p.z, userYaw, sampleElevSceneY);
+        roverDynState.yaw = rover.group.rotation.y;
+        nearRoverPrompted = false;
+      }
     }
   });
 
@@ -1548,8 +2307,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   function teleportToLocal(tx, tz, { keepYaw = false } = {}) {
-    const wx = wrapSceneCoord(tx, worldW).val;
-    const wz = wrapSceneCoord(tz, worldH).val;
+    const wx = wrapSceneCoord(tx, worldW * 2).val;
+    const wz = wrapSceneCoord(tz, worldH * 2).val;
     const lon = xToLon(wx);
     const lat = zToLat(wz);
 
@@ -1570,762 +2329,499 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   onTeleport(({ lon, lat }) => {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-    teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: false });
+    visitLocation(lon, lat, { keepYaw: false });
   });
 
-  // ---------- Tactical Mars 3D Elevation Map (toggled via M key) ----------
-  const mapCanvasEl = document.getElementById("hud-map-canvas");
-  const mapCtx = mapCanvasEl?.getContext("2d") || null;
-  const mapHoverEl = document.getElementById("hud-map-hover");
-  const mapModeBtn = document.getElementById("hud-map-mode");
-  const mapCloseBtn = document.getElementById("hud-map-close");
-  const mapConfirmEl = document.getElementById("hud-map-confirm");
-  const mapConfirmQEl = document.getElementById("hud-map-confirm-q");
-  const mapConfirmMetaEl = document.getElementById("hud-map-confirm-meta");
-  const mapConfirmYesBtn = document.getElementById("hud-map-confirm-yes");
-  const mapConfirmNoBtn = document.getElementById("hud-map-confirm-no");
-
-  const isTrLang = () => {
-    try {
-      return localStorage.getItem("mm-lang") === "tr";
-    } catch {
-      return false;
-    }
-  };
-
-  let mapLayerMode = "elevation"; // "elevation" | "hazard"
-  let pendingTeleport = null; // { tx, tz, lon, lat, elevMola, slopeDeg, distM }
-  let hoverTarget = null;
-
-  // ---- Whole-Mars globe (default map scope). The local scope is the HiRISE strip you walk on. ----
-  let mapScope = "globe"; // "globe" | "local"
-  let globePick = null;
-  let globeFocused = false;
-  const globeHost = document.getElementById("hud-globe-host");
-  const mapScopeBtn = document.getElementById("hud-map-scope");
-  const globeLayerBtn = document.getElementById("hud-globe-layer");
-  const globeSunBtn = document.getElementById("hud-globe-sun");
-  const globeInfoEl = document.getElementById("hud-globe-info");
-  const globeInfoTitleEl = document.getElementById("hud-globe-info-title");
-  const globeInfoMetaEl = document.getElementById("hud-globe-info-meta");
-  const globeLocalBtn = document.getElementById("hud-globe-local");
-  const globeInfoCloseBtn = document.getElementById("hud-globe-info-close");
-  const walkSite = {
-    lon: (bounds.west_lon_deg + bounds.east_lon_deg) / 2,
-    lat: (bounds.south_lat_deg + bounds.north_lat_deg) / 2,
-  };
-  const LOCAL_REACH_KM = 90; // inside Gale crater: offer the local (walkable) map
-  const fmtLonLat = (lon, lat, d = 2) =>
-    `${Math.abs(lat).toFixed(d)}°${lat < 0 ? "S" : "N"} ${Math.abs(lon).toFixed(d)}°${lon < 0 ? "W" : "E"}`;
-  const globeReadout = (hit) => {
+  function renderHudFleetPanel() {
+    if (!fleetPanelEl) return;
     const tr = isTrLang();
-    const where = hit.feature ? ` · ${hit.feature.name.toUpperCase()}` : "";
-    const km = hit.walkKm < 10 ? hit.walkKm.toFixed(1) : Math.round(hit.walkKm).toLocaleString("en-US");
-    return (
-      `${fmtLonLat(hit.lon, hit.lat)} · MOLA ${Math.round(hit.elevM).toLocaleString("en-US")} m${where} · ` +
-      `${km} km ${tr ? "SENDEN" : "FROM YOU"}`
-    );
-  };
-  const globeHoverHint = () =>
-    isTrLang()
-      ? "SÜRÜKLE: DÖNDÜR · TEKER: YAKINLAŞ · TIKLA: İNCELE · GALE İÇİNDE: YEREL HARİTA"
-      : "DRAG: SPIN · WHEEL: ZOOM · CLICK: INSPECT · INSIDE GALE: LOCAL MAP";
-  function showGlobeInfo(hit) {
-    if (!globeInfoEl) return;
-    globePick = hit;
-    if (!hit) {
-      globeInfoEl.style.display = "none";
-      globe?.setTarget(null);
-      return;
-    }
-    const tr = isTrLang();
-    const f = hit.feature;
-    const kindTr = { crater: "krater", basin: "havza", mons: "volkan", region: "bölge", site: "iniş yeri" };
-    if (globeInfoTitleEl) {
-      let title = tr ? "Adsız arazi" : "Unnamed terrain";
-      if (f) {
-        const kind = tr ? kindTr[f.kind] || f.kind : f.kind === "site" ? "landing site" : f.kind;
-        title = f.dKm ? `${f.name} · ${kind} ${Math.round(f.dKm)} km` : `${f.name} · ${kind}`;
-      }
-      globeInfoTitleEl.textContent = title;
-    }
-    const near = hit.walkKm < LOCAL_REACH_KM;
-    if (globeInfoMetaEl) {
-      let note;
-      if (near) {
-        note = tr
-          ? "Gale içinde: yerel 1 m HiRISE haritasında ışınlanabilirsin."
-          : "Inside Gale: you can teleport on the local 1 m HiRISE map.";
-      } else {
-        note = tr
-          ? "Yürünebilir arazi yalnızca Gale'deki HiRISE şeridi; burası sadece incelenebilir."
-          : "Only the Gale HiRISE strip is walkable; this point is for looking at.";
-      }
-      globeInfoMetaEl.innerHTML =
-        `${fmtLonLat(hit.lon, hit.lat, 3)}<br/>` +
-        `<strong>MOLA:</strong> ${Math.round(hit.elevM).toLocaleString("en-US")} m ${tr ? "(areoide göre)" : "(vs the areoid)"}<br/>` +
-        `<strong>${tr ? "Senden" : "From you"}:</strong> ${Math.round(hit.walkKm).toLocaleString("en-US")} km<br/>` +
-        note;
-    }
-    if (globeLocalBtn) {
-      globeLocalBtn.style.display = near ? "" : "none";
-      globeLocalBtn.textContent = tr ? "Yerel haritayı aç" : "Open local map";
-    }
-    if (globeInfoCloseBtn) globeInfoCloseBtn.textContent = tr ? "Kapat" : "Close";
-    globeInfoEl.style.display = "block";
-    globe?.setTarget(hit);
-  }
-  const globe = globeHost
-    ? createVisorGlobe({
-        host: globeHost,
-        dataBase: new URL("../data/demo/", window.location.href).href,
-        walkSite,
-        onPick: (hit) => showGlobeInfo(hit),
-        onHover: (hit) => {
-          if (mapHoverEl && mapScope === "globe") mapHoverEl.textContent = hit ? globeReadout(hit) : globeHoverHint();
-        },
-      })
-    : null;
-  let localHoverText = mapHoverEl?.textContent || "";
-  function setMapScope(next) {
-    const wasGlobe = mapScope === "globe";
-    mapScope = next === "local" ? "local" : "globe";
-    const isGlobe = mapScope === "globe";
-    mapOverlayEl?.classList.toggle("scope-globe", isGlobe);
-    mapOverlayEl?.classList.toggle("scope-local", !isGlobe);
-    pendingTeleport = null;
-    if (mapConfirmEl) mapConfirmEl.style.display = "none";
-    if (!isGlobe) showGlobeInfo(null);
-    if (isGlobe && isMapOpen()) globe?.open().catch(() => {});
-    else globe?.close();
-    syncMapStaticText();
-    if (mapHoverEl) {
-      if (!wasGlobe && isGlobe) localHoverText = mapHoverEl.textContent;
-      mapHoverEl.textContent = isGlobe ? globeHoverHint() : localHoverText;
-    }
-    renderTacticalMap();
-  }
-  mapScopeBtn?.addEventListener("click", () => setMapScope(mapScope === "globe" ? "local" : "globe"));
-  globeLayerBtn?.addEventListener("click", () => {
-    globe?.cycleLayer();
-    syncMapStaticText();
-  });
-  globeSunBtn?.addEventListener("click", () => {
-    globe?.toggleSun();
-    syncMapStaticText();
-  });
-  globeLocalBtn?.addEventListener("click", () => setMapScope("local"));
-  globeInfoCloseBtn?.addEventListener("click", () => showGlobeInfo(null));
-
-  // Build Martian-themed 3D elevation + slope base canvases directly from `elevGrid` (1:1 with 3D terrain)
-  const mapBases = (() => {
-    const w = elevGrid ? imgW : 256;
-    const h = elevGrid ? imgH : 256;
-    const elevCanvas = document.createElement("canvas");
-    elevCanvas.width = w;
-    elevCanvas.height = h;
-    const hazCanvas = document.createElement("canvas");
-    hazCanvas.width = w;
-    hazCanvas.height = h;
-    const eCtx = elevCanvas.getContext("2d");
-    const hCtx = hazCanvas.getContext("2d");
-    const eImg = eCtx.createImageData(w, h);
-    const hImg = hCtx.createImageData(w, h);
-
-    let minE = elevMin;
-    let maxE = elevMax;
-    if (elevGrid) {
-      minE = Infinity;
-      maxE = -Infinity;
-      for (let i = 0; i < elevGrid.length; i++) {
-        if (elevGrid[i] < minE) minE = elevGrid[i];
-        if (elevGrid[i] > maxE) maxE = elevGrid[i];
-      }
-    }
-    const spanE = Math.max(1, maxE - minE);
-
-    const elevMaxLabel = document.getElementById("hud-map-elev-max");
-    const elevMidLabel = document.getElementById("hud-map-elev-mid");
-    const elevMinLabel = document.getElementById("hud-map-elev-min");
-    if (elevMaxLabel) elevMaxLabel.textContent = `${Math.round(maxE)} m`;
-    if (elevMidLabel) elevMidLabel.textContent = `${Math.round((minE + maxE) * 0.5)} m`;
-    if (elevMinLabel) elevMinLabel.textContent = `${Math.round(minE)} m`;
-
-    // Gale Crater / Mount Sharp hypsometric palette matching the 3D scene's dust/rock colors
-    const stopsCol = [
-      [0.0, 59, 32, 22],
-      [0.25, 111, 59, 36],
-      [0.5, 168, 93, 56],
-      [0.75, 207, 134, 83],
-      [1.0, 237, 196, 152],
-    ];
-    const sampleMarsRamp = (t) => {
-      const c = Math.max(0, Math.min(1, t));
-      for (let s = 0; s < stopsCol.length - 1; s++) {
-        const a = stopsCol[s];
-        const b = stopsCol[s + 1];
-        if (c <= b[0]) {
-          const u = (c - a[0]) / (b[0] - a[0] || 1);
-          return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u];
-        }
-      }
-      const last = stopsCol[stopsCol.length - 1];
-      return [last[1], last[2], last[3]];
-    };
-
-    const sunMaskData = sunMask?.image?.data || null;
-    const sunMaskW = sunMask?.image?.width || 0;
-    const stepM = worldW / Math.max(1, w - 1);
-    const minorInterval = 20;
-    const majorInterval = 60;
-
-    for (let y = 0; y < h; y++) {
-      const ym = Math.max(0, y - 1);
-      const yp = Math.min(h - 1, y + 1);
-      for (let x = 0; x < w; x++) {
-        const xm = Math.max(0, x - 1);
-        const xp = Math.min(w - 1, x + 1);
-
-        const eC = elevGrid ? elevGrid[y * w + x] : minE + (1 - y / h) * spanE;
-        const eL = elevGrid ? elevGrid[y * w + xm] : eC;
-        const eR = elevGrid ? elevGrid[y * w + xp] : eC;
-        const eU = elevGrid ? elevGrid[ym * w + x] : eC;
-        const eD = elevGrid ? elevGrid[yp * w + x] : eC;
-
-        const gx = (eR - eL) / ((xp - xm || 1) * stepM);
-        const gz = (eD - eU) / ((yp - ym || 1) * stepM);
-        const nLen = Math.hypot(-gx, 1, -gz) || 1;
-        const nx = -gx / nLen;
-        const ny = 1 / nLen;
-        const nz = -gz / nLen;
-        const ndotl = Math.max(0, nx * sunDir.x + ny * sunDir.y + nz * sunDir.z);
-
-        let sunVis = 1.0;
-        if (sunMaskData && sunMaskW > 0) {
-          // the mask has one texel per 2 x 2 DTM cells (and may still be baking: then all lit)
-          const smIdx = ((y >> 1) * sunMaskW + (x >> 1)) * 4;
-          sunVis = (sunMaskData[smIdx] ?? 255) / 255;
-        }
-
-        const shade = (0.44 + 0.78 * ndotl) * (0.76 + 0.24 * sunVis);
-        const baseRgb = sampleMarsRamp((eC - minE) / spanE);
-
-        let r = baseRgb[0] * shade;
-        let g = baseRgb[1] * shade;
-        let b = baseRgb[2] * shade;
-
-        // Elevation contour lines (20 m minor, 60 m major)
-        const minorBand = Math.floor((eC - minE) / minorInterval);
-        const majorBand = Math.floor((eC - minE) / majorInterval);
-        const minNeighborBand = Math.min(
-          Math.floor((eR - minE) / minorInterval),
-          Math.floor((eD - minE) / minorInterval)
-        );
-        const majNeighborBand = Math.min(
-          Math.floor((eR - minE) / majorInterval),
-          Math.floor((eD - minE) / majorInterval)
-        );
-        if (majorBand !== majNeighborBand) {
-          r = r * 0.52 + 245 * 0.48;
-          g = g * 0.52 + 206 * 0.48;
-          b = b * 0.52 + 166 * 0.48;
-        } else if (minorBand !== minNeighborBand) {
-          r *= 0.74;
-          g *= 0.74;
-          b *= 0.74;
-        }
-
-        const p = (y * w + x) * 4;
-        eImg.data[p] = Math.max(0, Math.min(255, Math.round(r)));
-        eImg.data[p + 1] = Math.max(0, Math.min(255, Math.round(g)));
-        eImg.data[p + 2] = Math.max(0, Math.min(255, Math.round(b)));
-        eImg.data[p + 3] = 255;
-
-        // Hazard overlay: blend slope class on top of Martian hillshade
-        const slopeDeg = Math.atan(Math.hypot(gx, gz)) * (180 / Math.PI);
-        let hr = 34;
-        let hg = 197;
-        let hb = 94;
-        let alpha = 0.28;
-        if (slopeDeg > 20) {
-          hr = 168;
-          hg = 85;
-          hb = 247;
-          alpha = 0.62;
-        } else if (slopeDeg > 15) {
-          hr = 239;
-          hg = 68;
-          hb = 68;
-          alpha = 0.5;
-        } else if (slopeDeg > 10) {
-          hr = 245;
-          hg = 158;
-          hb = 11;
-          alpha = 0.38;
-        }
-        hImg.data[p] = Math.round(r * (1 - alpha) + hr * alpha);
-        hImg.data[p + 1] = Math.round(g * (1 - alpha) + hg * alpha);
-        hImg.data[p + 2] = Math.round(b * (1 - alpha) + hb * alpha);
-        hImg.data[p + 3] = 255;
-      }
-    }
-
-    eCtx.putImageData(eImg, 0, 0);
-    hCtx.putImageData(hImg, 0, 0);
-    return { elevCanvas, hazCanvas, minE, maxE };
-  })();
-
-  function syncMapStaticText() {
-    const tr = isTrLang();
-    const tEl = document.getElementById("hud-map-title");
-    const sEl = document.getElementById("hud-map-sub");
-    const etEl = document.getElementById("hud-map-elev-title");
-    const cnEl = document.getElementById("hud-map-contour-note");
-    const ktEl = document.getElementById("hud-map-key-title");
-    if (tEl) {
-      tEl.textContent = tr
-        ? "GALE KRATERİ / MOUNT SHARP — 3B YÜKSELTİ HARİTASI"
-        : "GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP";
-    }
-    if (sEl) {
-      sEl.textContent = tr
-        ? "HiRISE 1 m DTM KABARTMA · IŞINLANMAK İÇİN HARİTAYA TIKLA · KENARLAR KARŞIYA BAĞLANIR"
-        : "HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP";
-    }
-    if (etEl) etEl.textContent = tr ? "MOLA 3B YÜKSELTİ (m)" : "MOLA 3D ELEVATION (m)";
-    if (cnEl) {
-      cnEl.textContent = tr
-        ? "20 m ara / 60 m ana eşyükselti eğrileri · canlı 3B arazi normalleri ve güneş açısı ile gölgelenmiş."
-        : "20 m minor / 60 m major contours · shaded by live 3D terrain normals & sun angle.";
-    }
-    if (ktEl) ktEl.textContent = tr ? "İŞARETLER VE SINIR" : "MARKERS & WRAP";
-    if (mapModeBtn) {
-      mapModeBtn.textContent =
-        mapLayerMode === "elevation"
-          ? tr
-            ? "Katman: Yükselti 3B"
-            : "Layer: Elevation 3D"
-          : tr
-            ? "Katman: Eğim Tehlikesi"
-            : "Layer: Slope Hazard";
-    }
-    if (mapCloseBtn) mapCloseBtn.textContent = tr ? "Kapat (M)" : "Close (M)";
-    if (mapConfirmQEl) {
-      mapConfirmQEl.textContent = tr ? "Buraya ışınlanmak istiyor musun?" : "Do you want to teleport here?";
-    }
-    if (mapConfirmYesBtn) mapConfirmYesBtn.textContent = tr ? "Evet, Işınlan" : "Yes, Teleport";
-    if (mapConfirmNoBtn) mapConfirmNoBtn.textContent = tr ? "İptal" : "Cancel";
-    if (btnMap) btnMap.textContent = isMapOpen() ? (tr ? "Harita: Açık" : "Map (M): ON") : tr ? "Harita (M)" : "Map (M)";
-    syncGlobeText(tr, tEl, sEl, etEl, cnEl);
-  }
-
-  // legend values of the local strip, kept so the globe scope can swap them and back
-  const legendEls = ["hud-map-elev-max", "hud-map-elev-mid", "hud-map-elev-min"].map((id) => document.getElementById(id));
-  let localLegend = null;
-  function syncGlobeText(tr, tEl, sEl, etEl, cnEl) {
-    const isGlobe = mapScope === "globe";
-    if (mapScopeBtn) {
-      if (isGlobe) mapScopeBtn.textContent = tr ? "Görünüm: Küre" : "Scope: Globe";
-      else mapScopeBtn.textContent = tr ? "Görünüm: Yerel" : "Scope: Local";
-    }
-    if (globeLayerBtn) {
-      const L = globe?.layer || "mono";
-      const names = tr
-        ? { mono: "Katman: Siyah-beyaz", viking: "Katman: Viking renk", mola: "Katman: MOLA kabartma" }
-        : { mono: "Layer: B/W", viking: "Layer: Viking colour", mola: "Layer: MOLA relief" };
-      globeLayerBtn.textContent = names[L];
-    }
-    if (globeSunBtn) {
-      const sun = globe ? globe.sunLit : true;
-      if (sun) globeSunBtn.textContent = tr ? "Işık: Güneş" : "Light: Sun";
-      else globeSunBtn.textContent = tr ? "Işık: Kask lambası" : "Light: Visor lamp";
-    }
-    if (!localLegend) localLegend = legendEls.map((el) => el?.textContent || "");
-    legendEls.forEach((el, i) => {
-      if (el) el.textContent = isGlobe ? ["+21,229 m", "+6,500 m", "-8,200 m"][i] : localLegend[i];
+    fleetPanelEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+      <span style="font-size:9.5px;letter-spacing:0.15em;color:var(--faint);text-transform:uppercase;">${
+        tr ? "MARS ROVER FİLOSU (5 RASTGELE KONUM)" : "MARS ROVER FLEET (5 SCATTERED ON MAP)"
+      }</span>
+      <button id="hud-fleet-rescatter" class="btn" type="button" style="padding:2px 7px;font-size:9px;">${
+        tr ? "Karıştır" : "Rescatter"
+      }</button>
+    </div>`;
+    fleetPanelEl.querySelector("#hud-fleet-rescatter")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      reScatterHistoricRovers(freePos.x, freePos.z);
+      renderHudFleetPanel();
+      showWrapNotice(
+        tr ? "5 NASA ROVER RASTGELE KONUMLARA YERLEŞTİRİLDİ" : "ALL 5 NASA ROVERS RESCATTERED ACROSS TERRAIN"
+      );
     });
-    if (!isGlobe) return;
-    if (tEl) tEl.textContent = tr ? "MARS — KÜRESEL 3B HARİTA" : "MARS — GLOBAL 3D MAP";
-    if (sEl) {
-      sEl.textContent = tr
-        ? "MOLA YÜKSELTİ ×9 · VIKING MOZAİĞİ · GALE'DE 15:00 GÜNEŞİ · SÜRÜKLE · TEKER · TIKLA"
-        : "MOLA RELIEF ×9 · VIKING MOSAIC · SUN AT 15:00 GALE TIME · DRAG · WHEEL · CLICK";
-    }
-    if (etEl) etEl.textContent = tr ? "MOLA KÜRESEL YÜKSELTİ (m)" : "MOLA GLOBAL ELEVATION (m)";
-    if (cnEl) {
-      cnEl.textContent = tr
-        ? "NASA MGS MOLA MEGDR (8 px/derece), yarıçap ×9 abartılı; gece/gündüz sınırı Mars mevsimine göre gerçek güneş konumundan."
-        : "NASA MGS MOLA MEGDR (8 px/deg), radius exaggerated ×9; the day/night line comes from the real Sun position for the Mars season.";
-    }
-  }
-
-  function formatPointMetrics(tx, tz) {
-    const wx = wrapSceneCoord(tx, worldW).val;
-    const wz = wrapSceneCoord(tz, worldH).val;
-    const lon = xToLon(wx);
-    const lat = zToLat(wz);
-    const elevMola = elevMin + sampleElevSceneY(wx, wz);
-    const slopeDeg = computeLocalSlopeDeg(wx, wz);
-    const distM = Math.hypot(wx - player.x, wz - player.z);
-    return { tx: wx, tz: wz, lon, lat, elevMola, slopeDeg, distM };
-  }
-
-  function updatePendingConfirmCard() {
-    if (!mapConfirmEl) return;
-    if (!pendingTeleport) {
-      mapConfirmEl.style.display = "none";
-      return;
-    }
-    const tr = isTrLang();
-    syncMapStaticText();
-    const { lon, lat, elevMola, slopeDeg, distM } = pendingTeleport;
-    const slopeWarn =
-      slopeDeg > 20
-        ? tr
-          ? " · UYARI: >20° DİK YAMAÇ!"
-          : " · WARNING: >20° STEEP CLIFF!"
-        : "";
-    if (mapConfirmMetaEl) {
-      mapConfirmMetaEl.innerHTML =
-        `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E<br/>` +
-        `<strong>${tr ? "3B Yükselti" : "3D Elevation"}:</strong> ${elevMola.toFixed(1)} m MOLA<br/>` +
-        `<strong>${tr ? "Eğim" : "Slope"}:</strong> ${slopeDeg.toFixed(1)}°${slopeWarn}<br/>` +
-        `<strong>${tr ? "Mesafe" : "Distance"}:</strong> ${distM.toFixed(0)} m`;
-    }
-    mapConfirmEl.style.display = "block";
-  }
-
-  function setMapOpen(open) {
-    if (!mapOverlayEl) return;
-    const next = Boolean(open);
-    mapOverlayEl.classList.toggle("open", next);
-    if (next) {
-      keys.clear();
-      dragging = false;
-      if (globe) {
-        const here = { lon: xToLon(player.x), lat: zToLat(player.z) };
-        globe.setPlayer(here.lon, here.lat);
-        if (!globeFocused) {
-          globe.focus(here.lon, here.lat + 4, 1);
-          globeFocused = true;
-        }
-      }
-      setMapScope(mapScope);
-    } else {
-      pendingTeleport = null;
-      hoverTarget = null;
-      if (mapConfirmEl) mapConfirmEl.style.display = "none";
-      showGlobeInfo(null);
-      globe?.close();
-      syncMapStaticText();
-    }
-  }
-
-  btnMap?.addEventListener("click", () => setMapOpen(!isMapOpen()));
-  mapCloseBtn?.addEventListener("click", () => setMapOpen(false));
-  mapOverlayEl?.addEventListener("click", (e) => {
-    if (e.target === mapOverlayEl) setMapOpen(false);
-  });
-  mapModeBtn?.addEventListener("click", () => {
-    mapLayerMode = mapLayerMode === "elevation" ? "hazard" : "elevation";
-    syncMapStaticText();
-    renderTacticalMap();
-  });
-  mapConfirmYesBtn?.addEventListener("click", () => {
-    if (!pendingTeleport) return;
-    teleportToLocal(pendingTeleport.tx, pendingTeleport.tz, { keepYaw: true });
-    setMapOpen(false);
-  });
-  mapConfirmNoBtn?.addEventListener("click", () => {
-    pendingTeleport = null;
-    updatePendingConfirmCard();
-    renderTacticalMap();
-  });
-
-  if (mapCanvasEl) {
-    const pointerToLocal = (e) => {
-      const rect = mapCanvasEl.getBoundingClientRect();
-      const u = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
-      const v = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
-      return { tx: (u - 0.5) * worldW, tz: (v - 0.5) * worldH };
-    };
-    mapCanvasEl.addEventListener("mousemove", (e) => {
-      const { tx, tz } = pointerToLocal(e);
-      hoverTarget = formatPointMetrics(tx, tz);
-      if (mapHoverEl) {
-        const tr = isTrLang();
-        const { lat, lon, elevMola, slopeDeg, distM } = hoverTarget;
-        mapHoverEl.textContent =
-          `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E · ` +
-          `${tr ? "YÜKSELTİ" : "3D ELEV"}: ${elevMola.toFixed(1)} m · ` +
-          `${tr ? "EĞİM" : "SLOPE"}: ${slopeDeg.toFixed(1)}° · ${distM.toFixed(0)} m`;
-      }
-      renderTacticalMap();
-    });
-    mapCanvasEl.addEventListener("mouseleave", () => {
-      hoverTarget = null;
-      renderTacticalMap();
-    });
-    mapCanvasEl.addEventListener("click", (e) => {
-      const { tx, tz } = pointerToLocal(e);
-      pendingTeleport = formatPointMetrics(tx, tz);
-      updatePendingConfirmCard();
-      renderTacticalMap();
-    });
-
-    // ---- Controller on the local map ----
-    // Left stick moves a crosshair over the map and updates the readout; A picks the point (the
-    // confirm card appears); A again teleports; B cancels the card, then closes the map.
-    const padCross = document.createElement("div");
-    padCross.className = "pad-crosshair";
-    padCross.innerHTML = '<div class="ring"></div>';
-    (mapCanvasEl.parentElement || document.body).appendChild(padCross);
-    let padCx = 0.5; // crosshair as a fraction of the canvas
-    let padCy = 0.5;
-    let padLast = performance.now();
-    const padFrame = (now) => {
-      const dt = Math.min(0.1, (now - padLast) / 1000);
-      padLast = now;
-      const live = isMapOpen() && gamepad.connected && !document.getElementById("pad-setup")?.classList.contains("open");
-      padCross.classList.toggle("on", live && !pendingTeleport);
-      if (live && mapScope === "globe" && globe) {
-        // left stick: crosshair + readout; right stick: spin; LT / RT: zoom
-        const mv = gamepad.move();
-        if (mv.x || mv.y) {
-          padCx = Math.max(0.02, Math.min(0.98, padCx + mv.x * 0.5 * dt));
-          padCy = Math.max(0.02, Math.min(0.98, padCy - mv.y * 0.5 * dt));
-          const hit = globe.pickNormalized(padCx, padCy);
-          if (mapHoverEl) mapHoverEl.textContent = hit ? `${globeReadout(hit)} · A` : globeHoverHint();
-        }
-        const lk = gamepad.look();
-        if (lk.x || lk.y) globe.spin((lk.x * 70 * dt) / globe.zoom, (lk.y * 70 * dt) / globe.zoom);
-        const zIn = gamepad.buttons[7] || 0;
-        const zOut = gamepad.buttons[6] || 0;
-        if (zIn > 0.05 || zOut > 0.05) globe.zoomBy(Math.exp((zIn - zOut) * 1.4 * dt));
-        padCross.style.left = `${padCx * 100}%`;
-        padCross.style.top = `${padCy * 100}%`;
-      } else if (live) {
-        const mv = gamepad.move();
-        if (mv.x || mv.y) {
-          padCx = Math.max(0.02, Math.min(0.98, padCx + mv.x * 0.5 * dt));
-          padCy = Math.max(0.02, Math.min(0.98, padCy - mv.y * 0.5 * dt));
-          if (!pendingTeleport) {
-            hoverTarget = formatPointMetrics((padCx - 0.5) * worldW, (padCy - 0.5) * worldH);
-            if (mapHoverEl) {
-              const { lat, lon, elevMola, slopeDeg } = hoverTarget;
-              mapHoverEl.textContent =
-                `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E · ` +
-                `${elevMola.toFixed(1)} m · ${slopeDeg.toFixed(1)}° · A`;
-            }
-            renderTacticalMap();
-          }
-        }
-        padCross.style.left = `${padCx * 100}%`;
-        padCross.style.top = `${padCy * 100}%`;
-      }
-      requestAnimationFrame(padFrame);
-    };
-    requestAnimationFrame(padFrame);
-
-    gamepad.onPress(({ button, actions }) => {
-      if (!isMapOpen()) return;
-      if (document.getElementById("pad-setup")?.classList.contains("open")) return;
-      if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
-      if (actions.includes("map")) return; // View closes the map in app.js
-      if (actions.includes("pin")) return setMapScope(mapScope === "globe" ? "local" : "globe");
-      if (mapScope === "globe") {
-        if (actions.includes("texture")) {
-          globe?.cycleLayer();
-          syncMapStaticText();
-        } else if (button === 0) {
-          if (globePick && globePick.walkKm < LOCAL_REACH_KM) setMapScope("local");
-          else showGlobeInfo(globe?.pickNormalized(padCx, padCy) || null);
-        } else if (button === 1) {
-          if (globePick) showGlobeInfo(null);
-          else setMapOpen(false);
-        }
-        return;
-      }
-      if (button === 0) {
-        if (pendingTeleport) mapConfirmYesBtn?.click();
-        else {
-          pendingTeleport = formatPointMetrics((padCx - 0.5) * worldW, (padCy - 0.5) * worldH);
-          updatePendingConfirmCard();
-          renderTacticalMap();
-        }
-      } else if (button === 1) {
-        if (pendingTeleport) mapConfirmNoBtn?.click();
-        else setMapOpen(false);
-      }
-    });
-  }
-
-  function renderTacticalMap() {
-    if (!mapCtx || !mapCanvasEl || !isMapOpen() || mapScope === "globe") return;
-    const W = mapCanvasEl.width;
-    const H = mapCanvasEl.height;
-    const baseImg = mapLayerMode === "hazard" ? mapBases.hazCanvas : mapBases.elevCanvas;
-
-    mapCtx.clearRect(0, 0, W, H);
-    mapCtx.imageSmoothingEnabled = true;
-    mapCtx.drawImage(baseImg, 0, 0, W, H);
-
-    // Subtle Martian coordinate grid
-    mapCtx.strokeStyle = "rgba(255, 224, 194, 0.14)";
-    mapCtx.lineWidth = 1;
-    for (let k = 1; k < 4; k++) {
-      const p = (k / 4) * W;
-      mapCtx.beginPath();
-      mapCtx.moveTo(p, 0);
-      mapCtx.lineTo(p, H);
-      mapCtx.moveTo(0, p);
-      mapCtx.lineTo(W, p);
-      mapCtx.stroke();
-    }
-
-    // Wrap-around border frame cue
-    mapCtx.save();
-    mapCtx.setLineDash([6, 5]);
-    mapCtx.strokeStyle = "rgba(245, 198, 146, 0.45)";
-    mapCtx.lineWidth = 2;
-    mapCtx.strokeRect(3, 3, W - 6, H - 6);
-    mapCtx.restore();
-
-    const toCanvasXY = (x, z) => [
-      Math.max(0, Math.min(W, (x / worldW + 0.5) * W)),
-      Math.max(0, Math.min(H, (z / worldH + 0.5) * H)),
-    ];
-
-    // Science stops + start mast
-    if (stops?.features) {
-      stops.features.forEach((f, idx) => {
-        const [lon, lat] = f.geometry.coordinates;
-        const [cx, cy] = toCanvasXY(lonToX(lon), latToZ(lat));
-        const isStart = idx === 0 || f.properties?.kind === "habitat";
-        mapCtx.beginPath();
-        mapCtx.arc(cx, cy, isStart ? 6 : 5, 0, Math.PI * 2);
-        mapCtx.fillStyle = isStart ? "#4ade80" : "#ffffff";
-        mapCtx.fill();
-        mapCtx.lineWidth = 1.5;
-        mapCtx.strokeStyle = "#000000";
-        mapCtx.stroke();
-
-        const rawName = (f.properties?.name || f.properties?.id || "").split("(")[0].trim();
-        mapCtx.font = "600 10px monospace";
-        mapCtx.fillStyle = "rgba(0, 0, 0, 0.78)";
-        const tw = mapCtx.measureText(rawName).width;
-        const lx = Math.min(W - tw - 12, cx + 9);
-        const ly = Math.max(14, cy - 6);
-        mapCtx.fillRect(lx - 3, ly - 9, tw + 6, 13);
-        mapCtx.fillStyle = isStart ? "#bbf7d0" : "#f8fafc";
-        mapCtx.fillText(rawName, lx, ly + 1);
+    for (const r of MARS_HISTORIC_ROVERS) {
+      const entry = historicRovers.getEntry(r.id);
+      const distStr = entry
+        ? `${Math.round(Math.hypot(entry.group.position.x - freePos.x, entry.group.position.z - freePos.z))} m`
+        : "—";
+      const row = document.createElement("div");
+      row.className = `hud-fleet-row ${r.id === activeSiteId ? "current" : ""}`;
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:7px;min-width:0;">
+          <span class="fleet-dot" style="background:${r.color};"></span>
+          <div style="min-width:0;">
+            <div style="font-size:11px;color:#fff;letter-spacing:0.08em;">${r.name} <span style="color:var(--faint);font-size:9.5px;">· ${distStr}</span></div>
+            <div style="font-size:9px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.siteShortName}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:5px;flex:none;">
+          <button class="btn" type="button" data-hud-info style="padding:3px 7px;font-size:9.5px;">${tr ? "Bilgi" : "Info"}</button>
+          <button class="btn primary" type="button" data-hud-go style="padding:3px 7px;font-size:9.5px;">${
+            tr ? "Yanına Git" : "Locate"
+          }</button>
+        </div>
+      `;
+      row.querySelector("[data-hud-info]")?.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        fleetPanelEl.classList.remove("open");
+        openRoverInfoSafe(r);
       });
+      row.querySelector("[data-hud-go]")?.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        fleetPanelEl.classList.remove("open");
+        visitRoverSite(r.id, { approachRover: true, switchTerrain: false });
+      });
+      fleetPanelEl.appendChild(row);
     }
-
-    // Pending teleport crosshair
-    if (pendingTeleport) {
-      const [tx, ty] = toCanvasXY(pendingTeleport.tx, pendingTeleport.tz);
-      mapCtx.save();
-      mapCtx.strokeStyle = "#fbbf24";
-      mapCtx.lineWidth = 2;
-      mapCtx.beginPath();
-      mapCtx.arc(tx, ty, 10, 0, Math.PI * 2);
-      mapCtx.moveTo(tx - 15, ty);
-      mapCtx.lineTo(tx + 15, ty);
-      mapCtx.moveTo(tx, ty - 15);
-      mapCtx.lineTo(tx, ty + 15);
-      mapCtx.stroke();
-      mapCtx.restore();
-    } else if (hoverTarget) {
-      const [hx, hy] = toCanvasXY(hoverTarget.tx, hoverTarget.tz);
-      mapCtx.save();
-      mapCtx.strokeStyle = "rgba(255, 255, 255, 0.55)";
-      mapCtx.lineWidth = 1;
-      mapCtx.beginPath();
-      mapCtx.arc(hx, hy, 7, 0, Math.PI * 2);
-      mapCtx.stroke();
-      mapCtx.restore();
-    }
-
-    // Astronaut live position + gaze cone (yaw=0 -> North -Z -> canvas UP)
-    const [ax, ay] = toCanvasXY(player.x, player.z);
-    const totalYaw = autoYaw + userYaw;
-    const dirX = -Math.sin(totalYaw);
-    const dirY = -Math.cos(totalYaw);
-    const coneAngle = Math.atan2(dirY, dirX);
-
-    mapCtx.save();
-    mapCtx.beginPath();
-    mapCtx.moveTo(ax, ay);
-    mapCtx.arc(ax, ay, 36, coneAngle - 0.55, coneAngle + 0.55);
-    mapCtx.closePath();
-    const grad = mapCtx.createRadialGradient(ax, ay, 2, ax, ay, 36);
-    grad.addColorStop(0, "rgba(56, 189, 248, 0.52)");
-    grad.addColorStop(1, "rgba(56, 189, 248, 0.0)");
-    mapCtx.fillStyle = grad;
-    mapCtx.fill();
-
-    mapCtx.beginPath();
-    mapCtx.arc(ax, ay, 6, 0, Math.PI * 2);
-    mapCtx.fillStyle = "#38bdf8";
-    mapCtx.fill();
-    mapCtx.lineWidth = 2;
-    mapCtx.strokeStyle = "#ffffff";
-    mapCtx.stroke();
-    mapCtx.restore();
-
-    // Scale bar & North indicator
-    const pxPer500m = (500 / worldW) * W;
-    mapCtx.fillStyle = "rgba(10, 6, 4, 0.75)";
-    mapCtx.fillRect(10, H - 30, pxPer500m + 18, 20);
-    mapCtx.strokeStyle = "#f7dec4";
-    mapCtx.lineWidth = 2;
-    mapCtx.beginPath();
-    mapCtx.moveTo(18, H - 15);
-    mapCtx.lineTo(18 + pxPer500m, H - 15);
-    mapCtx.stroke();
-    mapCtx.fillStyle = "#f7dec4";
-    mapCtx.font = "bold 10px monospace";
-    mapCtx.fillText("500 m", 18, H - 19);
-    mapCtx.fillText("N ↑", W - 32, 20);
   }
+
+  fleetBtnEl?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (!fleetPanelEl) return;
+    releasePointerLock();
+    const nextOpen = !fleetPanelEl.classList.contains("open");
+    if (nextOpen) renderHudFleetPanel();
+    fleetPanelEl.classList.toggle("open", nextOpen);
+  });
+
+  // ---------- active site & sun ----------
+  let lastSunBakeMs = performance.now();
+  /**
+   * Recompute the sun for the active site and time mode and push it into every consumer.
+   * `rebake` re-runs the terrain shadow ray-march (Gale only; ~100 ms) and rebuilds sky IBL.
+   */
+  function refreshSun({ rebake = false } = {}) {
+    sunState = computeSunState();
+    sunStateStampMs = performance.now();
+    sunDir.set(sunState.x, sunState.y, sunState.z).normalize();
+    sky.material.uniforms.uSunElev.value = sunState.elevationRad;
+    sky.material.uniforms.uSunCos.value = Math.cos(sunState.sunAngularRad * 0.5);
+    for (const moon of [phobos, deimos]) moon.material.uniforms.uSunElev.value = sunState.elevationRad;
+    celestial.update(sunState);
+    const up = sunUp(sunState.elevationRad);
+    // Night: no direct sun, a faint sky/starlight floor so the ground stays readable.
+    hemiLight.intensity = (devCfg.superGraphics ? 0.28 : 0.22) * (0.32 + 0.68 * up);
+    renderer.toneMappingExposure = (devCfg.superGraphics ? 1.06 : 1.0) * (1 + 0.55 * (1 - up));
+    if (rebake) {
+      rebuildEnvironment();
+      if (isGaleSite() && elevGrid) {
+        const next = bakeSunMask();
+        if (next) {
+          const prev = sunMask;
+          sunMask = next;
+          if (terrainShaderRef?.uniforms?.sunMask) terrainShaderRef.uniforms.sunMask.value = next;
+          prev?.dispose?.();
+        }
+      }
+      lastSunBakeMs = performance.now();
+    }
+    if (terrainShaderRef?.uniforms?.sunMaskOn) {
+      terrainShaderRef.uniforms.sunMaskOn.value = isGaleSite() && sunMask ? 1 : 0;
+    }
+    updateSunButton();
+  }
+
+  const btnSun = document.getElementById("hud-sun-btn");
+  function updateSunButton() {
+    if (!btnSun) return;
+    const tr = isTrLang();
+    const t = formatHoursHM(sunState.ltstHours);
+    btnSun.textContent =
+      sunMode === "local" ? (tr ? `Güneş: yerel ${t}` : `Sun: local ${t}`) : tr ? `Güneş: gündüz ${t}` : `Sun: day ${t}`;
+    btnSun.title =
+      sunMode === "local"
+        ? "Real local true solar time at this site (Mars24). Click for fixed 15:00 daylight."
+        : "Fixed 15:00 local solar time. Click for the real local time at this site.";
+  }
+  function setSunMode(mode) {
+    sunMode = mode === "local" ? "local" : "day";
+    refreshSun({ rebake: true });
+    const tr = isTrLang();
+    const lt = formatHoursHM(sunState.ltstHours);
+    const night = sunState.elevationRad < 0;
+    showWrapNotice(
+      sunMode === "local"
+        ? tr
+          ? `GERÇEK YEREL GÜNEŞ SAATİ ${lt}${night ? " · GECE" : ""}`
+          : `REAL LOCAL SOLAR TIME ${lt}${night ? " · NIGHT SIDE" : ""}`
+        : tr
+          ? `SABİT GÜNDÜZ IŞIĞI ${lt}`
+          : `FIXED DAYLIGHT ${lt}`
+    );
+  }
+  btnSun?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    setSunMode(sunMode === "local" ? "day" : "local");
+  });
+  updateSunButton();
+
+  /** Swap the active terrain site (Gale HiRISE tile, a rover site, or an arbitrary orbit landing). */
+  function switchSite(spec) {
+    if (!spec || spec.id === activeSiteId) return false;
+    activeSiteRover = spec;
+    activeSiteId = spec.id;
+    historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
+    const gale = isGaleSite();
+    galeStopsGroup.visible = gale;
+    fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
+    galeVista.visible = Boolean(devCfg.superGraphics) && gale;
+    const nextMain = buildTerrainGeometry(fullSeg);
+    const nextCopy = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
+    terrainMesh.geometry = nextMain;
+    for (const child of endless.children) {
+      if (child.isMesh) {
+        child.geometry = child === endless.userData.centre ? nextMain : nextCopy;
+      }
+    }
+    terrainGeom.dispose();
+    copyGeom.dispose();
+    terrainGeom = nextMain;
+    copyGeom = nextCopy;
+
+    if (gale) {
+      terrainMat.color.setHex(0xffffff);
+      HORIZON.setRGB(0.62, 0.43, 0.3);
+      scene.fog.color.copy(HORIZON);
+    } else {
+      const pal = spec.terrainProfile?.palette;
+      if (pal?.dust) {
+        terrainMat.color.setRGB(
+          Math.min(1, pal.dust[0] / 155),
+          Math.min(1, pal.dust[1] / 100),
+          Math.min(1, pal.dust[2] / 72)
+        );
+      }
+      if (pal?.skyHorizon) {
+        HORIZON.setRGB(pal.skyHorizon[0], pal.skyHorizon[1], pal.skyHorizon[2]);
+        scene.fog.color.copy(HORIZON);
+      }
+    }
+    // The five NASA rovers stand near you at their own sites, at Gale, and near custom landings
+    // within 150 km of a rover site; far from any of them the area is empty.
+    const showRovers = !spec.isCustomSite || Boolean(spec.nearRoverId);
+    if (showRovers) reScatterHistoricRovers(0, 0);
+    else historicRovers.clearAll();
+    if (fleetBtnEl) fleetBtnEl.textContent = showRovers ? `Rovers: ${spec.name} (5)` : "Rovers (5)";
+
+    sunSite.lat = spec.lat;
+    sunSite.lon = spec.lon;
+    refreshSun({ rebake: true });
+    refreshRtHeightfield();
+    return true;
+  }
+
+  /**
+   * Put the walker at any lat/lon on Mars. Inside the Gale HiRISE tile this is a precise teleport onto the
+   * real DTM; anywhere else the site switches to seeded procedural relief centred on that point.
+   */
+  function visitLocation(lon, lat, { keepYaw = true, sun = null } = {}) {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    if (sun === "local" || sun === "day") sunMode = sun;
+    if (drivingRover) {
+      drivingRover = false;
+      resetRoverMotionState();
+      chaseCamInit = false;
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = suitRig != null;
+    }
+    if (insideGaleTile(lon, lat)) {
+      const changed = switchSite(getHistoricRoverById("curiosity"));
+      if (!changed) {
+        sunSite.lat = lat;
+        sunSite.lon = lon;
+        refreshSun({ rebake: true });
+      }
+      teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw });
+    } else {
+      const spec = makeCustomSiteSpec(lon, lat);
+      // Force a rebuild even when landing twice on the same rounded point.
+      if (spec.id === activeSiteId) activeSiteId = null;
+      switchSite(spec);
+      teleportToLocal(0, 0, { keepYaw: true });
+    }
+    renderHudFleetPanel();
+    const tr = isTrLang();
+    const lt = formatHoursHM(sunState.ltstHours);
+    const where = isGaleSite() ? "GALE · HiRISE DTM" : tr ? "PROSEDÜREL ARAZİ" : "PROCEDURAL RELIEF";
+    showWrapNotice(
+      `${formatLatLonShort(lat, lon)} · ${where} · LTST ${lt}${sunState.elevationRad < 0 ? (tr ? " · GECE" : " · NIGHT") : ""}`
+    );
+  }
+
+  function formatLatLonShort(lat, lon) {
+    return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? "S" : "N"} ${(((lon % 360) + 360) % 360).toFixed(2)}°E`;
+  }
+
+  function visitRoverSite(roverId, { approachRover = true, switchTerrain = false } = {}) {
+    const spec = getHistoricRoverById(roverId) || getHistoricRoverById("curiosity");
+    if (!spec) return;
+    if (switchTerrain && spec.id !== activeSiteId) {
+      switchSite(spec);
+    } else if (!activeSiteRover?.isCustomSite) {
+      historicRovers.setFocusId(spec.id);
+    }
+
+    let entry = historicRovers.getEntry(spec.id);
+    if (!entry) {
+      reScatterHistoricRovers(freePos.x, freePos.z);
+      entry = historicRovers.getEntry(spec.id);
+    }
+    const rx = entry?.group?.position?.x ?? 0;
+    const rz = entry?.group?.position?.z ?? 0;
+    const rYaw = entry?.group?.rotation?.y ?? -0.35;
+
+    if (approachRover) {
+      if (drivingRover) {
+        drivingRover = false;
+        resetRoverMotionState();
+        chaseCamInit = false;
+        syncDrivingCameraVisualState(false);
+        if (self?.group) self.group.visible = suitRig != null;
+      }
+      if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
+      const standDist = spec.lengthM < 1 ? 2.6 : 5.4;
+      const standX = wrapSceneCoord(rx - Math.sin(rYaw) * standDist * 0.55 - 1.6, worldW * 2).val;
+      const standZ = wrapSceneCoord(rz - Math.cos(rYaw) * standDist, worldH * 2).val;
+      teleportToLocal(standX, standZ, { keepYaw: true });
+      autoYaw = 0;
+      userYaw = Math.atan2(-(rx - standX), -(rz - standZ));
+      pitch = -0.09;
+
+      if (devCfg.experimentalRover && rover.group.visible) {
+        rover.spawnBeside(standX, standZ, userYaw + Math.PI * 0.5, sampleElevSceneY);
+        roverDynState.yaw = rover.group.rotation.y;
+      }
+    }
+
+    if (fleetBtnEl) fleetBtnEl.textContent = `Rovers: ${spec.name} (5)`;
+    renderHudFleetPanel();
+    const tr = isTrLang();
+    showWrapNotice(
+      tr
+        ? `${spec.siteShortName} · ${spec.name.toUpperCase()} (${spec.mission}) — BİLGİ İÇİN TIKLA`
+        : `${spec.siteShortName} · ${spec.name.toUpperCase()} (${spec.mission}) — CLICK ROVER FOR INFO`
+    );
+  }
+
+  onVisitRoverSite((detail) => {
+    if (detail?.roverId) visitRoverSite(detail.roverId, { approachRover: true, switchTerrain: true });
+  });
+  if (fleetBtnEl) fleetBtnEl.textContent = `Rovers (5)`;
+  renderHudFleetPanel();
 
   let goldVisor = 0;
   let optZoom = 1;
+  let arrival = null; // { t0, reduced } while the orbit arrival drop plays
   let nextPovStop = null;
+
+  function syncOpticsOverlayUi() {
+    const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
+    const goldOn = goldVisor > 0.5;
+    if (visorOverlay) {
+      visorOverlay.classList.toggle("gold-deployed", goldOn);
+      visorOverlay.classList.toggle("zoom-active", optZoom > 1);
+    }
+    if (btnGold) {
+      btnGold.textContent = goldOn ? "Gold: ON (G)" : "Gold (G)";
+      btnGold.classList.toggle("is-gold", goldOn);
+    }
+    if (btnLamp) {
+      btnLamp.textContent = evaLampOn ? "Flashlight: ON (F)" : "Flashlight (F)";
+      btnLamp.classList.toggle("is-active", evaLampOn);
+    }
+    if (optGoldPill) {
+      optGoldPill.textContent = goldOn ? "VISOR: GOLD" : "VISOR: CLR";
+      optGoldPill.classList.toggle("gold", goldOn);
+    }
+    if (optLampPill) {
+      optLampPill.textContent = evaLampOn ? "LIGHT: ON" : "LIGHT: OFF";
+      optLampPill.classList.toggle("active", evaLampOn);
+    }
+    if (optZoomPill) {
+      optZoomPill.textContent = `MAG: ${optZoom}×`;
+      optZoomPill.classList.toggle("active", optZoom > 1);
+    }
+  }
+
+  function toggleGoldVisor() {
+    goldVisor = goldVisor > 0.5 ? 0 : 1;
+    syncOpticsOverlayUi();
+  }
+
+  function toggleHelmetLamp() {
+    evaLampOn = !evaLampOn;
+    syncOpticsOverlayUi();
+  }
+
+  function cycleOpticalZoom() {
+    optZoom = optZoom === 1 ? 3 : optZoom === 3 ? 8 : 1;
+    const reticle = document.getElementById("hud-zoom-reticle");
+    const readout = document.getElementById("hud-zoom-readout");
+    if (reticle) reticle.hidden = optZoom === 1;
+    if (readout) readout.textContent = `${optZoom}×`;
+    syncOpticsOverlayUi();
+  }
+
+  btnGold?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    toggleGoldVisor();
+  });
+  btnLamp?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    toggleHelmetLamp();
+  });
+  syncOpticsOverlayUi();
 
   window.addEventListener("keydown", (e) => {
     if (!hudView.classList.contains("active")) return;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
     const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
+    const crewOpen = document.getElementById("crew-drawer")?.classList.contains("open");
+    const escMenuOpen = document.getElementById("esc-menu")?.classList.contains("open");
     const menuOpen = !document.getElementById("start-screen")?.classList.contains("hidden");
-    if (modalOpen || menuOpen) return;
+    if (modalOpen || crewOpen || escMenuOpen || menuOpen) return;
 
     const k = e.key.toLowerCase();
-    if (k === "m" && !e.repeat) {
-      e.preventDefault();
-      setMapOpen(!isMapOpen());
+    if (k === "5" && !e.repeat) {
+      if (fleetPanelEl) {
+        e.preventDefault();
+        releasePointerLock();
+        const nextOpen = !fleetPanelEl.classList.contains("open");
+        if (nextOpen) renderHudFleetPanel();
+        fleetPanelEl.classList.toggle("open", nextOpen);
+      }
       return;
     }
-    if (e.key === "Escape" && isMapOpen()) {
+    if ((k === "m" || k === "o") && !e.repeat) {
       e.preventDefault();
-      e.stopImmediatePropagation();
-      setMapOpen(false);
+      releasePointerLock();
+      onOpenOrbit?.();
       return;
     }
-    if (isMapOpen()) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopImmediatePropagation?.();
+      keys.clear();
+      if (fleetPanelEl?.classList.contains("open")) {
+        fleetPanelEl.classList.remove("open");
+        return;
+      }
+      releasePointerLock();
+      openPauseMenu?.();
+      return;
+    }
 
     if (k === "g" && !e.repeat) {
-      goldVisor = goldVisor > 0.5 ? 0 : 1;
+      toggleGoldVisor();
+      return;
+    }
+    if (k === "f" && !e.repeat) {
+      toggleHelmetLamp();
       return;
     }
     if (k === "z" && !e.repeat) {
-      optZoom = optZoom === 1 ? 3 : optZoom === 3 ? 8 : 1;
-      const reticle = document.getElementById("hud-zoom-reticle");
-      const readout = document.getElementById("hud-zoom-readout");
-      if (reticle) reticle.hidden = optZoom === 1;
-      if (readout) readout.textContent = `${optZoom}×`;
+      cycleOpticalZoom();
+      return;
+    }
+    if (k === "r" && !e.repeat) {
+      const nextCfg = saveDevSettings({ rayTracing: !devCfg.rayTracing });
+      applyDevSettings(nextCfg);
+      showWrapNotice(
+        isTrLang()
+          ? `RAY TRACING: ${nextCfg.rayTracing ? "AÇIK (GPU YOĞUN)" : "KAPALI"}`
+          : `RAY TRACING: ${nextCfg.rayTracing ? "ON (HEAVY GPU)" : "OFF"}`
+      );
+      return;
+    }
+
+    if (k === "e" && !e.repeat) {
+      const tr = isTrLang();
+      if (drivingRover && devCfg.experimentalRover && rover.group.visible) {
+        drivingRover = false;
+        resetRoverMotionState();
+        chaseCamInit = false;
+        pitch = prevFirstPersonPitch;
+        const exitPt = computeSpawnBesideOffset(
+          rover.group.position.x,
+          rover.group.position.z,
+          rover.group.rotation.y,
+          -2.75,
+          0.0
+        );
+        let wx = wrapSceneCoord(exitPt.x, worldW * 2).val;
+        let wz = wrapSceneCoord(exitPt.z, worldH * 2).val;
+        const wy = sampleElevSceneY(wx, wz);
+        const outCol = rover.resolveCollision(wx, wz, PARTNER_COLLISION_R + 0.08, wy);
+        if (outCol.hit) {
+          wx = wrapSceneCoord(outCol.x, worldW * 2).val;
+          wz = wrapSceneCoord(outCol.z, worldH * 2).val;
+        }
+        snapPhys(wx, wz);
+        syncDrivingCameraVisualState(false);
+        if (self?.group) self.group.visible = suitRig != null;
+        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E)" : "EXITED MARS ROVER (PRESS E TO BOARD)");
+        return;
+      }
+
+      const targetRover =
+        hoveredRoverSpec ||
+        pickHistoricRover(
+          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null,
+          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
+        );
+      if (targetRover) {
+        openRoverInfoSafe(targetRover, { toggleKey: "e" });
+        return;
+      }
+
+      if (devCfg.experimentalRover && rover.group.visible) {
+        const dist = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
+        if (dist <= 5.4) {
+          drivingRover = true;
+          resetRoverMotionState();
+          prevFirstPersonPitch = pitch;
+          pitch = -0.25;
+          autoYaw = 0;
+          userYaw = rover.group.rotation.y;
+          roverDynState.yaw = rover.group.rotation.y;
+          chaseCamInit = false;
+          syncDrivingCameraVisualState(true);
+          if (self?.group) self.group.visible = false;
+          showWrapNotice(
+            tr
+              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN"
+              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT"
+          );
+          return;
+        }
+      }
+
+      let nearRover = null;
+      let bestRoverDist = 7.0;
+      for (const entry of historicRovers.getAllEntries()) {
+        if (!entry?.group || !entry?.spec) continue;
+        const dH = Math.hypot(freePos.x - entry.group.position.x, freePos.z - entry.group.position.z);
+        if (dH < bestRoverDist) {
+          bestRoverDist = dH;
+          nearRover = entry.spec;
+        }
+      }
+      if (nearRover) {
+        openRoverInfoSafe(nearRover, { toggleKey: "e" });
+      }
       return;
     }
 
@@ -2333,26 +2829,44 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (k === "p") {
       dropLocalPing("EVA Waypoint");
     }
-    if (k === " ") {
+    if (k === " " && drivingRover) {
       e.preventDefault();
-      if (phys.grounded) phys.jumpQueued = true;
+    }
+    if (k === " " && !drivingRover) {
+      e.preventDefault();
+      if (devCfg.realisticPhysics) {
+        if (phys.grounded) phys.jumpQueued = true;
+      } else if (phys.grounded) {
+        phys.vy = JUMP_SPEED_MS;
+        phys.grounded = false;
+        player.vy = JUMP_SPEED_MS;
+        player.grounded = false;
+      }
     }
   });
 
   // Controller buttons in the 3D view (layout and rebinding: shared/gamepad.js + setup screen).
-  // Menus, dialogs and the map are handled in app.js / the map layer.
+  // Menus, dialogs and the setup screen are handled in app.js.
+  const padBlocked = () =>
+    document.getElementById("pad-setup")?.classList.contains("open") ||
+    !document.getElementById("start-screen")?.classList.contains("hidden") ||
+    hasOpenModalOverlay();
   gamepad.onPress(({ actions }) => {
-    if (!hudView.classList.contains("active")) return;
-    if (document.getElementById("pad-setup")?.classList.contains("open")) return;
-    if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
-    if (document.getElementById("modal-backdrop")?.classList.contains("open")) return;
-    if (isMapOpen()) return;
+    if (!isHudActive() || padBlocked() || drivingRover) return;
     for (const a of actions) {
       if (a === "jump") {
-        if (phys.grounded) phys.jumpQueued = true;
+        if (devCfg.realisticPhysics) {
+          if (phys.grounded) phys.jumpQueued = true;
+        } else if (phys.grounded) {
+          phys.vy = JUMP_SPEED_MS;
+          phys.grounded = false;
+          player.vy = JUMP_SPEED_MS;
+          player.grounded = false;
+        }
       } else if (a === "pin") dropLocalPing("Landmark");
       else if (a === "texture") document.getElementById("hud-tex")?.click();
       else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
+      else if (a === "map") document.getElementById("hud-orbit-btn")?.click();
     }
   });
 
@@ -2368,7 +2882,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   const clockEl = document.getElementById("hud-clock");
   function updateHudReadouts(sM, lon, lat, overrideSlopeDeg = null) {
-    const frac = totalDist > 0 ? sM / totalDist : 0;
     const rem = Math.max(0, totalDist - sM);
 
     const prof = activeRoute?.profile || [];
@@ -2383,74 +2896,165 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const slopeClass = classifySlope(slopeDeg, 20);
     if (viewLabelEl && Number.isFinite(lat) && Number.isFinite(lon)) {
       const latHem = lat < 0 ? "S" : "N";
-      viewLabelEl.textContent = `GALE CRATER · MOUNT SHARP · ${Math.abs(lat).toFixed(4)}°${latHem} ${lon.toFixed(4)}°E`;
+      const lonE = ((lon % 360) + 360) % 360;
+      const lonTxt = lon >= 0 ? `${lon.toFixed(4)}°E` : `${lonE.toFixed(2)}°E (${Math.abs(lon).toFixed(2)}°W)`;
+      if (isGaleSite()) {
+        viewLabelEl.textContent = `GALE CRATER · MOUNT SHARP · ${Math.abs(lat).toFixed(4)}°${latHem} ${lonTxt}`;
+      } else if (activeSiteRover.isCustomSite) {
+        viewLabelEl.textContent = `${activeSiteRover.siteShortName} · ${Math.abs(lat).toFixed(3)}°${latHem} ${lonTxt} · PROCEDURAL RELIEF`;
+      } else {
+        viewLabelEl.textContent = `${activeSiteRover.siteShortName} · ${activeSiteRover.name.toUpperCase()} · ${Math.abs(lat).toFixed(2)}°${latHem} ${lonTxt} · PROCEDURAL RELIEF`;
+      }
     }
 
-    const { stop: nextStop, distanceM: nextStopDist, mode: nextMode } = resolveNextStopAlongRoute(
-      activeRoute,
-      stops,
-      sM,
-      [lon, lat]
-    );
+    // The EVA route and science stops exist only on the Gale HiRISE tile.
+    const onRoute = isGaleSite();
+    const { stop: nextStop, distanceM: nextStopDist, mode: nextMode } = onRoute
+      ? resolveNextStopAlongRoute(activeRoute, stops, sM, [lon, lat])
+      : { stop: null, distanceM: Infinity, mode: "none" };
 
-    const o2Pct = Math.max(0, 100 * (1 - frac)); // illustrative linear placeholder
+    const setText = (id, txt) => {
+      const el = document.getElementById(id);
+      if (el && el.textContent !== txt) el.textContent = txt;
+    };
 
-    document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    const stopDistLabel = nextMode === "leg" ? "next stop" : "nearest stop";
-    document.getElementById("hud-dist-sub").textContent = `remaining ${rem.toFixed(1)} m · ${stopDistLabel} ${
-      nextStopDist < Infinity ? nextStopDist.toFixed(0) + " m" : "—"
-    }`;
-    document.getElementById("hud-slope").textContent = `${Number(slopeDeg).toFixed(1)}°`;
+    if (onRoute) {
+      setText("hud-dist", `${sM.toFixed(1)} m`);
+      const stopDistLabel = nextMode === "leg" ? "next stop" : "nearest stop";
+      setText(
+        "hud-dist-sub",
+        `remaining ${rem.toFixed(1)} m · ${stopDistLabel} ${nextStopDist < Infinity ? nextStopDist.toFixed(0) + " m" : "—"}`
+      );
+    } else {
+      setText("hud-dist", "OFF-ROUTE");
+      setText("hud-dist-sub", `EVA route is at Gale · here: ${activeSiteRover.siteShortName}`);
+    }
+    setText("hud-slope", `${Number(slopeDeg).toFixed(1)}°`);
     const badge = document.getElementById("hud-slope-badge");
     if (badge) {
       badge.textContent = slopeClass.id;
       badge.className = `slope-badge slope-${slopeClass.id}`;
     }
-    document.getElementById("hud-next-stop").textContent = nextStop?.properties?.name || "—";
-    document.getElementById("hud-next-kind").textContent = nextStop?.properties?.kind || "—";
-    document.getElementById("hud-o2").textContent = `${o2Pct.toFixed(1)}%`;
-    const o2Fill = document.getElementById("hud-o2-fill");
-    if (o2Fill) o2Fill.style.width = `${o2Pct.toFixed(1)}%`;
+    setText("hud-next-stop", nextStop?.properties?.name || "—");
+    setText("hud-next-kind", nextStop?.properties?.kind || (onRoute ? "—" : "no science stops at this site"));
 
     if (clockEl) {
       const t = Math.floor(sM / WALK_SPEED_MS);
       const hh = String(Math.floor(t / 3600)).padStart(2, "0");
       const mm = String(Math.floor((t % 3600) / 60)).padStart(2, "0");
       const ss = String(t % 60).padStart(2, "0");
-      clockEl.textContent = `LTST 15:00 · T+${hh}:${mm}:${ss}  (WALK-TIME PLACEHOLDER)`;
+      const ltst = formatHoursHM(sunState.ltstHours);
+      const mode = sunMode === "local" ? "LOCAL" : "FIXED DAY";
+      const txt = `LTST ${ltst} (${mode}) · Ls ${sunState.lsDeg.toFixed(0)}° · T+${hh}:${mm}:${ss}  (WALK-TIME PLACEHOLDER)`;
+      if (clockEl.textContent !== txt) clockEl.textContent = txt;
     }
-    nextPovStop = nextStop;
+    if (nextStop) nextPovStop = nextStop;
   }
 
-  let devCfg = loadDevSettings();
   let renderScale = 1;
   let frameAvg = 16;
   let lastScaleChange = 0;
 
+  function syncVisorSafeInsets(w, h, bezelScale) {
+    const host = hudView || document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
+    if (!host) return;
+    const width = Math.max(1, w || window.innerWidth);
+    const height = Math.max(1, h || window.innerHeight);
+    const b = Math.max(0, Math.min(1.5, bezelScale || 0));
+    if (b <= 0.001) {
+      host.style.setProperty("--visor-pad-top", "14px");
+      host.style.setProperty("--visor-pad-bottom", "14px");
+      host.style.setProperty("--visor-pad-x", "28px");
+      host.style.setProperty("--visor-compass-lift", "0px");
+      return;
+    }
+    const bNorm = b <= 0.2 ? b / 0.2 : 1.0 + (b - 0.2) * 0.65;
+    const bY = Math.min(0.09, 0.012 * bNorm);
+    const bCornerY = Math.min(0.14, 0.038 * bNorm);
+    const bX = Math.min(0.08, 0.015 * bNorm);
+    const bCornerX = Math.min(0.12, 0.034 * bNorm);
+    const cr = 0.068 * Math.min(1.0, bNorm);
+    const aspect = width / height;
+
+    const padXPct = Math.min(0.16, bCornerX + 0.016);
+    const qx = Math.max(0, 1 - 2 * padXPct);
+    const yHalf = Math.max(0.22, 1.0 - 2.0 * (bY + (bCornerY - bY) * Math.pow(Math.max(qx, 1e-4), 1.85)));
+    const xHalf = Math.max(0.32, 1.0 - 2.0 * (bX + (bCornerX - bX) * Math.pow(Math.max(yHalf, 1e-4), 1.85)));
+    const hx = xHalf * aspect;
+    const dx = Math.max(0, qx * aspect - Math.max(0, hx - cr));
+    const cornerDropY = cr - Math.sqrt(Math.max(0, cr * cr - Math.min(cr, dx) ** 2));
+    const clearY = Math.max(0.1, yHalf - cornerDropY);
+    const padYPct = Math.min(0.18, (1.0 - clearY) * 0.5 + 0.014);
+
+    const padX = Math.max(30, Math.round(width * padXPct));
+    const padY = Math.max(20, Math.round(height * padYPct));
+    const centerClearY = Math.round(height * (bY + 0.012));
+    const compassLift = Math.max(0, Math.min(14, padY - centerClearY));
+
+    host.style.setProperty("--visor-pad-top", `${padY}px`);
+    host.style.setProperty("--visor-pad-bottom", `${padY}px`);
+    host.style.setProperty("--visor-pad-x", `${padX}px`);
+    host.style.setProperty("--visor-compass-lift", `${compassLift}px`);
+  }
+
   const onResize = () => {
     const w = wrap.clientWidth || window.innerWidth;
-    const h = wrap.clientHeight || window.innerHeight - 44;
+    const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
+    const h = wrap.clientHeight || window.innerHeight - topOff;
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     const pr = renderer.getPixelRatio() * renderScale;
     rt.setSize(Math.max(1, Math.floor(w * pr)), Math.max(1, Math.floor(h * pr)));
     lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
+    const activeScale = devCfg.frameEffect ? Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2)) : 0;
+    syncVisorSafeInsets(w, h, activeScale);
   };
+
+  function syncDrivingCameraVisualState(isDriving3p) {
+    const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
+    if (visorOverlay) {
+      visorOverlay.classList.toggle("driving-3p", Boolean(isDriving3p));
+    }
+    const w = wrap.clientWidth || window.innerWidth;
+    const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
+    const h = wrap.clientHeight || window.innerHeight - topOff;
+    if (!devCfg.frameEffect) {
+      lensMat.uniforms.uFrameZoom.value = 1.0;
+      lensMat.uniforms.uBezelScale.value = 0.0;
+      lensMat.uniforms.uDistort.value = 0.0;
+      lensMat.uniforms.uAberration.value = 0.0;
+      lensMat.uniforms.uVignette.value = 0.0;
+      syncVisorSafeInsets(w, h, 0);
+      return;
+    }
+    const strength = Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2));
+    const lensAmt = Math.max(0.45, Math.min(1.5, 0.35 + strength * 0.65));
+    lensMat.uniforms.uFrameZoom.value = 1.0;
+    lensMat.uniforms.uBezelScale.value = strength;
+    syncVisorSafeInsets(w, h, strength);
+    if (isDriving3p) {
+      lensMat.uniforms.uDistort.value = 0.04 * lensAmt;
+      lensMat.uniforms.uAberration.value = 0.0006 * lensAmt;
+      lensMat.uniforms.uVignette.value = 0.45 * lensAmt;
+    } else {
+      lensMat.uniforms.uDistort.value = 0.11 * lensAmt;
+      lensMat.uniforms.uAberration.value = 0.0012 * lensAmt;
+      lensMat.uniforms.uVignette.value = 0.68 * lensAmt;
+    }
+  }
 
   function applyDevSettings(cfg) {
     devCfg = cfg;
-    const visorOverlay = document.querySelector(".visor-overlay");
+    const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
     if (visorOverlay) {
       visorOverlay.classList.toggle("no-frame", !cfg.frameEffect);
       visorOverlay.classList.toggle("clean-hud", Boolean(cfg.cleanHud));
+      visorOverlay.classList.toggle("driving-3p", Boolean(drivingRover));
     }
 
+    syncDrivingCameraVisualState(drivingRover);
     const strength = cfg.frameEffect ? cfg.frameStrength : 0.35;
-    lensMat.uniforms.uFrameZoom.value = 1.0 - 0.04 * Math.min(1, strength);
-    lensMat.uniforms.uDistort.value = 0.09 * strength;
-    lensMat.uniforms.uAberration.value = 0.0035 * strength;
-    lensMat.uniforms.uVignette.value = 0.85 * Math.max(0.45, strength);
     lensMat.uniforms.uGrain.value = (cfg.superGraphics ? 0.008 : 0.014) * Math.max(0.35, strength);
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uOptZoom.value = optZoom;
@@ -2461,17 +3065,34 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
 
     const wantSuper = Boolean(cfg.superGraphics);
+    const wantRt = Boolean(cfg.rayTracing);
     const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : 1.25);
     renderer.setPixelRatio(targetPr);
     renderScale = wantSuper ? 1.25 : 1.0;
 
-    const wantSamples = wantSuper ? 4 : 2;
-    if (rtSamples !== wantSamples) {
+    // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
+    // we switch to samples: 0 + DepthTexture (paired with FXAA + SSR/RTAO in LENS_FRAG).
+    const wantSamples = wantRt ? 0 : wantSuper ? 4 : 2;
+    if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
+      rtHasDepth = wantRt;
+      rt.depthTexture?.dispose?.();
       rt.dispose();
-      rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
+      if (wantRt) {
+        const depthTex = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+        rt = new THREE.WebGLRenderTarget(1, 1, {
+          type: THREE.HalfFloatType,
+          samples: 0,
+          depthTexture: depthTex,
+        });
+        lensMat.uniforms.tDepth.value = depthTex;
+      } else {
+        rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
+        lensMat.uniforms.tDepth.value = dummyDepthTex;
+      }
       lensMat.uniforms.tDiffuse.value = rt.texture;
     }
+    rtUniforms.uRtEnabled.value = wantRt ? 1 : 0;
 
     const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
     const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
@@ -2493,14 +3114,32 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       renderer.shadowMap.needsUpdate = true;
     }
 
-    terrainMat.normalScale.set(wantSuper ? 0.95 : 0.55, wantSuper ? 0.95 : 0.55);
+    const wantRealTex = Boolean(cfg.realisticTextures);
+    const activePbr = wantRealTex ? ensureHighResPbr() : pbr;
+    if (terrainMat.normalMap !== activePbr.dustNormalTex) {
+      terrainMat.normalMap = activePbr.dustNormalTex;
+      terrainMat.needsUpdate = true;
+    }
+    if (terrainShaderRef?.uniforms) {
+      terrainShaderRef.uniforms.pbrDust.value = activePbr.dustAlbedoTex;
+      terrainShaderRef.uniforms.pbrRock.value = activePbr.rockAlbedoTex;
+    }
+    realisticTexUniform.value = wantRealTex ? 1.0 : 0.0;
+    const baseNorm = wantSuper ? 0.95 : 0.55;
+    const normScale = wantRealTex ? baseNorm + 0.45 : baseNorm;
+    terrainMat.normalScale.set(normScale, normScale);
+    terrainMat.roughness = wantRealTex ? 0.85 : 0.96;
+    applySuitRealism(wantRealTex);
+
     superDetailUniform.value = wantSuper ? 1.0 : 0.0;
-    sun.intensity = (wantSuper ? 3.95 : 3.6) * (sunState.fluxWm2 / 590);
-    hemiLight.intensity = wantSuper ? 0.28 : 0.22;
-    renderer.toneMappingExposure = wantSuper ? 1.06 : 1.0;
+    baseSunIntensity = wantSuper ? 3.95 : 3.6;
+    const upNow = sunUp(sunState.elevationRad);
+    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * upNow;
+    hemiLight.intensity = (wantSuper ? 0.28 : 0.22) * (0.32 + 0.68 * upNow);
+    renderer.toneMappingExposure = (wantSuper ? 1.06 : 1.0) * (1 + 0.55 * (1 - upNow));
     rockField.group.visible = wantSuper;
-    galeVista.visible = wantSuper;
-    fieldKits.visible = wantSuper;
+    galeVista.visible = wantSuper && isGaleSite();
+    fieldKits.visible = wantSuper && isGaleSite();
     const tau = cfg.dustTau ?? 0.5;
     sky.material.uniforms.uTau.value = tau;
     sky.material.uniforms.uSunElev.value = sunState.elevationRad;
@@ -2511,6 +3150,33 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     scene.fog.density = 0.00042 * (0.55 + tau * 0.85);
     const alertCount = alerts?.alerts?.length ?? 0;
     lensMat.uniforms.uRay.value = alertCount > 0 ? 0.0018 : 0.00035;
+
+    const vSpec = getDrivableVehicleSpec();
+    if (drvVehEl) drvVehEl.textContent = vSpec.shortLabel;
+
+    const wantRover = Boolean(cfg.experimentalRover);
+    rover.group.visible = wantRover;
+    if (wantRover && !roverWasOn) {
+      resetRoverMotionState();
+      rover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleElevSceneY);
+      roverDynState.yaw = rover.group.rotation.y;
+      nearRoverPrompted = false;
+      if (hudView.classList.contains("active")) {
+        showWrapNotice(
+          isTrLang()
+            ? `${vSpec.nameTr.toUpperCase()} YANINDA OLUŞTU (BİN: E)`
+            : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (E TO BOARD)`
+        );
+      }
+    } else if (!wantRover && drivingRover) {
+      drivingRover = false;
+      resetRoverMotionState();
+      chaseCamInit = false;
+      snapPhys(freePos.x, freePos.z);
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = suitRig != null;
+    }
+    roverWasOn = wantRover;
     onResize();
   }
 
@@ -2543,20 +3209,22 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let lastMpSendMs = 0;
   let lastSentPose = null;
   let hudTimer = 1;
+  let eyeBaseY = null;
+  let groundSpeedSm = 0;
 
-  const pushApart = (targetPos) => {
+  const pushApart = (targetPos, minRadius = PARTNER_COLLISION_R) => {
     if (!targetPos) return;
     const pdx = freePos.x - targetPos.x;
     const pdz = freePos.z - targetPos.z;
     const pdy = Math.abs((player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)) - targetPos.y);
     const pDist = Math.hypot(pdx, pdz);
-    if (pdy < ASTRONAUT_HEIGHT_M * 0.9 && pDist < PARTNER_COLLISION_R) {
+    if (pdy < ASTRONAUT_HEIGHT_M * 1.15 && pDist < minRadius) {
       if (pDist > 1e-4) {
-        freePos.x = targetPos.x + (pdx / pDist) * PARTNER_COLLISION_R;
-        freePos.z = targetPos.z + (pdz / pDist) * PARTNER_COLLISION_R;
+        freePos.x = targetPos.x + (pdx / pDist) * minRadius;
+        freePos.z = targetPos.z + (pdz / pDist) * minRadius;
       } else {
-        freePos.x -= fwd.x * PARTNER_COLLISION_R;
-        freePos.z -= fwd.z * PARTNER_COLLISION_R;
+        freePos.x -= fwd.x * minRadius;
+        freePos.z -= fwd.z * minRadius;
       }
     }
   };
@@ -2569,16 +3237,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     clockT += dt;
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
-    // controller look (right stick), off while a menu, dialog, setup screen or the map has the pad
-    const padBusy =
-      document.getElementById("pad-setup")?.classList.contains("open") ||
-      !document.getElementById("start-screen")?.classList.contains("hidden") ||
-      document.getElementById("modal-backdrop")?.classList.contains("open") ||
-      isMapOpen();
+    // controller look (right stick), off while a menu, dialog or the setup screen has the pad
+    const padBusy = padBlocked();
     const lk = padBusy ? { x: 0, y: 0 } : gamepad.look();
     if (lk.x || lk.y) {
       userYaw -= lk.x * 2.6 * dt;
-      pitch = Math.max(-1.35, Math.min(1.42, pitch + lk.y * 1.9 * dt));
+      const minP = drivingRover ? -1.08 : -1.35;
+      const maxP = drivingRover ? -0.06 : 1.42;
+      pitch = Math.max(minP, Math.min(maxP, pitch + lk.y * 1.9 * dt));
     }
 
     // progress along the route = the route point nearest to you (for the HUD only)
@@ -2588,7 +3254,258 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     let pz = player.z;
     const prevX = player.x;
     const prevZ = player.z;
-    if (freeRoam) {
+    let roverLateralSpeed = 0;
+
+    if (freeRoam && drivingRover && devCfg.experimentalRover && rover.group.visible) {
+      const rYaw0 = rover.group.rotation.y;
+      const fx0 = -Math.sin(rYaw0);
+      const fz0 = -Math.cos(rYaw0);
+      const rx0 = Math.cos(rYaw0);
+      const rz0 = -Math.sin(rYaw0);
+      let steerJerk = 0;
+
+      let dyn = null;
+      if (!isMapOpen()) {
+        const run = keys.has("shift");
+        const handbrake = keys.has(" ");
+        const throttle =
+          (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+        const steerIn =
+          (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
+        prevRoverSteer = roverSteer;
+        roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
+        steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
+
+        const gHere = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
+        const gAheadSlope = sampleElevSceneY(rover.group.position.x + fx0 * 1.4, rover.group.position.z + fz0 * 1.4);
+        const gBehindSlope = sampleElevSceneY(rover.group.position.x - fx0 * 1.4, rover.group.position.z - fz0 * 1.4);
+        const gRightSlope = sampleElevSceneY(rover.group.position.x + rx0 * 1.3, rover.group.position.z + rz0 * 1.3);
+        const gLeftSlope = sampleElevSceneY(rover.group.position.x - rx0 * 1.3, rover.group.position.z - rz0 * 1.3);
+        const slopePitch = Math.atan2(gAheadSlope - gBehindSlope, 2.8);
+        const slopeRoll = Math.atan2(gRightSlope - gLeftSlope, 2.6);
+
+        roverDynState.yaw = rYaw0;
+        dyn = stepAdvancedRoverPhysics(roverDynState, {
+          vehicleType: rover.vehicleType,
+          throttle,
+          steer: roverSteer,
+          boost: run,
+          handbrake,
+          speedMultiplier: devCfg.roverSpeedMultiplier || 1,
+          slopePitch,
+          slopeRoll,
+          airborne: roverAirState.airborne,
+          realisticPhysics: Boolean(devCfg.realisticPhysics),
+          dt,
+        });
+
+        // Sheer vertical wall guard (> 55 deg cliff crest)
+        const moveSign = Math.sign(roverDynState.forwardSpeed || throttle || 1);
+        const probeAhead = sampleElevSceneY(
+          rover.group.position.x + moveSign * fx0 * 2.2,
+          rover.group.position.z + moveSign * fz0 * 2.2
+        );
+        const slopeAheadDeg = Math.abs(Math.atan2(probeAhead - gHere, 2.2)) * (180 / Math.PI);
+        if (!roverAirState.airborne && devCfg.realisticPhysics && slopeAheadDeg > 55 && probeAhead > gHere) {
+          roverDynState.velX *= Math.exp(-dt * 8);
+          roverDynState.velZ *= Math.exp(-dt * 8);
+          roverDynState.forwardSpeed *= Math.exp(-dt * 8);
+        }
+
+        const deltaYaw = roverDynState.yaw - rYaw0;
+        rover.group.rotation.y = roverDynState.yaw;
+        userYaw += deltaYaw;
+        roverVelX = roverDynState.velX;
+        roverVelZ = roverDynState.velZ;
+        roverThrottleVel = roverDynState.forwardSpeed;
+        roverLateralSpeed = roverDynState.lateralSpeed;
+      } else {
+        roverVelX *= Math.exp(-dt * 4);
+        roverVelZ *= Math.exp(-dt * 4);
+        roverThrottleVel *= Math.exp(-dt * 4);
+        roverDynState.velX = roverVelX;
+        roverDynState.velZ = roverVelZ;
+        roverDynState.forwardSpeed = roverThrottleVel;
+      }
+
+      if (roverAirState.airborne) {
+        roverDynState.airPitchOffset = Math.max(-0.32, Math.min(0.32, roverDynState.airPitchOffset + roverDynState.airPitchVel * dt));
+        roverDynState.airRollOffset = Math.max(-0.28, Math.min(0.28, roverDynState.airRollOffset + roverDynState.airRollVel * dt));
+      } else {
+        roverDynState.airPitchOffset *= Math.exp(-dt * 12);
+        roverDynState.airRollOffset *= Math.exp(-dt * 12);
+      }
+
+      rover.group.position.x += roverVelX * dt;
+      rover.group.position.z += roverVelZ * dt;
+
+      const resolveDrivingActor = (actorPos) => {
+        if (!actorPos) return;
+        const hit = rover.resolveCollision(actorPos.x, actorPos.z, PARTNER_COLLISION_R + 0.08, actorPos.y);
+        if (hit.hit) {
+          rover.group.position.x -= hit.nx * hit.pen;
+          rover.group.position.z -= hit.nz * hit.pen;
+          roverVelX *= 0.25;
+          roverVelZ *= 0.25;
+          roverThrottleVel *= 0.25;
+          roverDynState.velX = roverVelX;
+          roverDynState.velZ = roverVelZ;
+        }
+      };
+      if (partner && partner.group.visible) resolveDrivingActor(partner.group.position);
+      for (const remote of remoteAvatars.values()) resolveDrivingActor(remote.group.position);
+      for (const histEntry of historicRovers.getAllEntries()) {
+        const hPos = histEntry.group?.position;
+        const hSpec = histEntry.spec;
+        if (!hPos || !hSpec) continue;
+        const hitHist = rover.resolveCollision(
+          hPos.x,
+          hPos.z,
+          Math.max(hSpec.halfW || 1.2, hSpec.halfL || 1.3) * 0.72,
+          hPos.y
+        );
+        if (hitHist.hit) {
+          rover.group.position.x -= hitHist.nx * hitHist.pen;
+          rover.group.position.z -= hitHist.nz * hitHist.pen;
+          roverVelX *= 0.25;
+          roverVelZ *= 0.25;
+          roverThrottleVel *= 0.25;
+          roverDynState.velX = roverVelX;
+          roverDynState.velZ = roverVelZ;
+        }
+      }
+
+      applySeamlessWorldWrap(rover.group.position.x, rover.group.position.z);
+
+      const horizSpeed = Math.hypot(roverVelX, roverVelZ);
+      const vehSpec = dyn?.spec || rover.getActiveSpec();
+      const supportGroundY = rover.sampleSupportGroundY(sampleElevSceneY);
+      let slopeClimbVy = 0;
+      let bumpImpulseVy = 0;
+      if (horizSpeed > 0.8 && !roverAirState.airborne) {
+        const dirX = roverVelX / horizSpeed;
+        const dirZ = roverVelZ / horizSpeed;
+        const hBackVel = sampleElevSceneY(rover.group.position.x - dirX * 1.15, rover.group.position.z - dirZ * 1.15);
+        const hNow = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
+        slopeClimbVy = Math.max(0, (hNow - hBackVel) / 1.15) * horizSpeed;
+        const hLeft = sampleElevSceneY(
+          rover.group.position.x + Math.cos(rover.group.rotation.y) * 1.34,
+          rover.group.position.z - Math.sin(rover.group.rotation.y) * 1.34
+        );
+        const hRight = sampleElevSceneY(
+          rover.group.position.x - Math.cos(rover.group.rotation.y) * 1.34,
+          rover.group.position.z + Math.sin(rover.group.rotation.y) * 1.34
+        );
+        const crossBump = Math.abs(hLeft - hRight);
+        if ((steerJerk > 2.6 || Math.abs(roverLateralSpeed) > 5.0) && horizSpeed > 11.5 && (crossBump > 0.24 || slopeClimbVy > 2.2)) {
+          bumpImpulseVy = Math.min(2.8, steerJerk * 0.28 + crossBump * 2.2 + Math.abs(roverLateralSpeed) * 0.22);
+        }
+      }
+      const airStep = stepRoverBallisticPhysics(roverAirState, {
+        groundY: supportGroundY,
+        slopeClimbVy,
+        bumpImpulseVy,
+        horizSpeed,
+        jumpBias: vehSpec.jumpBias || 1.0,
+        dt,
+        marsG: ROVER_FLIGHT_G,
+      });
+      if (airStep.launched && devCfg.realisticDust) {
+        for (const sideSign of [-1, 1]) {
+          const emit = rover.getWheelDustEmitPoint(sideSign);
+          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 5, 1.35, -roverVelX * 0.2, -roverVelZ * 0.2);
+        }
+      }
+      roverLandingImpact = airStep.landed ? airStep.impactSpeed : 0;
+      if (airStep.landed && devCfg.realisticDust && airStep.impactSpeed > 1.0) {
+        const rYawL = rover.group.rotation.y;
+        marsFx.emitJumpBurst(rover.group.position.x, supportGroundY, rover.group.position.z, {
+          mode: "land",
+          impactSpeed: Math.max(1.2, airStep.impactSpeed * 1.15),
+          rightX: Math.cos(rYawL),
+          rightZ: -Math.sin(rYawL),
+          fwdX: -Math.sin(rYawL),
+          fwdZ: -Math.cos(rYawL),
+          vx: roverVelX,
+          vz: roverVelZ,
+        });
+        for (const sideSign of [-1, 1]) {
+          const emit = rover.getWheelDustEmitPoint(sideSign);
+          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 6, 1.75, -roverVelX * 0.28, -roverVelZ * 0.28);
+        }
+      }
+
+      rover.update(dt, {
+        sampleElevY: sampleElevSceneY,
+        speed: roverThrottleVel,
+        steer: roverSteer,
+        clockT,
+        driving: true,
+        physicsEnabled: Boolean(devCfg.realisticPhysics),
+        airborne: roverAirState.airborne,
+        worldY: roverAirState.posY,
+        velY: roverAirState.velY,
+        lateralSpeed: roverLateralSpeed,
+        landingImpact: roverLandingImpact,
+        braking: Boolean(dyn?.braking),
+        handbrake: Boolean(!isMapOpen() && keys.has(" ")),
+        drifting: Boolean(dyn?.drifting),
+        airPitchOffset: roverDynState.airPitchOffset,
+        airRollOffset: roverDynState.airRollOffset,
+      });
+
+      if (drvSpdEl) drvSpdEl.textContent = String(Math.round(horizSpeed * 3.6));
+      if (drvGearEl) drvGearEl.textContent = String(dyn?.gear || 1);
+      if (drvRpmEl) drvRpmEl.style.width = `${Math.round((dyn?.rpmNorm || 0) * 100)}%`;
+      if (drvSlipEl) {
+        const slipPct = Math.round((dyn?.slipRatio || 0) * 100);
+        const isDrifting = Boolean(dyn?.drifting);
+        drvSlipEl.classList.toggle("drifting", isDrifting);
+        drvSlipEl.textContent = roverAirState.airborne
+          ? "AIRBORNE"
+          : isDrifting
+            ? `DRIFT ${slipPct}%`
+            : `GRIP ${Math.max(0, 100 - slipPct)}%`;
+      }
+
+      if (devCfg.realisticDust && !roverAirState.airborne && (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)) {
+        const speedMag = Math.hypot(roverThrottleVel, roverLateralSpeed) + (dyn?.drifting ? 4.5 : 0);
+        roverDustAcc += dt * Math.min(54, 10 + speedMag * 3.1);
+        const burstCount = Math.floor(roverDustAcc);
+        if (burstCount > 0) {
+          roverDustAcc -= burstCount;
+          const rYaw = rover.group.rotation.y;
+          const fx = -Math.sin(rYaw);
+          const fz = -Math.cos(rYaw);
+          const sideSign = Math.random() < 0.5 ? -1 : 1;
+          const emit = rover.getWheelDustEmitPoint(sideSign);
+          marsFx.emitBurst(
+            emit.x,
+            sampleElevSceneY(emit.x, emit.z),
+            emit.z,
+            Math.min(7, burstCount),
+            Math.min(2.15, 0.72 + speedMag * 0.13),
+            -fx * roverThrottleVel * 0.24 - Math.cos(rYaw) * roverLateralSpeed * 0.22,
+            -fz * roverThrottleVel * 0.24 + Math.sin(rYaw) * roverLateralSpeed * 0.22
+          );
+        }
+      }
+
+      phys.x = rover.group.position.x;
+      phys.z = rover.group.position.z;
+      phys.y = rover.group.position.y;
+      phys.vx = roverVelX;
+      phys.vz = roverVelZ;
+      phys.vy = roverAirState.velY;
+      phys.grounded = !roverAirState.airborne;
+      phys.crouch = 0;
+      phys.slopeDeg = computeLocalSlopeDeg(phys.x, phys.z);
+      syncPlayerFromPhys();
+      px = phys.x;
+      pz = phys.z;
+    } else if (freeRoam) {
+      const wasGrounded = player.grounded;
+      const prevVy = phys.vy;
       if (!isMapOpen()) {
         fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
         right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
@@ -2607,49 +3524,125 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
             stickPace = mag;
           }
         }
+        const padRun = !padBusy && gamepad.isDown("run");
         if (moveDir.lengthSq() > 0) moveDir.normalize();
-        const strict = document.getElementById("toggle-strict-15")?.checked;
-        stepPhysicsWorld(
-          phys,
-          dt,
-          {
-            wishX: moveDir.x,
-            wishZ: moveDir.z,
-            run: keys.has("shift") || (!padBusy && gamepad.isDown("run")),
-            speedMultiplier: (devCfg.speedMultiplier || 1) * stickPace,
-            slopeLimitDeg: strict ? 15 : 20,
-            latDeg: zToLat(phys.z),
-          },
-          heightEnv
-        );
+
+        if (devCfg.realisticPhysics) {
+          const strict = document.getElementById("toggle-strict-15")?.checked;
+          stepPhysicsWorld(
+            phys,
+            dt,
+            {
+              wishX: moveDir.x,
+              wishZ: moveDir.z,
+              run: keys.has("shift") || padRun,
+              speedMultiplier: (devCfg.speedMultiplier || 1) * stickPace,
+              slopeLimitDeg: strict ? 15 : 20,
+              latDeg: zToLat(phys.z),
+            },
+            heightEnv
+          );
+        } else {
+          const run = keys.has("shift") || padRun;
+          const here = sampleElevSceneY(phys.x, phys.z);
+          let desiredVx = 0;
+          let desiredVz = 0;
+          if (moveDir.lengthSq() > 0) {
+            const ahead = sampleElevSceneY(phys.x + moveDir.x * 1.5, phys.z + moveDir.z * 1.5);
+            const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
+            const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
+            const v =
+              (run ? RUN_SPEED_MS : WALK_SPEED_MS) *
+              (devCfg.speedMultiplier || 1) *
+              stickPace *
+              slowdown *
+              (phys.grounded ? 1 : 0.65);
+            desiredVx = moveDir.x * v;
+            desiredVz = moveDir.z * v;
+          }
+          phys.vx = desiredVx;
+          phys.vz = desiredVz;
+          phys.x += desiredVx * dt;
+          phys.z += desiredVz * dt;
+          const groundSimple = sampleElevSceneY(phys.x, phys.z);
+          if (phys.grounded && phys.y - groundSimple > 0.25) phys.grounded = false;
+          if (!phys.grounded) {
+            phys.vy -= surfaceG * dt;
+            phys.y += phys.vy * dt;
+            if (phys.y <= groundSimple) {
+              phys.impactSpeed = Math.abs(phys.vy);
+              phys.y = groundSimple;
+              phys.vy = 0;
+              phys.grounded = true;
+            }
+          } else {
+            phys.y = groundSimple;
+          }
+          phys.crouch = 0;
+          phys.slopeDeg = computeLocalSlopeDeg(phys.x, phys.z);
+        }
       }
-      const wx = wrapSceneCoord(phys.x, worldW);
-      const wz = wrapSceneCoord(phys.z, worldH);
-      if (wx.wrapped || wz.wrapped) {
-        phys.x = wx.val;
-        phys.z = wz.val;
-        phys.y = sampleElevSceneY(phys.x, phys.z);
-        phys.vy = 0;
-        phys.grounded = true;
-        justTeleportedOrWrapped = true;
+
+      const wrapRes = applySeamlessWorldWrap(phys.x, phys.z);
+      if (wrapRes.wrapped) {
         const wLon = xToLon(phys.x);
         const wLat = zToLat(phys.z);
         const nearestGeomS = closestAlongM(routeCoords, cumDist, wLon, wLat);
         alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
-        const dirs = [];
-        if (wx.crossedPosToNeg) dirs.push(isTrLang() ? "DOĞU → BATI" : "EAST → WEST");
-        else if (wx.crossedNegToPos) dirs.push(isTrLang() ? "BATI → DOĞU" : "WEST → EAST");
-        if (wz.crossedPosToNeg) dirs.push(isTrLang() ? "GÜNEY → KUZEY" : "SOUTH → NORTH");
-        else if (wz.crossedNegToPos) dirs.push(isTrLang() ? "KUZEY → GÜNEY" : "NORTH → SOUTH");
-        showWrapNotice(
-          (isTrLang() ? "HARİTA SINIRI GEÇİLDİ · KARŞI KENAR: " : "MAP BOUNDARY WRAPPED: ") +
-            dirs.join(" · ")
-        );
       }
 
       freePos.set(phys.x, phys.y, phys.z);
       if (partner && partner.group.visible) pushApart(partner.group.position);
+      if (devCfg.experimentalRover && rover.group.visible) {
+        const col = rover.resolveCollision(
+          freePos.x,
+          freePos.z,
+          PARTNER_COLLISION_R,
+          player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)
+        );
+        if (col.hit) {
+          freePos.x = col.x;
+          freePos.z = col.z;
+          const vn = phys.vx * col.nx + phys.vz * col.nz;
+          if (vn < 0) {
+            phys.vx -= col.nx * vn;
+            phys.vz -= col.nz * vn;
+          }
+        }
+        rover.update(dt, {
+          sampleElevY: sampleElevSceneY,
+          speed: 0,
+          steer: 0,
+          clockT,
+          driving: false,
+          physicsEnabled: Boolean(devCfg.realisticPhysics),
+        });
+        const distR = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
+        if (distR <= 4.6 && !nearRoverPrompted) {
+          nearRoverPrompted = true;
+          showWrapNotice(
+            isTrLang() ? "DENEYSEL MARS ARACI · BİNMEK İÇİN [E] TUŞUNA BAS" : "EXPERIMENTAL MARS ROVER · PRESS [E] TO DRIVE"
+          );
+        } else if (distR > 6.2) {
+          nearRoverPrompted = false;
+        }
+      }
       for (const remote of remoteAvatars.values()) pushApart(remote.group.position);
+      const histCol = historicRovers.resolveCollision(
+        freePos.x,
+        freePos.z,
+        PARTNER_COLLISION_R * 0.52,
+        player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)
+      );
+      if (histCol.hit) {
+        freePos.x = histCol.x;
+        freePos.z = histCol.z;
+        const vn = phys.vx * histCol.nx + phys.vz * histCol.nz;
+        if (vn < 0) {
+          phys.vx -= histCol.nx * vn;
+          phys.vz -= histCol.nz * vn;
+        }
+      }
       if (freePos.x !== phys.x || freePos.z !== phys.z) {
         phys.x = freePos.x;
         phys.z = freePos.z;
@@ -2659,6 +3652,36 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       syncPlayerFromPhys();
       px = phys.x;
       pz = phys.z;
+
+      if (devCfg.realisticDust) {
+        const jYaw = autoYaw + userYaw;
+        if (wasGrounded && !phys.grounded && phys.vy > 0.4) {
+          marsFx.emitJumpBurst(px, phys.y, pz, {
+            mode: "takeoff",
+            impactSpeed: 1.55,
+            rightX: Math.cos(jYaw),
+            rightZ: -Math.sin(jYaw),
+            fwdX: -Math.sin(jYaw),
+            fwdZ: -Math.cos(jYaw),
+            vx: phys.vx,
+            vz: phys.vz,
+          });
+        } else if (!wasGrounded && phys.grounded) {
+          const impactVy = phys.impactSpeed || Math.abs(prevVy);
+          if (impactVy > 0.6) {
+            marsFx.emitJumpBurst(px, phys.y, pz, {
+              mode: "landing",
+              impactSpeed: impactVy,
+              rightX: Math.cos(jYaw),
+              rightZ: -Math.sin(jYaw),
+              fwdX: -Math.sin(jYaw),
+              fwdZ: -Math.cos(jYaw),
+              vx: phys.vx,
+              vz: phys.vz,
+            });
+          }
+        }
+      }
     } else {
       px = lonToX(sample.lon);
       pz = latToZ(sample.lat);
@@ -2680,33 +3703,36 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       }
       player.x = px;
       player.z = pz;
+      phys.x = px;
+      phys.z = pz;
+      phys.y = player.y;
+      phys.grounded = player.grounded;
+      freePos.set(px, player.y, pz);
     }
 
     const yaw = autoYaw + userYaw;
+    const snappedThisFrame = justTeleportedOrWrapped;
     const movedXZ = Math.hypot(px - prevX, pz - prevZ);
     const mvx = px - prevX;
     const mvz = pz - prevZ;
     const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0;
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
-
-    // boot dust: kicked up on take-off, a burst on landing (scaled by impact speed)
-    if (movedXZ >= 20) dustFx.clear(); // teleport / wrap: old puffs would hang in the wrong place
-    if (movedXZ > 1e-5 && movedXZ < 20) _dustMove.set(mvx, 0, mvz).normalize();
-    else _dustMove.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-    if (fxWasGrounded !== player.grounded && movedXZ < 20) {
-      const gy = sampleElevSceneY(px, pz);
-      const n = sampleNormal(px, pz);
-      _dustPos.set(px, gy, pz);
-      _dustNrm.set(n.x, n.y, n.z);
-      if (!player.grounded) dustFx.emitTakeoff(_dustPos, _dustNrm, _dustMove);
-      else dustFx.emitLanding(_dustPos, _dustNrm, Math.max(1.6, phys.impactSpeed || 2.4), _dustMove);
+    if (snappedThisFrame) {
+      lastMoveYaw = null;
+    } else if (step > 5e-4) {
+      lastMoveYaw = Math.atan2(-mvx, -mvz);
+    } else if (Math.hypot(phys.vx, phys.vz) > 0.05) {
+      lastMoveYaw = Math.atan2(-phys.vx, -phys.vz);
     }
-    fxWasGrounded = player.grounded;
-    lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
 
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
+    if (drivingRover) {
+      self.group.visible = false;
+    } else {
+      self.group.visible = suitRig != null;
+    }
     let gaitDir = null;
     if (step > 1e-5) {
       const fx = -Math.sin(yaw);
@@ -2726,7 +3752,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     const feet = footSample(px, pz, yaw, player.y);
     const strikes = [];
-    self.update(dt, step, groundSpeed, !player.grounded, gaitDir, {
+    groundSpeedSm += (groundSpeed - groundSpeedSm) * Math.min(1, dt * 9);
+    if (groundSpeedSm < 0.03 && step === 0) groundSpeedSm = 0;
+    self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir, {
       crouch: phys.crouch,
       lean,
       brake,
@@ -2734,20 +3762,31 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       onStrike: (side) => strikes.push(side),
     });
     self.group.updateMatrixWorld(true);
-    for (const side of strikes) {
-      const bone = side === "L" ? self.bones.footL : self.bones.footR;
-      if (!bone) continue;
-      bone.getWorldPosition(footPos);
-      const gy = sampleElevSceneY(footPos.x, footPos.z);
-      const n = sampleNormal(footPos.x, footPos.z);
-      footsteps.play(side, phys.faciesId);
-      footsteps.stamp(footPos.x, gy, footPos.z, n, yaw, phys.faciesId);
-      _dustPos.set(footPos.x, gy, footPos.z);
-      _dustNrm.set(n.x, n.y, n.z);
-      dustFx.emitFootstep(_dustPos, _dustNrm, _dustMove, Math.min(1.6, 0.45 + groundSpeed / 1.6));
+    if (!drivingRover) {
+      for (const side of strikes) {
+        const bone = side === "L" ? self.bones.footL : self.bones.footR;
+        if (!bone) continue;
+        bone.getWorldPosition(footPos);
+        const gy = sampleElevSceneY(footPos.x, footPos.z);
+        const n = sampleNormal(footPos.x, footPos.z);
+        footsteps.play(side, phys.faciesId);
+        footsteps.stamp(footPos.x, gy, footPos.z, n, lastMoveYaw ?? yaw, phys.faciesId, side);
+        if (devCfg.realisticDust && groundSpeed > 0.35 && movedXZ > 1e-5) {
+          const runFast = groundSpeed > 1.9;
+          marsFx.emitBurst(
+            footPos.x,
+            gy,
+            footPos.z,
+            runFast ? 6 : 3,
+            runFast ? 1.1 : 0.72,
+            -(mvx / movedXZ) * groundSpeed * 0.18,
+            -(mvz / movedXZ) * groundSpeed * 0.18
+          );
+        }
+      }
     }
 
-    // helmet camera at the visor, with only a few millimetres of walking sway
+    // helmet camera at the visor (or 3rd-person chase cam when driving MMSEV)
     const ph = self.phase ?? 0;
     const amt = Math.min(1, self.amount ?? 0);
     fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
@@ -2755,18 +3794,88 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const swayY = Math.sin(ph * 2) * 0.004 * amt;
     const swayX = Math.sin(ph) * 0.003 * amt;
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
-    // looking down tips the head forward a little, like a real neck
-    const tip = Math.max(0, -pitch);
-    const eyeFwd = EYE_FORWARD_M + tip * 0.1;
-    camera.position.set(
-      px + fwd.x * eyeFwd + right.x * swayX,
-      player.y + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
-      pz + fwd.z * eyeFwd + right.z * swayX
-    );
-    camera.rotation.order = "YXZ";
-    camera.rotation.y = yaw + micro(0.6, 0.0007);
-    camera.rotation.x = pitch + micro(0.9, 0.0006);
-    camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
+    if (drivingRover && rover.group.visible) {
+      const rPos = rover.group.position;
+      const rYaw = rover.group.rotation.y;
+      const camDist = 6.9 + Math.min(1.6, Math.abs(roverThrottleVel) * 0.065) + (roverAirState.airborne ? 0.75 : 0);
+      const elevAng = Math.max(0.06, Math.min(1.08, -pitch));
+      const horizDist = camDist * Math.cos(elevAng);
+      const heightOff = camDist * Math.sin(elevAng);
+      const targetX = rPos.x - Math.sin(rYaw) * 0.4;
+      const targetY = rPos.y + 1.45;
+      const targetZ = rPos.z - Math.cos(rYaw) * 0.4;
+      const desiredX = targetX + Math.sin(yaw) * horizDist;
+      const desiredZ = targetZ + Math.cos(yaw) * horizDist;
+      const groundUnderCam = sampleElevSceneY(desiredX, desiredZ);
+      const desiredY = Math.max(targetY + heightOff, groundUnderCam + 0.65);
+
+      if (!chaseCamInit || snappedThisFrame) {
+        chaseCamPos.set(desiredX, desiredY, desiredZ);
+        chaseLookTarget.set(targetX, targetY, targetZ);
+        chaseCamInit = true;
+      } else {
+        const kCam = Math.min(1, dt * 11);
+        chaseCamPos.x += (desiredX - chaseCamPos.x) * kCam;
+        chaseCamPos.y += (desiredY - chaseCamPos.y) * kCam;
+        chaseCamPos.z += (desiredZ - chaseCamPos.z) * kCam;
+        const kTgt = Math.min(1, dt * 15);
+        chaseLookTarget.x += (targetX - chaseLookTarget.x) * kTgt;
+        chaseLookTarget.y += (targetY - chaseLookTarget.y) * kTgt;
+        chaseLookTarget.z += (targetZ - chaseLookTarget.z) * kTgt;
+      }
+      const shake = Math.min(0.025, Math.abs(roverThrottleVel) * 0.0022);
+      camera.position.set(chaseCamPos.x, chaseCamPos.y + Math.sin(clockT * 16) * shake, chaseCamPos.z);
+      camera.lookAt(chaseLookTarget);
+    } else {
+      const tip = Math.max(0, -pitch);
+      const eyeFwd = EYE_FORWARD_M + tip * 0.1;
+      if (eyeBaseY == null || snappedThisFrame || Math.abs(player.y - eyeBaseY) > 0.8) eyeBaseY = player.y;
+      else eyeBaseY += (player.y - eyeBaseY) * Math.min(1, dt * 14);
+      camera.position.set(
+        px + fwd.x * eyeFwd + right.x * swayX,
+        eyeBaseY + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
+        pz + fwd.z * eyeFwd + right.z * swayX
+      );
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = yaw + micro(0.6, 0.0007);
+      camera.rotation.x = pitch + micro(0.9, 0.0006);
+      camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
+    }
+
+    // Orbit-view arrival: the camera starts high above the walker looking down, then drops in two
+    // stepped beats to the visor (camera only; physics and the walker are already on the ground).
+    if (arrival) {
+      const t = (now - arrival.t0) / 1000;
+      const ease = (x) => {
+        const c = Math.max(0, Math.min(1, x));
+        return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
+      };
+      const H0 = arrival.reduced ? 0 : 240;
+      const H1 = 48;
+      let h;
+      let moving = false;
+      if (arrival.reduced) h = 0;
+      else if (t < 0.3) h = H0;
+      else if (t < 0.85) {
+        h = H0 - (H0 - H1) * ease((t - 0.3) / 0.55);
+        moving = true;
+      } else if (t < 1.15) h = H1;
+      else if (t < 1.95) {
+        h = H1 * (1 - ease((t - 1.15) / 0.8));
+        moving = true;
+      } else h = 0;
+      if (t > 2.3 || arrival.reduced) arrival = null;
+      else {
+        const look = Math.min(1, h / H1);
+        camera.rotation.order = "YXZ";
+        camera.position.y += h;
+        camera.rotation.x = camera.rotation.x * (1 - look) + -1.48 * look;
+        if (moving) {
+          camera.position.x += (Math.random() - 0.5) * 0.002 * h;
+          camera.position.z += (Math.random() - 0.5) * 0.002 * h;
+        }
+      }
+    }
 
     // Smoothly animate live multiplayer crewmates
     const lerpAlpha = Math.min(1, dt * 12);
@@ -2817,6 +3926,22 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     updateContactShadows();
 
+    // Update windblown Mars aerosol dust, kickup plumes & REMS atmospheric haze + dust optical depth
+    const atm = marsFx.update(dt, camera.position, clockT, {
+      dustEnabled: Boolean(devCfg.realisticDust),
+      weatherEnabled: Boolean(devCfg.realisticWeather),
+    });
+    const tau = devCfg.dustTau ?? 0.5;
+    const tauDim = Math.exp(-0.28 * (tau - 0.5));
+    const weatherDim = devCfg.realisticWeather ? 1.0 - atm.gustFactor * 0.14 : 1.0;
+    const tauFogScale = 0.55 + tau * 0.85;
+    if (scene.fog) {
+      scene.fog.density = atm.fogDensity * tauFogScale;
+      // Fog takes the horizon colour, dimmed through twilight to near-black at night.
+      const tw = Math.max(0, Math.min(1, (sunState.elevationRad + 0.32) / 0.44));
+      scene.fog.color.copy(HORIZON).multiplyScalar(0.025 + 0.975 * tw * tw * (3 - 2 * tw));
+    }
+
     // sun, moons and shadow box follow the walker
     const texel = (2 * shadowHalfM) / shadowMapPx;
     const groundY = sampleElevSceneY(px, pz);
@@ -2825,24 +3950,29 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     sky.position.copy(camera.position);
     skyMoons.position.copy(camera.position);
     celestial.group.position.copy(camera.position);
-    updateMoons(clockT, camera.position);
+    updateMoons(camera.position);
     footsteps.update(dt, phys.g || surfaceG);
     rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
-    dustFx.update(dt, camera, sunTransit);
     windDust.setPixelScale(renderer.domElement.height);
     windDust.update(dt, camera, devCfg.windDust === false ? 0 : 1);
-    const tauDim = Math.exp(-0.28 * ((devCfg.dustTau ?? 0.5) - 0.5));
-    sun.intensity = (devCfg.superGraphics ? 3.95 : 3.6) * (sunState.fluxWm2 / 590) * tauDim * sunTransit;
+    lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
+    const sunUpNow = sunUp(sunState.elevationRad);
+    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
+    sun.castShadow = sunUpNow > 0.01;
+    // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
+    if (now - sunStateStampMs > 30000) {
+      refreshSun({ rebake: now - lastSunBakeMs > 600000 });
+    }
 
-    // the HUD text only needs ~10 updates a second
+    // the HUD text & rover reticle inspection only need ~10 updates a second
     hudTimer += dt;
     if (hudTimer > 0.1) {
       hudTimer = 0;
       const metW = metabolicPowerW({
         eta: phys.eta,
         gMs2: phys.g || surfaceG,
-        speedMs: groundSpeed,
+        speedMs: drivingRover ? 0 : groundSpeed,
         gradePercent: phys.gradePercent,
       });
       const metEl = document.getElementById("hud-metabolic");
@@ -2873,21 +4003,66 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         }
         if (readout) readout.textContent = hit ? `${optZoom}×  ${hit.toFixed(0)} m` : `${optZoom}×`;
       }
+      if (!isMapOpen() && !hasOpenModalOverlay()) {
+        const hitSpec = pickHistoricRover(
+          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null,
+          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
+        );
+        if (hitSpec !== hoveredRoverSpec) {
+          hoveredRoverSpec = hitSpec;
+          reticleEl?.classList.toggle("target-rover", Boolean(hitSpec));
+          if (roverTargetEl) {
+            if (hitSpec) {
+              const tr = isTrLang();
+              roverTargetEl.textContent = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
+                tr ? "ETKİLEŞİM [E] / TIKLA" : "INTERACT [E] / CLICK"
+              }`;
+              roverTargetEl.classList.add("visible");
+            } else {
+              roverTargetEl.classList.remove("visible");
+            }
+          }
+        }
+      }
     }
     curvAnchor.value.set(camera.position.x, camera.position.z);
     followEndless(camera.position);
-    if (isMapOpen()) renderTacticalMap();
+
+    goldSlide += (goldVisor - goldSlide) * Math.min(1, dt * 6.0);
+    if (Math.abs(goldVisor - goldSlide) < 0.002) goldSlide = goldVisor;
+
+    camera.getWorldDirection(lookDir);
+    if (evaLampOn && !drivingRover) {
+      const autoBoost = sunState.elevationRad < 0.25 ? 1.55 : 1.0;
+      evaLamp.intensity = 28.0 * autoBoost;
+      evaLamp.position.copy(camera.position).add(new THREE.Vector3(0, 0.14, 0));
+      evaLamp.target.position.copy(camera.position).addScaledVector(lookDir, 12);
+      evaLamp.target.updateMatrixWorld();
+    } else {
+      evaLamp.intensity = 0;
+    }
+
+    const headingDeg = (((-yaw * 180) / Math.PI) % 360 + 360) % 360;
+    const pitchDeg = (pitch * 180) / Math.PI;
+    const stopCoord = nextPovStop?.geometry?.coordinates;
+    const stopBearingDeg =
+      Array.isArray(stopCoord) && stopCoord.length >= 2 ? marsBearingDeg([curLon, curLat], stopCoord) : NaN;
+    const sunBearingDeg = (((Math.atan2(sunDir.x, -sunDir.z) * 180) / Math.PI) % 360 + 360) % 360;
+    updateWaveguideOptics(headingDeg, pitchDeg, heightEnv.molaElevM(px, pz), stopBearingDeg, sunBearingDeg);
 
     adaptResolution(dt * 1000, now);
     lensMat.uniforms.uTime.value = clockT;
     lensMat.uniforms.uGold.value = goldVisor;
+    lensMat.uniforms.uGoldSlide.value = goldSlide;
     lensMat.uniforms.uOptZoom.value = optZoom;
-    camera.getWorldDirection(lookDir);
-    lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir));
-    const flicker = devCfg.frameEffect
-      ? 1.0 + Math.sin(clockT * 0.7) * 0.015 * devCfg.frameStrength + Math.sin(clockT * 13.0) * 0.006 * devCfg.frameStrength
-      : 1.0;
-    lensMat.uniforms.uExposure.value = flicker;
+    lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir)) * sunUpNow;
+    lensMat.uniforms.uExposure.value = 1.0;
+    rtUniforms.uRtTime.value = clockT;
+    rtUniforms.uRtSunDir.value.copy(sunDir);
+    if (devCfg.rayTracing) {
+      lensMat.uniforms.uRtProj.value.copy(camera.projectionMatrix);
+      lensMat.uniforms.uRtInvProj.value.copy(camera.projectionMatrixInverse);
+    }
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
@@ -2901,26 +4076,31 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       onResize();
     },
     dropLocalPing,
+    visitRoverSite,
     getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z) }),
-    /** View on the controller: open / close the 3D view's map overlay. */
-    toggleMap: () => setMapOpen(!isMapOpen()),
-    isMapOpen: () => isMapOpen(),
+    getActiveSiteId: () => activeSiteId,
     syncAlongM: (s) => {
-      alongM = Math.max(0, Math.min(totalDist, Number(s) || 0));
-      if (freeRoam && btnFreeRoam) btnFreeRoam.click();
+      // Crew route sync: move this walker onto the shared route position (the route is at Gale).
+      const target = Math.max(0, Math.min(totalDist, Number(s) || 0));
+      if (routeCoords.length < 2) return;
+      if (!isGaleSite()) switchSite(getHistoricRoverById("curiosity"));
+      const rp = routePoint(target);
+      teleportToLocal(rp.x, rp.z, { keepYaw: false });
+      alongM = target; // after the teleport, so the ±80 m route search starts from the synced point
       if (scrubber) scrubber.value = alongM.toFixed(1);
     },
-    teleportTo: (lon, lat) => {
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-      if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
-      teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: true });
+    /** Teleport to a lon/lat anywhere on Mars (HiRISE at Gale, procedural relief elsewhere). */
+    teleportTo: (lon, lat) => visitLocation(lon, lat, { keepYaw: true }),
+    visitLocation,
+    /** Camera drop from ~240 m to the visor after an Orbit-view descent. */
+    playArrivalDrop: () => {
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+      arrival = { t0: performance.now(), reduced };
     },
+    getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z), siteId: activeSiteId }),
+    setSunMode,
+    getSunMode: () => sunMode,
     cycleTex: () => setTexMode((texMode + 1) % TEX.length),
-    openRoverPov: () => {
-      const stop = nextPovStop;
-      const entry =
-        povIndex?.stops?.find((s) => s.stop_id === stop?.properties?.id) || povIndex?.stops?.[0];
-      if (entry) onOpenPov(entry);
-    },
+    openRoverPov: openNextPov,
   };
 }
