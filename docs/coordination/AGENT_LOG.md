@@ -638,3 +638,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Vendored `maplibre-gl@4.7.1` and `three@0.170.0` (`2.18 MB` total) into `web/vendor/` and updated `web/index.html` to load them locally instead of `unpkg.com` CDN. Verified `web/index.html` now has 0 external URLs so `?demo=1` runs 100% offline.
 - Commit: this commit
 - Next step: Run live browser verification at `http://localhost:8000/web/?demo=1` with DevTools Offline mode enabled.
+
+### 2026-11-14 15:59 Europe/Istanbul — SHOULD-07 / MUST-12 (app launcher scripts)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: SHOULD-07, MUST-12
+- Files changed: start.bat (new), scripts/start-app.sh (new), docs/coordination/AGENT_LOG.md
+- Why: Added one-click/one-command local launcher scripts (`start.bat` for Windows, `scripts/start-app.sh` for bash/macOS/Linux) that start `http.server` on port 8000 and open `http://localhost:8000/web/?demo=1`. Also verified the live app in `?demo=1` mode via browser preview (2D MapLibre planner + 3D three.js helmet HUD + playback, 0 console errors).
+- Commit: this commit
+- Next step: Team can double-click `start.bat` to launch the demo locally.
