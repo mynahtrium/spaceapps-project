@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { makeLocalTangentOrigin } from "../map/Geodesy.js";
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
+import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
 import { TerrainWorkerPool } from "../map/TerrainWorkerPool.js";
 import {
@@ -217,4 +218,69 @@ test("Static BUG-12 & BUG-14 regression checks on web/index.html & web/shared/da
 
   const loader = fs.readFileSync(path.join(WEB_DIR, "shared/data-loader.js"), "utf8");
   assert.match(loader, /orthoPreviewUrl:\s*demoSafe\s*\?\s*null/);
+});
+
+test("MarsPbrTextures synthesizes high-contrast offline PBR albedo + normals and shader uses logdepthbuf + albedo", () => {
+  const mockTHREE = {
+    DataTexture: class {
+      constructor(data, width, height, format) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+        this.format = format;
+      }
+    },
+    RGBAFormat: 1023,
+    RepeatWrapping: 1000,
+    LinearMipmapLinearFilter: 1008,
+    LinearFilter: 1006,
+    SRGBColorSpace: "srgb",
+  };
+  const { dustAlbedoTex, dustNormalTex, rockAlbedoTex, rockNormalTex } = createMartianPbrTextureSets(mockTHREE, 256);
+
+  for (const [label, tex] of [
+    ["dustAlbedoTex", dustAlbedoTex],
+    ["rockAlbedoTex", rockAlbedoTex],
+  ]) {
+    assert.equal(tex.width, 256);
+    assert.equal(tex.height, 256);
+    assert.equal(tex.data.length, 256 * 256 * 4);
+    let min = 255;
+    let max = 0;
+    for (let i = 0; i < tex.data.length; i += 4) {
+      for (let c = 0; c < 3; c++) {
+        const v = tex.data[i + c];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+    }
+    assert.ok(min < 100 && max > 180, `${label} must be high-contrast textured (min=${min}, max=${max})`);
+  }
+
+  for (const [label, tex] of [
+    ["dustNormalTex", dustNormalTex],
+    ["rockNormalTex", rockNormalTex],
+  ]) {
+    assert.equal(tex.data.length, 256 * 256 * 4);
+    let minX = 255;
+    let maxX = 0;
+    for (let i = 0; i < tex.data.length; i += 4) {
+      if (tex.data[i] < minX) minX = tex.data[i];
+      if (tex.data[i] > maxX) maxX = tex.data[i];
+    }
+    assert.ok(maxX - minX > 40, `${label} must vary in tangent normal X (delta=${maxX - minX})`);
+  }
+
+  const shaderSrc = fs.readFileSync(path.join(WEB_DIR, "map/MarsTerrainShader.js"), "utf8");
+  for (const token of [
+    "#include <common>",
+    "#include <logdepthbuf_pars_vertex>",
+    "#include <logdepthbuf_vertex>",
+    "#include <logdepthbuf_pars_fragment>",
+    "#include <logdepthbuf_fragment>",
+    "u_dustAlbedo",
+    "u_rockAlbedo",
+  ]) {
+    assert.equal(shaderSrc.includes(token), true, `MarsTerrainShader.js must include ${token}`);
+  }
 });

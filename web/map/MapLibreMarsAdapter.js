@@ -269,12 +269,15 @@ function renderShadedReliefTileRgba(dem, z, x, y, size = 256) {
         rgba[idx + 3] = 255;
         continue;
       }
-      // Lambertian Mars afternoon sun
-      const dot = Math.max(0.2, info.normal.x * 0.56 + info.normal.y * 0.48 + info.normal.z * -0.67);
+      // High-contrast Mars afternoon hillshade + 20m stratigraphic contour lines
+      const dot = Math.max(0.18, Math.min(1.35, info.normal.x * 0.62 + info.normal.y * 0.42 + info.normal.z * -0.66));
       const tElev = Math.max(0, Math.min(1, (info.elevM + 3850.6) / 481.3));
-      rgba[idx] = Math.min(255, Math.round((110 + tElev * 48) * dot));
-      rgba[idx + 1] = Math.min(255, Math.round((68 + tElev * 30) * dot));
-      rgba[idx + 2] = Math.min(255, Math.round((48 + tElev * 20) * dot));
+      const contourDist = Math.abs((((info.elevM % 20) + 20) % 20) - 10);
+      const contourBoost = contourDist > 9.1 ? 0.82 : 1.0;
+      const speck = (((px * 73 + py * 139) ^ (px * py)) & 7) - 3;
+      rgba[idx] = Math.min(255, Math.max(12, Math.round((128 + tElev * 64 + speck * 1.5) * dot * contourBoost)));
+      rgba[idx + 1] = Math.min(255, Math.max(10, Math.round((78 + tElev * 40 + speck) * dot * contourBoost)));
+      rgba[idx + 2] = Math.min(255, Math.max(8, Math.round((54 + tElev * 26 + speck * 0.8) * dot * contourBoost)));
       rgba[idx + 3] = 255;
     }
   }
@@ -344,7 +347,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
         },
         "onmars-ctx": {
           type: "raster",
-          tiles: ["mars-eq://onmars-ctx/{z}/{x}/{y}"],
+          tiles: ["mars-eq://trek-ctx/{z}/{x}/{y}"],
           tileSize: 256,
           maxzoom: 16,
         },
@@ -438,7 +441,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
           type: "raster",
           source: "slope-preview",
           layout: { visibility: "visible" },
-          paint: { "raster-opacity": 0.62 },
+          paint: { "raster-opacity": 0.36 },
         });
       }
 

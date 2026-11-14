@@ -1,106 +1,18 @@
 /**
- * Custom Martian PBR Terrain Shader, CC0 Procedural Micro-Detail Normal Synthesis,
- * Slope-Driven Regolith/Mudstone Blending, Reoriented Normal Mapping (`blendRNM`),
- * Martian Dust Atmospheric Scattering, and Sky Dome.
+ * Custom Martian PBR Terrain Shader (`MarsTerrainShader`),
+ * Reoriented Normal Mapping (`blendRNM`), Multi-Scale Rotated Dust/Mudstone Albedo + Normals,
+ * Martian Golden-Afternoon Sun & Dust Atmospheric Scattering, and Sky Dome.
  */
 
-function fract(x) {
-  return x - Math.floor(x);
-}
+import { createMartianPbrTextureSets } from "./MarsPbrTextures.js";
 
-function hash2(x, y) {
-  return fract(Math.sin(x * 127.1 + y * 311.7) * 43758.5453123);
-}
-
-function periodicNoise(u, v, freq) {
-  const x = u * freq;
-  const y = v * freq;
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = x - ix;
-  const fy = y - iy;
-  const sx = fx * fx * (3 - 2 * fx);
-  const sy = fy * fy * (3 - 2 * fy);
-  const wx0 = ((ix % freq) + freq) % freq;
-  const wy0 = ((iy % freq) + freq) % freq;
-  const wx1 = (wx0 + 1) % freq;
-  const wy1 = (wy0 + 1) % freq;
-
-  const a = hash2(wx0, wy0);
-  const b = hash2(wx1, wy0);
-  const c = hash2(wx0, wy1);
-  const d = hash2(wx1, wy1);
-  const top = a + (b - a) * sx;
-  const bot = c + (d - c) * sx;
-  return top + (bot - top) * sy;
-}
-
-/**
- * Generate seamless RGBA8 tangent-space normal + roughness DataTextures in memory (CC0 clean).
- * @param {typeof import('three')} THREE
- */
 export function createMartianMicroDetailTextures(THREE, size = 256) {
-  const buildNormalTex = (heightFn, strength) => {
-    const heights = new Float32Array(size * size);
-    for (let y = 0; y < size; y++) {
-      const v = y / size;
-      for (let x = 0; x < size; x++) {
-        const u = x / size;
-        heights[y * size + x] = heightFn(u, v);
-      }
-    }
-    const rgba = new Uint8Array(size * size * 4);
-    for (let y = 0; y < size; y++) {
-      const ym = (y - 1 + size) % size;
-      const yp = (y + 1) % size;
-      for (let x = 0; x < size; x++) {
-        const xm = (x - 1 + size) % size;
-        const xp = (x + 1) % size;
-        const hL = heights[y * size + xm];
-        const hR = heights[y * size + xp];
-        const hD = heights[ym * size + x];
-        const hU = heights[yp * size + x];
-        const dx = (hR - hL) * strength;
-        const dy = (hU - hD) * strength;
-        const inv = 1 / Math.hypot(-dx, -dy, 1);
-        const h = heights[y * size + x];
-        const idx = (y * size + x) * 4;
-        rgba[idx] = Math.round(((-dx * inv) * 0.5 + 0.5) * 255);
-        rgba[idx + 1] = Math.round(((-dy * inv) * 0.5 + 0.5) * 255);
-        rgba[idx + 2] = Math.round(((1 * inv) * 0.5 + 0.5) * 255);
-        rgba[idx + 3] = Math.max(40, Math.min(245, Math.round(170 - h * 50)));
-      }
-    }
-    const tex = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = true;
-    tex.needsUpdate = true;
-    return tex;
-  };
-
-  // Aeolian sand ripples + fine regolith pebbles
-  const dustTex = buildNormalTex((u, v) => {
-    const warp = periodicNoise(u, v, 8) * 0.14;
-    const ripples = Math.sin((u * 12 + v * 3 + warp * 8) * Math.PI * 2) * 0.35;
-    const grain = periodicNoise(u, v, 32) * 0.4 + periodicNoise(u, v, 64) * 0.25;
-    return ripples + grain;
-  }, 1.35);
-
-  // Layered mudstone fractures + coarse cobble pitting
-  const rockTex = buildNormalTex((u, v) => {
-    const strata = Math.sin((v * 14 + periodicNoise(u, v, 6) * 1.8) * Math.PI * 2) * 0.38;
-    const crack = Math.abs(periodicNoise(u, v, 16) - 0.5) * -0.9;
-    const pit = periodicNoise(u, v, 48) * 0.45;
-    return strata + crack + pit;
-  }, 2.15);
-
-  return { dustTex, rockTex };
+  return createMartianPbrTextureSets(THREE, size);
 }
 
 const VERTEX_SHADER = /* glsl */ `
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
   uniform vec4 u_uvScaleOffset;
   uniform float u_exaggeration;
   uniform float u_anchorElevM;
@@ -117,13 +29,18 @@ const VERTEX_SHADER = /* glsl */ `
     v_worldPos = world.xyz;
     v_elevM = u_anchorElevM + (world.y / max(0.01, u_exaggeration));
     gl_Position = projectionMatrix * viewMatrix * world;
+    #include <logdepthbuf_vertex>
   }
 `;
 
 const FRAGMENT_SHADER = /* glsl */ `
+  #include <common>
+  #include <logdepthbuf_pars_fragment>
   uniform sampler2D u_macroMap;
   uniform float u_hasMacroMap;
   uniform sampler2D u_terrainNormal;
+  uniform sampler2D u_dustAlbedo;
+  uniform sampler2D u_rockAlbedo;
   uniform sampler2D u_dustDetailNormal;
   uniform sampler2D u_rockDetailNormal;
 
@@ -147,14 +64,22 @@ const FRAGMENT_SHADER = /* glsl */ `
     return normalize(t * dot(t, u) - u * t.z);
   }
 
-  vec3 sampleRotatedDetail(sampler2D tex, vec2 worldXZ, float scale1, float scale2) {
-    vec2 uv1 = worldXZ * scale1;
-    // Golden-ratio rotation eliminates obvious axial repetition
+  vec3 sampleDualNormal(sampler2D tex, vec2 worldXZ, float closeScale, float farScale, float farMix) {
     mat2 rot = mat2(0.8435, -0.5371, 0.5371, 0.8435);
-    vec2 uv2 = (rot * worldXZ) * scale2;
-    vec3 d1 = texture2D(tex, uv1).xyz * 2.0 - 1.0;
-    vec3 d2 = texture2D(tex, uv2).xyz * 2.0 - 1.0;
-    return normalize(vec3(d1.xy * 0.65 + d2.xy * 0.35, max(0.15, d1.z)));
+    vec3 nClose = texture2D(tex, worldXZ * closeScale).xyz * 2.0 - 1.0;
+    vec3 nFar = texture2D(tex, (rot * worldXZ) * farScale).xyz * 2.0 - 1.0;
+    vec3 mixed = mix(nClose, nFar, farMix);
+    return normalize(vec3(mixed.xy, max(0.18, mixed.z)));
+  }
+
+  vec3 sampleDualAlbedo(sampler2D tex, vec2 worldXZ, float closeScale, float farScale, float farMix) {
+    mat2 rot = mat2(0.8435, -0.5371, 0.5371, 0.8435);
+    vec3 aClose = texture2D(tex, worldXZ * closeScale).rgb;
+    vec3 aFar = texture2D(tex, (rot * worldXZ) * farScale).rgb;
+    vec3 blended = mix(aClose, aFar, 0.35 + 0.55 * farMix);
+    // Multiply slight macro patch variation so wide dust plains never repeat uniformly
+    vec3 patchTint = texture2D(tex, worldXZ * 0.0045).rgb;
+    return blended * (0.72 + 0.56 * patchTint);
   }
 
   vec3 slopeHazardRamp(float slopeDeg, float strictDeg) {
@@ -184,102 +109,97 @@ const FRAGMENT_SHADER = /* glsl */ `
     float slopeDeg = normSample.a * 45.0;
 
     float viewDist = length(cameraPosition - v_worldPos);
-    float microFade = 1.0 - smoothstep(55.0, 380.0, viewDist);
+    float farMix = smoothstep(22.0, 260.0, viewDist);
+    float closeFade = 1.0 - smoothstep(90.0, 580.0, viewDist);
 
-    vec3 dustN = sampleRotatedDetail(u_dustDetailNormal, v_worldPos.xz, 0.22, 0.67);
-    vec3 rockN = sampleRotatedDetail(u_rockDetailNormal, v_worldPos.xz, 0.18, 0.53);
-    float rockMask = smoothstep(5.5, 18.0, slopeDeg);
+    // Rich surface material blend: sandy ripples in flat hollows -> fractured mudstone on slopes/ridges
+    float rockMask = smoothstep(3.5, 13.5, slopeDeg);
+
+    vec3 dustAlb = sampleDualAlbedo(u_dustAlbedo, v_worldPos.xz, 0.11, 0.024, farMix);
+    vec3 rockAlb = sampleDualAlbedo(u_rockAlbedo, v_worldPos.xz, 0.13, 0.028, farMix);
+
+    vec3 dustN = sampleDualNormal(u_dustDetailNormal, v_worldPos.xz, 0.11, 0.024, farMix);
+    vec3 rockN = sampleDualNormal(u_rockDetailNormal, v_worldPos.xz, 0.13, 0.028, farMix);
+
+    vec3 surfaceAlbedo = mix(dustAlb, rockAlb, rockMask);
+    // Subtle Mount Sharp sedimentary stratigraphic color bands exposed on steeper slopes
+    float strataBand = 0.5 + 0.5 * sin(v_elevM * 0.75 + sin(v_worldPos.x * 0.018) * 1.4);
+    surfaceAlbedo = mix(surfaceAlbedo, surfaceAlbedo * vec3(1.16, 1.12, 1.04), strataBand * rockMask * 0.34);
+
     vec3 microN = normalize(mix(dustN, rockN, rockMask));
-    vec3 dampedMicro = normalize(mix(vec3(0.0, 0.0, 1.0), microN, microFade * (0.62 + 0.35 * rockMask)));
+    float nStrength = mix(0.45, 0.92, closeFade) + rockMask * 0.20;
+    vec3 dampedMicro = normalize(mix(vec3(0.0, 0.0, 1.0), microN, clamp(nStrength, 0.25, 1.0)));
     vec3 tangentN = blendRNM(macroTangentN, dampedMicro);
 
     // Tangent (East, North, Up) -> Three.js world (+X East, +Y Up, +Z South = -North)
     vec3 worldN = normalize(vec3(tangentN.x, tangentN.z, -tangentN.y));
 
-    // High-frequency Martian micro-grain & basaltic speckle in close-up regolith
-    float microGrain = clamp(0.5 + microN.x * 0.85 + microN.y * 0.65, 0.0, 1.0);
-    float strataBand = 0.5 + 0.5 * sin(v_elevM * 0.65 + sin(v_worldPos.x * 0.022) * 1.6);
-    float ridgeBand = smoothstep(4.0, 16.0, slopeDeg);
-
-    vec3 darkBasalt = vec3(0.28, 0.18, 0.15);
-    vec3 dustAlbedo = vec3(0.62, 0.37, 0.23);
-    vec3 mudstoneAlbedo = vec3(0.45, 0.29, 0.22);
-    vec3 paleVein = vec3(0.75, 0.59, 0.44);
-
-    vec3 baseAlbedo = mix(dustAlbedo, darkBasalt, (1.0 - microGrain) * 0.38 * microFade);
-    baseAlbedo = mix(baseAlbedo, mudstoneAlbedo, ridgeBand * 0.78);
-    baseAlbedo = mix(baseAlbedo, paleVein, strataBand * (0.14 + 0.28 * ridgeBand));
-
-    if (u_hasMacroMap > 0.5) {
-      vec2 mUv = clamp(v_macroUv, 0.002, 0.998);
-      vec3 macroRgb = texture2D(u_macroMap, mUv).rgb;
-      if (u_mode == 1) {
-        vec3 ramp = slopeHazardRamp(slopeDeg, u_strictSlopeDeg);
-        baseAlbedo = mix(baseAlbedo * (0.75 + 0.5 * microGrain), mix(macroRgb, ramp, 0.50), 0.78);
-      } else {
-        // Stretch HiRISE / slope map contrast so orbital features pop clearly on slopes
-        float lum = dot(macroRgb, vec3(0.299, 0.587, 0.114));
-        float stretched = clamp(0.5 + (lum - 0.45) * 1.75, 0.15, 1.35);
-        vec3 tinted = baseAlbedo * (0.55 + 0.82 * stretched);
-        baseAlbedo = mix(baseAlbedo, tinted, 0.82);
+    if (u_mode == 1) {
+      vec3 ramp = slopeHazardRamp(slopeDeg, u_strictSlopeDeg);
+      if (u_hasMacroMap > 0.5) {
+        vec3 macroRgb = texture2D(u_macroMap, clamp(v_macroUv, 0.002, 0.998)).rgb;
+        ramp = mix(macroRgb, ramp, 0.5);
       }
-    } else if (u_mode == 1) {
-      baseAlbedo = mix(baseAlbedo, slopeHazardRamp(slopeDeg, u_strictSlopeDeg), 0.68);
+      surfaceAlbedo = mix(surfaceAlbedo * 0.85, ramp, 0.72);
     } else if (u_mode == 2) {
-      baseAlbedo = elevationStrataRamp(v_elevM) * (0.82 + 0.35 * microGrain * microFade);
+      surfaceAlbedo = mix(surfaceAlbedo * 0.45, elevationStrataRamp(v_elevM), 0.78);
+    } else if (u_hasMacroMap > 0.5) {
+      // In mode 0 (Mars PBR), modulate crisp micro-textures with stretched orbital HiRISE ortho albedo
+      vec3 macroRgb = texture2D(u_macroMap, clamp(v_macroUv, 0.002, 0.998)).rgb;
+      float lum = dot(macroRgb, vec3(0.299, 0.587, 0.114));
+      float contrast = clamp(0.65 + (lum - 0.44) * 1.55, 0.38, 1.45);
+      surfaceAlbedo *= mix(1.0, contrast, 0.55 + 0.30 * farMix);
     }
 
-    // Subtle steepness cue (> strict limit warning edge darkening in PBR mode)
+    // Slope steepness accent (> limit rim darkening in PBR mode)
     if (u_mode == 0 && slopeDeg > u_strictSlopeDeg) {
-      baseAlbedo = mix(baseAlbedo, vec3(0.48, 0.17, 0.12), 0.32);
+      surfaceAlbedo = mix(surfaceAlbedo, vec3(0.48, 0.17, 0.12), 0.30);
     }
 
-    // Topographic ambient cavity darkening inside fine rock/ripple crevices
-    float cavity = 0.84 + 0.26 * microGrain * microFade;
+    // Lighting: warm golden afternoon Mars sun + dusty sky bounce + rock specular
     vec3 sunDir = normalize(u_sunDir);
     vec3 viewDir = normalize(cameraPosition - v_worldPos);
     float ndotl = max(dot(worldN, sunDir), 0.0);
     float skyFill = 0.5 + 0.5 * worldN.y;
-    vec3 ambient = mix(vec3(0.19, 0.11, 0.08), vec3(0.43, 0.30, 0.23), skyFill);
+    vec3 ambient = mix(vec3(0.16, 0.09, 0.07), vec3(0.39, 0.27, 0.21), skyFill);
 
     vec3 halfVec = normalize(sunDir + viewDir);
-    float shininess = mix(12.0, 32.0, rockMask);
-    float spec = pow(max(dot(worldN, halfVec), 0.0), shininess) * mix(0.03, 0.12, rockMask) * ndotl;
+    float shininess = mix(10.0, 28.0, rockMask);
+    float spec = pow(max(dot(worldN, halfVec), 0.0), shininess) * mix(0.03, 0.14, rockMask) * ndotl;
 
-    vec3 color = baseAlbedo * cavity * (ambient * 0.68 + vec3(1.18, 0.96, 0.78) * ndotl * 1.05) + vec3(1.0, 0.86, 0.72) * spec;
+    vec3 color = surfaceAlbedo * (ambient * 0.62 + vec3(1.24, 0.98, 0.78) * ndotl * 1.12)
+               + vec3(1.0, 0.86, 0.72) * spec;
 
-    // Live interactive hover / reticle terrain ring
+    // Interactive hover / reticle ground ring
     if (u_cursorActive > 0.5) {
       float d = length(v_worldPos.xz - u_cursorRtc.xz);
-      float ring = smoothstep(1.2, 0.25, abs(d - 5.5)) + smoothstep(1.2, 0.0, d) * 0.5;
+      float ring = smoothstep(0.9, 0.2, abs(d - 4.2)) + smoothstep(0.9, 0.0, d) * 0.55;
       color = mix(color, vec3(0.25, 0.92, 0.98), clamp(ring, 0.0, 0.85));
     }
 
-    // Gentle Martian airborne dust distance haze (preserves ridge visibility up to 2+ km)
+    // Distance atmospheric scattering (clear out to ~1.5 km, warm dusty horizon beyond)
     float fogFactor = 1.0 - exp(-pow(viewDist * u_fogDensity, 1.35));
-    color = mix(color, u_fogColor, clamp(fogFactor, 0.0, 0.84));
+    color = mix(color, u_fogColor, clamp(fogFactor, 0.0, 0.78));
 
-    // Gentle tone-mapping
-    color = color / (color + vec3(0.85));
-    color = pow(max(color, 0.0), vec3(1.0 / 2.15));
+    // Filmic contrast + gamma
+    color = (color * (2.2 * color + 0.08)) / (color * (1.85 * color + 0.62) + 0.06);
+    color = pow(clamp(color, 0.0, 1.0), vec3(1.0 / 2.15));
 
+    #include <logdepthbuf_fragment>
     gl_FragColor = vec4(color, 1.0);
   }
 `;
 
-/**
- * Create a custom Martian PBR ShaderMaterial for a quadtree tile or terrain surface.
- * @param {typeof import('three')} THREE
- * @param {object} opts
- */
 export function createMarsTerrainMaterial(THREE, opts = {}) {
-  const material = new THREE.ShaderMaterial({
+  return new THREE.ShaderMaterial({
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
     uniforms: {
       u_macroMap: { value: opts.macroMap || null },
       u_hasMacroMap: { value: opts.macroMap ? 1.0 : 0.0 },
       u_terrainNormal: { value: opts.terrainNormal || null },
+      u_dustAlbedo: { value: opts.dustAlbedo },
+      u_rockAlbedo: { value: opts.rockAlbedo },
       u_dustDetailNormal: { value: opts.dustDetailNormal },
       u_rockDetailNormal: { value: opts.rockDetailNormal },
       u_uvScaleOffset: {
@@ -295,54 +215,54 @@ export function createMarsTerrainMaterial(THREE, opts = {}) {
       u_mode: { value: opts.mode ?? 0 },
       u_strictSlopeDeg: { value: opts.strictSlopeDeg ?? 20.0 },
       u_sunDir: {
-        value: new THREE.Vector3(0.56, 0.48, -0.67).normalize(),
+        value: new THREE.Vector3(0.66, 0.34, -0.66).normalize(),
       },
-      u_fogColor: { value: new THREE.Color(0xb8764d) },
-      u_fogDensity: { value: 0.00022 },
+      u_fogColor: { value: new THREE.Color(0xc28359) },
+      u_fogDensity: { value: 0.00018 },
       u_cursorRtc: { value: new THREE.Vector3(0, 0, 0) },
       u_cursorActive: { value: 0.0 },
     },
     side: THREE.FrontSide,
   });
-  return material;
 }
 
-/**
- * Create a Martian sky dome with butterscotch horizon dust scattering and zenith twilight gradient.
- * @param {typeof import('three')} THREE
- */
-export function createMarsSkyDome(THREE, radius = 6500) {
+export function createMarsSkyDome(THREE, radius = 7500) {
   const geo = new THREE.SphereGeometry(radius, 32, 20);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
-      u_sunDir: { value: new THREE.Vector3(0.56, 0.48, -0.67).normalize() },
+      u_sunDir: { value: new THREE.Vector3(0.66, 0.34, -0.66).normalize() },
     },
     vertexShader: /* glsl */ `
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
       varying vec3 v_dir;
       void main() {
         v_dir = normalize(position);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        #include <logdepthbuf_vertex>
       }
     `,
     fragmentShader: /* glsl */ `
+      #include <common>
+      #include <logdepthbuf_pars_fragment>
       uniform vec3 u_sunDir;
       varying vec3 v_dir;
       void main() {
         vec3 d = normalize(v_dir);
         float h = clamp(d.y, 0.0, 1.0);
-        vec3 horizon = vec3(0.75, 0.48, 0.31);
-        vec3 midSky = vec3(0.49, 0.32, 0.25);
-        vec3 zenith = vec3(0.16, 0.14, 0.20);
-        vec3 sky = mix(horizon, midSky, smoothstep(0.0, 0.25, h));
-        sky = mix(sky, zenith, smoothstep(0.20, 0.88, h));
+        vec3 horizon = vec3(0.76, 0.51, 0.35);
+        vec3 midSky = vec3(0.52, 0.36, 0.28);
+        vec3 zenith = vec3(0.14, 0.13, 0.19);
+        vec3 sky = mix(horizon, midSky, smoothstep(0.0, 0.24, h));
+        sky = mix(sky, zenith, smoothstep(0.18, 0.85, h));
 
-        // Mars dusty forward-scattering Mie solar halo (famous pale bluish halo near Sun)
         float sunCos = max(dot(d, normalize(u_sunDir)), 0.0);
-        sky += vec3(0.72, 0.78, 0.88) * pow(sunCos, 24.0) * 0.28;
-        sky += vec3(1.0, 0.94, 0.86) * pow(sunCos, 380.0) * 1.1;
+        sky += vec3(0.70, 0.78, 0.90) * pow(sunCos, 22.0) * 0.32;
+        sky += vec3(1.0, 0.95, 0.88) * pow(sunCos, 360.0) * 1.15;
 
+        #include <logdepthbuf_fragment>
         gl_FragColor = vec4(sky, 1.0);
       }
     `,

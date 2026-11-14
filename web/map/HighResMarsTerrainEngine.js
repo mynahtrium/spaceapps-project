@@ -95,8 +95,10 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
     this._camLonLat = [midLon, midLat];
     this._camHeightOffsetM = ASTRONAUT_EYE_HEIGHT_M;
     this._yawRad = 0;
-    this._pitchRad = -0.05;
+    this._pitchRad = -0.14;
     this._flyState = null;
+
+    this._rockFieldMesh = null;
 
     this._raycaster = null;
     this._rafId = null;
@@ -168,6 +170,7 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
     this._hoverCursorRtc = new THREE.Vector3();
 
     this._loadMacroTextures();
+    this._buildRockField();
 
     if (options.center) this._camLonLat = toLngLat(options.center);
     if (typeof options.bearing === "number") this._yawRad = (-options.bearing * Math.PI) / 180;
@@ -212,7 +215,7 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
         this.slopePreviewUrl,
         (tex) => {
           this._slopeTex = configureTex(tex);
-          if (this.mode === 1 || !this._activeMacroTex) {
+          if (this.mode === 1) {
             this._activeMacroTex = this._slopeTex;
             this._refreshTileUniforms();
           }
@@ -473,7 +476,7 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
       this._activeMacroTex = null;
     } else {
       this.mode = 0;
-      this._activeMacroTex = this._orthoTex || this._slopeTex;
+      this._activeMacroTex = this._orthoTex || null;
     }
     this._refreshTileUniforms();
   }
@@ -495,6 +498,7 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
     this._activeMeshList = [];
     this._syncCameraPosition();
     this._rebuildAllGeoJsonLayers();
+    this._buildRockField();
     this._ensureTileBuilt("0/0/0", this.rootBounds, 0).then(() => this._evaluateQuadtree());
   }
 
@@ -609,11 +613,11 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
         }
         if (pts.length >= 2) {
           const curve = new THREE.CatmullRomCurve3(pts);
-          const tubeGeo = new THREE.TubeGeometry(curve, Math.min(420, pts.length * 2), 0.14, 6, false);
+          const tubeGeo = new THREE.TubeGeometry(curve, Math.min(420, pts.length * 2), 0.09, 6, false);
           const tubeMat = new THREE.MeshBasicMaterial({
             color: rec.style.color || 0x38bdf8,
             transparent: true,
-            opacity: 0.78,
+            opacity: 0.72,
           });
           group.add(new THREE.Mesh(tubeGeo, tubeMat));
         }
@@ -682,6 +686,102 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
       south: qy === 0 ? b.south : midLat,
       north: qy === 0 ? midLat : b.north,
     };
+  }
+
+  _buildRockField() {
+    const THREE = this.THREE;
+    if (!this._scene) return;
+    if (this._rockFieldMesh) {
+      this._scene.remove(this._rockFieldMesh);
+      this._rockFieldMesh.geometry.dispose();
+      this._rockFieldMesh.material.dispose();
+      this._rockFieldMesh = null;
+    }
+
+    const COUNT = 520;
+    const rockGeo = new THREE.DodecahedronGeometry(0.42, 0);
+    // Slightly flatten & angularize base rock prototype
+    const posAttr = rockGeo.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+      const x = posAttr.getX(i);
+      const y = posAttr.getY(i);
+      const z = posAttr.getZ(i);
+      const jitter = 0.82 + (((i * 73) % 19) / 19) * 0.36;
+      posAttr.setXYZ(i, x * jitter, y * 0.62 * jitter, z * jitter);
+    }
+    rockGeo.computeVertexNormals();
+
+    const rockMat = new THREE.MeshStandardMaterial({
+      roughness: 0.92,
+      metalness: 0.04,
+      flatShading: true,
+    });
+
+    const mesh = new THREE.InstancedMesh(rockGeo, rockMat, COUNT);
+    mesh.name = "MarsSurfaceRocks";
+    mesh.frustumCulled = false;
+
+    const spanLon = this.rootBounds.east - this.rootBounds.west;
+    const spanLat = this.rootBounds.north - this.rootBounds.south;
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+
+    // Deterministic seeded scatter focused along central ~700m EVA corridor & flanks
+    let s = 133742;
+    const rand = () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
+    };
+
+    const centerLon = this._camLonLat[0];
+    const centerLat = this._camLonLat[1];
+    let placed = 0;
+    for (let i = 0; i < COUNT * 2 && placed < COUNT; i++) {
+      // Concentrate 75% within ~400m corridor around EVA area, 25% wider across DTM
+      const local = rand() < 0.78;
+      const lon = local
+        ? centerLon + (rand() - 0.5) * spanLon * 0.42
+        : this.rootBounds.west + rand() * spanLon;
+      const lat = local
+        ? centerLat + (rand() - 0.5) * spanLat * 0.42
+        : this.rootBounds.south + rand() * spanLat;
+      const dStartM = marsDistanceM([lon, lat], this._camLonLat);
+      if (dStartM < 4.5) continue;
+
+      const info = this.demSampler.sampleSlopeAndNormal([lon, lat]);
+      if (!info) continue;
+      // More boulders near exposed outcrops & slopes
+      if (info.slopeDeg < 3.5 && rand() < 0.55) continue;
+
+      const rtc = lonLatElevToLocalRTC(
+        lon,
+        lat,
+        info.elevM * this.exaggeration,
+        this.rtcOrigin
+      );
+      const scaleXZ = 0.35 + Math.pow(rand(), 2.2) * 2.2;
+      const scaleY = scaleXZ * (0.45 + rand() * 0.55);
+      dummy.position.set(rtc.x, rtc.y - scaleY * 0.14, rtc.z);
+      dummy.rotation.set(rand() * 0.5, rand() * Math.PI * 2, rand() * 0.5);
+      dummy.scale.set(scaleXZ, scaleY, scaleXZ * (0.75 + rand() * 0.5));
+      dummy.updateMatrix();
+      mesh.setMatrixAt(placed, dummy.matrix);
+
+      // Tint between dark mafic basalt (#3c2d28) and dusty mudstone (#9c6142)
+      const shade = rand();
+      color.setRGB(
+        0.24 + shade * 0.38,
+        0.16 + shade * 0.22,
+        0.13 + shade * 0.14
+      );
+      mesh.setColorAt(placed, color);
+      placed++;
+    }
+    mesh.count = placed;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this._scene.add(mesh);
+    this._rockFieldMesh = mesh;
   }
 
   _tileMacroUvScaleOffset(b) {
@@ -766,8 +866,10 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
     const mat = createMarsTerrainMaterial(THREE, {
       macroMap: this._activeMacroTex,
       terrainNormal: normalTex,
-      dustDetailNormal: this._microDetail.dustTex,
-      rockDetailNormal: this._microDetail.rockTex,
+      dustAlbedo: this._microDetail.dustAlbedoTex,
+      rockAlbedo: this._microDetail.rockAlbedoTex,
+      dustDetailNormal: this._microDetail.dustNormalTex,
+      rockDetailNormal: this._microDetail.rockNormalTex,
       uvScale: uvMap.scale,
       uvOffset: uvMap.offset,
       exaggeration: this.exaggeration,
@@ -927,6 +1029,12 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
     this._inflightTiles.clear();
     this._tileGpuCache.clear();
     this._workerPool.dispose();
+    if (this._rockFieldMesh) {
+      if (this._scene) this._scene.remove(this._rockFieldMesh);
+      this._rockFieldMesh.geometry.dispose();
+      this._rockFieldMesh.material.dispose();
+      this._rockFieldMesh = null;
+    }
     if (this._renderer) {
       this._renderer.dispose();
       this._renderer = null;

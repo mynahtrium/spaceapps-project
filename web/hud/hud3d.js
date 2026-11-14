@@ -294,7 +294,7 @@ export async function initHud3D(data, opts = {}) {
         lon: pose.lon,
         lat: pose.lat,
         headingDeg: pose.bearingDeg,
-        pitchRad: -0.04,
+        pitchRad: -0.14,
       });
       updateReadouts(pose.lon, pose.lat, pose.bearingDeg);
     });
