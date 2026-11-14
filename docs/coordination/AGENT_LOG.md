@@ -924,3 +924,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: The helmet camera shook while walking: eye height followed the raw terrain sample every frame and the gait speed was a per-frame distance/dt value. Eye height is now low-passed (snaps on teleport or wrap) and gait speed is smoothed; walker stop is snappier and cuts residual creep. The MMSEV rover floated off small crests: launch now needs about 14.5 m/s, a clear 0.14 m rise and is capped at 2.4 m/s vertical; bump launches need a larger impulse; idle rolling resistance is higher and creep below 0.18 m/s is zeroed. The existing 6-wheel rig (articulated pods, suspension, pitch/roll) was kept.
 - Commit: this commit
 - Next step: Drive the rover on ?demo=1 and tune the launch thresholds in stepRoverBallisticPhysics if it feels too planted.
+
+### 2026-11-14 23:18 Europe/Istanbul — Frosted obsidian glass HUD theme (developermenu)
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen)
+- Role: frontend visor (edits in web/ at the user's request, branch developermenu)
+- Task id: MUST-10 follow-up
+- Files changed: web/index.html, web/styles.css, docs/coordination/AGENT_LOG.md
+- Why: Restyled the visor HUD on developermenu into a frosted dark obsidian glass + ice-cyan aerospace layout (glassmorphic cam-stamp and telemetry cards, rounded slope/O2 indicators, capsule drive bar and should-line, pill controls with ice-cyan Map CTA, and crisp crosshair reticle) while preserving all existing element IDs and JS bindings. Verified 21/21 fallback and route-bridge tests pass.
+- Commit: this commit
+- Next step: Pull and test on ?demo=1 with Ctrl+Shift+R.
