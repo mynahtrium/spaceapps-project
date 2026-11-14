@@ -7,7 +7,7 @@
 import { shouldUseHighResMap } from "../map/IMapAdapter.js";
 import { LegacyMapAdapter } from "../map/LegacyMapAdapter.js";
 import { MapLibreMarsAdapter } from "../map/MapLibreMarsAdapter.js";
-import { dispatchSetRoute } from "../shared/route-bridge.js";
+import { dispatchSetRoute, dispatchTeleport } from "../shared/route-bridge.js";
 
 /**
  * Build an RGBA data URL from costMap.cost_row_major for the 15° strict vs 20° mask toggle.
@@ -77,10 +77,50 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
   const adapter = shouldUseHighResMap() ? new MapLibreMarsAdapter(adapterOpts) : new LegacyMapAdapter(adapterOpts);
   const container = document.getElementById("map");
   const probeEl = document.getElementById("map-probe-readout");
+  const probeTextEl = document.getElementById("map-probe-text") || probeEl;
+  const teleportBtn = document.getElementById("map-teleport-btn");
+  const toggle3d = document.getElementById("toggle-3d-map");
+  let selectedTarget = null;
+  let activePopup = null;
+
+  const setTeleportMarker = (lon, lat) => {
+    selectedTarget = { lon, lat };
+    adapter.updateGeoJsonLayer("teleport-target", {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { name: "Teleport" },
+          geometry: { type: "Point", coordinates: [lon, lat] },
+        },
+      ],
+    });
+    if (teleportBtn) teleportBtn.style.display = "inline-block";
+  };
+
+  const triggerTeleport = (lon, lat) => {
+    setTeleportMarker(lon, lat);
+    dispatchTeleport({ lon, lat });
+    onStartEva?.();
+  };
+
+  if (teleportBtn) {
+    teleportBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (selectedTarget) triggerTeleport(selectedTarget.lon, selectedTarget.lat);
+    });
+  }
 
   const ready = (async () => {
     if (!container) return;
-    await adapter.mount(container, { center, zoom: 14.3, pitch: 0, bearing: 0 });
+    const terrain3dDefault = toggle3d ? toggle3d.checked : true;
+    await adapter.mount(container, {
+      center,
+      zoom: 14.3,
+      pitch: terrain3dDefault ? 52 : 0,
+      bearing: terrain3dDefault ? -14 : 0,
+      terrain3d: terrain3dDefault,
+    });
 
     // Strict 15° overlay (raw MapLibre image layer; hidden until toggled)
     if (adapter.map && costMap?.cost_row_major) {
@@ -132,12 +172,28 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
       });
     }
 
-    adapter.on("click", (evt) => {
-      if (probeEl) {
-        const elev = evt.elevM != null ? `${evt.elevM.toFixed(1)} m` : "no data";
-        const slope = evt.slopeDeg != null ? `${evt.slopeDeg.toFixed(1)}°` : "—";
-        probeEl.textContent = `${evt.lat.toFixed(5)}°, ${evt.lon.toFixed(5)}° · ${elev} · slope ${slope}`;
+    adapter.addGeoJsonLayer(
+      "teleport-target",
+      { type: "FeatureCollection", features: [] },
+      {
+        type: "circle",
+        radius: 7,
+        color: "#38bdf8",
+        strokeWidth: 2,
+        strokeColor: "#ffffff",
+        visible: true,
       }
+    );
+
+    const formatProbe = (evt) => {
+      const elev = evt.elevM != null ? `${evt.elevM.toFixed(1)} m` : "no data";
+      const slope = evt.slopeDeg != null ? `${evt.slopeDeg.toFixed(1)}°` : "—";
+      return `${evt.lat.toFixed(5)}°, ${evt.lon.toFixed(5)}° · ${elev} · slope ${slope}`;
+    };
+
+    adapter.on("click", (evt) => {
+      if (probeTextEl) probeTextEl.textContent = formatProbe(evt);
+      setTeleportMarker(evt.lon, evt.lat);
       // Clicked near a stop (~40 m on Mars): show its POV / popup.
       let nearest = null;
       let best = 40;
@@ -149,14 +205,23 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
           nearest = f;
         }
       }
+      if (activePopup) {
+        activePopup.remove();
+        activePopup = null;
+      }
       if (nearest && adapter.map && window.maplibregl) {
-        new window.maplibregl.Popup()
+        activePopup = new window.maplibregl.Popup()
           .setLngLat(nearest.geometry.coordinates)
           .setHTML(
-            `<div style="color:#0b0e14;font-size:12px;"><strong>${nearest.properties.name}</strong><br/><em>${nearest.properties.kind}</em></div>`
+            `<div style="color:#fff;font-size:12px;"><strong>${nearest.properties.name}</strong><br/><em>${nearest.properties.kind}</em></div>`
           )
           .addTo(adapter.map);
       }
+    });
+
+    adapter.on("dblclick", (evt) => {
+      if (probeTextEl) probeTextEl.textContent = `${formatProbe(evt)} · TELEPORTING`;
+      triggerTeleport(evt.lon, evt.lat);
     });
   })().catch((err) => console.warn("[planner] map mount failed:", err));
 
@@ -174,7 +239,6 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
   bindToggle("layer-ctx", "onmars-ctx");
   bindToggle("layer-mola", "mola-color");
 
-  const toggle3d = document.getElementById("toggle-3d-map");
   if (toggle3d) {
     toggle3d.addEventListener("change", () => adapter.setTerrain3D?.(toggle3d.checked));
   }
@@ -186,9 +250,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
     strictToggle.addEventListener("change", () => {
       const strict = strictToggle.checked;
       if (legendLimit) legendLimit.textContent = strict ? "15" : "20";
-      if (adapter.map && adapter.map.getLayer("strict-15")) {
-        adapter.map.setLayoutProperty("strict-15", "visibility", strict ? "visible" : "none");
-      }
+      adapter.setLayerVisibility("strict-15", strict);
     });
   }
 

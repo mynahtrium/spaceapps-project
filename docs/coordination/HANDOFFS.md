@@ -264,3 +264,24 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Divarci / Cagan review `web/hud/hud3d.js` collision constants and tackle `BUG-15` and `BUG-16`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
+### HANDOFF-20261114-1725 — from Tester 2 (Eymen) to Frontend 1 (Divarci) / Cagan / Doruk
+
+- Date (Europe/Istanbul): 2026-11-14 17:25
+- From (role, first name or nickname only, agent tool): bug tester 2, Eymen, Antigravity (Gemini)
+- To (role, name if known): Frontend 1 (Divarci, owner of `web/`), Cagan, Doruk
+- Board task id: MAP-01 / MUST-09 / MUST-10 follow-up
+- What is ready:
+  1. **Map fixes & default 3D planner terrain:**
+     - `web/map/TileSourceRegistry.js`: fixed `{Style}` / `{TileMatrixSet}` / `.0.0//` template substitution in `configureFromThemisMetadata()` and added cached-pyramid step-down (`z=8/6/4`) for `themis-day` and `themis-night` so `?demo=1` resolves cached Gale THEMIS tiles cleanly without external requests.
+     - `web/map/MapLibreMarsAdapter.js` & `web/map/Fallback2DMap.js`: fixed `mars-eq://` scanline reprojection clamping and overlay fallback transparency (so `themis-day`, `themis-night`, `mola-color` do not paint opaque brown tiles outside Gale coverage), separated `mars-terrain-dem` source + LRU `demTileCache` for 3D terrain, placed spectral/thermal overlays above `hirise-ortho`, enabled 3D terrain by default (`terrain3d: true`, `pitch: 52`, `bearing: -14`, `maxPitch: 85`, `NavigationControl`, `doubleClickZoom: false`), and emitted `dblclick`.
+  2. **Click / Double-click Teleport (Planner -> 3D Bodycam):**
+     - `web/shared/route-bridge.js`, `web/planner/planner.js`, `web/index.html`, `web/styles.css`, `web/hud/hud3d.js`: fixed `alongM`/`along_m` route-jump sync, added `"teleport-target"` pin layer, single-click `[ TELEPORT HERE ]` action in `#map-probe-readout`, and immediate map double-click teleport (`mm:teleport`) into 3D Bodycam `freeRoam` grounded to DEM elevation with `closestAlongM` route progress sync and partner astronaut collision clearance; cleaned up duplicate stop popups and styled `.map-legend` / popup close button.
+  3. **Martian Sky Moons (Phobos & Deimos) + Solar Disc:**
+     - `web/hud/hud3d.js`: added crisp sun disc in `SKY_FRAG` and Phobos (cratered potato ellipsoid, prograde W->E orbit) & Deimos (smaller ellipsoid, retrograde E->W apparent drift) with custom atmospheric daytime limb shader (`fog: false`) inside `skyMoons`, expanded `camera.far` (`15000`) & sky dome (`12500`), and raised look-up pitch cap to `1.42` rad so both moons can be viewed overhead.
+- Paths (files or folders): `web/index.html`, `web/styles.css`, `web/shared/route-bridge.js`, `web/map/TileSourceRegistry.js`, `web/map/MapLibreMarsAdapter.js`, `web/map/Fallback2DMap.js`, `web/planner/planner.js`, `web/hud/hud3d.js`
+- How to try it: Run `start.bat` or `python -m http.server 8000`, hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`). The planner opens tilted in 3D DEM mode; toggle `THEMIS Day/Night` and `MOLA`; single-click any terrain spot and press `TELEPORT HERE` or double-click anywhere on the map to spawn directly there in 3D Bodycam mode; drag up to `~81 deg` in the 3D sky to spot Phobos, Deimos, and the Sun.
+- What is not done / known limits: Verified syntax (`node --check` on all 19 non-vendor `web/` JS files), all 16 unit tests (`geodesy.test.mjs`, `fallback.test.mjs`, `route-bridge.test.mjs`), DOM ID matching, and THEMIS step-down / teleport bridge runtime checks in Node. Live browser inspection awaits manual hard-reload in Eymen's active tab (`agent-tab-3` takeover).
+- Please do next: Divarci / Doruk / Cagan review cross-folder `web/` changes and inspect 3D planner, teleport, and Phobos/Deimos in browser.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:

@@ -14,7 +14,7 @@ export { MARS_RADIUS_MEAN_M, marsDistanceM, marsBearingDeg };
 export function dispatchSetRoute(route, alongM = 0) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
-    new CustomEvent("mm:set-route", { detail: { route, alongM } })
+    new CustomEvent("mm:set-route", { detail: { route, alongM, along_m: alongM } })
   );
 }
 
@@ -23,6 +23,18 @@ export function onSetRoute(handler) {
   const wrapped = (e) => handler(e.detail);
   window.addEventListener("mm:set-route", wrapped);
   return () => window.removeEventListener("mm:set-route", wrapped);
+}
+
+export function dispatchTeleport(target) {
+  if (typeof window === "undefined" || !target) return;
+  window.dispatchEvent(new CustomEvent("mm:teleport", { detail: target }));
+}
+
+export function onTeleport(handler) {
+  if (typeof window === "undefined") return () => {};
+  const wrapped = (e) => handler(e.detail);
+  window.addEventListener("mm:teleport", wrapped);
+  return () => window.removeEventListener("mm:teleport", wrapped);
 }
 
 export function buildCumulativeDistances(coords) {
