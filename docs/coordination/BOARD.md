@@ -38,7 +38,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | PRE-04 | Personal `NASA_API_KEY` in a local gitignored `.env` only | B3 | TBD | TBD | todo | before 14 Nov | Never commit or paste the key |
 | PRE-05 | Read 13 Nov Resources tab, submission guide, judging guide | All | TBD | TBD | todo | 13 Nov | **UNVERIFIED** until those pages can be read. Partial pass 13 Nov: the [2026 landing page](https://www.spaceappschallenge.org/2026/) and [official terms](https://www.spaceappschallenge.org/legal/) loaded; official challenge Details, Resources tab, and judging / submission guides were unreadable (certificate error / HTTP 500). Re-checked 14 Nov 11:19: TLS cert validation still fails (`curl` exit 60 / Windows Schannel). |
 | PRE-06 | Update [JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official 13 Nov judging guide | T1, T2 | Eymen (T2) | Gemini (Antigravity) | doing | 13 Nov | Checklist is explicitly **UNVERIFIED** until this is done. Partial pass 13 Nov: a Status 2026-11-13 note was added; the 2026 judging guide itself could not be read with a valid TLS cert (re-checked 14 Nov 11:19, still failing TLS), so UNVERIFIED labels stay. |
-| PRE-07 | Lock route stops on paper / HiView (inside DTEEC_019698) | B2 + team | TBD | TBD | todo | before hour 0 | No application code; testers record ids in `docs/testing/` |
+| PRE-07 | Lock route stops on paper / HiView (inside DTEEC_019698) | B2 + team | Doruk | Grok (Cursor) | blocked | before hour 0 | Needs Doruk/team lock of outcrop names+coords. Request: [pipeline/routing/PRE07_LOCK_REQUEST.md](../../pipeline/routing/PRE07_LOCK_REQUEST.md). Testers record ids in `docs/testing/` after lock. |
 
 ### MUST (hours 0–16)
 
@@ -92,6 +92,6 @@ Add a row when you need an answer. Cross it out or mark `answered` when done. Fi
 
 | Date | From (role) | To (role) | Question | Status |
 |---|---|---|---|---|
-| — | — | — | _(none yet)_ | — |
+| 2026-11-14 | B2 (Doruk) | Doruk / team (+ T1/T2 record) | PRE-07: Lock habitat + two lake-sediment mudstone stops (official names + lat/lon inside DTEEC_019698) and confirm boxwork bonus (Sol 4534 candidate cited). Also: allow example-contract routing scaffold until then? See [PRE07_LOCK_REQUEST.md](../../pipeline/routing/PRE07_LOCK_REQUEST.md). | open |
 
 When a question is about a **contract field change**, also add a line to [docs/contracts/CHANGES.md](../contracts/CHANGES.md) and a [handoff](./HANDOFFS.md) for the owning role, Frontend 1, and both testers.
