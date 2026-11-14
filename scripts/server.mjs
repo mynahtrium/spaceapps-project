@@ -56,7 +56,15 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
 
   const server = http.createServer((req, res) => {
     const reqUrl = new URL(req.url || "/", "http://localhost");
-    const pathname = decodeURIComponent(reqUrl.pathname);
+    let pathname;
+    try {
+      pathname = decodeURIComponent(reqUrl.pathname);
+    } catch {
+      // A malformed %-escape must not throw out of the handler and kill the server.
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("Bad Request");
+      return;
+    }
 
     if (pathname === "/api/mp/status") {
       const hostHdr = req.headers.host || "localhost:8000";
@@ -84,6 +92,13 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
     }
 
     const rel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+    // The server listens on the LAN. Never serve dotfiles or dot-directories
+    // (.env holds NASA_API_KEY; .git holds the private repository).
+    if (rel.split(/[\\/]/).some((seg) => seg.startsWith("."))) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not Found");
+      return;
+    }
     let filePath = path.resolve(safeRoot, rel);
     if (filePath !== safeRoot && !filePath.startsWith(safeRoot + path.sep)) {
       res.writeHead(403, { "Content-Type": "text/plain" });

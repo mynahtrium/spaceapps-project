@@ -1,0 +1,73 @@
+{
+  "contract": "martian-mappers.corridor.v1",
+  "note": "Example of martian-mappers.corridor.v1. Real file: data/demo/corridor/manifest.json (written by pipeline/terrain/build_corridor.py). Real HiRISE 1 m DTM and 25 cm orthoimage (shown at ~0.5 m), chunked for streaming. Co-registered to the Curiosity waypoint frame by a constant shift fitted to rover waypoints. Colour is an illustrative Mars tint over greyscale HiRISE RED imagery.",
+  "sources": [
+    {
+      "name": "HiRISE DTM DTEEC_009149_1750_009294_1750_U01",
+      "product_id": "DTEEC_009149_1750_009294_1750_U01",
+      "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/PSP/ORB_009100_009199/PSP_009149_1750_PSP_009294_1750/DTEEC_009149_1750_009294_1750_U01.IMG",
+      "fetch_date": "2026-11-15",
+      "used_for": "corridor elevation (lines 2914-8290, samples 985-3033)"
+    },
+    {
+      "name": "HiRISE orthoimage PSP_009149_1750_RED_A_01_ORTHO (25 cm)",
+      "product_id": "PSP_009149_1750_RED_A_01_ORTHO",
+      "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/PSP/ORB_009100_009199/PSP_009149_1750_PSP_009294_1750/PSP_009149_1750_RED_A_01_ORTHO.JP2",
+      "fetch_date": "2026-11-15",
+      "used_for": "chunk imagery (~0.5 m) and overview imagery (~2 m)"
+    },
+    {
+      "name": "MSL Curiosity waypoints (registration fit)",
+      "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+      "fetch_date": "2026-11-15",
+      "used_for": "constant horizontal shift between the waypoint frame and the DTM"
+    }
+  ],
+  "frame": "Curiosity waypoint (MSL localisation) lon/lat, planetocentric, east-positive",
+  "registration": {
+    "dtm_sample_shift": -60,
+    "dtm_line_shift": 14,
+    "waypoints": 478,
+    "residual_std_m": 2.35,
+    "unshifted_std_m": 6.24,
+    "median_dtm_minus_rover_m": 8.72
+  },
+  "bounds": {
+    "west_lon_deg": 137.37117705900792,
+    "east_lon_deg": 137.40613392124214,
+    "south_lat_deg": -4.817449904706224,
+    "north_lat_deg": -4.725688141341328
+  },
+  "dtm_pixel_m": 1.0117467945795,
+  "world_size_m": {
+    "x": 2064.8762202608164,
+    "z": 5439.150767659392
+  },
+  "chunk_px": 256,
+  "chunks_x": 8,
+  "chunks_z": 21,
+  "chunk_tex_px": 512,
+  "grid_vertices": {
+    "x": 2049,
+    "z": 5377
+  },
+  "overview_step": 8,
+  "overview_vertices": {
+    "x": 257,
+    "z": 673
+  },
+  "elev_min_m": -4186.0,
+  "elev_step_m": 0.012466620889600977,
+  "elev_range_m": [
+    -4184.00439453125,
+    -3370.455810546875
+  ],
+  "void_cells_filled": 0,
+  "height_encoding": "gzip(int16 little-endian row deltas over uint16 levels; first column absolute uint16)",
+  "files": {
+    "overview_height": "overview.bin",
+    "overview_texture": "overview.jpg",
+    "chunk_height": "chunks/h_{i}_{j}.bin",
+    "chunk_texture": "chunks/t_{i}_{j}.jpg"
+  }
+}

@@ -22,12 +22,9 @@ import {
 } from "../shared/mars-rovers.js";
 import {
   DRIVABLE_VEHICLES,
-  ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
   getDrivableVehicleSpec,
   resolveRoverObbCollision,
-  stepAdvancedRoverPhysics,
-  stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
@@ -447,65 +444,6 @@ test("resolveRoverObbCollision keeps nose, sides, corners, and wheel pods solid 
   assert.equal(highJump.hit, false);
 });
 
-test("stepRoverBallisticPhysics keeps normal driving planted and launches fast crests crisply without floaty hang", () => {
-  const s = { posY: 0, velY: 0, prevGroundY: 0, airborne: false, airTime: 0, peakLaunchVy: 0, landingCooldown: 0 };
-  const slow = stepRoverBallisticPhysics(s, { groundY: 0.04, slopeClimbVy: 0.4, horizSpeed: 2.0, dt: 0.016 });
-  assert.equal(slow.launched, false);
-  assert.equal(s.airborne, false);
-
-  // Moderate turn/ripple stays planted cleanly without false bounce
-  const ripple = stepRoverBallisticPhysics(s, { groundY: 0.08, slopeClimbVy: 1.5, horizSpeed: 9.0, dt: 0.016 });
-  assert.equal(ripple.launched, false);
-
-  // Fast ramp climb stays gripped, then launches airborne crisply at the crest dropoff
-  const ramp = stepRoverBallisticPhysics(s, { groundY: 0.17, slopeClimbVy: 6.0, horizSpeed: 18.0, dt: 0.016 });
-  assert.equal(ramp.launched, false);
-  const crest = stepRoverBallisticPhysics(s, { groundY: 0.1, slopeClimbVy: 0.0, horizSpeed: 18.0, dt: 0.016 });
-  assert.equal(crest.launched, true);
-  assert.equal(s.airborne, true);
-  assert.ok(s.velY >= 2.0 && s.velY <= 3.8);
-
-  let landedStep = null;
-  let totalAirTime = 0;
-  for (let i = 0; i < 120; i++) {
-    const res = stepRoverBallisticPhysics(s, {
-      groundY: 0.1,
-      horizSpeed: 18.0,
-      dt: 0.016,
-      marsG: ROVER_FLIGHT_G,
-    });
-    totalAirTime += 0.016;
-    if (res.landed) {
-      landedStep = res;
-      break;
-    }
-  }
-  assert.ok(landedStep && landedStep.landed, "Rover must return promptly to terrain");
-  assert.ok(totalAirTime < 1.0, `Airtime should stay crisp (<1.0s), got ${totalAirTime.toFixed(2)}s`);
-  assert.equal(s.airborne, false);
-  assert.ok(s.landingCooldown > 0.1, "Shock cooldown should prevent instant trampoline re-bounce");
-  assert.ok(landedStep.impactSpeed > 1.8);
-
-  // Landing shock cooldown settles before next violent whip impulse can launch
-  const blockedImmediately = stepRoverBallisticPhysics(s, {
-    groundY: 0.1,
-    bumpImpulseVy: 2.5,
-    horizSpeed: 14.0,
-    dt: 0.016,
-  });
-  assert.equal(blockedImmediately.launched, false);
-
-  s.landingCooldown = 0;
-  const whip = stepRoverBallisticPhysics(s, {
-    groundY: 0.1,
-    bumpImpulseVy: 2.5,
-    horizSpeed: 14.0,
-    dt: 0.016,
-  });
-  assert.equal(whip.launched, true);
-  assert.equal(s.airborne, true);
-});
-
 test("MARS_HISTORIC_ROVERS defines all 5 unique Mars rovers at separated real Martian coordinates + valid Perseverance GLB", () => {
   assert.equal(MARS_HISTORIC_ROVERS.length, 5);
   const expectedIds = ["sojourner", "spirit", "opportunity", "curiosity", "perseverance"];
@@ -576,71 +514,16 @@ test("scatterHistoricRoverCoords spreads all 5 unique rovers safely across walka
   }
 });
 
-test("drivable vehicle registry keeps only NASA MMSEV and normalizes roverSpeedMultiplier", () => {
-  assert.equal(DRIVABLE_VEHICLES.length, 1);
-  assert.equal(DRIVABLE_VEHICLES[0].id, "mmsev");
-  assert.equal(getDrivableVehicleSpec("mmsev").shortLabel, "MMSEV 6×6");
-  assert.equal(getDrivableVehicleSpec("anything-else").id, "mmsev");
+test("drivable vehicle registry lists SEV, Chariot and LRV and normalizes roverSpeedMultiplier", () => {
+  assert.deepEqual(
+    DRIVABLE_VEHICLES.map((v) => v.id),
+    ["sev", "chariot", "lrv"]
+  );
+  assert.equal(getDrivableVehicleSpec("sev").shortLabel, "SEV");
+  assert.equal(getDrivableVehicleSpec("mmsev").id, "sev", "old id still resolves");
+  assert.equal(getDrivableVehicleSpec("anything-else").id, "sev");
+  for (const v of DRIVABLE_VEHICLES) assert.ok(v.halfW > 0 && v.halfL > 0 && v.heightM > 0, `${v.id} collision box`);
   assert.equal(DEFAULT_DEV_SETTINGS.roverSpeedMultiplier, 1.0);
   assert.equal(normalizeDevSettings({ roverSpeedMultiplier: 2.5 }).roverSpeedMultiplier, 2.5);
 });
 
-test("stepAdvancedRoverPhysics simulates acceleration, gearbox shifts, handbrake drift slip, and flight trim", () => {
-  const s = {
-    yaw: 0,
-    yawRate: 0,
-    velX: 0,
-    velZ: 0,
-    forwardSpeed: 0,
-    lateralSpeed: 0,
-    slipRatio: 0,
-    gear: 1,
-    rpmNorm: 0,
-    drifting: false,
-    braking: false,
-    airPitchVel: 0,
-    airRollVel: 0,
-    airPitchOffset: 0,
-    airRollOffset: 0,
-    lastSlopePitch: 0,
-  };
-
-  let res = null;
-  for (let i = 0; i < 65; i++) {
-    res = stepAdvancedRoverPhysics(s, {
-      vehicleType: "mmsev",
-      throttle: 1,
-      steer: 0,
-      boost: true,
-      speedMultiplier: 1.0,
-      dt: 0.02,
-    });
-  }
-  assert.ok(res.vFwd > 10, `MMSEV should accelerate crisply (got ${res.vFwd.toFixed(2)} m/s)`);
-  assert.ok(res.gear >= 3, `Expected higher gear at speed (got Gear ${res.gear})`);
-
-  // Engage handbrake powerslide drift + sharp steer
-  for (let i = 0; i < 12; i++) {
-    res = stepAdvancedRoverPhysics(s, {
-      vehicleType: "mmsev",
-      throttle: 1,
-      steer: 1,
-      handbrake: true,
-      dt: 0.02,
-    });
-  }
-  assert.equal(res.drifting, true, "Handbrake + steer at speed must induce powerslide drift");
-  assert.ok(res.slipRatio > 0.2, `Drift must produce lateral slip ratio (got ${res.slipRatio.toFixed(2)})`);
-  assert.ok(Math.abs(s.yaw) > 0.15, "Cornering drift must rotate heading yaw");
-
-  // Mid-air attitude reaction trim
-  const airOut = stepAdvancedRoverPhysics(s, {
-    vehicleType: "mmsev",
-    throttle: 1,
-    steer: -1,
-    airborne: true,
-    dt: 0.05,
-  });
-  assert.equal(airOut.drifting, false);
-  assert.ok(s.airPitchVel !== 0 || s.airRollVel !== 0);
-});

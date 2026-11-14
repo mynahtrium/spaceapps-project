@@ -5,13 +5,15 @@
  * Symbology is drawn on the inner visor. The suit is NASA's Advanced Crew Escape Suit
  * when that mesh loads, with a procedural gait, slope-matched feet, and synthesized footsteps.
  *
- * - Terrain: Backend's 8-bit RGB height-preview.png (value = R*256 + G) on the real 2 km tile,
- *   surrounded by mirrored copies so the ground never ends (copies are visual, not data).
+ * - Terrain: the streamed HiRISE corridor (web/map/GaleCorridor.js): an ~8 m overview of the
+ *   2.1 x 5.4 km corridor plus real 1 m chunks loaded around the walker, surrounded by mirrored
+ *   copies so the ground never ends (copies are visual, not data). Without the corridor files it
+ *   falls back to the single height-preview.png tile (value = R*256 + G).
  * - Astronaut: NASA 3D Resources spacesuit glTF, scaled to 1.80 m and rigged procedurally
  *   (astronaut-rig.js) with a distance-driven walk / run cycle. You see through a helmet camera;
  *   your own helmet is hidden, so looking down shows your legs and gloves. A second crew member
  *   walks ahead on the route (buddy EVA).
- * - Physics: Gale gravity, 180 kg suited inertia, boot traction, slope slip, ballistic jumps
+ * - Physics: Gale gravity, 180 kg suited inertia, boot traction, step-up ledges, ballistic jumps
  *   (`web/physics/`). Slope limits stay lunar stand-ins. O2 on the HUD stays a placeholder.
  * - Look: physically based materials, a Mars sky dome, sun shadows, ACES tone mapping and a camera
  *   lens pass (barrel distortion, chromatic aberration, vignette, grain). This is real-time
@@ -49,15 +51,17 @@ import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
 import { createMarsBody, stepPhysicsWorld } from "../physics/MarsPhysicsWorld.js";
-import { downhillLeanRad, JUMP_SPEED_MS, torsoLeanRad } from "../physics/SuitBiomechanics.js";
 import {
-  ROVER_FLIGHT_G,
-  computeSpawnBesideOffset,
-  createExperimentalRover,
-  getDrivableVehicleSpec,
-  stepAdvancedRoverPhysics,
-  stepRoverBallisticPhysics,
-} from "./experimental-rover.js";
+  downhillLeanRad,
+  FROUDE_LOPE_MS,
+  gradeSpeedScale,
+  JUMP_SPEED_MS,
+  RUN_SPEED_MS,
+  torsoLeanRad,
+  WALK_SPEED_MS,
+} from "../physics/SuitBiomechanics.js";
+import { computeSpawnBesideOffset, createExperimentalRover, getDrivableVehicleSpec } from "./experimental-rover.js";
+import { VEHICLE_IDS } from "../physics/VehicleDynamics.js";
 import { createMarsFxSystem } from "./mars-fx.js";
 import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
 import {
@@ -68,12 +72,11 @@ import {
   scatterHistoricRoverCoords,
 } from "../shared/mars-rovers.js";
 import { createHistoricRoverManager } from "./historic-rovers.js";
+import { GaleCorridor, buildCorridorCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
 const EYE_FORWARD_M = 0.36; // at the visor, ahead of the suit's deep chest so the legs show when looking down
-const WALK_SPEED_MS = 1.4; // placeholder walking pace (Earth hiking stand-in)
-const RUN_SPEED_MS = 2.5; // a light suited run (Shift); clearly faster than walking, not a sprint
 const PARTNER_AHEAD_M = 6;
 const PARTNER_COLLISION_R = 1.05; // solid suit + backpack + 0.36 m visor clearance
 const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
@@ -404,18 +407,27 @@ export async function initHud3D(
     }
   };
 
-  const bounds = costMap?.bounds || {
-    west_lon_deg: 137.372831,
-    south_lat_deg: -4.816946,
-    east_lon_deg: 137.406542,
-    north_lat_deg: -4.783236,
-  };
+  // Streamed HiRISE corridor (habitat -> Glen Torridon, real 1 m DTM in chunks). When it is missing,
+  // the world falls back to the single height-preview tile.
+  const corridor = assets.corridorBaseUrl ? await GaleCorridor.load(assets.corridorBaseUrl) : null;
+
+  const bounds = corridor?.bounds ||
+    costMap?.bounds || {
+      west_lon_deg: 137.372831,
+      south_lat_deg: -4.816946,
+      east_lon_deg: 137.406542,
+      north_lat_deg: -4.783236,
+    };
   const ncols = costMap?.grid?.ncols || 395;
   const nrows = costMap?.grid?.nrows || 395;
   const cellSizeM = costMap?.cell_size_m || 5.059;
-  const worldW = ncols * cellSizeM;
-  const worldH = nrows * cellSizeM;
-  const [elevMin, elevMax] = costMap?.height_preview_elevation_range_m || [-3850.6, -3369.3];
+  const worldW = corridor ? corridor.worldW : ncols * cellSizeM;
+  const worldH = corridor ? corridor.worldH : nrows * cellSizeM;
+  const [elevMin, elevMax] = corridor
+    ? [corridor.elevMin, corridor.elevMax]
+    : costMap?.height_preview_elevation_range_m || [-3850.6, -3369.3];
+  // Detail-texture tiling in the terrain shader was tuned on a ~2 km tile; scale it per mesh.
+  const UV_REF_M = 1998;
 
   let activeSiteRover = getHistoricRoverById("curiosity") || MARS_HISTORIC_ROVERS[0];
   let activeSiteId = activeSiteRover.id;
@@ -469,6 +481,23 @@ export async function initHud3D(
     return activeSiteRover.lat - z / mPerDeg;
   };
   const activeElevBaseM = () => (isGaleSite() ? elevMin : activeSiteRover.siteElevM ?? 0);
+
+  // EVA start (route start, else the first stop) in scene metres. The corridor is centred between
+  // the habitat and Glen Torridon, so "home" is no longer the scene origin.
+  const galeHome = (() => {
+    const c = route?.geometry?.coordinates?.[0] || stops?.features?.[0]?.geometry?.coordinates;
+    return c ? { x: lonToX(c[0]), z: latToZ(c[1]) } : { x: 0, z: 0 };
+  })();
+  // Load the real 1 m ground under the start and every stop before anything is placed on it
+  // (stop poles, field kits, rovers); otherwise they would sit on the smoother ~8 m overview.
+  if (corridor) {
+    const jobs = [corridor.warmup(galeHome.x, galeHome.z, 600, 8000)];
+    for (const f of stops?.features || []) {
+      const [lon, lat] = f.geometry.coordinates;
+      jobs.push(corridor.warmup(lonToX(lon), latToZ(lat), 60, 8000));
+    }
+    await Promise.all(jobs);
+  }
 
   // ---------- renderer, scene, camera ----------
   const scene = new THREE.Scene();
@@ -660,7 +689,12 @@ export async function initHud3D(
   let elevGrid = null;
   let imgW = 0;
   let imgH = 0;
-  try {
+  if (corridor) {
+    // ~8 m overview of the whole corridor: far terrain, horizon and the fallback under unloaded chunks.
+    elevGrid = corridor.overview.elev;
+    imgW = corridor.overview.nx;
+    imgH = corridor.overview.nz;
+  } else try {
     const hImg = await loadImage(assets.heightPreviewUrl);
     imgW = hImg.width;
     imgH = hImg.height;
@@ -680,8 +714,18 @@ export async function initHud3D(
   }
 
   // Bilinear height (scene Y, metres above site base), mirror-wrapped beyond the tile.
-  // At Gale (Curiosity), samples real HiRISE DTM; at other rover sites, uses deterministic site relief.
+  // At Gale (Curiosity), samples real HiRISE DTM (1 m detail chunks where streamed in, else the
+  // overview grid); at other rover sites, uses deterministic site relief.
   function sampleElevSceneY(x, z) {
+    if (corridor && isGaleSite()) {
+      const d = corridor.sampleDetail(x, z);
+      if (d !== null) return d - elevMin;
+    }
+    return sampleBaseSceneY(x, z);
+  }
+
+  /** Height without the streamed detail: the overview grid at Gale, site relief elsewhere. */
+  function sampleBaseSceneY(x, z) {
     if (!isGaleSite()) {
       const mx = (mirrorWrap(x / worldW + 0.5) - 0.5) * worldW;
       const mz = (mirrorWrap(z / worldH + 0.5) - 0.5) * worldH;
@@ -729,28 +773,30 @@ export async function initHud3D(
     return { footDyL: L.dy, footDyR: R.dy, normalL: L.n, normalR: R.n };
   }
 
-  function buildTerrainGeometry(seg) {
-    const g = new THREE.PlaneGeometry(worldW, worldH, seg, seg);
+  // The base mesh (whole tile / corridor overview) never uses the streamed detail: detail chunks
+  // draw their own meshes on top, and the base is cut away under them in the shader.
+  function buildTerrainGeometry(segX, segZ = segX) {
+    const g = new THREE.PlaneGeometry(worldW, worldH, segX, segZ);
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
-    for (let i = 0; i < pos.count; i++) pos.setY(i, sampleElevSceneY(pos.getX(i), pos.getZ(i)));
+    for (let i = 0; i < pos.count; i++) pos.setY(i, sampleBaseSceneY(pos.getX(i), pos.getZ(i)));
     g.computeVertexNormals();
-    return addSkirt(g, seg, 40);
+    return addSkirt(g, segX, segZ, 40);
   }
 
   // Tiles of different vertex density meet with small height mismatches along their edges, which
   // open thin cracks where the sky shows through. A skirt (a strip hanging 40 m down from every
   // edge, textured like the edge) fills those cracks without changing the visible surface.
-  function addSkirt(g, seg, depth) {
-    const n = seg + 1;
+  function addSkirt(g, segX, segZ, depth) {
+    const n = segX + 1; // vertices per row
     const pos = g.attributes.position;
     const uv = g.attributes.uv;
     const nor = g.attributes.normal;
     const ring = [];
     for (let i = 0; i < n; i++) ring.push(i); // north edge
-    for (let j = 1; j < n; j++) ring.push(j * n + seg); // east edge
-    for (let i = seg - 1; i >= 0; i--) ring.push(seg * n + i); // south edge
-    for (let j = seg - 1; j >= 1; j--) ring.push(j * n); // west edge
+    for (let j = 1; j <= segZ; j++) ring.push(j * n + segX); // east edge
+    for (let i = segX - 1; i >= 0; i--) ring.push(segZ * n + i); // south edge
+    for (let j = segZ - 1; j >= 1; j--) ring.push(j * n); // west edge
     const base = pos.count;
     const m = ring.length;
     const P = new Float32Array((pos.count + 2 * m) * 3);
@@ -791,10 +837,14 @@ export async function initHud3D(
     return out;
   }
 
+  // Corridor: one vertex per overview sample (~8 m). Single tile: up to 394 x 394 (~5 m).
   const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
-  let terrainGeom = buildTerrainGeometry(fullSeg);
+  const fullSegZ = corridor ? imgH - 1 : fullSeg;
+  const copySeg = Math.max(1, Math.floor(fullSeg / 4));
+  const copySegZ = Math.max(1, Math.floor(fullSegZ / 4));
+  let terrainGeom = buildTerrainGeometry(fullSeg, fullSegZ);
   // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
-  let copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
+  let copyGeom = buildTerrainGeometry(copySeg, copySegZ);
 
   // ---------- far terrain shadows (baked) ----------
   // The real-time shadow map only covers the ground near the walker. For the rest, march from every
@@ -803,41 +853,46 @@ export async function initHud3D(
   // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
   function bakeSunMask() {
     const n = elevGrid ? imgW : 0;
-    if (!n) return null;
-    const N = 2 * n; // cells across one mirror period
-    const cell = worldW / n;
-    const H = new Float32Array(N * N);
-    for (let r = 0; r < N; r++) {
-      const sr = r < n ? r : 2 * n - 1 - r;
-      for (let c = 0; c < N; c++) {
+    const m = elevGrid ? imgH : 0;
+    if (!n || !m) return null;
+    const NX = 2 * n; // cells across one mirror period (east-west)
+    const NZ = 2 * m; // (north-south); the corridor is not square
+    const cellX = worldW / n;
+    const cellZ = worldH / m;
+    const H = new Float32Array(NX * NZ);
+    for (let r = 0; r < NZ; r++) {
+      const sr = r < m ? r : 2 * m - 1 - r;
+      for (let c = 0; c < NX; c++) {
         const sc = c < n ? c : 2 * n - 1 - c;
-        H[r * N + c] = elevGrid[sr * imgW + sc];
+        H[r * NX + c] = elevGrid[sr * imgW + sc];
       }
     }
     const horiz = Math.max(1e-4, Math.hypot(sunDir.x, sunDir.z));
     const tanSun = sunDir.y / horiz;
-    const dx = sunDir.x / horiz; // cells per step towards the sun (x = columns, east)
-    const dz = sunDir.z / horiz; // z = rows, south
-    const maxSteps = Math.ceil(700 / cell);
+    const stepM = Math.min(cellX, cellZ);
+    const dx = ((sunDir.x / horiz) * stepM) / cellX; // cells per step towards the sun (x = columns, east)
+    const dz = ((sunDir.z / horiz) * stepM) / cellZ; // z = rows, south
+    const maxSteps = Math.ceil(700 / stepM);
     const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
-    const out = new Uint8Array(N * N * 4);
+    const out = new Uint8Array(NX * NZ * 4);
     if (sunDir.y <= 0.0) {
       // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
       for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
-      const dark = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+      const dark = new THREE.DataTexture(out, NX, NZ, THREE.RGBAFormat);
       dark.needsUpdate = true;
       return dark;
     }
     if (sunDir.y > 0.995) {
       out.fill(255); // sun at the zenith: no terrain shadows
-      const lit = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+      const lit = new THREE.DataTexture(out, NX, NZ, THREE.RGBAFormat);
       lit.needsUpdate = true;
       return lit;
     }
-    const wrapN = (v) => ((v % N) + N) % N;
-    for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) {
-        const h0 = H[r * N + c];
+    const wrapX = (v) => ((v % NX) + NX) % NX;
+    const wrapZ = (v) => ((v % NZ) + NZ) % NZ;
+    for (let r = 0; r < NZ; r++) {
+      for (let c = 0; c < NX; c++) {
+        const h0 = H[r * NX + c];
         let worst = -1e9;
         for (let k = 1; k <= maxSteps; k++) {
           const fx = c + dx * k;
@@ -846,13 +901,13 @@ export async function initHud3D(
           const z0 = Math.floor(fz);
           const tx = fx - x0;
           const tz = fz - z0;
-          const a = wrapN(x0);
-          const b = wrapN(x0 + 1);
-          const ra = wrapN(z0) * N;
-          const rb = wrapN(z0 + 1) * N;
+          const a = wrapX(x0);
+          const b = wrapX(x0 + 1);
+          const ra = wrapZ(z0) * NX;
+          const rb = wrapZ(z0 + 1) * NX;
           const h =
             (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
-          const t = (h - h0) / (k * cell);
+          const t = (h - h0) / (k * stepM);
           if (t > worst) {
             worst = t;
             if (worst > tanSun + SOFT) break; // fully in shadow
@@ -860,12 +915,12 @@ export async function initHud3D(
         }
         const lit = Math.min(1, Math.max(0, (tanSun - worst) / (2 * SOFT) + 0.5));
         // texture row 0 = smallest world z (north), matching the shader's lookup
-        const o = (r * N + c) * 4;
+        const o = (r * NX + c) * 4;
         out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
         out[o + 3] = 255;
       }
     }
-    const tex = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+    const tex = new THREE.DataTexture(out, NX, NZ, THREE.RGBAFormat);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.magFilter = THREE.LinearFilter;
     tex.minFilter = THREE.LinearFilter;
@@ -971,7 +1026,9 @@ export async function initHud3D(
   }
   const orthoTex = prepTex(texLoader.load(assets.orthoPreviewUrl, upscaleWithFillers));
   const slopeTex = prepTex(texLoader.load(assets.slopePreviewUrl, upscaleWithFillers));
-  const reliefUrl = assets.reliefTextureUrl || assets.heightPreviewUrl.replace(/height-preview\.png$/, "texture-relief.jpg");
+  const reliefUrl = corridor
+    ? corridor.overviewTextureUrl()
+    : assets.reliefTextureUrl || assets.heightPreviewUrl.replace(/height-preview\.png$/, "texture-relief.jpg");
   let reliefOk = true;
   let texMode = 0; // 0 relief, 1 ortho, 2 slope
   const reliefTex = prepTex(
@@ -990,7 +1047,7 @@ export async function initHud3D(
   // Offline procedural Mars ground (map branch): wind-rippled regolith + fractured mudstone slabs.
   const pbr = createMartianPbrTextureSets(THREE, 512);
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
-  pbr.dustNormalTex.repeat.set(960, 960);
+  pbr.dustNormalTex.repeat.set((960 * worldW) / UV_REF_M, (960 * worldH) / UV_REF_M);
   let pbrHigh = null;
   let terrainShaderRef = null;
   let suitWeaveTex = null;
@@ -1001,7 +1058,7 @@ export async function initHud3D(
     for (const t of [pbrHigh.dustAlbedoTex, pbrHigh.rockAlbedoTex, pbrHigh.dustNormalTex, pbrHigh.rockNormalTex]) {
       t.anisotropy = maxAniso;
     }
-    pbrHigh.dustNormalTex.repeat.set(960, 960);
+    pbrHigh.dustNormalTex.repeat.set((960 * worldW) / UV_REF_M, (960 * worldH) / UV_REF_M);
     return pbrHigh;
   }
 
@@ -1051,20 +1108,56 @@ export async function initHud3D(
   terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
   const superDetailUniform = { value: 0 };
   const realisticTexUniform = { value: 0 };
-  terrainMat.onBeforeCompile = (shader) => {
-    terrainShaderRef = shader;
-    shader.uniforms.detailMap = { value: detailTex };
+  // Shared by every terrain material (base mesh, mirrored copies, streamed detail chunks).
+  const sunMaskU = { value: sunMask };
+  const sunMaskOnU = { value: sunMask ? 1 : 0 };
+  const sunMaskPeriodU = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
+  const sunMaskOriginU = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
+  const pbrDustU = { value: devCfg.realisticTextures ? ensureHighResPbr().dustAlbedoTex : pbr.dustAlbedoTex };
+  const pbrRockU = { value: devCfg.realisticTextures ? ensureHighResPbr().rockAlbedoTex : pbr.rockAlbedoTex };
+  const detailMapU = { value: detailTex };
+  // Detail-chunk coverage (16 x 16 scene cells around the walker): the base mesh is cut away where a
+  // streamed 1 m chunk is drawn, so the smoother ~8 m overview never pokes through it.
+  const COV_N = 16;
+  const covData = new Uint8Array(COV_N * COV_N * 4);
+  const covTex = new THREE.DataTexture(covData, COV_N, COV_N, THREE.RGBAFormat);
+  covTex.magFilter = THREE.NearestFilter;
+  covTex.minFilter = THREE.NearestFilter;
+  covTex.needsUpdate = true;
+  const covTexU = { value: covTex };
+  const covOriginU = { value: new THREE.Vector2() };
+  const covCellU = { value: new THREE.Vector2(corridor ? corridor.chunkW : 1, corridor ? corridor.chunkH : 1) };
+
+  /** Per-material uniforms: detail tiling scale and whether this mesh is cut under detail chunks. */
+  function makeTerrainMmUniforms(spanXM, spanZM, coverageCut) {
+    return {
+      uMmUvScale: { value: new THREE.Vector2(spanXM / UV_REF_M, spanZM / UV_REF_M) },
+      uCovOn: { value: coverageCut ? 1 : 0 },
+    };
+  }
+  terrainMat.userData.mm = makeTerrainMmUniforms(worldW, worldH, Boolean(corridor));
+
+  /** Shader patch for every terrain material. Called as a method, so `this` is the material. */
+  function patchTerrainShader(shader) {
+    if (this === terrainMat) terrainShaderRef = shader;
+    const mm = this.userData.mm;
+    shader.uniforms.detailMap = detailMapU;
     shader.uniforms.uCurvAnchor = curvAnchor;
     shader.uniforms.uCurvInv2N = curvInv2N;
     shader.uniforms.uCurvInv2M = curvInv2M;
-    shader.uniforms.pbrDust = { value: devCfg.realisticTextures ? ensureHighResPbr().dustAlbedoTex : pbr.dustAlbedoTex };
-    shader.uniforms.pbrRock = { value: devCfg.realisticTextures ? ensureHighResPbr().rockAlbedoTex : pbr.rockAlbedoTex };
-    shader.uniforms.sunMask = { value: sunMask };
-    shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
-    shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
-    shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
+    shader.uniforms.pbrDust = pbrDustU;
+    shader.uniforms.pbrRock = pbrRockU;
+    shader.uniforms.sunMask = sunMaskU;
+    shader.uniforms.sunMaskOn = sunMaskOnU;
+    shader.uniforms.sunMaskPeriod = sunMaskPeriodU;
+    shader.uniforms.sunMaskOrigin = sunMaskOriginU;
     shader.uniforms.uSuperDetail = superDetailUniform;
     shader.uniforms.uRealisticTex = realisticTexUniform;
+    shader.uniforms.uMmUvScale = mm.uMmUvScale;
+    shader.uniforms.uCovOn = mm.uCovOn;
+    shader.uniforms.uCov = covTexU;
+    shader.uniforms.uCovOrigin = covOriginU;
+    shader.uniforms.uCovCell = covCellU;
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
@@ -1081,7 +1174,16 @@ export async function initHud3D(
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\nuniform vec2 uMmUvScale;\nuniform float uCovOn;\nuniform sampler2D uCov;\nuniform vec2 uCovOrigin;\nuniform vec2 uCovCell;"
+      )
+      .replace(
+        "#include <clipping_planes_fragment>",
+        `#include <clipping_planes_fragment>
+        if (uCovOn > 0.5) {
+          vec2 mmCc = (vMmWorldXZ - uCovOrigin) / uCovCell;
+          if (mmCc.x >= 0.0 && mmCc.y >= 0.0 && mmCc.x < ${COV_N}.0 && mmCc.y < ${COV_N}.0 &&
+              texture2D(uCov, (floor(mmCc) + 0.5) / ${COV_N}.0).r > 0.5) discard;
+        }`
       )
       .replace(
         "#include <lights_fragment_begin>",
@@ -1096,19 +1198,20 @@ export async function initHud3D(
         "#include <map_fragment>",
         `#include <map_fragment>
         #ifdef USE_MAP
-          float dA = texture2D(detailMap, vMapUv * 173.0).r;
-          float dB = texture2D(detailMap, vMapUv * 911.0).r;
+          vec2 mmUv = vMapUv * uMmUvScale; // same metres per detail tile on every terrain mesh
+          float dA = texture2D(detailMap, mmUv * 173.0).r;
+          float dB = texture2D(detailMap, mmUv * 911.0).r;
           float mmSlopeMix = smoothstep(0.03, 0.30, vMmSlope);
           vec2 mmElevWarp = (vec2(dA - 0.5, dB - 0.5) * 0.0020 + vec2(sin(vMmElev * 0.42), cos(vMmElev * 0.42)) * 0.0010) * mmSlopeMix;
-          vec3 mmAltTex = texture2D(map, vMapUv + mmElevWarp).rgb;
+          vec3 mmAltTex = texture2D(map, vMapUv + mmElevWarp / uMmUvScale).rgb;
           diffuseColor.rgb = mix(diffuseColor.rgb, mmAltTex, 0.45 * mmSlopeMix);
           float detailGain = mix(0.46, 0.62, max(uSuperDetail, uRealisticTex * 0.90));
           diffuseColor.rgb *= (1.0 - detailGain * 0.65) + detailGain * dA * 0.6 + detailGain * dB * 0.4;
           // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches + fine sub-meter grit.
-          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(720.0, 1080.0, max(uSuperDetail, uRealisticTex))).rgb;
-          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(320.0, 520.0, max(uSuperDetail, uRealisticTex)) + 0.37).rgb;
-          vec3 mmMicro = texture2D(pbrDust, vMapUv * mix(2200.0, 3200.0, max(uSuperDetail, uRealisticTex)) + 0.19).rgb;
-          float mmRockMask = clamp(max(smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r), mmSlopeMix * 0.62), 0.0, 1.0);
+          vec3 mmDust = texture2D(pbrDust, mmUv * mix(720.0, 1080.0, max(uSuperDetail, uRealisticTex))).rgb;
+          vec3 mmRock = texture2D(pbrRock, mmUv * mix(320.0, 520.0, max(uSuperDetail, uRealisticTex)) + 0.37).rgb;
+          vec3 mmMicro = texture2D(pbrDust, mmUv * mix(2200.0, 3200.0, max(uSuperDetail, uRealisticTex)) + 0.19).rgb;
+          float mmRockMask = clamp(max(smoothstep(0.48, 0.66, texture2D(detailMap, mmUv * 41.0 + 0.11).r), mmSlopeMix * 0.62), 0.0, 1.0);
           vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
           float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
           float mmMicroLum = dot(mmMicro, vec3(0.299, 0.587, 0.114)) / 0.40;
@@ -1119,7 +1222,8 @@ export async function initHud3D(
           diffuseColor.rgb += vec3(mmMineralGlint, mmMineralGlint * 0.72, mmMineralGlint * 0.48);
         #endif`
       );
-  };
+  }
+  terrainMat.onBeforeCompile = patchTerrainShader;
 
   const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
   terrainMesh.receiveShadow = true;
@@ -1148,6 +1252,223 @@ export async function initHud3D(
   function followEndless(pos) {
     endless.position.set(Math.round(pos.x / period.x) * period.x, 0, Math.round(pos.z / period.z) * period.z);
     endless.userData.centre.visible = endless.position.x !== 0 || endless.position.z !== 0;
+  }
+
+  // ---------- streamed 1 m detail chunks (Gale corridor) ----------
+  // Each ~259 m scene cell near the walker gets its own mesh built from the real 1 m DTM chunk
+  // (mirrored copies reuse the same data, flipped). Level of detail by distance; far cells are
+  // dropped and the overview mesh shows again there.
+  const chunkGroup = new THREE.Group();
+  scene.add(chunkGroup);
+  const chunkMeshes = new Map(); // "a,b" -> { a, b, ci, cj, seg, mesh, ready, disposed }
+  const chunkTexEntries = new Map(); // data-chunk index -> { tex, slope, refs, loaded, failed, waiters }
+  const chunkNormalClones = new Map(); // shared normal map -> clone tiled for one chunk
+  const DETAIL_RADIUS_M = 850;
+  const DATA_RADIUS_M = 1050;
+  const chunkLodSeg = (d) => (d < 150 ? 256 : d < 450 ? 128 : 64); // 1 m, 2 m, 4 m vertex spacing
+  let chunkPlanT = 0;
+  let chunkPlanCell = "";
+  let chunkBuildQueue = [];
+  let covDirty = true;
+  let covA0 = Number.NaN;
+  let covB0 = Number.NaN;
+  if (corridor) {
+    corridor.onChunkLoaded(() => {
+      chunkPlanT = 0; // new data: queue the cells that were waiting for it
+    });
+  }
+
+  function chunkNormalFor(src) {
+    let t = chunkNormalClones.get(src);
+    if (!t) {
+      t = src.clone(); // shares the image with the base mesh's normal map
+      t.repeat.set((960 * corridor.chunkW) / UV_REF_M, (960 * corridor.chunkH) / UV_REF_M);
+      chunkNormalClones.set(src, t);
+    }
+    return t;
+  }
+
+  function chunkTexEntry(ci, cj) {
+    const i = corridor.index(ci, cj);
+    let e = chunkTexEntries.get(i);
+    if (!e) {
+      e = { refs: 0, loaded: false, failed: false, waiters: [], slope: null, ci, cj };
+      const settle = (ok) => {
+        e.loaded = ok;
+        e.failed = !ok;
+        for (const w of e.waiters.splice(0)) w();
+      };
+      e.tex = texLoader.load(corridor.chunkTextureUrl(ci, cj), () => settle(true), undefined, () => settle(false));
+      e.tex.colorSpace = THREE.SRGBColorSpace;
+      e.tex.anisotropy = maxAniso;
+      chunkTexEntries.set(i, e);
+    }
+    return e;
+  }
+
+  function chunkSlopeTex(e) {
+    if (!e.slope) {
+      const rgba = chunkSlopeRgba(corridor, e.ci, e.cj, 128);
+      if (!rgba) return e.tex;
+      e.slope = new THREE.DataTexture(rgba, 128, 128, THREE.RGBAFormat);
+      e.slope.colorSpace = THREE.SRGBColorSpace;
+      e.slope.magFilter = THREE.LinearFilter;
+      e.slope.minFilter = THREE.LinearFilter;
+      e.slope.needsUpdate = true;
+    }
+    return e.slope;
+  }
+
+  function releaseChunkTex(e) {
+    e.refs--;
+    if (e.refs > 0) return;
+    e.tex.dispose();
+    e.slope?.dispose();
+    chunkTexEntries.delete(corridor.index(e.ci, e.cj));
+  }
+
+  function chunkMapFor(e) {
+    return texMode === 2 ? chunkSlopeTex(e) : e.tex;
+  }
+
+  function makeChunkMaterial(e) {
+    const m = new THREE.MeshStandardMaterial({
+      map: chunkMapFor(e),
+      normalMap: chunkNormalFor(terrainMat.normalMap),
+      normalScale: terrainMat.normalScale.clone(),
+      roughness: terrainMat.roughness,
+      metalness: 0.0,
+    });
+    m.envMapIntensity = terrainMat.envMapIntensity;
+    m.userData.mm = makeTerrainMmUniforms(corridor.chunkW, corridor.chunkH, false);
+    m.onBeforeCompile = patchTerrainShader;
+    return m;
+  }
+
+  /** Keep chunk materials in step with the base terrain material (dev settings, texture mode). */
+  function syncChunkMaterials() {
+    for (const c of chunkMeshes.values()) {
+      const m = c.mesh.material;
+      m.map = chunkMapFor(c.texEntry);
+      m.normalMap = chunkNormalFor(terrainMat.normalMap);
+      m.normalScale.copy(terrainMat.normalScale);
+      m.roughness = terrainMat.roughness;
+      m.needsUpdate = true;
+    }
+  }
+
+  function disposeChunk(key, c) {
+    c.disposed = true;
+    chunkGroup.remove(c.mesh);
+    c.mesh.geometry.dispose();
+    c.mesh.material.dispose();
+    releaseChunkTex(c.texEntry);
+    chunkMeshes.delete(key);
+    covDirty = true;
+  }
+
+  function planCorridorChunks(px, pz) {
+    corridor.update(px, pz, DATA_RADIUS_M);
+    const { a, b } = corridor.sceneCellOf(px, pz);
+    const ra = Math.ceil(DETAIL_RADIUS_M / corridor.chunkW) + 1;
+    const rb = Math.ceil(DETAIL_RADIUS_M / corridor.chunkH) + 1;
+    const want = new Map();
+    for (let db = -rb; db <= rb; db++) {
+      for (let da = -ra; da <= ra; da++) {
+        const d = corridor.cellDistance(a + da, b + db, px, pz);
+        if (d > DETAIL_RADIUS_M) continue;
+        want.set(`${a + da},${b + db}`, { a: a + da, b: b + db, d, seg: chunkLodSeg(d) });
+      }
+    }
+    for (const [key, c] of chunkMeshes) if (!want.has(key)) disposeChunk(key, c);
+    chunkBuildQueue = [...want.entries()]
+      .filter(([key, w]) => chunkMeshes.get(key)?.seg !== w.seg)
+      .map(([, w]) => w)
+      .sort((p, q) => p.d - q.d);
+  }
+
+  function buildQueuedChunks(budgetMs) {
+    const t0 = performance.now();
+    let built = 0;
+    while (chunkBuildQueue.length && (built === 0 || performance.now() - t0 < budgetMs)) {
+      const w = chunkBuildQueue.shift();
+      const key = `${w.a},${w.b}`;
+      const g = buildCorridorCellGeometry(THREE, corridor, w.a, w.b, w.seg, elevMin, 30);
+      if (!g) continue; // data still on its way; the next plan queues it again
+      built++;
+      const existing = chunkMeshes.get(key);
+      if (existing) {
+        existing.mesh.geometry.dispose();
+        existing.mesh.geometry = g;
+        existing.seg = w.seg;
+        continue;
+      }
+      const { ci, cj } = corridor.dataChunkForCell(w.a, w.b);
+      const e = chunkTexEntry(ci, cj);
+      e.refs++;
+      const c = { a: w.a, b: w.b, ci, cj, seg: w.seg, texEntry: e, ready: false, disposed: false };
+      c.mesh = new THREE.Mesh(g, makeChunkMaterial(e));
+      c.mesh.receiveShadow = true;
+      c.mesh.castShadow = false; // far terrain shadows come from the baked sun mask
+      c.mesh.visible = false; // until its imagery arrives; the overview shows meanwhile
+      chunkGroup.add(c.mesh);
+      chunkMeshes.set(key, c);
+      const show = () => {
+        if (c.disposed) return;
+        c.ready = true;
+        c.mesh.visible = true;
+        covDirty = true;
+      };
+      if (e.loaded || e.failed) show();
+      else e.waiters.push(show);
+    }
+  }
+
+  function updateCoverage(a, b) {
+    const a0 = a - COV_N / 2;
+    const b0 = b - COV_N / 2;
+    if (!covDirty && a0 === covA0 && b0 === covB0) return;
+    covA0 = a0;
+    covB0 = b0;
+    covDirty = false;
+    covData.fill(0);
+    for (const c of chunkMeshes.values()) {
+      if (!c.ready) continue;
+      const ia = c.a - a0;
+      const ib = c.b - b0;
+      if (ia < 0 || ib < 0 || ia >= COV_N || ib >= COV_N) continue;
+      covData[(ib * COV_N + ia) * 4] = 255;
+    }
+    covTex.needsUpdate = true;
+    covOriginU.value.set(-corridor.worldW / 2 + a0 * corridor.chunkW, -corridor.worldH / 2 + b0 * corridor.chunkH);
+  }
+
+  /** Per frame: stream data, (re)build a few meshes within a time budget, keep the cut-out mask current. */
+  function updateCorridorChunks(px, pz, dt) {
+    if (!corridor) return;
+    const on = isGaleSite();
+    chunkGroup.visible = on;
+    terrainMat.userData.mm.uCovOn.value = on ? 1 : 0;
+    if (!on) return;
+    const { a, b } = corridor.sceneCellOf(px, pz);
+    const cellKey = `${a},${b}`;
+    chunkPlanT -= dt;
+    if (chunkPlanT <= 0 || cellKey !== chunkPlanCell) {
+      chunkPlanT = 0.25;
+      chunkPlanCell = cellKey;
+      planCorridorChunks(px, pz);
+    }
+    buildQueuedChunks(6);
+    updateCoverage(a, b);
+  }
+
+  /** Load the data around a point and build its meshes now (start of the EVA, teleports). */
+  async function warmCorridorAt(px, pz) {
+    if (!corridor || !isGaleSite()) return;
+    await corridor.warmup(px, pz, 450, 6000);
+    planCorridorChunks(px, pz);
+    buildQueuedChunks(250);
+    chunkPlanT = 0;
   }
 
   // ---------- stop markers: survey poles with a small lamp (Gale site only) ----------
@@ -1349,7 +1670,7 @@ export async function initHud3D(
     });
     return placements;
   }
-  reScatterHistoricRovers(0, 0);
+  reScatterHistoricRovers(galeHome.x, galeHome.z);
 
   const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
 
@@ -1756,6 +2077,9 @@ export async function initHud3D(
   const partnerPos = new THREE.Vector3(freePos.x, 0, freePos.z);
   let partnerYaw = userYaw;
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
+  // Visor height eased toward the feet so stepping onto a ledge lifts the view over ~0.1 s
+  // instead of teleporting it. Snaps when airborne or after a teleport.
+  let eyeSmoothY = null;
   const phys = createMarsBody({ x: freePos.x, z: freePos.z, y: 0, grounded: true });
   const heightEnv = {
     sampleHeight: sampleElevSceneY,
@@ -1796,6 +2120,7 @@ export async function initHud3D(
   let roverVelZ = 0;
   let roverSteer = 0;
   let prevRoverSteer = 0;
+  let roverCrab = false; // SEV / Chariot: all wheels pivot together (C key), NASA SEV fact sheet "crab style"
   let roverLandingImpact = 0;
   let roverAirState = {
     posY: null,
@@ -2093,13 +2418,14 @@ export async function initHud3D(
     if (texMode === 0 && !reliefOk) texMode = 1;
     terrainMat.map = TEX[texMode].tex;
     terrainMat.needsUpdate = true;
+    syncChunkMaterials();
     const b = document.getElementById("hud-tex");
     if (b) b.textContent = `Tex: ${TEX[texMode].label}`;
     return TEX[texMode].label;
   }
   btnTex?.addEventListener("click", () => setTexMode((texMode + 1) % TEX.length));
 
-  // Wrap boundary helper: keeps coordinates inside the real 2x2 km tile by wrapping opposite edges
+  // Wrap boundary helper: keeps coordinates inside one mirror period of the real terrain by wrapping opposite edges
   const wrapNoticeEl = document.getElementById("hud-wrap-notice");
   let wrapNoticeTimer = 0;
   function showWrapNotice(msg) {
@@ -2157,10 +2483,7 @@ export async function initHud3D(
       player.x += dx;
       player.z += dz;
     }
-    if (rover?.group) {
-      rover.group.position.x += dx;
-      rover.group.position.z += dz;
-    }
+    if (rover?.group) rover.shift(dx, dz); // moves the physics body with the mesh
     if (chaseCamInit) {
       chaseCamPos.x += dx;
       chaseCamPos.z += dz;
@@ -2334,15 +2657,13 @@ export async function initHud3D(
         if (next) {
           const prev = sunMask;
           sunMask = next;
-          if (terrainShaderRef?.uniforms?.sunMask) terrainShaderRef.uniforms.sunMask.value = next;
+          sunMaskU.value = next;
           prev?.dispose?.();
         }
       }
       lastSunBakeMs = performance.now();
     }
-    if (terrainShaderRef?.uniforms?.sunMaskOn) {
-      terrainShaderRef.uniforms.sunMaskOn.value = isGaleSite() && sunMask ? 1 : 0;
-    }
+    sunMaskOnU.value = isGaleSite() && sunMask ? 1 : 0;
     updateSunButton();
   }
 
@@ -2390,8 +2711,8 @@ export async function initHud3D(
     galeStopsGroup.visible = gale;
     fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
     galeVista.visible = Boolean(devCfg.superGraphics) && gale;
-    const nextMain = buildTerrainGeometry(fullSeg);
-    const nextCopy = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
+    const nextMain = buildTerrainGeometry(fullSeg, fullSegZ);
+    const nextCopy = buildTerrainGeometry(copySeg, copySegZ);
     terrainMesh.geometry = nextMain;
     for (const child of endless.children) {
       if (child.isMesh) {
@@ -2424,7 +2745,7 @@ export async function initHud3D(
     // The five NASA rovers stand near you at their own sites, at Gale, and near custom landings
     // within 150 km of a rover site; far from any of them the area is empty.
     const showRovers = !spec.isCustomSite || Boolean(spec.nearRoverId);
-    if (showRovers) reScatterHistoricRovers(0, 0);
+    if (showRovers) reScatterHistoricRovers(gale ? galeHome.x : 0, gale ? galeHome.z : 0);
     else historicRovers.clearAll();
     if (fleetBtnEl) fleetBtnEl.textContent = showRovers ? `Rovers: ${spec.name} (5)` : "Rovers (5)";
 
@@ -2639,6 +2960,25 @@ export async function initHud3D(
       return;
     }
 
+    // C: crab steering (SEV / Chariot wheels pivot together, NASA SEV fact sheet)
+    if (k === "c" && !e.repeat && drivingRover && rover.getActiveSpec().canCrab) {
+      roverCrab = !roverCrab;
+      showWrapNotice(
+        isTrLang() ? (roverCrab ? "YENGEÇ SÜRÜŞ AÇIK" : "YENGEÇ SÜRÜŞ KAPALI") : roverCrab ? "CRAB STEERING ON" : "CRAB STEERING OFF"
+      );
+      return;
+    }
+    // V: switch the parked vehicle (SEV -> Chariot -> LRV)
+    if (k === "v" && !e.repeat && !drivingRover && devCfg.experimentalRover && rover.group.visible) {
+      const next = VEHICLE_IDS[(VEHICLE_IDS.indexOf(rover.vehicleType) + 1) % VEHICLE_IDS.length];
+      rover.setVehicle(next, sampleElevSceneY);
+      roverCrab = false;
+      const vs = getDrivableVehicleSpec(next);
+      if (drvVehEl) drvVehEl.textContent = vs.shortLabel;
+      showWrapNotice(isTrLang() ? `ARAÇ: ${vs.nameTr.toUpperCase()}` : `VEHICLE: ${vs.nameEn.toUpperCase()}`);
+      return;
+    }
+
     if (k === "e" && !e.repeat) {
       const tr = isTrLang();
       if (drivingRover && devCfg.experimentalRover && rover.group.visible) {
@@ -2694,8 +3034,8 @@ export async function initHud3D(
           if (self?.group) self.group.visible = false;
           showWrapNotice(
             tr
-              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN"
-              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT"
+              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE FREN" + (rover.getActiveSpec().canCrab ? " · C YENGEÇ" : "") + " · E İN"
+              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE BRAKE" + (rover.getActiveSpec().canCrab ? " · C CRAB" : "") + " · E EXIT"
           );
           return;
         }
@@ -2920,15 +3260,14 @@ export async function initHud3D(
       terrainMat.normalMap = activePbr.dustNormalTex;
       terrainMat.needsUpdate = true;
     }
-    if (terrainShaderRef?.uniforms) {
-      terrainShaderRef.uniforms.pbrDust.value = activePbr.dustAlbedoTex;
-      terrainShaderRef.uniforms.pbrRock.value = activePbr.rockAlbedoTex;
-    }
+    pbrDustU.value = activePbr.dustAlbedoTex;
+    pbrRockU.value = activePbr.rockAlbedoTex;
     realisticTexUniform.value = wantRealTex ? 1.0 : 0.0;
     const baseNorm = wantSuper ? 0.95 : 0.55;
     const normScale = wantRealTex ? baseNorm + 0.45 : baseNorm;
     terrainMat.normalScale.set(normScale, normScale);
     terrainMat.roughness = wantRealTex ? 0.85 : 0.96;
+    syncChunkMaterials();
     applySuitRealism(wantRealTex);
 
     superDetailUniform.value = wantSuper ? 1.0 : 0.0;
@@ -2951,7 +3290,7 @@ export async function initHud3D(
     const alertCount = alerts?.alerts?.length ?? 0;
     lensMat.uniforms.uRay.value = alertCount > 0 ? 0.0018 : 0.00035;
 
-    const vSpec = getDrivableVehicleSpec();
+    const vSpec = getDrivableVehicleSpec(rover.vehicleType);
     if (drvVehEl) drvVehEl.textContent = vSpec.shortLabel;
 
     const wantRover = Boolean(cfg.experimentalRover);
@@ -2964,8 +3303,8 @@ export async function initHud3D(
       if (hudView.classList.contains("active")) {
         showWrapNotice(
           isTrLang()
-            ? `${vSpec.nameTr.toUpperCase()} YANINDA OLUŞTU (BİN: F)`
-            : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (F TO BOARD)`
+            ? `${vSpec.nameTr.toUpperCase()} YANINDA OLUŞTU (BİN: E · ARAÇ DEĞİŞTİR: V)`
+            : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (E TO BOARD · V TO SWITCH)`
         );
       }
     } else if (!wantRover && drivingRover) {
@@ -3046,99 +3385,53 @@ export async function initHud3D(
 
     if (freeRoam && drivingRover && devCfg.experimentalRover && rover.group.visible) {
       const rYaw0 = rover.group.rotation.y;
-      const fx0 = -Math.sin(rYaw0);
-      const fz0 = -Math.cos(rYaw0);
-      const rx0 = Math.cos(rYaw0);
-      const rz0 = -Math.sin(rYaw0);
-      let steerJerk = 0;
-
-      let dyn = null;
+      // Rigid-body vehicle physics (web/physics/VehicleDynamics.js): real Gale gravity, spring-damper
+      // wheels that only push, tyre grip from each wheel's load. No scripted launches.
+      let throttle = 0;
+      let handbrake = false;
       if (!isMapOpen()) {
-        const run = keys.has("shift");
-        const handbrake = keys.has(" ");
-        const throttle =
-          (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
-        const steerIn =
-          (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
-        prevRoverSteer = roverSteer;
-        roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
-        steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
-
-        const gHere = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
-        const gAheadSlope = sampleElevSceneY(rover.group.position.x + fx0 * 1.4, rover.group.position.z + fz0 * 1.4);
-        const gBehindSlope = sampleElevSceneY(rover.group.position.x - fx0 * 1.4, rover.group.position.z - fz0 * 1.4);
-        const gRightSlope = sampleElevSceneY(rover.group.position.x + rx0 * 1.3, rover.group.position.z + rz0 * 1.3);
-        const gLeftSlope = sampleElevSceneY(rover.group.position.x - rx0 * 1.3, rover.group.position.z - rz0 * 1.3);
-        const slopePitch = Math.atan2(gAheadSlope - gBehindSlope, 2.8);
-        const slopeRoll = Math.atan2(gRightSlope - gLeftSlope, 2.6);
-
-        roverDynState.yaw = rYaw0;
-        dyn = stepAdvancedRoverPhysics(roverDynState, {
-          vehicleType: rover.vehicleType,
+        handbrake = keys.has(" ");
+        throttle = (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+        const steerIn = (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
+        roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 6);
+      } else {
+        roverSteer *= Math.exp(-dt * 6);
+      }
+      const vBody = rover.step(
+        dt,
+        {
           throttle,
           steer: roverSteer,
-          boost: run,
-          handbrake,
+          brake: handbrake,
+          crab: roverCrab,
           speedMultiplier: devCfg.roverSpeedMultiplier || 1,
-          slopePitch,
-          slopeRoll,
-          airborne: roverAirState.airborne,
-          realisticPhysics: Boolean(devCfg.realisticPhysics),
-          dt,
-        });
-
-        // Sheer vertical wall guard (> 55 deg cliff crest)
-        const moveSign = Math.sign(roverDynState.forwardSpeed || throttle || 1);
-        const probeAhead = sampleElevSceneY(
-          rover.group.position.x + moveSign * fx0 * 2.2,
-          rover.group.position.z + moveSign * fz0 * 2.2
-        );
-        const slopeAheadDeg = Math.abs(Math.atan2(probeAhead - gHere, 2.2)) * (180 / Math.PI);
-        if (!roverAirState.airborne && devCfg.realisticPhysics && slopeAheadDeg > 55 && probeAhead > gHere) {
-          roverDynState.velX *= Math.exp(-dt * 8);
-          roverDynState.velZ *= Math.exp(-dt * 8);
-          roverDynState.forwardSpeed *= Math.exp(-dt * 8);
-        }
-
-        const deltaYaw = roverDynState.yaw - rYaw0;
-        rover.group.rotation.y = roverDynState.yaw;
-        userYaw += deltaYaw;
-        roverVelX = roverDynState.velX;
-        roverVelZ = roverDynState.velZ;
-        roverThrottleVel = roverDynState.forwardSpeed;
-        roverLateralSpeed = roverDynState.lateralSpeed;
-      } else {
-        roverVelX *= Math.exp(-dt * 4);
-        roverVelZ *= Math.exp(-dt * 4);
-        roverThrottleVel *= Math.exp(-dt * 4);
-        roverDynState.velX = roverVelX;
-        roverDynState.velZ = roverVelZ;
-        roverDynState.forwardSpeed = roverThrottleVel;
-      }
-
-      if (roverAirState.airborne) {
-        roverDynState.airPitchOffset = Math.max(-0.32, Math.min(0.32, roverDynState.airPitchOffset + roverDynState.airPitchVel * dt));
-        roverDynState.airRollOffset = Math.max(-0.28, Math.min(0.28, roverDynState.airRollOffset + roverDynState.airRollVel * dt));
-      } else {
-        roverDynState.airPitchOffset *= Math.exp(-dt * 12);
-        roverDynState.airRollOffset *= Math.exp(-dt * 12);
-      }
-
-      rover.group.position.x += roverVelX * dt;
-      rover.group.position.z += roverVelZ * dt;
+        },
+        sampleElevSceneY,
+        { driving: true, braking: handbrake || (throttle !== 0 && Math.sign(throttle) !== Math.sign(rover.body?.forwardSpeed || throttle)) }
+      );
+      const deltaYaw = rover.group.rotation.y - rYaw0;
+      userYaw += Math.atan2(Math.sin(deltaYaw), Math.cos(deltaYaw));
+      roverDynState.yaw = rover.group.rotation.y;
+      roverVelX = vBody ? vBody.vel.x : 0;
+      roverVelZ = vBody ? vBody.vel.z : 0;
+      roverThrottleVel = vBody ? vBody.forwardSpeed : 0;
+      roverLateralSpeed = vBody ? vBody.lateralSpeed : 0;
+      const wasAirborne = roverAirState.airborne;
+      roverAirState.airborne = Boolean(vBody && vBody.contacts === 0);
+      roverAirState.velY = vBody ? vBody.vel.y : 0;
+      const dyn = {
+        spec: rover.getActiveSpec(),
+        braking: handbrake,
+        drifting: Boolean(vBody && vBody.slipRatio > 0.6 && vBody.speed > 1.5),
+        slipRatio: vBody ? vBody.slipRatio : 0,
+        powerFrac: vBody ? vBody.powerFrac : 0,
+        gearLabel: Math.abs(roverThrottleVel) < 0.05 ? (throttle < 0 ? "R" : "N") : roverThrottleVel > 0 ? "D" : "R",
+      };
 
       const resolveDrivingActor = (actorPos) => {
         if (!actorPos) return;
         const hit = rover.resolveCollision(actorPos.x, actorPos.z, PARTNER_COLLISION_R + 0.08, actorPos.y);
-        if (hit.hit) {
-          rover.group.position.x -= hit.nx * hit.pen;
-          rover.group.position.z -= hit.nz * hit.pen;
-          roverVelX *= 0.25;
-          roverVelZ *= 0.25;
-          roverThrottleVel *= 0.25;
-          roverDynState.velX = roverVelX;
-          roverDynState.velZ = roverVelZ;
-        }
+        if (hit.hit) rover.pushOut(hit.nx, hit.nz, hit.pen);
       };
       if (partner && partner.group.visible) resolveDrivingActor(partner.group.position);
       for (const remote of remoteAvatars.values()) resolveDrivingActor(remote.group.position);
@@ -3152,64 +3445,19 @@ export async function initHud3D(
           Math.max(hSpec.halfW || 1.2, hSpec.halfL || 1.3) * 0.72,
           hPos.y
         );
-        if (hitHist.hit) {
-          rover.group.position.x -= hitHist.nx * hitHist.pen;
-          rover.group.position.z -= hitHist.nz * hitHist.pen;
-          roverVelX *= 0.25;
-          roverVelZ *= 0.25;
-          roverThrottleVel *= 0.25;
-          roverDynState.velX = roverVelX;
-          roverDynState.velZ = roverVelZ;
-        }
+        if (hitHist.hit) rover.pushOut(hitHist.nx, hitHist.nz, hitHist.pen);
       }
 
       applySeamlessWorldWrap(rover.group.position.x, rover.group.position.z);
 
       const horizSpeed = Math.hypot(roverVelX, roverVelZ);
-      const vehSpec = dyn?.spec || rover.getActiveSpec();
-      const supportGroundY = rover.sampleSupportGroundY(sampleElevSceneY);
-      let slopeClimbVy = 0;
-      let bumpImpulseVy = 0;
-      if (horizSpeed > 0.8 && !roverAirState.airborne) {
-        const dirX = roverVelX / horizSpeed;
-        const dirZ = roverVelZ / horizSpeed;
-        const hBackVel = sampleElevSceneY(rover.group.position.x - dirX * 1.15, rover.group.position.z - dirZ * 1.15);
-        const hNow = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
-        slopeClimbVy = Math.max(0, (hNow - hBackVel) / 1.15) * horizSpeed;
-        const hLeft = sampleElevSceneY(
-          rover.group.position.x + Math.cos(rover.group.rotation.y) * 1.34,
-          rover.group.position.z - Math.sin(rover.group.rotation.y) * 1.34
-        );
-        const hRight = sampleElevSceneY(
-          rover.group.position.x - Math.cos(rover.group.rotation.y) * 1.34,
-          rover.group.position.z + Math.sin(rover.group.rotation.y) * 1.34
-        );
-        const crossBump = Math.abs(hLeft - hRight);
-        if ((steerJerk > 2.6 || Math.abs(roverLateralSpeed) > 5.0) && horizSpeed > 11.5 && (crossBump > 0.24 || slopeClimbVy > 2.2)) {
-          bumpImpulseVy = Math.min(2.8, steerJerk * 0.28 + crossBump * 2.2 + Math.abs(roverLateralSpeed) * 0.22);
-        }
-      }
-      const airStep = stepRoverBallisticPhysics(roverAirState, {
-        groundY: supportGroundY,
-        slopeClimbVy,
-        bumpImpulseVy,
-        horizSpeed,
-        jumpBias: vehSpec.jumpBias || 1.0,
-        dt,
-        marsG: ROVER_FLIGHT_G,
-      });
-      if (airStep.launched && devCfg.realisticDust) {
-        for (const sideSign of [-1, 1]) {
-          const emit = rover.getWheelDustEmitPoint(sideSign);
-          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 5, 1.35, -roverVelX * 0.2, -roverVelZ * 0.2);
-        }
-      }
-      roverLandingImpact = airStep.landed ? airStep.impactSpeed : 0;
-      if (airStep.landed && devCfg.realisticDust && airStep.impactSpeed > 1.0) {
+      const landedNow = wasAirborne && !roverAirState.airborne;
+      roverLandingImpact = landedNow ? Math.max(0.5, -(vBody?.vel.y || 0), vBody?.lastImpact || 0) : 0;
+      if (landedNow && devCfg.realisticDust && roverLandingImpact > 1.0) {
         const rYawL = rover.group.rotation.y;
-        marsFx.emitJumpBurst(rover.group.position.x, supportGroundY, rover.group.position.z, {
+        marsFx.emitJumpBurst(rover.group.position.x, rover.group.position.y, rover.group.position.z, {
           mode: "land",
-          impactSpeed: Math.max(1.2, airStep.impactSpeed * 1.15),
+          impactSpeed: Math.max(1.2, roverLandingImpact * 1.15),
           rightX: Math.cos(rYawL),
           rightZ: -Math.sin(rYawL),
           fwdX: -Math.sin(rYawL),
@@ -3217,34 +3465,11 @@ export async function initHud3D(
           vx: roverVelX,
           vz: roverVelZ,
         });
-        for (const sideSign of [-1, 1]) {
-          const emit = rover.getWheelDustEmitPoint(sideSign);
-          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 6, 1.75, -roverVelX * 0.28, -roverVelZ * 0.28);
-        }
       }
 
-      rover.update(dt, {
-        sampleElevY: sampleElevSceneY,
-        speed: roverThrottleVel,
-        steer: roverSteer,
-        clockT,
-        driving: true,
-        physicsEnabled: Boolean(devCfg.realisticPhysics),
-        airborne: roverAirState.airborne,
-        worldY: roverAirState.posY,
-        velY: roverAirState.velY,
-        lateralSpeed: roverLateralSpeed,
-        landingImpact: roverLandingImpact,
-        braking: Boolean(dyn?.braking),
-        handbrake: Boolean(!isMapOpen() && keys.has(" ")),
-        drifting: Boolean(dyn?.drifting),
-        airPitchOffset: roverDynState.airPitchOffset,
-        airRollOffset: roverDynState.airRollOffset,
-      });
-
       if (drvSpdEl) drvSpdEl.textContent = String(Math.round(horizSpeed * 3.6));
-      if (drvGearEl) drvGearEl.textContent = String(dyn?.gear || 1);
-      if (drvRpmEl) drvRpmEl.style.width = `${Math.round((dyn?.rpmNorm || 0) * 100)}%`;
+      if (drvGearEl) drvGearEl.textContent = roverCrab ? `${dyn.gearLabel} CRAB` : dyn.gearLabel;
+      if (drvRpmEl) drvRpmEl.style.width = `${Math.round((dyn?.powerFrac || 0) * 100)}%`;
       if (drvSlipEl) {
         const slipPct = Math.round((dyn?.slipRatio || 0) * 100);
         const isDrifting = Boolean(dyn?.drifting);
@@ -3305,7 +3530,6 @@ export async function initHud3D(
         if (moveDir.lengthSq() > 0) moveDir.normalize();
 
         if (devCfg.realisticPhysics) {
-          const strict = document.getElementById("toggle-strict-15")?.checked;
           stepPhysicsWorld(
             phys,
             dt,
@@ -3314,7 +3538,6 @@ export async function initHud3D(
               wishZ: moveDir.z,
               run: keys.has("shift"),
               speedMultiplier: devCfg.speedMultiplier || 1,
-              slopeLimitDeg: strict ? 15 : 20,
               latDeg: zToLat(phys.z),
             },
             heightEnv
@@ -3326,8 +3549,8 @@ export async function initHud3D(
           let desiredVz = 0;
           if (moveDir.lengthSq() > 0) {
             const ahead = sampleElevSceneY(phys.x + moveDir.x * 1.5, phys.z + moveDir.z * 1.5);
-            const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
-            const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
+            // Signed grade (+ uphill), same curve as the realistic walker.
+            const slowdown = gradeSpeedScale(Math.atan2(ahead - here, 1.5) * (180 / Math.PI));
             const v =
               (run ? RUN_SPEED_MS : WALK_SPEED_MS) *
               (devCfg.speedMultiplier || 1) *
@@ -3385,19 +3608,15 @@ export async function initHud3D(
             phys.vz -= col.nz * vn;
           }
         }
-        rover.update(dt, {
-          sampleElevY: sampleElevSceneY,
-          speed: 0,
-          steer: 0,
-          clockT,
-          driving: false,
-          physicsEnabled: Boolean(devCfg.realisticPhysics),
-        });
+        // Parked: the physics keeps it settled on the ground (it sleeps once still).
+        rover.step(dt, {}, sampleElevSceneY, { driving: false });
         const distR = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
         if (distR <= 4.6 && !nearRoverPrompted) {
           nearRoverPrompted = true;
           showWrapNotice(
-            isTrLang() ? "DENEYSEL MARS ARACI · BİNMEK İÇİN [E] TUŞUNA BAS" : "EXPERIMENTAL MARS ROVER · PRESS [E] TO DRIVE"
+            isTrLang()
+              ? `${getDrivableVehicleSpec(rover.vehicleType).nameTr.toUpperCase()} · BİN: [E] · DEĞİŞTİR: [V]`
+              : `${getDrivableVehicleSpec(rover.vehicleType).nameEn.toUpperCase()} · [E] DRIVE · [V] SWITCH`
           );
         } else if (distR > 6.2) {
           nearRoverPrompted = false;
@@ -3565,7 +3784,11 @@ export async function initHud3D(
     const amt = Math.min(1, self.amount ?? 0);
     fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
     right.set(1, 0, 0).applyAxisAngle(UP, yaw);
-    const swayY = Math.sin(ph * 2) * 0.004 * amt;
+    // Head bob: about 2 cm walking and 4 cm loping (low g lengthens the flight phase).
+    // groundSpeed is measured from this frame's motion, so it is valid on route playback too
+    // (phys.vx/vz are only stepped in free roam and go stale on the route).
+    const bobAmp = player.grounded ? (groundSpeed >= FROUDE_LOPE_MS ? 0.04 : 0.02) : 0;
+    const swayY = Math.sin(ph * 2) * bobAmp * amt;
     const swayX = Math.sin(ph) * 0.003 * amt;
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
     if (drivingRover && rover.group.visible) {
@@ -3601,11 +3824,16 @@ export async function initHud3D(
       camera.position.set(chaseCamPos.x, chaseCamPos.y + Math.sin(clockT * 16) * shake, chaseCamPos.z);
       camera.lookAt(chaseLookTarget);
     } else {
+      if (eyeSmoothY === null || !player.grounded || snappedThisFrame || Math.abs(player.y - eyeSmoothY) > 1) {
+        eyeSmoothY = player.y;
+      } else {
+        eyeSmoothY += (player.y - eyeSmoothY) * (1 - Math.exp(-dt / 0.08));
+      }
       const tip = Math.max(0, -pitch);
       const eyeFwd = EYE_FORWARD_M + tip * 0.1;
       camera.position.set(
         px + fwd.x * eyeFwd + right.x * swayX,
-        player.y + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
+        eyeSmoothY + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
         pz + fwd.z * eyeFwd + right.z * swayX
       );
       camera.rotation.order = "YXZ";
@@ -3796,6 +4024,7 @@ export async function initHud3D(
     }
     curvAnchor.value.set(camera.position.x, camera.position.z);
     followEndless(camera.position);
+    updateCorridorChunks(camera.position.x, camera.position.z, dt);
 
     goldSlide += (goldVisor - goldSlide) * Math.min(1, dt * 6.0);
     if (Math.abs(goldVisor - goldSlide) < 0.002) goldSlide = goldVisor;
@@ -3831,6 +4060,9 @@ export async function initHud3D(
     renderer.setRenderTarget(null);
     renderer.render(lensScene, lensCam);
   }
+  // Stream in the 1 m terrain where the EVA starts before the first frame (veil still up).
+  if (routeCoords.length > 1) await warmCorridorAt(lonToX(routeCoords[0][0]), latToZ(routeCoords[0][1]));
+  else await warmCorridorAt(freePos.x, freePos.z);
   requestAnimationFrame(animate);
   loadingVeil?.classList.add("done");
 

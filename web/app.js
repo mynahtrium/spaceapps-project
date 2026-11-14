@@ -21,7 +21,7 @@ const I18N = {
       "GALE CRATER / MOUNT SHARP — MARS",
       "EVA RECORD 01 · CURIOSITY TRAVERSE CONTEXT",
       "IF A CREW VISITED WHERE CURIOSITY STUDIED MOUNT SHARP.",
-      "TERRAIN: HiRISE DTEEC_019698 · ROUTE: EXAMPLE, STOPS NOT LOCKED",
+      "TERRAIN: HiRISE DTEEC_009149, STREAMED 1 M · STOPS: CITED, NOT LOCKED",
     ],
     menu_eva: "BEGIN EVA",
     menu_orbit: "ORBIT VIEW",
@@ -36,7 +36,7 @@ const I18N = {
       "GALE KRATERİ / MOUNT SHARP — MARS",
       "EVA KAYDI 01 · CURIOSITY GÜZERGÂHI",
       "BİR EKİP CURIOSITY'NİN MOUNT SHARP'I İNCELEDİĞİ YERE GİTSEYDİ.",
-      "ARAZİ: HiRISE DTEEC_019698 · ROTA: ÖRNEK, DURAKLAR KİLİTLİ DEĞİL",
+      "ARAZİ: HiRISE DTEEC_009149, 1 M AKIŞLI · DURAKLAR: KAYNAKLI, KİLİTLİ DEĞİL",
     ],
     menu_eva: "EVA'YA BAŞLA",
     menu_orbit: "YÖRÜNGE GÖRÜNÜMÜ",
@@ -322,17 +322,19 @@ async function boot() {
         </ul>
         <p><strong>Missions &amp; Datasets (fetched 2026-11-14):</strong></p>
         <ul>
-          <li><strong>MRO HiRISE:</strong> 1 m DTM (<code>DTEEC_019698_1750_019988_1750_U01</code>) &amp; 25 cm orthoimage</li>
+          <li><strong>MRO HiRISE:</strong> 1 m DTM (<code>DTEEC_009149_1750_009294_1750_U01</code>) &amp; 25 cm orthoimage (<code>PSP_009149_1750_RED_A_01_ORTHO</code>, shown at ~0.5 m), fetched 2026-11-15. A 2.1 × 5.4 km corridor from the habitat to Glen Torridon is cut into 168 chunks of ~259 m; 1 m chunks stream in around you and an ~8 m overview covers the rest. The terrain is shifted ~60 m east-west and ~14 m north-south onto the Curiosity waypoint frame (fit to 478 waypoints; elevation residual spread 2.35 m), so stops and the traverse sit on the right rocks.</li>
+          <li><strong>Lake-sediment stops (Glen Torridon):</strong> Glen Etive 1 (drilled Sol 2486) and Mary Anning 3 (drilled ~Sol 2870), placed at the rover's parked waypoint. Sources: NASA Curiosity blog posts for Sols 2485-2487 and 2870-2871; Bennett et al. 2023 (JGR Planets) for the lacustrine Murray context and the clay-bearing unit; Millan et al. 2022 (JGR Planets) for organics found by SAM in Glen Torridon samples. POV photos are Curiosity Navcam frames from those sols. Stops stay "example" until the team locks them.</li>
+          <li><strong>Route:</strong> about 10 km round trip on a 5 m slope cost map from the same DTM (8-neighbour Dijkstra, 20° lunar stand-in limit). Distance is measured along the routed line. At the placeholder walking pace the walk takes about 12.6 h, longer than the 8 h EVA in NASA's lunar ConOps; a real crew would split it or drive part of it.</li>
           <li><strong>MRO CTX &amp; Odyssey THEMIS:</strong> Mars Trek WMTS mosaics (5 m CTX, 100 m Day/Night IR)</li>
           <li><strong>MRO CRISM:</strong> 9 MTRDR product records via PDS Geosciences ODE REST</li>
           <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
-          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Advanced Crew Escape Suit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh with two-bone leg IK and procedural gait. Gale gravity (3.717 m/s²) drives jumps, falls, momentum, steep-slope slip, and dust settling.</li>
-          <li><strong>Pressurized Rover &amp; Environment:</strong> Official NASA 3D Resources <code>Space Exploration Vehicle</code> (MMSEV Draco GLB, fetched 2026-11-14) with 4-point DEM slope alignment &amp; spring-damper suspension, plus REMS-inspired dust haze and surface wind gust particles.</li>
+          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Advanced Crew Escape Suit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh with two-bone leg IK and procedural gait. Gale gravity (3.717 m/s²) drives jumps, falls, momentum, and dust settling. The walker never slides: steep grades only slow it, small ledges (under 0.45 m) are stepped onto and taller ones need a jump (gameplay values, not suit data).</li>
+          <li><strong>Drivable rovers (dev setting, V to switch):</strong> NASA SEV pressurized rover (NASA 3D Resources <code>Space Exploration Vehicle</code> GLB, fetched 2026-11-14; 2,994 kg, about 10 km/h and 360° pivoting wheels for crab steering from NASA fact sheet FS-2011-08-045-JSC); NASA Chariot, the same chassis driven without the cabin (fact sheet; its mass without the cabin is an estimate); and an Apollo LRV-class open rover (NASA NSSDC: 210 kg, 2.3 m wheelbase, 81.8 cm wheels, one 0.25 hp motor per wheel; Apollo numbers stand in because no Mars version exists). All three use one rigid-body model: Gale gravity (3.72 m/s²), a spring-damper per wheel that can only push, tyre grip from each wheel's load on regolith, power-limited electric drive. A rover leaves the ground only where the terrain drops away faster than gravity can follow. Motor power, brakes and tyre friction are estimates. Dust haze and wind gust particles are REMS-inspired visuals.</li>
           <li><strong>Historic NASA Mars Rovers (5 sites):</strong> Perseverance (Jezero Crater, NASA 3D Resources <code>Mars 2020 Perseverance Rover.glb</code>, fetched 2026-11-14), Curiosity (Gale Crater Sol 4534 waypoint, MSL scale assembly), Spirit (Gusev Crater, MER-A assembly), Opportunity (Meridiani Planum, MER-B assembly), Sojourner (Ares Vallis, Pathfinder scale assembly). Off-Gale terrain sites use seeded procedural site relief rather than downloaded regional HiRISE tiles.</li>
           <li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
-        <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
+        <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the 2.1 × 5.4 km HiRISE corridor is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
         <p><strong>Orbit view:</strong> globe texture is the NASA/USGS Viking MDIM 2.1 colour mosaic (alternate layer: MGS MOLA colour-shaded relief), stitched from NASA Mars Trek tiles at 4096×2048 (about 5 km per pixel) and bundled for offline use; during a landing zoom, online mode overlays ~330 m/px Viking tiles around the target. Day/night uses the real subsolar point from the NASA GISS Mars24 algorithm (Allison &amp; McEwen 2000). Mars orientation follows the IAU WGCCRE pole and prime meridian. Phobos and Deimos positions come from a series fitted to JPL Horizons vectors (agrees with Horizons to ~0.1°); their <em>sizes</em> are drawn 8× larger than scale so they are visible, while orbits are to scale. Sun, Earth and the bright stars are real directions; the faint background star field is decorative. Fine surface grain at very low altitude is procedural. Landing anywhere other than the Gale HiRISE tile uses seeded procedural relief, not mapped topography; the Bodycam sun then follows the real local true solar time of that spot (or a fixed 15:00 daylight mode).</p>
         <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
       </div>
@@ -426,13 +428,13 @@ async function boot() {
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
-              ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
+              ${tr ? "Deneysel Mars Araçları — SEV, Chariot, LRV (Yanında Doğar)" : "Experimental Mars Rovers — SEV, Chariot, LRV (Spawn Beside You)"}
               <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
             </div>
             <div class="dev-sub">${
               tr
-                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + E tuşuyla sürüş)."
-                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press E to drive)."
+                ? "Yanında bir araç oluşturur: E bin, V araç değiştir, C yengeç sürüş. Gerçek Gale yerçekimi, tekerlek başına yaylı süspansiyon ve yüke bağlı lastik tutuşu."
+                : "Spawns a rover beside you: E to board, V to switch vehicle, C for crab steering. Real Gale gravity, a spring-damper per wheel and load-based tyre grip."
             }</div>
           </div>
           <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
@@ -466,11 +468,11 @@ async function boot() {
 
         <label class="dev-row">
           <div>
-            <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Slope Slide & Suspension)"}</div>
+            <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Ledges & Suspension)"}</div>
             <div class="dev-sub">${
               tr
-                ? "Adım ataleti/momentumu, 24° üstü dik yokuşta regolit kayması, iniş tepkisi ve rover süspansiyon yaylanmasını uygular."
-                : "Applies walker inertia/momentum, steep >24° regolith slope slip, landing shock & rover spring-damper suspension."
+                ? "Adım ataleti/momentumu, yokuşta yavaşlama, basamak/çıkıntı tırmanma, iniş tepkisi ve rover süspansiyon yaylanmasını uygular."
+                : "Applies walker inertia/momentum, grade slowdown, ledge step-up, landing shock & rover spring-damper suspension."
             }</div>
           </div>
           <input type="checkbox" id="dev-realistic-physics" ${s.realisticPhysics ? "checked" : ""} />
@@ -701,7 +703,15 @@ async function boot() {
       mpRosterEl.innerHTML = "";
       const selfRow = document.createElement("div");
       selfRow.className = "crew-row";
-      selfRow.innerHTML = `<span><span class="crew-dot" style="background:${mp.color};"></span>${mp.callsign} (YOU)</span><span>${mp.role.toUpperCase()}</span>`;
+      // Text nodes only: the callsign can come from the ?callsign= URL parameter.
+      const selfLeft = document.createElement("span");
+      const selfDot = document.createElement("span");
+      selfDot.className = "crew-dot";
+      selfDot.style.background = mp.color;
+      selfLeft.append(selfDot, `${mp.callsign} (YOU)`);
+      const selfRole = document.createElement("span");
+      selfRole.textContent = mp.role.toUpperCase();
+      selfRow.append(selfLeft, selfRole);
       mpRosterEl.appendChild(selfRow);
 
       for (const peer of mp.peers.values()) {

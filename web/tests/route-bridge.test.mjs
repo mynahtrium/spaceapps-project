@@ -18,20 +18,32 @@ test("resolveNextStopAlongRoute advances through route.legs instead of snapping 
   const route = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "data/processed/routing/route.json"), "utf8"));
   const stops = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "data/processed/routing/stops.json"), "utf8"));
 
-  const start = resolveNextStopAlongRoute(route, stops, 0, route.geometry.coordinates[0]);
+  // Expectations come from the route's own legs, so the test follows regenerated route data.
+  const legs = route.legs;
+  const ends = [];
+  let acc = 0;
+  for (const leg of legs) {
+    acc += leg.distance_m;
+    ends.push(acc);
+  }
+  const total = ends[ends.length - 1];
+  const origin = route.geometry.coordinates[0];
+
+  const start = resolveNextStopAlongRoute(route, stops, 0, origin);
   assert.equal(start.mode, "leg");
-  assert.equal(start.stop.properties.id, "stop-mudstone-a");
-  assert.ok(Math.abs(start.distanceM - 220.9) < 0.1);
+  assert.equal(start.stop.properties.id, legs[0].to);
+  assert.ok(Math.abs(start.distanceM - legs[0].distance_m) < 0.1);
 
-  const mid = resolveNextStopAlongRoute(route, stops, 220.9, route.geometry.coordinates[0]);
-  assert.equal(mid.stop.properties.id, "stop-mudstone-b");
-  assert.ok(Math.abs(mid.distanceM - 125.3) < 0.1);
+  const mid = resolveNextStopAlongRoute(route, stops, ends[0], origin);
+  assert.equal(mid.stop.properties.id, legs[1].to);
+  assert.ok(Math.abs(mid.distanceM - legs[1].distance_m) < 0.1);
 
-  const bonus = resolveNextStopAlongRoute(route, stops, 500, route.geometry.coordinates[0]);
-  assert.equal(bonus.stop.properties.id, "stop-boxwork-bonus");
-  assert.ok(Math.abs(bonus.distanceM - 222.8) < 0.1);
+  const partway = ends[1] + 0.4 * legs[2].distance_m;
+  const bonus = resolveNextStopAlongRoute(route, stops, partway, origin);
+  assert.equal(bonus.stop.properties.id, legs[2].to);
+  assert.ok(Math.abs(bonus.distanceM - (ends[2] - partway)) < 0.1);
 
-  const end = resolveNextStopAlongRoute(route, stops, 790.3, route.geometry.coordinates[0]);
+  const end = resolveNextStopAlongRoute(route, stops, total, origin);
   assert.equal(end.stop.properties.id, "stop-habitat");
   assert.equal(end.distanceM, 0);
 });
@@ -47,7 +59,8 @@ test("resolveNextStopAlongRoute falls back to Mars spherical distance when legs 
   assert.equal(res.distanceM, 0);
 
   const expectedMarsDist = marsDistanceM(origin, target.geometry.coordinates);
-  assert.ok(expectedMarsDist > 50 && expectedMarsDist < 400);
+  // habitat -> first lake-sediment stop (Glen Torridon) is a few km on the Mars sphere
+  assert.ok(expectedMarsDist > 50 && expectedMarsDist < 10000);
 });
 
 function assertCoordClose(actual, expected) {
