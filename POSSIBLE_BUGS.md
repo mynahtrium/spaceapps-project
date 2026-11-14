@@ -1,8 +1,8 @@
 # Possible Bugs & Integration Risks (`main`)
 
-**Last checked:** 2026-11-14 15:31 Europe/Istanbul (commit `20fc36f`)  
+**Last checked:** 2026-11-14 16:48 Europe/Istanbul (commit `2860d7e`)  
 **Checked by:** Eymen (`ParongUs`, Bug tester 2)  
-**Scope:** Deep verification of `web/` JS syntax (`node --check`), DOM ID matching, `?demo=1` network guards, `data/demo/` sync (`20fc36f`), and NASA data citations. See [docs/testing/nasa-data-audit.md](./docs/testing/nasa-data-audit.md).
+**Scope:** Live browser test + code/manifest audit of the new Bodycam / Mark III Spacesuit HUD (`2860d7e`). See [docs/testing/nasa-data-audit.md](./docs/testing/nasa-data-audit.md).
 
 ---
 
@@ -36,11 +36,20 @@
 ### [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
 - **Where:** `docs/team/ROSTER.md`
 
+### [BUG-15] 3D HUD `NEXT` stop shows the *nearest* stop instead of the *upcoming* stop along `route.legs`
+- **Where:** `web/hud/hud3d.js` (lines 672–684)
+- **What:** `updateHudReadouts` picks whichever stop has the smallest Euclidean distance (`minStopDist`) to the astronaut. At the start of the walk (`sM = 0`), `NEXT` displays `Habitat / EVA start (Sol 4527 candidate)` (`19 m`) instead of the next target (`stop-mudstone-a`), and stays stuck on each passed stop until halfway to the next one.
+- **Suggested fix:** Use `activeRoute.legs` (`from_stop_id` → `to_stop_id` with cumulative `distance_m`) to determine the upcoming `to_stop_id` for the current `sM`.
+
+### [BUG-16] 3D HUD `remaining` distance (`824.7 m`) disagrees with `route.json` `totals.distance_m` (`790.3 m`)
+- **Where:** `web/hud/hud3d.js` (`totalDist` calculation vs. `route.json`)
+- **What:** `hud3d.js` computes `totalDist` via flat planar `Math.hypot(dx, dz)` on equirectangular `lonToX`/`latToZ`, whereas `route.json` uses Mars spherical haversine (`790.3 m`). This produces a ~4.3% discrepancy (`824.7 m` in 3D HUD vs `790.3 m` in 2D planner).
+- **Suggested fix:** Scale `sM` / `rem` against `activeRoute.totals.distance_m` (or use `cos(lat)` in `lonToX` so 1° lon matches Mars spherical scale).
+
 ---
 
-## 3. Passed Checks (as of `20fc36f` — 2026-11-14 15:31)
-- **Web JS syntax & DOM IDs:** `node --check` passed on all 5 JS files (`app.js`, `planner.js`, `hud3d.js`, `data-loader.js`, `route-bridge.js`); `0` missing DOM `getElementById` references against `web/index.html`.
-- **Demo-Safe Sync (`20fc36f`):** `data/processed/` and `data/demo/` match 1:1 on all core JSONs, and `data/demo/ortho-preview.png` is bundled. `planner.js` properly skips `trek.nasa.gov` tiles when `?demo=1` is active.
-- **NASA Data & Citations (`eymen.md` §4):** All 11 processed terrain/routing/science JSONs have NASA/PDS source citations and fetch/compute dates; `alerts.json` & `donki-cache.json` are from live `api.nasa.gov/DONKI` (`2026-11-14T09:08:04Z`); `dose.json` uses Hassler et al. 2014 × duration; O₂ & lunar slope limits are labelled placeholders in `web/index.html`.
+## 3. Passed Checks (as of `2860d7e` — 2026-11-14 16:48)
+- **Live Browser Test (`?demo=1`):** Tested `http://localhost:8000/web/?demo=1` with **0 console errors** — 2D planner, `Begin EVA` transition, rigged NASA Mark III spacesuit, `Play` walking animation, `Tex: relief` ↔ `Tex: ortho`, `Rover POV` modal, and all 4 MUST HUD readouts worked.
+- **Web JS syntax & DOM IDs:** `node --check` passed on all 6 non-vendor JS files (`app.js`, `astronaut-rig.js`, `planner.js`, `hud3d.js`, `data-loader.js`, `route-bridge.js`); `0` missing DOM `getElementById` references.
+- **Demo-Safe & Assets (`2860d7e`):** `data/demo/science-manifest.json` has `0` missing/unlisted files (`texture-relief.jpg` included); `web/assets/nasa-3d/SOURCE.md` cites `NASA-3D-Resources` (`2026-11-14`); `data/` (15.33 MB) + `web/` (4.17 MB) = **19.50 MB** total.
 - **Secrets & Deprecated APIs:** `0` `.env` files, API keys, or `DEMO_KEY` values in repo; `api.nasa.gov/mars-photos` is never used.
-- **Python syntax & JSON validity:** 28 / 28 `.py` files compile; 0 `NaN`/`Infinity` in `data/`.

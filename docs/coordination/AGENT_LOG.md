@@ -682,3 +682,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan said shadows looked unrealistic and Shift did not run. Shadows: near sun shadows now use a 4096 px map over a 56 m box (about 1.4 cm per texel), snapped to texels so edges do not crawl, with lower sky/ambient fill so shade stays dark; far terrain shadows are baked at load by marching the height grid towards the sun over one mirror period (about 1.3 s, 5.5% of ground in terrain shadow at a 25 deg sun) and applied to the sun light only in the terrain shader. Shift: it did nothing in route playback, and in free-roam 2.2 m/s on slopes stayed below the run-pose threshold; now Shift is a light run (2.5 m/s) in both modes, WASD switches to free-roam, and the partner keeps pace. Checked in the browser, no console errors.
 - Commit: this commit
 - Next step: Divarci reviews web/; push when Cagan asks.
+
+### 2026-11-14 16:48 Europe/Istanbul — MUST-12 (live browser test & HUD bugs BUG-15, BUG-16)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Ran live browser verification on `2860d7e` (`http://localhost:8000/web/?demo=1`, 0 console errors), checked `node --check` on all 6 non-vendor JS files, verified `0` missing DOM IDs, `data/demo/science-manifest.json` completeness (`texture-relief.jpg` included), and `web/assets/nasa-3d/SOURCE.md` citation. Found and logged 2 HUD logic bugs in `web/hud/hud3d.js`: `BUG-15` (`NEXT` stop shows nearest Euclidean stop instead of upcoming `route.legs` target) and `BUG-16` (3D HUD `remaining` distance `824.7 m` vs `route.json` `790.3 m` due to planar `lonToX`/`latToZ` scaling).
+- Commit: this commit
+- Next step: Frontend 1 / Cagan fix `BUG-15` and `BUG-16` in `web/hud/hud3d.js`; team locks `PRE-07` (`BUG-09`).
