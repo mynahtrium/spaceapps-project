@@ -50,7 +50,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-04 | Write locked `stops.json` | B2 | TBD | TBD | todo | hour 2 | Clear `is_example` on real stops |
 | MUST-05 | A\* / Dijkstra route (or labelled hand-drawn fallback) + `route.json` | B2 | TBD | TBD | todo | hour 10 | Static fallback required |
 | MUST-06 | `hud-telemetry.json` samples (distance, slope, next stop, placeholder O₂) | B2 | TBD | TBD | todo | hour 16 | |
-| MUST-07 | Background caches only (REMS, RAD, DONKI, images) — do not block MUST | B3 | TBD | TBD | todo | hour 16 | SHOULD products come later |
+| MUST-07 | Background caches only (REMS, RAD, DONKI, images) — do not block MUST | B3 | CC | Antigravity (Gemini) | doing | hour 16 | SHOULD products come later |
 | MUST-08 | Scaffold planner + 3D scene; load contract JSON | F1 | TBD | TBD | todo | hour 2 | `web/planner/`, `web/hud/` |
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
