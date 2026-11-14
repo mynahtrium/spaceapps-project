@@ -341,6 +341,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
 
+<<<<<<< HEAD
+### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
+=======
+### 2026-11-14 13:12 Europe/Istanbul — MUST-02 (example-stop cost map)
+>>>>>>> origin/backend/costmap
+
+- Human: Cagan
+- Agent tool + model: Grok (Cursor)
+- Role: backend-1
 ### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
 
 - Human: Cagan
@@ -362,6 +371,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Recropped DTEEC_019698 and the matching RED ortho so every example stop already in docs/contracts/stops.json and data/processed/routing/stops.json is inside a 2 km window (centre about 4.800°S, 137.390°E). Averaged 1 m to ~5.06 m. Median slope 11.6°; 36% of cells above 15°; 24% above 20°; no no-data in this crop. Raw GeoTIFFs stay gitignored. Ids are the example ids already in those files. PRE-07 is still open. Cost grid is the next commit on backend/costmap, so cost-map.json on this branch is still the earlier placeholder-centre grid.
 - Commit: this commit
 - Next step: Build the cost map and height preview for this same window on backend/costmap.
+
+### 2026-11-14 13:10 Europe/Istanbul — MUST-02 (example-stop cost grid)
+
+- Human: Cagan
+- Agent tool + model: Grok (Cursor)
+- Role: backend-1
+- Task id: MUST-02
+- Files changed: pipeline/costmap/make_cost_map.py, pipeline/costmap/crop_window.py, pipeline/costmap/README.md, data/processed/terrain/cost-map.json, height-preview.png, README.md, docs/comms/intro-backend-1.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Rebuilt the hazard cost grid and 16-bit height preview on the same ~2 km DTEEC_019698 window as the terrain crop (395×395 cells, ~5.06 m, 23.8% blocked at the 20° lunar stand-in). Every example point in docs/contracts/stops.json and data/processed/routing/stops.json is inside the bounds (137.373–137.407°E, 4.817–4.783°S). The contract example boxwork point lands on a 20.8° cell, so that one cell is the blocked sentinel. The routing example at the cited Sol 4534 point is 14.0°. No official outcrop names. No raw rasters. PRE-07 is still open. Slope and ortho PNGs that match this window are on backend/terrain; this branch still has the earlier placeholder-centre previews.
+- Commit: this commit
+- Next step: Testers review backend/terrain and backend/costmap. Re-run both after PRE-07 locks real outcrops. Do not merge to main unless asked.
 
 ### 2026-11-14 13:34 Europe/Istanbul — MUST-12 (static analysis & POSSIBLE_BUGS.md)
 

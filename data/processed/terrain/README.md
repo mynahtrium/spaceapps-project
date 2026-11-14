@@ -1,6 +1,5 @@
 # data/processed/terrain/
 
-Owned by **Backend 1**. Small derived previews only. Do not commit raw DTMs.
+Owned by **Backend 1**. Small derived previews and products only. Do not commit raw DTMs.
 
-On `backend/terrain`, `slope-preview.png`, `slope_stats.json`, and `ortho-preview.png` are the HiRISE crop that covers the example stops already in the repo. `cost-map.json` and `height-preview.png` on this branch stay the earlier placeholder-centre grid until `backend/costmap` replaces them. PRE-07 is still open.
-
+`slope-preview.png`, `slope_stats.json`, `ortho-preview.png`, `cost-map.json`, and `height-preview.png` all cover the ~2 km HiRISE DTEEC_019698 window around the example stops already in the repo (`PRE-07` still open).
