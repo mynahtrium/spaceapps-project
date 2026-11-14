@@ -671,3 +671,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan asked for a 1.80 m astronaut with a NASA model, photorealistic bodycam-style graphics and a completely new black UI with white text buttons. Used NASA 3D Resources (Mark III spacesuit; Z2 download did not finish). Added PBR lighting, an image-based sky light, shadows, sky, tone mapping and a camera lens pass; true ray tracing is not possible in real time in WebGL, and the UI and credits say so. Follow-up the same session: the NASA model has no skeleton, so a procedural rig was written (joint heights for a 1.80 m body, skin weights from vertex position, distance-driven walk / jog, arms lowered from the model's forward-reaching pose); helmet camera moved in front of the deep chest so the legs show when looking down; camera sway cut to millimetres; third-person camera removed; Mars gravity, jumping and slower jog (2.2 m/s) added. Checked in the browser with side and front renders of the rig and in the live view; no console errors. Cagan pasted a NASA API key in chat: it was not used (NASA 3D Resources need no key) and was not written to any file; Cagan was advised to rotate it.
 - Commit: this commit
 - Next step: Divarci reviews; push the branch and open a PR only when Cagan asks.
+
+### 2026-11-14 16:48 Europe/Istanbul — MUST-12 (live browser test & HUD bugs BUG-15, BUG-16)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Ran live browser verification on `2860d7e` (`http://localhost:8000/web/?demo=1`, 0 console errors), checked `node --check` on all 6 non-vendor JS files, verified `0` missing DOM IDs, `data/demo/science-manifest.json` completeness (`texture-relief.jpg` included), and `web/assets/nasa-3d/SOURCE.md` citation. Found and logged 2 HUD logic bugs in `web/hud/hud3d.js`: `BUG-15` (`NEXT` stop shows nearest Euclidean stop instead of upcoming `route.legs` target) and `BUG-16` (3D HUD `remaining` distance `824.7 m` vs `route.json` `790.3 m` due to planar `lonToX`/`latToZ` scaling).
+- Commit: this commit
+- Next step: Frontend 1 / Cagan fix `BUG-15` and `BUG-16` in `web/hud/hud3d.js`; team locks `PRE-07` (`BUG-09`).
