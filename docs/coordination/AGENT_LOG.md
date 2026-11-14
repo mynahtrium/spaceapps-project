@@ -449,3 +449,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Pulled latest main (5b9fec6) and merged all five backend branches (backend/terrain, backend/costmap, backend/stops, backend/routing, backend/science) into main so Frontend 1 can start directly on the unified backend outputs.
 - Commit: this commit
 - Next step: Frontend 1 starts on main; tester branches (tester/review, tester/demo) can review/merge next.
+
+### 2026-11-14 13:44 Europe/Istanbul — MUST-12 (re-audit after 5-branch merge)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Pulled `5542207` after the 5-branch backend merge (`terrain`, `costmap`, `stops`, `routing`, `science`) and re-ran static checks: 28/28 Python files compile cleanly, 4/4 stops now sit inside `cost-map.json` bounds, and `data/` is 3.23 MB. Updated `POSSIBLE_BUGS.md` with current open issues (empty `web/`, `route.json` null elevation/climb & stale `dose_mSv_see`, `hud-telemetry.json` wrapper mismatch, `dose.json` stale 71.0 min duration vs 59.3 min route, missing terrain/routing `data/demo/` fixtures, duplicate `crop_window.py`, and open `PRE-07`).
+- Commit: this commit
+- Next step: Monitor Frontend 1 PRs (`web/`) and re-check after `PRE-07` stop lock + `build_dose.py` re-run.
