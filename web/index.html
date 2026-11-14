@@ -154,14 +154,24 @@
         <div class="hud-map-dialog">
           <div class="hud-map-header">
             <div>
-              <div class="hud-map-title" id="hud-map-title">GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP</div>
+              <div class="hud-map-title-row">
+                <div class="hud-map-title" id="hud-map-title">GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP</div>
+                <span id="hud-map-lock-badge" class="hud-map-lock-badge" style="display:none;">LANDING REQUIRED</span>
+              </div>
               <div class="hud-map-sub" id="hud-map-sub">HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP</div>
             </div>
             <div class="hud-map-header-actions">
+              <div id="hud-map-scope-row" class="hud-map-scope-row" style="display:none;">
+                <button id="hud-map-scope-globe" class="btn primary" type="button">Mars 3D</button>
+                <button id="hud-map-scope-world" class="btn" type="button">Mars 2D</button>
+                <button id="hud-map-scope-local" class="btn" type="button">Gale 2 km</button>
+              </div>
               <button id="hud-map-mode" class="btn" type="button">Layer: Elevation 3D</button>
               <button id="hud-map-close" class="btn" type="button">Close (M)</button>
             </div>
           </div>
+
+          <div id="hud-map-landmarks" class="hud-map-landmarks" style="display:none;"></div>
 
           <div class="hud-map-body">
             <div class="hud-map-canvas-col">

@@ -163,7 +163,11 @@ async function boot() {
     onPlanner: () => ready.then((a) => a.planner()),
     onCredits: () => ready.then((a) => a.credits()),
   });
-  document.getElementById("btn-menu").onclick = () => start.show();
+  let hudApi = null;
+  document.getElementById("btn-menu").onclick = () => {
+    if (hudApi?.isAwaitingInitialLanding?.()) return;
+    start.show();
+  };
 
   const data = await loadAllProjectData();
   // High-res Mars map stack: HiRISE DEM sampler + tile registry (demo-safe = zero network).
@@ -231,7 +235,13 @@ async function boot() {
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
           <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head, shoulders) and drives a walk / run cycle from distance walked; the model's forward-reaching arms are lowered at the shoulders and swing opposite to the legs. Mars gravity (3.71 m/s²) is used for jumps and falls; walking pace (1.4 m/s) and a light run with Shift (2.5 m/s) are placeholders.</li><li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
-        <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
+        <p><strong>Extra Global 3D Mars Terrain Sources (Demo Spherical Globe, fetched 2026-11-14):</strong></p>
+        <ul>
+          <li><strong>NASA MGS MOLA MEGDR 4ppd Global Topography (<code>MEGT90N000CB.IMG</code>, Product ID: <code>MGS-M-MOLA-5-MEGDR-L3-V1.0</code>):</strong> real global Mars elevation (&minus;8,068 m to +21,134 m above the IAU2000 GMM3 areoid, 0.25&deg; / ~14.8 km/px), losslessly encoded offline in <code>data/demo/mars-mola-dem.png</code>. Source: <a href="https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg004/megt90n000cb.lbl" target="_blank" rel="noopener">PDS Geosciences MOLA MEGDR Label</a></li>
+          <li><strong>NASA / USGS Mars Viking MDIM 2.1 Colorized Global Mosaic (<code>Mars_Viking_MDIM21_ClrMosaic_global_232m</code>):</strong> real planetary global surface albedo mosaic from Mars Trek WMTS zoom 2 tiles, stitched offline into <code>data/demo/mars-viking-global.jpg</code>. Source: <a href="https://trek.nasa.gov/tiles/Mars/EQ/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/WMTSCapabilities.xml" target="_blank" rel="noopener">Mars Trek Viking MDIM 2.1 WMTS</a></li>
+          <li><strong>NASA MGS MOLA Color Shaded Relief Merge (<code>Mars_MGS_MOLA_ClrShade_merge_global_463m</code>):</strong> global planetary shaded-relief verification baseline. Source: <a href="https://trek.nasa.gov/tiles/Mars/EQ/Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/WMTSCapabilities.xml" target="_blank" rel="noopener">Mars Trek MOLA Color Shaded Relief WMTS</a></li>
+        </ul>
+        <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. In demo spherical globe mode (<code>?demo=1</code>), planetary elevation and albedo come directly from offline NASA MGS MOLA MEGDR 4ppd topography and NASA/USGS Viking MDIM 2.1 color imagery, seamlessly blended with the 1 m HiRISE Gale DTM and subtle walkable regolith micro-relief. Terrain beyond the real 2 km tile outside demo mode is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
         <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
       </div>
     `;
@@ -240,7 +250,6 @@ async function boot() {
 
   btnCredits.onclick = openCreditsModal;
 
-  let hudApi = null;
   let plannerApi = null;
   let lastSelfPose = null;
 
@@ -444,6 +453,7 @@ async function boot() {
   }
 
   function switchToPlanner() {
+    if (data.demoSafe && hudApi?.isAwaitingInitialLanding?.()) return;
     hudView.classList.remove("active");
     plannerView.classList.add("active");
     btnTabHud.classList.remove("active");
@@ -493,6 +503,12 @@ async function boot() {
     onBackToPlanner: switchToPlanner,
     onOpenPov: openPovModal,
   });
+
+  if (data.demoSafe) {
+    start.hide();
+    switchToHud();
+    hudApi?.setMapOpen?.(true, "globe");
+  }
 }
 
 boot();

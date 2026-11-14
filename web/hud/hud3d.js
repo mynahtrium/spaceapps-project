@@ -29,6 +29,18 @@ import {
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
+import { marsDistanceM, normalizeLonDeg } from "../map/Geodesy.js";
+import {
+  MARS_CIRCUMFERENCE_M,
+  MARS_LANDMARKS,
+  MARS_RADIUS_MEAN_M,
+  createMarsGlobalModel,
+  decodeMolaDemRgba,
+  localSceneXZToLonLat,
+  marsLonLatAltToLocalScene,
+  sphereNormalAtLocal,
+  stepOnMarsSphere,
+} from "./mars-globe.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -256,6 +268,7 @@ const LENS_FRAG = /* glsl */ `
 
 export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, onLocalPose = null }) {
   const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
+  const isDemoSphere = Boolean(data.demoSafe);
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
 
@@ -268,26 +281,46 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const ncols = costMap?.grid?.ncols || 395;
   const nrows = costMap?.grid?.nrows || 395;
   const cellSizeM = costMap?.cell_size_m || 5.059;
-  const worldW = ncols * cellSizeM;
-  const worldH = nrows * cellSizeM;
+  const midLatBounds = (bounds.south_lat_deg + bounds.north_lat_deg) * 0.5;
+  const midLonBounds = (bounds.west_lon_deg + bounds.east_lon_deg) * 0.5;
+  const worldW = isDemoSphere
+    ? marsDistanceM([bounds.west_lon_deg, midLatBounds], [bounds.east_lon_deg, midLatBounds])
+    : ncols * cellSizeM;
+  const worldH = isDemoSphere
+    ? marsDistanceM([midLonBounds, bounds.south_lat_deg], [midLonBounds, bounds.north_lat_deg])
+    : nrows * cellSizeM;
   const [elevMin, elevMax] = costMap?.height_preview_elevation_range_m || [-3850.6, -3369.3];
 
-  // Convert [lon, lat] <-> local scene X, Z (metres, centred at 0,0)
-  const lonToX = (lon) =>
-    ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
-  const latToZ = (lat) =>
-    (0.5 - (lat - bounds.south_lat_deg) / (bounds.north_lat_deg - bounds.south_lat_deg)) * worldH;
-  const xToLon = (x) =>
-    bounds.west_lon_deg + (x / worldW + 0.5) * (bounds.east_lon_deg - bounds.west_lon_deg);
-  const zToLat = (z) =>
-    bounds.south_lat_deg + (0.5 - z / worldH) * (bounds.north_lat_deg - bounds.south_lat_deg);
+  const sphereOrigin = {
+    lonDeg: midLonBounds,
+    latDeg: midLatBounds,
+    elevM: elevMin,
+  };
+
+  // Convert [lon, lat] <-> local scene X, Z (metres relative to flat tile or current spherical patch)
+  const lonToX = (lon, lat = sphereOrigin.latDeg) =>
+    isDemoSphere
+      ? marsLonLatAltToLocalScene(lon, lat, sphereOrigin.elevM, sphereOrigin.lonDeg, sphereOrigin.latDeg, sphereOrigin.elevM).x
+      : ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
+  const latToZ = (lat, lon = sphereOrigin.lonDeg) =>
+    isDemoSphere
+      ? marsLonLatAltToLocalScene(lon, lat, sphereOrigin.elevM, sphereOrigin.lonDeg, sphereOrigin.latDeg, sphereOrigin.elevM).z
+      : (0.5 - (lat - bounds.south_lat_deg) / (bounds.north_lat_deg - bounds.south_lat_deg)) * worldH;
+  const xToLon = (x, z = 0) =>
+    isDemoSphere
+      ? localSceneXZToLonLat(x, z, sphereOrigin.lonDeg, sphereOrigin.latDeg).lonDeg
+      : bounds.west_lon_deg + (x / worldW + 0.5) * (bounds.east_lon_deg - bounds.west_lon_deg);
+  const zToLat = (z, x = 0) =>
+    isDemoSphere
+      ? localSceneXZToLonLat(x, z, sphereOrigin.lonDeg, sphereOrigin.latDeg).latDeg
+      : bounds.south_lat_deg + (0.5 - z / worldH) * (bounds.north_lat_deg - bounds.south_lat_deg);
 
   // ---------- renderer, scene, camera ----------
   const scene = new THREE.Scene();
   const HORIZON = new THREE.Color(0.62, 0.43, 0.3);
-  scene.fog = new THREE.FogExp2(HORIZON.getHex(), 0.00042);
+  scene.fog = new THREE.FogExp2(HORIZON.getHex(), isDemoSphere ? 0.00011 : 0.00042);
 
-  const camera = new THREE.PerspectiveCamera(78, 1, 0.06, 15000);
+  const camera = new THREE.PerspectiveCamera(78, 1, isDemoSphere ? 0.1 : 0.06, isDemoSphere ? 42000 : 15000);
 
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
   // Performance: draw at most 1.25 device pixels per CSS pixel; adaptive scaling below lowers it further.
@@ -324,7 +357,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const ZENITH = new THREE.Color(0.23, 0.15, 0.12);
   const SKY_GROUND = new THREE.Color(0.3, 0.19, 0.13);
   const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(12500, 48, 24),
+    new THREE.SphereGeometry(isDemoSphere ? 35000 : 12500, 48, 24),
     new THREE.ShaderMaterial({
       vertexShader: SKY_VERT,
       fragmentShader: SKY_FRAG,
@@ -389,21 +422,22 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   const skyMoons = new THREE.Group();
+  const moonScale = isDemoSphere ? 2.75 : 1;
   const phobos = new THREE.Mesh(
-    buildMoonGeometry(145, [1.34, 0.9, 0.82], true),
+    buildMoonGeometry(145 * moonScale, [1.34, 0.9, 0.82], true),
     makeMoonMat(0xd6cbc2, 1.35)
   );
   phobos.renderOrder = -1;
   const deimos = new THREE.Mesh(
-    buildMoonGeometry(52, [1.14, 0.95, 0.9], false),
+    buildMoonGeometry(52 * moonScale, [1.14, 0.95, 0.9], false),
     makeMoonMat(0xf0e4d8, 1.7)
   );
   deimos.renderOrder = -1;
   skyMoons.add(phobos, deimos);
   scene.add(skyMoons);
 
-  const PHOBOS_ORBIT_R = 9600;
-  const DEIMOS_ORBIT_R = 10400;
+  const PHOBOS_ORBIT_R = isDemoSphere ? 27000 : 9600;
+  const DEIMOS_ORBIT_R = isDemoSphere ? 29200 : 10400;
   function updateMoons(tSec, camPos = camera.position) {
     // Phobos orbits faster than Mars rotates -> rises West (-X), drifts East (+X) across upper sky
     const pAngle = 1.05 - tSec * 0.014; // ~0.5 rad above NW horizon at start, gliding W -> E
@@ -467,8 +501,69 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     // Flat terrain if the height preview fails
   }
 
-  // Bilinear height (scene Y, metres above elevMin), mirror-wrapped beyond the real tile.
+  let molaGrid = null;
+  let molaW = 0;
+  let molaH = 0;
+  let vikingRgb = null;
+  let vikingW = 0;
+  let vikingH = 0;
+  if (isDemoSphere) {
+    const readImgRgba = async (url) => {
+      if (!url) return null;
+      const im = await loadImage(url);
+      const cv = document.createElement("canvas");
+      cv.width = im.width;
+      cv.height = im.height;
+      const cx = cv.getContext("2d");
+      cx.drawImage(im, 0, 0);
+      return { w: im.width, h: im.height, data: cx.getImageData(0, 0, im.width, im.height).data };
+    };
+    const [molaRes, vikingRes] = await Promise.all([
+      readImgRgba(assets.demoGlobalMolaDemUrl).catch(() => null),
+      readImgRgba(assets.demoGlobalVikingMosaicUrl).catch(() => null),
+    ]);
+    if (molaRes) {
+      molaW = molaRes.w;
+      molaH = molaRes.h;
+      molaGrid = decodeMolaDemRgba(molaRes.data, molaW, molaH);
+    }
+    if (vikingRes) {
+      vikingW = vikingRes.w;
+      vikingH = vikingRes.h;
+      vikingRgb = vikingRes.data;
+    }
+  }
+
+  const marsGlobal = isDemoSphere
+    ? createMarsGlobalModel({
+        elevGrid,
+        imgW,
+        imgH,
+        bounds,
+        elevMin,
+        elevMax,
+        molaGrid,
+        molaW,
+        molaH,
+        vikingRgb,
+        vikingW,
+        vikingH,
+      })
+    : null;
+
   function sampleElevSceneY(x, z) {
+    if (isDemoSphere && marsGlobal) {
+      const { lonDeg, latDeg } = localSceneXZToLonLat(x, z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const altM = marsGlobal.sampleElevM(lonDeg, latDeg);
+      return marsLonLatAltToLocalScene(
+        lonDeg,
+        latDeg,
+        altM,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      ).y;
+    }
     if (!elevGrid) return 0;
     const fx = mirrorWrap(x / worldW + 0.5) * (imgW - 1);
     const fy = mirrorWrap(z / worldH + 0.5) * (imgH - 1);
@@ -488,6 +583,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   function buildTerrainGeometry(seg) {
+    if (isDemoSphere) return new THREE.BufferGeometry();
     const g = new THREE.PlaneGeometry(worldW, worldH, seg, seg);
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
@@ -656,9 +752,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
   pbr.dustNormalTex.repeat.set(640, 640);
 
+  const anchorModUniform = { value: new THREE.Vector2(0, 0) };
+  const worldSizeUniform = { value: new THREE.Vector2(worldW, worldH) };
+
   const terrainMat = new THREE.MeshStandardMaterial({
     map: reliefTex,
-    normalMap: pbr.dustNormalTex,
+    normalMap: isDemoSphere ? null : pbr.dustNormalTex,
     normalScale: new THREE.Vector2(0.55, 0.55),
     roughness: 0.96,
     metalness: 0.0,
@@ -672,72 +771,377 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
     shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
     shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vMmWorldXZ;")
-      .replace(
-        "#include <project_vertex>",
-        "#include <project_vertex>\nvMmWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;"
+    if (isDemoSphere) {
+      shader.uniforms.uAnchorModUV = anchorModUniform;
+      shader.uniforms.uWorldSize = worldSizeUniform;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nattribute float aHiRiseW;\nattribute vec3 aMarsAlbedo;\nuniform vec2 uAnchorModUV;\nuniform vec2 uWorldSize;\nvarying float vHiRiseW;\nvarying vec3 vMarsAlbedo;\nvarying vec2 vSeamlessUv;"
+        )
+        .replace(
+          "#include <project_vertex>",
+          "#include <project_vertex>\nvHiRiseW = aHiRiseW;\nvMarsAlbedo = aMarsAlbedo;\nvSeamlessUv = (transformed.xz / uWorldSize) + uAnchorModUV;"
+        );
+      const sunChunkSphere = THREE.ShaderChunk.lights_fragment_begin.replace(
+        "getDirectionalLightInfo( directionalLight, directLight );",
+        "getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= mmSunVis;"
       );
-    const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
-      "getDirectionalLightInfo( directionalLight, directLight );",
-      "getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= mmSunVis;"
-    );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
-      )
-      .replace(
-        "#include <lights_fragment_begin>",
-        "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
-          sunChunk
-      )
-      .replace("#include <map_pars_fragment>", "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;")
-      .replace(
-        "#include <map_fragment>",
-        `#include <map_fragment>
-        #ifdef USE_MAP
-          float dA = texture2D(detailMap, vMapUv * 173.0).r;
-          float dB = texture2D(detailMap, vMapUv * 911.0).r;
-          diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
-          // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
-          vec3 mmDust = texture2D(pbrDust, vMapUv * 640.0).rgb;
-          vec3 mmRock = texture2D(pbrRock, vMapUv * 290.0 + 0.37).rgb;
-          float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
-          vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
-          float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
-          diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.35, 1.6), 0.7);
-        #endif`
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nvarying float vHiRiseW;\nvarying vec3 vMarsAlbedo;\nvarying vec2 vSeamlessUv;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;"
+        )
+        .replace(
+          "#include <lights_fragment_begin>",
+          "vec2 hiMaskUv = vec2(vMapUv.x, 1.0 - vMapUv.y) * 0.5;\nfloat rawSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, hiMaskUv).r : 1.0;\nfloat mmSunVis = mix(1.0, rawSunVis, clamp(vHiRiseW, 0.0, 1.0));\n" +
+            sunChunkSphere
+        )
+        .replace(
+          "#include <map_pars_fragment>",
+          "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;"
+        )
+        .replace(
+          "#include <map_fragment>",
+          `#include <map_fragment>
+          #ifdef USE_MAP
+            diffuseColor.rgb = mix(vMarsAlbedo, diffuseColor.rgb, clamp(vHiRiseW, 0.0, 1.0));
+            float dA = texture2D(detailMap, vSeamlessUv * 173.0).r;
+            float dB = texture2D(detailMap, vSeamlessUv * 911.0).r;
+            diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
+            vec3 mmDust = texture2D(pbrDust, vSeamlessUv * 640.0).rgb;
+            vec3 mmRock = texture2D(pbrRock, vSeamlessUv * 290.0 + 0.37).rgb;
+            float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vSeamlessUv * 41.0 + 0.11).r);
+            vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
+            float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
+            diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.35, 1.6), 0.7);
+          #endif`
+        );
+    } else {
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec2 vMmWorldXZ;")
+        .replace(
+          "#include <project_vertex>",
+          "#include <project_vertex>\nvMmWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;"
+        );
+      const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
+        "getDirectionalLightInfo( directionalLight, directLight );",
+        "getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= mmSunVis;"
       );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
+        )
+        .replace(
+          "#include <lights_fragment_begin>",
+          "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
+            sunChunk
+        )
+        .replace(
+          "#include <map_pars_fragment>",
+          "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;"
+        )
+        .replace(
+          "#include <map_fragment>",
+          `#include <map_fragment>
+          #ifdef USE_MAP
+            float dA = texture2D(detailMap, vMapUv * 173.0).r;
+            float dB = texture2D(detailMap, vMapUv * 911.0).r;
+            diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
+            // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
+            vec3 mmDust = texture2D(pbrDust, vMapUv * 640.0).rgb;
+            vec3 mmRock = texture2D(pbrRock, vMapUv * 290.0 + 0.37).rgb;
+            float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
+            vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
+            float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
+            diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.35, 1.6), 0.7);
+          #endif`
+        );
+    }
   };
 
-  const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
-  terrainMesh.receiveShadow = true;
-  terrainMesh.castShadow = false; // terrain shadows come from the baked sun mask, not the shadow map
-  scene.add(terrainMesh);
-
-  // Endless ground: mirrored copies meet the real tile with identical edges. Only the
-  // centre tile is data; the ring follows the camera in steps of one mirror period.
-  const endless = new THREE.Group();
-  for (let i = -TILE_RING; i <= TILE_RING; i++) {
-    for (let j = -TILE_RING; j <= TILE_RING; j++) {
-      const copy = new THREE.Mesh(i === 0 && j === 0 ? terrainGeom : copyGeom, terrainMat);
-      copy.position.set(i * worldW, 0, j * worldH);
-      copy.scale.set(i % 2 === 0 ? 1 : -1, 1, j % 2 === 0 ? 1 : -1);
-      copy.receiveShadow = true;
-      copy.userData.mirrorCopy = true;
-      if (i === 0 && j === 0) {
-        copy.visible = false; // the real tile sits here until the ring moves
-        endless.userData.centre = copy;
-      }
-      endless.add(copy);
-    }
-  }
-  scene.add(endless);
+  let innerSphereMesh = null;
+  let outerSphereMesh = null;
+  let endless = null;
   const period = { x: 2 * worldW, z: 2 * worldH };
   function followEndless(pos) {
+    if (isDemoSphere || !endless) return;
     endless.position.set(Math.round(pos.x / period.x) * period.x, 0, Math.round(pos.z / period.z) * period.z);
     endless.userData.centre.visible = endless.position.x !== 0 || endless.position.z !== 0;
+  }
+
+  function buildInnerSphereGeometry(refLonDeg, refLatDeg, refElevM) {
+    const seg = 136;
+    const n = seg + 1;
+    const halfSpanM = 480;
+    const stepM = (halfSpanM * 2) / seg;
+    const count = n * n;
+    const elevs = new Float64Array(count);
+    const lons = new Float64Array(count);
+    const lats = new Float64Array(count);
+    const basePos = new Float32Array(count * 3);
+    const baseUv = new Float32Array(count * 2);
+    const baseNrm = new Float32Array(count * 3);
+    const baseHiW = new Float32Array(count);
+    const baseAlbedo = new Float32Array(count * 3);
+
+    const dLonBounds = Math.max(1e-6, bounds.east_lon_deg - bounds.west_lon_deg);
+    const dLatBounds = Math.max(1e-6, bounds.north_lat_deg - bounds.south_lat_deg);
+
+    for (let r = 0; r < n; r++) {
+      const zOff = -halfSpanM + r * stepM;
+      for (let c = 0; c < n; c++) {
+        const xOff = -halfSpanM + c * stepM;
+        const idx = r * n + c;
+        const { lonDeg, latDeg } = localSceneXZToLonLat(xOff, zOff, refLonDeg, refLatDeg);
+        const altM = marsGlobal.sampleElevM(lonDeg, latDeg);
+        lons[idx] = lonDeg;
+        lats[idx] = latDeg;
+        elevs[idx] = altM;
+        const p = marsLonLatAltToLocalScene(lonDeg, latDeg, altM, refLonDeg, refLatDeg, refElevM);
+        basePos[idx * 3] = p.x;
+        basePos[idx * 3 + 1] = p.y;
+        basePos[idx * 3 + 2] = p.z;
+        baseUv[idx * 2] = (lonDeg - bounds.west_lon_deg) / dLonBounds;
+        baseUv[idx * 2 + 1] = (latDeg - bounds.south_lat_deg) / dLatBounds;
+        baseHiW[idx] = marsGlobal.hiRiseWeightAt(lonDeg, latDeg, 260);
+        const col = marsGlobal.sampleAlbedoRgb(lonDeg, latDeg, altM);
+        baseAlbedo[idx * 3] = col[0];
+        baseAlbedo[idx * 3 + 1] = col[1];
+        baseAlbedo[idx * 3 + 2] = col[2];
+      }
+    }
+
+    for (let r = 0; r < n; r++) {
+      const r0 = Math.max(0, r - 1);
+      const r1 = Math.min(n - 1, r + 1);
+      for (let c = 0; c < n; c++) {
+        const c0 = Math.max(0, c - 1);
+        const c1 = Math.min(n - 1, c + 1);
+        const idx = r * n + c;
+        const dx = (c1 - c0 || 1) * stepM;
+        const dz = (r1 - r0 || 1) * stepM;
+        const gx = (elevs[r * n + c1] - elevs[r * n + c0]) / dx;
+        const gz = (elevs[r1 * n + c] - elevs[r0 * n + c]) / dz;
+        const inv = 1 / (Math.hypot(-gx, 1, -gz) || 1);
+        baseNrm[idx * 3] = -gx * inv;
+        baseNrm[idx * 3 + 1] = inv;
+        baseNrm[idx * 3 + 2] = -gz * inv;
+      }
+    }
+
+    // 16 m downward perimeter skirt prevents any micro-gap with the outer radial horizon ring
+    const ring = [];
+    for (let c = 0; c < n; c++) ring.push(c);
+    for (let r = 1; r < n; r++) ring.push(r * n + seg);
+    for (let c = seg - 1; c >= 0; c--) ring.push(seg * n + c);
+    for (let r = seg - 1; r >= 1; r--) ring.push(r * n);
+    const m = ring.length;
+    const total = count + 2 * m;
+    const P = new Float32Array(total * 3);
+    const U = new Float32Array(total * 2);
+    const N = new Float32Array(total * 3);
+    const W = new Float32Array(total);
+    const A = new Float32Array(total * 3);
+    P.set(basePos);
+    U.set(baseUv);
+    N.set(baseNrm);
+    W.set(baseHiW);
+    A.set(baseAlbedo);
+
+    const indices = [];
+    for (let r = 0; r < seg; r++) {
+      for (let c = 0; c < seg; c++) {
+        const a = r * n + c;
+        const b = a + 1;
+        const cIdx = (r + 1) * n + c;
+        const d = cIdx + 1;
+        indices.push(a, cIdx, b, b, cIdx, d);
+      }
+    }
+    for (let k = 0; k < m; k++) {
+      const src = ring[k];
+      for (const [o, dy] of [
+        [count + 2 * k, 0],
+        [count + 2 * k + 1, -16],
+      ]) {
+        P[o * 3] = basePos[src * 3];
+        P[o * 3 + 1] = basePos[src * 3 + 1] + dy;
+        P[o * 3 + 2] = basePos[src * 3 + 2];
+        U[o * 2] = baseUv[src * 2];
+        U[o * 2 + 1] = baseUv[src * 2 + 1];
+        N[o * 3] = baseNrm[src * 3];
+        N[o * 3 + 1] = baseNrm[src * 3 + 1];
+        N[o * 3 + 2] = baseNrm[src * 3 + 2];
+        W[o] = baseHiW[src];
+        A[o * 3] = baseAlbedo[src * 3];
+        A[o * 3 + 1] = baseAlbedo[src * 3 + 1];
+        A[o * 3 + 2] = baseAlbedo[src * 3 + 2];
+      }
+    }
+    for (let k = 0; k < m; k++) {
+      const a = count + 2 * k;
+      const b = count + 2 * ((k + 1) % m);
+      indices.push(a, a + 1, b, b, a + 1, b + 1);
+    }
+
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(P, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(U, 2));
+    g.setAttribute("normal", new THREE.BufferAttribute(N, 3));
+    g.setAttribute("aHiRiseW", new THREE.BufferAttribute(W, 1));
+    g.setAttribute("aMarsAlbedo", new THREE.BufferAttribute(A, 3));
+    g.setIndex(indices);
+    g.computeBoundingSphere();
+    return g;
+  }
+
+  function buildOuterHorizonGeometry(refLonDeg, refLatDeg, refElevM) {
+    const rings = 56;
+    const sectors = 112;
+    const rMin = 380;
+    const rMax = 30000;
+    const vCount = rings * sectors;
+    const P = new Float32Array(vCount * 3);
+    const U = new Float32Array(vCount * 2);
+    const N = new Float32Array(vCount * 3);
+    const W = new Float32Array(vCount);
+    const A = new Float32Array(vCount * 3);
+    const dLonBounds = Math.max(1e-6, bounds.east_lon_deg - bounds.west_lon_deg);
+    const dLatBounds = Math.max(1e-6, bounds.north_lat_deg - bounds.south_lat_deg);
+
+    for (let ri = 0; ri < rings; ri++) {
+      const t = ri / (rings - 1);
+      const radM = rMin + (rMax - rMin) * (0.14 * t + 0.86 * t * t * t);
+      const fd = Math.max(8, radM * 0.025);
+      for (let si = 0; si < sectors; si++) {
+        const ang = (si / sectors) * Math.PI * 2;
+        const xOff = Math.cos(ang) * radM;
+        const zOff = Math.sin(ang) * radM;
+        const idx = ri * sectors + si;
+        const { lonDeg, latDeg } = localSceneXZToLonLat(xOff, zOff, refLonDeg, refLatDeg);
+        const altM = marsGlobal.sampleElevM(lonDeg, latDeg);
+        const p = marsLonLatAltToLocalScene(lonDeg, latDeg, altM, refLonDeg, refLatDeg, refElevM);
+        P[idx * 3] = p.x;
+        P[idx * 3 + 1] = p.y;
+        P[idx * 3 + 2] = p.z;
+        U[idx * 2] = (lonDeg - bounds.west_lon_deg) / dLonBounds;
+        U[idx * 2 + 1] = (latDeg - bounds.south_lat_deg) / dLatBounds;
+        W[idx] = marsGlobal.hiRiseWeightAt(lonDeg, latDeg, 260);
+        const col = marsGlobal.sampleAlbedoRgb(lonDeg, latDeg, altM);
+        A[idx * 3] = col[0];
+        A[idx * 3 + 1] = col[1];
+        A[idx * 3 + 2] = col[2];
+
+        const pE = localSceneXZToLonLat(xOff + fd, zOff, refLonDeg, refLatDeg);
+        const pW = localSceneXZToLonLat(xOff - fd, zOff, refLonDeg, refLatDeg);
+        const pS = localSceneXZToLonLat(xOff, zOff + fd, refLonDeg, refLatDeg);
+        const pN = localSceneXZToLonLat(xOff, zOff - fd, refLonDeg, refLatDeg);
+        const gx = (marsGlobal.sampleElevM(pE.lonDeg, pE.latDeg) - marsGlobal.sampleElevM(pW.lonDeg, pW.latDeg)) / (2 * fd);
+        const gz = (marsGlobal.sampleElevM(pS.lonDeg, pS.latDeg) - marsGlobal.sampleElevM(pN.lonDeg, pN.latDeg)) / (2 * fd);
+        const [snx, sny, snz] = sphereNormalAtLocal(p.x, p.y, p.z);
+        const nx = snx - gx * sny;
+        const ny = sny;
+        const nz = snz - gz * sny;
+        const nInv = 1 / (Math.hypot(nx, ny, nz) || 1);
+        N[idx * 3] = nx * nInv;
+        N[idx * 3 + 1] = ny * nInv;
+        N[idx * 3 + 2] = nz * nInv;
+      }
+    }
+
+    const indices = [];
+    for (let ri = 0; ri < rings - 1; ri++) {
+      for (let si = 0; si < sectors; si++) {
+        const sNext = (si + 1) % sectors;
+        const a = ri * sectors + si;
+        const b = ri * sectors + sNext;
+        const c = (ri + 1) * sectors + si;
+        const d = (ri + 1) * sectors + sNext;
+        indices.push(a, b, c, b, d, c);
+      }
+    }
+
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(P, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(U, 2));
+    g.setAttribute("normal", new THREE.BufferAttribute(N, 3));
+    g.setAttribute("aHiRiseW", new THREE.BufferAttribute(W, 1));
+    g.setAttribute("aMarsAlbedo", new THREE.BufferAttribute(A, 3));
+    g.setIndex(indices);
+    g.computeBoundingSphere();
+    return g;
+  }
+
+  function rebuildSphericalTerrain(centerLonDeg, centerLatDeg) {
+    if (!isDemoSphere || !marsGlobal) return;
+    const cosLat = Math.max(0.18, Math.cos((centerLatDeg * Math.PI) / 180));
+    const stepLatDeg = 72 / ((Math.PI / 180) * MARS_RADIUS_MEAN_M);
+    const stepLonDeg = stepLatDeg / cosLat;
+    const snapLon = normalizeLonDeg(Math.round(centerLonDeg / stepLonDeg) * stepLonDeg);
+    const snapLat = Math.max(-89.99, Math.min(89.99, Math.round(centerLatDeg / stepLatDeg) * stepLatDeg));
+    const snapElev = marsGlobal.sampleElevM(snapLon, snapLat);
+
+    sphereOrigin.lonDeg = snapLon;
+    sphereOrigin.latDeg = snapLat;
+    sphereOrigin.elevM = snapElev;
+
+    const eastArcM = (snapLon * (Math.PI / 180)) * MARS_RADIUS_MEAN_M * cosLat;
+    const northArcM = (snapLat * (Math.PI / 180)) * MARS_RADIUS_MEAN_M;
+    anchorModUniform.value.set(
+      (((eastArcM % worldW) + worldW) % worldW) / worldW,
+      (((northArcM % worldH) + worldH) % worldH) / worldH
+    );
+
+    const gIn = buildInnerSphereGeometry(snapLon, snapLat, snapElev);
+    const gOut = buildOuterHorizonGeometry(snapLon, snapLat, snapElev);
+    if (!innerSphereMesh) {
+      innerSphereMesh = new THREE.Mesh(gIn, terrainMat);
+      innerSphereMesh.receiveShadow = true;
+      innerSphereMesh.castShadow = false;
+      scene.add(innerSphereMesh);
+    } else {
+      innerSphereMesh.geometry.dispose();
+      innerSphereMesh.geometry = gIn;
+    }
+    if (!outerSphereMesh) {
+      outerSphereMesh = new THREE.Mesh(gOut, terrainMat);
+      outerSphereMesh.receiveShadow = true;
+      outerSphereMesh.castShadow = false;
+      scene.add(outerSphereMesh);
+    } else {
+      outerSphereMesh.geometry.dispose();
+      outerSphereMesh.geometry = gOut;
+    }
+  }
+
+  if (isDemoSphere) {
+    rebuildSphericalTerrain(midLonBounds, midLatBounds);
+  } else {
+    const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
+    terrainMesh.receiveShadow = true;
+    terrainMesh.castShadow = false; // terrain shadows come from the baked sun mask, not the shadow map
+    scene.add(terrainMesh);
+
+    // Endless ground: mirrored copies meet the real tile with identical edges. Only the
+    // centre tile is data; the ring follows the camera in steps of one mirror period.
+    endless = new THREE.Group();
+    for (let i = -TILE_RING; i <= TILE_RING; i++) {
+      for (let j = -TILE_RING; j <= TILE_RING; j++) {
+        const copy = new THREE.Mesh(i === 0 && j === 0 ? terrainGeom : copyGeom, terrainMat);
+        copy.position.set(i * worldW, 0, j * worldH);
+        copy.scale.set(i % 2 === 0 ? 1 : -1, 1, j % 2 === 0 ? 1 : -1);
+        copy.receiveShadow = true;
+        copy.userData.mirrorCopy = true;
+        if (i === 0 && j === 0) {
+          copy.visible = false; // the real tile sits here until the ring moves
+          endless.userData.centre = copy;
+        }
+        endless.add(copy);
+      }
+    }
+    scene.add(endless);
   }
 
   // ---------- stop markers: survey poles with a small lamp ----------
@@ -748,28 +1152,59 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     emissive: 0xf59e0b,
     emissiveIntensity: 3.0,
   });
+  const stopMarkers = [];
   if (stops?.features) {
     stops.features.forEach((f, idx) => {
       const [lon, lat] = f.geometry.coordinates;
-      const sx = lonToX(lon);
-      const sz = latToZ(lat);
-      const sy = sampleElevSceneY(sx, sz);
       const isStart = idx === 0 || f.properties?.kind === "habitat";
       const poleH = isStart ? 4.6 : 2.4;
+      const group = new THREE.Group();
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(isStart ? 0.032 : 0.025, isStart ? 0.038 : 0.025, poleH, 8),
         poleMat
       );
-      pole.position.set(sx, sy + poleH * 0.5, sz);
+      pole.position.set(0, poleH * 0.5, 0);
       pole.castShadow = true;
       const lamp = new THREE.Mesh(
         new THREE.SphereGeometry(isStart ? 0.1 : 0.07, 12, 8),
         isStart ? startLampMat : lampMat
       );
-      lamp.position.set(sx, sy + poleH + (isStart ? 0.07 : 0.05), sz);
-      scene.add(pole, lamp);
+      lamp.position.set(0, poleH + (isStart ? 0.07 : 0.05), 0);
+      group.add(pole, lamp);
+      scene.add(group);
+      stopMarkers.push({ lon, lat, group });
     });
   }
+  const _markerUp = new THREE.Vector3(0, 1, 0);
+  const _markerNorm = new THREE.Vector3();
+  function updateStopMarkerTransforms() {
+    for (const sm of stopMarkers) {
+      if (isDemoSphere && marsGlobal) {
+        const altM = marsGlobal.sampleElevM(sm.lon, sm.lat);
+        const p = marsLonLatAltToLocalScene(
+          sm.lon,
+          sm.lat,
+          altM,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
+        );
+        const far = Math.hypot(p.x, p.z) > 32000;
+        sm.group.visible = !far;
+        if (!far) {
+          sm.group.position.set(p.x, p.y, p.z);
+          const [nx, ny, nz] = sphereNormalAtLocal(p.x, p.y, p.z);
+          _markerNorm.set(nx, ny, nz);
+          sm.group.quaternion.setFromUnitVectors(_markerUp, _markerNorm);
+        }
+      } else {
+        const sx = lonToX(sm.lon);
+        const sz = latToZ(sm.lat);
+        sm.group.position.set(sx, sampleElevSceneY(sx, sz), sz);
+      }
+    }
+  }
+  updateStopMarkerTransforms();
 
   // ---------- route ----------
   let routeLineMesh = null;
@@ -930,28 +1365,63 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const qTilt = new THREE.Quaternion();
   const qYaw = new THREE.Quaternion();
   const Y_AXIS = new THREE.Vector3(0, 1, 0);
+  const _footOff = new THREE.Vector3();
+  const _footNorm = new THREE.Vector3();
   function updateContactShadows() {
     for (const c of contacts) {
       c.mesh.visible = c.who.group.visible;
       if (!c.mesh.visible) continue;
       c.foot.getWorldPosition(footPos);
-      const gy = sampleElevSceneY(footPos.x, footPos.z);
-      const lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
-      c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
-      const e = 0.3;
-      nrm
-        .set(
-          sampleElevSceneY(footPos.x - e, footPos.z) - sampleElevSceneY(footPos.x + e, footPos.z),
-          2 * e,
-          sampleElevSceneY(footPos.x, footPos.z - e) - sampleElevSceneY(footPos.x, footPos.z + e)
-        )
-        .normalize();
-      qTilt.setFromUnitVectors(Y_AXIS, nrm);
-      qYaw.setFromAxisAngle(Y_AXIS, c.who.group.rotation.y);
-      c.mesh.quaternion.copy(qTilt).multiply(qYaw);
-      c.mesh.position.set(footPos.x, gy + 0.02, footPos.z);
-      const sc = 1 + lift * 1.5;
-      c.mesh.scale.set(sc, 1, sc);
+      if (isDemoSphere && marsGlobal) {
+        const geo = localSceneXZToLonLat(footPos.x, footPos.z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+        const gAlt = marsGlobal.sampleElevM(geo.lonDeg, geo.latDeg);
+        const gPos = marsLonLatAltToLocalScene(
+          geo.lonDeg,
+          geo.latDeg,
+          gAlt,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
+        );
+        const [snx, sny, snz] = sphereNormalAtLocal(gPos.x, gPos.y, gPos.z);
+        _footNorm.set(snx, sny, snz);
+        _footOff.set(footPos.x - gPos.x, footPos.y - gPos.y, footPos.z - gPos.z);
+        const radialHeight = _footOff.dot(_footNorm);
+        const lift = Math.max(0, radialHeight - 0.08);
+        c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
+        const e = 0.3;
+        const gE = localSceneXZToLonLat(footPos.x + e, footPos.z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+        const gW = localSceneXZToLonLat(footPos.x - e, footPos.z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+        const gS = localSceneXZToLonLat(footPos.x, footPos.z + e, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+        const gN = localSceneXZToLonLat(footPos.x, footPos.z - e, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+        const gx = (marsGlobal.sampleElevM(gE.lonDeg, gE.latDeg) - marsGlobal.sampleElevM(gW.lonDeg, gW.latDeg)) / (2 * e);
+        const gz = (marsGlobal.sampleElevM(gS.lonDeg, gS.latDeg) - marsGlobal.sampleElevM(gN.lonDeg, gN.latDeg)) / (2 * e);
+        nrm.set(snx - gx * sny, sny, snz - gz * sny).normalize();
+        qTilt.setFromUnitVectors(Y_AXIS, nrm);
+        qYaw.setFromAxisAngle(Y_AXIS, autoYaw + userYaw);
+        c.mesh.quaternion.copy(qTilt).multiply(qYaw);
+        c.mesh.position.set(gPos.x + _footNorm.x * 0.02, gPos.y + _footNorm.y * 0.02, gPos.z + _footNorm.z * 0.02);
+        const sc = 1 + lift * 1.5;
+        c.mesh.scale.set(sc, 1, sc);
+      } else {
+        const gy = sampleElevSceneY(footPos.x, footPos.z);
+        const lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
+        c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
+        const e = 0.3;
+        nrm
+          .set(
+            sampleElevSceneY(footPos.x - e, footPos.z) - sampleElevSceneY(footPos.x + e, footPos.z),
+            2 * e,
+            sampleElevSceneY(footPos.x, footPos.z - e) - sampleElevSceneY(footPos.x, footPos.z + e)
+          )
+          .normalize();
+        qTilt.setFromUnitVectors(Y_AXIS, nrm);
+        qYaw.setFromAxisAngle(Y_AXIS, c.who.group.rotation.y);
+        c.mesh.quaternion.copy(qTilt).multiply(qYaw);
+        c.mesh.position.set(footPos.x, gy + 0.02, footPos.z);
+        const sc = 1 + lift * 1.5;
+        c.mesh.scale.set(sc, 1, sc);
+      }
     }
   }
   const suitEl = document.getElementById("hud-suit");
@@ -1013,9 +1483,34 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     remoteGroup.add(avatar.group);
 
     const st = peer.state || {};
-    const sx = Number.isFinite(st.x) ? st.x : Number.isFinite(st.lon) ? lonToX(st.lon) : 0;
-    const sz = Number.isFinite(st.z) ? st.z : Number.isFinite(st.lat) ? latToZ(st.lat) : 0;
-    const sy = Number.isFinite(st.y) ? st.y : sampleElevSceneY(sx, sz);
+    const stLon = Number.isFinite(st.lon) ? normalizeLonDeg(st.lon) : xToLon(Number(st.x) || 0);
+    const stLat = Number.isFinite(st.lat) ? st.lat : zToLat(Number(st.z) || 0);
+    const stAlt =
+      Number.isFinite(st.altM)
+        ? st.altM
+        : isDemoSphere && marsGlobal
+          ? marsGlobal.sampleElevM(stLon, stLat)
+          : elevMin + (Number.isFinite(st.y) ? st.y : sampleElevSceneY(lonToX(stLon), latToZ(stLat)));
+    let sx;
+    let sy;
+    let sz;
+    if (isDemoSphere && marsGlobal) {
+      const p = marsLonLatAltToLocalScene(
+        stLon,
+        stLat,
+        stAlt,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      );
+      sx = p.x;
+      sy = p.y;
+      sz = p.z;
+    } else {
+      sx = Number.isFinite(st.x) ? st.x : Number.isFinite(st.lon) ? lonToX(st.lon) : 0;
+      sz = Number.isFinite(st.z) ? st.z : Number.isFinite(st.lat) ? latToZ(st.lat) : 0;
+      sy = Number.isFinite(st.y) ? st.y : sampleElevSceneY(sx, sz);
+    }
     const syaw = Number.isFinite(st.yaw) ? st.yaw : 0;
     avatar.group.position.set(sx, sy, sz);
     avatar.group.rotation.y = syaw;
@@ -1028,8 +1523,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       group: avatar.group,
       beacon,
       badge,
-      target: { x: sx, y: sy, z: sz, yaw: syaw, airborne: Boolean(st.airborne), speed: Number(st.speed) || 0 },
-      cur: { x: sx, y: sy, z: sz, yaw: syaw },
+      target: {
+        x: sx,
+        y: sy,
+        z: sz,
+        lon: stLon,
+        lat: stLat,
+        altM: stAlt,
+        yaw: syaw,
+        airborne: Boolean(st.airborne),
+        speed: Number(st.speed) || 0,
+      },
+      cur: { x: sx, y: sy, z: sz, lon: stLon, lat: stLat, altM: stAlt, yaw: syaw },
     };
     remoteAvatars.set(peer.id, entry);
     updateCrewHudSummary();
@@ -1052,6 +1557,37 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     updateCrewHudSummary();
   }
 
+  function updatePingTransforms() {
+    for (const g of pingGroup.children) {
+      const { lon, lat } = g.userData || {};
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      if (isDemoSphere && marsGlobal) {
+        const altM = marsGlobal.sampleElevM(lon, lat);
+        const p = marsLonLatAltToLocalScene(
+          lon,
+          lat,
+          altM,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
+        );
+        const far = Math.hypot(p.x, p.z) > 32000;
+        g.visible = !far;
+        if (!far) {
+          g.position.set(p.x, p.y, p.z);
+          const [nx, ny, nz] = sphereNormalAtLocal(p.x, p.y, p.z);
+          _markerNorm.set(nx, ny, nz);
+          g.quaternion.setFromUnitVectors(_markerUp, _markerNorm);
+        }
+      } else {
+        const x = lonToX(lon);
+        const z = latToZ(lat);
+        g.visible = true;
+        g.position.set(x, sampleElevSceneY(x, z), z);
+      }
+    }
+  }
+
   function rebuildPingBeacons(pins = []) {
     while (pingGroup.children.length > 0) {
       const child = pingGroup.children.pop();
@@ -1065,10 +1601,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     for (const pin of pins) {
       if (!Number.isFinite(pin.lon) || !Number.isFinite(pin.lat)) continue;
-      const x = lonToX(pin.lon);
-      const z = latToZ(pin.lat);
-      const y = sampleElevSceneY(x, z);
       const g = new THREE.Group();
+      g.userData = { lon: pin.lon, lat: pin.lat };
       const col = pin.color || "#fbbf24";
       const beam = new THREE.Mesh(
         new THREE.CylinderGeometry(0.035, 0.035, 6.0, 8),
@@ -1085,9 +1619,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       badge.spr.position.set(0, 3.2, 0);
       badge.spr.scale.set(1.7, 0.42, 1);
       g.add(beam, ring, badge.spr);
-      g.position.set(x, y, z);
       pingGroup.add(g);
     }
+    updatePingTransforms();
   }
 
   function updateCrewHudSummary() {
@@ -1113,13 +1647,41 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     mp.on("peerstate", (peer) => {
       const entry = ensureRemoteAvatar(peer);
       const st = peer.state || {};
-      const tx = Number.isFinite(st.x) ? st.x : Number.isFinite(st.lon) ? lonToX(st.lon) : entry.target.x;
-      const tz = Number.isFinite(st.z) ? st.z : Number.isFinite(st.lat) ? latToZ(st.lat) : entry.target.z;
-      const ty = Number.isFinite(st.y) ? st.y : sampleElevSceneY(tx, tz);
+      const stLon = Number.isFinite(st.lon) ? normalizeLonDeg(st.lon) : entry.target.lon;
+      const stLat = Number.isFinite(st.lat) ? st.lat : entry.target.lat;
+      const stAlt =
+        Number.isFinite(st.altM)
+          ? st.altM
+          : isDemoSphere && marsGlobal && Number.isFinite(stLon) && Number.isFinite(stLat)
+            ? marsGlobal.sampleElevM(stLon, stLat)
+            : entry.target.altM;
+      let tx;
+      let ty;
+      let tz;
+      if (isDemoSphere && marsGlobal && Number.isFinite(stLon) && Number.isFinite(stLat)) {
+        const p = marsLonLatAltToLocalScene(
+          stLon,
+          stLat,
+          stAlt,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
+        );
+        tx = p.x;
+        ty = p.y;
+        tz = p.z;
+      } else {
+        tx = Number.isFinite(st.x) ? st.x : Number.isFinite(st.lon) ? lonToX(st.lon) : entry.target.x;
+        tz = Number.isFinite(st.z) ? st.z : Number.isFinite(st.lat) ? latToZ(st.lat) : entry.target.z;
+        ty = Number.isFinite(st.y) ? st.y : sampleElevSceneY(tx, tz);
+      }
       entry.target = {
         x: tx,
         y: ty,
         z: tz,
+        lon: stLon,
+        lat: stLat,
+        altM: stAlt,
         yaw: Number.isFinite(st.yaw) ? st.yaw : entry.target.yaw,
         airborne: Boolean(st.airborne),
         speed: Number(st.speed) || 0,
@@ -1170,17 +1732,39 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let userYaw = 0;
   let pitch = -0.12;
   let autoYaw = routeCoords.length > 1 ? routeHeading(0) : 0;
+  const startGeoLon = routeCoords.length > 1 ? routeCoords[0][0] : midLonBounds;
+  const startGeoLat = routeCoords.length > 1 ? routeCoords[0][1] : midLatBounds;
+  const playerGeo = {
+    lon: normalizeLonDeg(startGeoLon),
+    lat: startGeoLat,
+    altM:
+      isDemoSphere && marsGlobal
+        ? marsGlobal.sampleElevM(startGeoLon, startGeoLat)
+        : elevMin + sampleElevSceneY(lonToX(startGeoLon), latToZ(startGeoLat)),
+  };
   const freePos = new THREE.Vector3(0, 0, 0);
   // start at the beginning of the route, facing along it
   if (routeCoords.length > 1) {
-    const p0 = routePoint(0);
-    freePos.set(p0.x, 0, p0.z);
+    if (isDemoSphere && marsGlobal) {
+      const p0 = marsLonLatAltToLocalScene(
+        playerGeo.lon,
+        playerGeo.lat,
+        playerGeo.altM,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      );
+      freePos.set(p0.x, 0, p0.z);
+    } else {
+      const p0 = routePoint(0);
+      freePos.set(p0.x, 0, p0.z);
+    }
     userYaw = autoYaw;
     autoYaw = 0;
   }
   const partnerPos = new THREE.Vector3(freePos.x, 0, freePos.z);
   let partnerYaw = userYaw;
-  const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
+  const player = { x: freePos.x, y: 0, z: freePos.z, vy: 0, grounded: true, init: false };
   let partnerS = PARTNER_AHEAD_M;
   let justTeleportedOrWrapped = false;
   const keys = new Set();
@@ -1207,6 +1791,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   });
   const dropLocalPing = (label = "Science Beacon") => {
     if (!mp) return null;
+    if (isDemoSphere && marsGlobal) {
+      const lon = playerGeo.lon;
+      const lat = playerGeo.lat;
+      const elev = playerGeo.altM;
+      return mp.dropPing({ lon, lat, elevM: elev, label });
+    }
     const x = player.init ? player.x : lonToX(routeCoords[0]?.[0] ?? 137.39);
     const z = player.init ? player.z : latToZ(routeCoords[0]?.[1] ?? -4.8);
     const lon = xToLon(x);
@@ -1297,6 +1887,64 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return { val: out, wrapped, crossedPosToNeg, crossedNegToPos };
   }
 
+  function repositionSphereEntities() {
+    if (!isDemoSphere || !marsGlobal) return;
+    updateStopMarkerTransforms();
+    updatePingTransforms();
+    for (const remote of remoteAvatars.values()) {
+      const tLon = remote.target.lon;
+      const tLat = remote.target.lat;
+      if (Number.isFinite(tLon) && Number.isFinite(tLat)) {
+        const tAlt = Number.isFinite(remote.target.altM) ? remote.target.altM : marsGlobal.sampleElevM(tLon, tLat);
+        const tp = marsLonLatAltToLocalScene(
+          tLon,
+          tLat,
+          tAlt,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
+        );
+        remote.target.x = tp.x;
+        remote.target.y = tp.y;
+        remote.target.z = tp.z;
+      }
+      const cLon = remote.cur.lon ?? tLon;
+      const cLat = remote.cur.lat ?? tLat;
+      if (Number.isFinite(cLon) && Number.isFinite(cLat)) {
+        const cAlt = Number.isFinite(remote.cur.altM) ? remote.cur.altM : marsGlobal.sampleElevM(cLon, cLat);
+        const cp = marsLonLatAltToLocalScene(
+          cLon,
+          cLat,
+          cAlt,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
+        );
+        remote.cur.x = cp.x;
+        remote.cur.y = cp.y;
+        remote.cur.z = cp.z;
+      }
+    }
+  }
+
+  function rebaseSphereOrigin(centerLonDeg, centerLatDeg) {
+    if (!isDemoSphere || !marsGlobal) return;
+    rebuildSphericalTerrain(centerLonDeg, centerLatDeg);
+    repositionSphereEntities();
+    const p = marsLonLatAltToLocalScene(
+      playerGeo.lon,
+      playerGeo.lat,
+      playerGeo.altM,
+      sphereOrigin.lonDeg,
+      sphereOrigin.latDeg,
+      sphereOrigin.elevM
+    );
+    freePos.set(p.x, 0, p.z);
+    player.x = p.x;
+    player.y = p.y;
+    player.z = p.z;
+  }
+
   // A new route from the planner (Begin EVA): stand at its start, facing along it.
   onSetRoute((detail) => {
     const newRoute = detail?.route;
@@ -1305,18 +1953,40 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     alongM = nextAlong;
     autoYaw = 0;
     if (routeCoords.length > 1) {
-      const p = routePoint(alongM);
-      freePos.set(p.x, 0, p.z);
-      userYaw = routeHeading(alongM);
-      partnerPos.set(p.x, 0, p.z);
-      player.init = false;
-      justTeleportedOrWrapped = true;
+      if (isDemoSphere && marsGlobal) {
+        const smp = sampleAlongRoute(routeCoords, cumDist, Math.max(0, Math.min(geomTotalDist, toGeomDist(alongM))));
+        userYaw = routeHeading(alongM);
+        teleportToLonLat(smp.lon, smp.lat, { keepYaw: true });
+      } else {
+        const p = routePoint(alongM);
+        freePos.set(p.x, 0, p.z);
+        userYaw = routeHeading(alongM);
+        partnerPos.set(p.x, 0, p.z);
+        player.init = false;
+        justTeleportedOrWrapped = true;
+      }
     }
   });
 
   const viewLabelEl = document.getElementById("hud-view-label");
 
-  function computeLocalSlopeDeg(x, z) {
+  function computeLocalSlopeDeg(x, z, geoLon = null, geoLat = null) {
+    if (isDemoSphere && marsGlobal) {
+      const base =
+        geoLon != null && geoLat != null
+          ? { lonDeg: geoLon, latDeg: geoLat }
+          : localSceneXZToLonLat(x, z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      const pE = localSceneXZToLonLat(2, 0, base.lonDeg, base.latDeg);
+      const pW = localSceneXZToLonLat(-2, 0, base.lonDeg, base.latDeg);
+      const pS = localSceneXZToLonLat(0, 2, base.lonDeg, base.latDeg);
+      const pN = localSceneXZToLonLat(0, -2, base.lonDeg, base.latDeg);
+      const hW = marsGlobal.sampleElevM(pW.lonDeg, pW.latDeg);
+      const hE = marsGlobal.sampleElevM(pE.lonDeg, pE.latDeg);
+      const hN = marsGlobal.sampleElevM(pN.lonDeg, pN.latDeg);
+      const hS = marsGlobal.sampleElevM(pS.lonDeg, pS.latDeg);
+      const grad = Math.hypot((hE - hW) / 4, (hS - hN) / 4);
+      return Math.atan(grad) * (180 / Math.PI);
+    }
     const hW = sampleElevSceneY(x - 2, z);
     const hE = sampleElevSceneY(x + 2, z);
     const hN = sampleElevSceneY(x, z - 2);
@@ -1325,7 +1995,65 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return Math.atan(grad) * (180 / Math.PI);
   }
 
+  function teleportToLonLat(lon, lat, { keepYaw = false } = {}) {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    if (isDemoSphere && marsGlobal) {
+      const normLon = normalizeLonDeg(lon);
+      const clampedLat = Math.max(-89.95, Math.min(89.95, lat));
+      const altM = marsGlobal.sampleElevM(normLon, clampedLat);
+      playerGeo.lon = normLon;
+      playerGeo.lat = clampedLat;
+      playerGeo.altM = altM;
+
+      const distFromOrigin = marsDistanceM([sphereOrigin.lonDeg, sphereOrigin.latDeg], [normLon, clampedLat]);
+      if (distFromOrigin > 120) {
+        rebuildSphericalTerrain(normLon, clampedLat);
+        repositionSphereEntities();
+      }
+      const p = marsLonLatAltToLocalScene(
+        normLon,
+        clampedLat,
+        altM,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      );
+      const distFromRouteM =
+        routeCoords.length > 0 ? marsDistanceM([routeCoords[0][0], routeCoords[0][1]], [normLon, clampedLat]) : Infinity;
+      if (routeCoords.length > 1 && distFromRouteM < 15000) {
+        const nearestGeomS = closestAlongM(routeCoords, cumDist, normLon, clampedLat);
+        alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+      } else {
+        alongM = 0;
+      }
+
+      freePos.set(p.x, 0, p.z);
+      player.x = p.x;
+      player.y = p.y;
+      player.z = p.z;
+      player.vy = 0;
+      player.grounded = true;
+      player.init = true;
+      justTeleportedOrWrapped = true;
+
+      autoYaw = 0;
+      if (!keepYaw && routeCoords.length > 1 && distFromRouteM < 15000) {
+        const rp = routePoint(alongM);
+        const distToRoute = marsDistanceM([normLon, clampedLat], [rp.smp.lon, rp.smp.lat]);
+        userYaw = distToRoute > 5 ? Math.atan2(-(rp.x - p.x), -(rp.z - p.z)) : routeHeading(alongM);
+      }
+      pitch = Math.max(-0.55, Math.min(0.25, keepYaw ? pitch : -0.06));
+      return;
+    }
+    teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw });
+  }
+
   function teleportToLocal(tx, tz, { keepYaw = false } = {}) {
+    if (isDemoSphere && marsGlobal) {
+      const { lonDeg, latDeg } = localSceneXZToLonLat(tx, tz, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+      teleportToLonLat(lonDeg, latDeg, { keepYaw });
+      return;
+    }
     const wx = wrapSceneCoord(tx, worldW).val;
     const wz = wrapSceneCoord(tz, worldH).val;
     const ty = sampleElevSceneY(wx, wz);
@@ -1356,7 +2084,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   onTeleport(({ lon, lat }) => {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-    teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: false });
+    teleportToLonLat(lon, lat, { keepYaw: false });
   });
 
   // ---------- Tactical Mars 3D Elevation Map (toggled via M key) ----------
@@ -1370,6 +2098,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const mapConfirmMetaEl = document.getElementById("hud-map-confirm-meta");
   const mapConfirmYesBtn = document.getElementById("hud-map-confirm-yes");
   const mapConfirmNoBtn = document.getElementById("hud-map-confirm-no");
+  const mapScopeRowEl = document.getElementById("hud-map-scope-row");
+  const mapScopeGlobeBtn = document.getElementById("hud-map-scope-globe");
+  const mapScopeWorldBtn = document.getElementById("hud-map-scope-world");
+  const mapScopeLocalBtn = document.getElementById("hud-map-scope-local");
+  const mapLandmarksEl = document.getElementById("hud-map-landmarks");
+  const mapLockBadgeEl = document.getElementById("hud-map-lock-badge");
 
   const isTrLang = () => {
     try {
@@ -1380,7 +2114,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   };
 
   let mapLayerMode = "elevation"; // "elevation" | "hazard"
-  let pendingTeleport = null; // { tx, tz, lon, lat, elevMola, slopeDeg, distM }
+  let mapScope = isDemoSphere ? "globe" : "local"; // "globe" | "world" | "local"
+  let awaitingInitialLanding = Boolean(isDemoSphere);
+  let globeCenterLon = playerGeo.lon;
+  let globeCenterLat = playerGeo.lat;
+  let pendingTeleport = null; // { tx, tz, lon, lat, elevMola, slopeDeg, distM, region? }
   let hoverTarget = null;
 
   // Build Martian-themed 3D elevation + slope base canvases directly from `elevGrid` (1:1 with 3D terrain)
@@ -1540,6 +2278,136 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return { elevCanvas, hazCanvas, minE, maxE };
   })();
 
+  // Precompute global Mars MOLA equirectangular shaded textures (demo sphere mode only)
+  const globalMarsBases = (() => {
+    if (!isDemoSphere || !marsGlobal) return null;
+    const gw = 720;
+    const gh = 360;
+    const elevCanvas = document.createElement("canvas");
+    elevCanvas.width = gw;
+    elevCanvas.height = gh;
+    const hazCanvas = document.createElement("canvas");
+    hazCanvas.width = gw;
+    hazCanvas.height = gh;
+    const eCtx = elevCanvas.getContext("2d");
+    const hCtx = hazCanvas.getContext("2d");
+    const eImg = eCtx.createImageData(gw, gh);
+    const hImg = hCtx.createImageData(gw, gh);
+    const dStepDeg = 360 / gw;
+    const cellM = MARS_CIRCUMFERENCE_M / gw;
+
+    for (let y = 0; y < gh; y++) {
+      const lat = 90 - (y + 0.5) * dStepDeg;
+      const latP = Math.min(89.75, lat + dStepDeg);
+      const latM = Math.max(-89.75, lat - dStepDeg);
+      const cosLat = Math.max(0.25, Math.cos((lat * Math.PI) / 180));
+      for (let x = 0; x < gw; x++) {
+        const lon = -180 + (x + 0.5) * dStepDeg;
+        const eC = marsGlobal.sampleElevM(lon, lat);
+        const eE = marsGlobal.sampleElevM(lon + dStepDeg, lat);
+        const eW = marsGlobal.sampleElevM(lon - dStepDeg, lat);
+        const eN = marsGlobal.sampleElevM(lon, latP);
+        const eS = marsGlobal.sampleElevM(lon, latM);
+
+        // Hillshade using real planetary MOLA gradient
+        const gx = ((eE - eW) / (2 * cellM * cosLat)) * 4.2;
+        const gz = ((eS - eN) / (2 * cellM)) * 4.2;
+        const nLen = Math.hypot(-gx, 1, -gz) || 1;
+        const nx = -gx / nLen;
+        const ny = 1 / nLen;
+        const nz = -gz / nLen;
+        const ndotl = Math.max(0, nx * sunDir.x + ny * sunDir.y + nz * sunDir.z);
+        const shade = 0.62 + 0.55 * ndotl;
+
+        const rgb = marsGlobal.sampleAlbedoRgb(lon, lat, eC);
+        const r = Math.max(0, Math.min(255, Math.round(rgb[0] * 255 * shade)));
+        const g = Math.max(0, Math.min(255, Math.round(rgb[1] * 255 * shade)));
+        const b = Math.max(0, Math.min(255, Math.round(rgb[2] * 255 * shade)));
+
+        const p = (y * gw + x) * 4;
+        eImg.data[p] = r;
+        eImg.data[p + 1] = g;
+        eImg.data[p + 2] = b;
+        eImg.data[p + 3] = 255;
+
+        const rawSlopeDeg = Math.atan(Math.hypot((eE - eW) / (2 * cellM * cosLat), (eS - eN) / (2 * cellM))) * (180 / Math.PI);
+        const scaledSlope = rawSlopeDeg * 14; // planetary 0.5° cells smooth steep canyon walls
+        let hr = 34;
+        let hg = 197;
+        let hb = 94;
+        let alpha = 0.24;
+        if (scaledSlope > 20) {
+          hr = 168;
+          hg = 85;
+          hb = 247;
+          alpha = 0.62;
+        } else if (scaledSlope > 15) {
+          hr = 239;
+          hg = 68;
+          hb = 68;
+          alpha = 0.5;
+        } else if (scaledSlope > 10) {
+          hr = 245;
+          hg = 158;
+          hb = 11;
+          alpha = 0.38;
+        }
+        hImg.data[p] = Math.round(r * (1 - alpha) + hr * alpha);
+        hImg.data[p + 1] = Math.round(g * (1 - alpha) + hg * alpha);
+        hImg.data[p + 2] = Math.round(b * (1 - alpha) + hb * alpha);
+        hImg.data[p + 3] = 255;
+      }
+    }
+    eCtx.putImageData(eImg, 0, 0);
+    hCtx.putImageData(hImg, 0, 0);
+    return {
+      width: gw,
+      height: gh,
+      eData: eImg.data,
+      hData: hImg.data,
+      elevCanvas,
+      hazCanvas,
+      minE: -8200,
+      maxE: 21200,
+    };
+  })();
+
+  const globeScratch = (() => {
+    if (!isDemoSphere) return null;
+    const size = 224;
+    const c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    const ctx = c.getContext("2d");
+    return { size, canvas: c, ctx, img: ctx.createImageData(size, size) };
+  })();
+
+  if (isDemoSphere && mapScopeRowEl) {
+    mapScopeRowEl.style.display = "flex";
+  }
+  if (isDemoSphere && mapLandmarksEl) {
+    mapLandmarksEl.style.display = "flex";
+    const populateLandmarks = () => {
+      const tr = isTrLang();
+      mapLandmarksEl.innerHTML = "";
+      for (const lm of MARS_LANDMARKS) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "hud-btn hud-map-lm-btn";
+        b.textContent = tr ? lm.nameTr : lm.nameEn;
+        b.addEventListener("click", () => {
+          globeCenterLon = lm.lon;
+          globeCenterLat = Math.max(-85, Math.min(85, lm.lat));
+          pendingTeleport = formatLonLatMetrics(lm.lon, lm.lat);
+          updatePendingConfirmCard();
+          renderTacticalMap();
+        });
+        mapLandmarksEl.appendChild(b);
+      }
+    };
+    populateLandmarks();
+  }
+
   function syncMapStaticText() {
     const tr = isTrLang();
     const tEl = document.getElementById("hud-map-title");
@@ -1547,23 +2415,103 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const etEl = document.getElementById("hud-map-elev-title");
     const cnEl = document.getElementById("hud-map-contour-note");
     const ktEl = document.getElementById("hud-map-key-title");
-    if (tEl) {
-      tEl.textContent = tr
-        ? "GALE KRATERİ / MOUNT SHARP — 3B YÜKSELTİ HARİTASI"
-        : "GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP";
+    const elevMaxLabel = document.getElementById("hud-map-elev-max");
+    const elevMidLabel = document.getElementById("hud-map-elev-mid");
+    const elevMinLabel = document.getElementById("hud-map-elev-min");
+
+    if (isDemoSphere) {
+      const isInitial = awaitingInitialLanding;
+      if (mapOverlayEl) mapOverlayEl.classList.toggle("landing-hero", isInitial);
+      if (mapCloseBtn) mapCloseBtn.style.display = isInitial ? "none" : "";
+      if (mapLockBadgeEl) {
+        mapLockBadgeEl.style.display = isInitial ? "inline-flex" : "none";
+        mapLockBadgeEl.textContent = tr ? "ZORUNLU İNİŞ SEÇİMİ" : "LANDING REQUIRED";
+      }
+      if (tEl) {
+        if (isInitial) {
+          tEl.textContent = tr
+            ? "MARS YÖRÜNGE İNİŞİ — BAŞLANGIÇ NOKTANI SEÇ"
+            : "MARS ORBITAL DEPLOYMENT — CHOOSE LANDING SITE";
+        } else if (mapScope === "globe") {
+          tEl.textContent = tr ? "MARS GEZEGENİ — 3B KÜRE HARİTASI (R = 3.389,5 km)" : "PLANET MARS — 3D SPHERE GLOBE (R = 3,389.5 km)";
+        } else if (mapScope === "world") {
+          tEl.textContent = tr ? "MARS GEZEGENİ — KÜRESEL MOLA YÜKSELTİ HARİTASI" : "PLANET MARS — GLOBAL MOLA TOPOGRAPHY";
+        } else {
+          tEl.textContent = tr ? "GALE KRATERİ / MOUNT SHARP — HiRISE YEREL HARİTA" : "GALE CRATER / MOUNT SHARP — HiRISE LOCAL MAP";
+        }
+      }
+      if (sEl) {
+        if (isInitial) {
+          sEl.textContent = tr
+            ? "KÜREYİ ÇEVİR VE İNMEK İSTEDİĞİN NOKTAYA TIKLA (VEYA KEŞİF NOKTASI SEÇ) · İNİŞ SEÇMEDEN ÇIKILAMAZ"
+            : "SPIN THE GLOBE & CLICK ANY LANDING COORDINATE (OR PICK A SITE ABOVE) · LANDING PICK REQUIRED";
+        } else if (mapScope === "globe") {
+          sEl.textContent = tr
+            ? "SÜRÜKLE: KÜREYİ ÇEVİR · TIKLA: GEZEGENDEN HERHANGİ BİR NOKTAYA IŞINLAN · SINIR YOK"
+            : "DRAG: SPIN MARS GLOBE · CLICK: TELEPORT ANYWHERE ON MARS · NO EDGES";
+        } else if (mapScope === "world") {
+          sEl.textContent = tr
+            ? "360° × 180° GERÇEK MARS BOYUTU (ÇEVRE 21.297 km) · IŞINLANMAK İÇİN TIKLA"
+            : "360° × 180° REAL MARS SCALE (21,297 km CIRCUMFERENCE) · CLICK ANYWHERE TO TELEPORT";
+        } else {
+          sEl.textContent = tr
+            ? "HiRISE 1 m DTM ALANI · KÜRESEL ARAZİYLE KESİNTİSİZ BİRLEŞİK · IŞINLANMAK İÇİN TIKLA"
+            : "HiRISE 1 m DTM PATCH · SEAMLESSLY BLENDED INTO SPHERICAL MARS · CLICK TO TELEPORT";
+        }
+      }
+      if (etEl) etEl.textContent = tr ? "MOLA 3B YÜKSELTİ (m)" : "MOLA 3D ELEVATION (m)";
+      if (mapScope === "local") {
+        if (elevMaxLabel) elevMaxLabel.textContent = `${Math.round(mapBases.maxE)} m`;
+        if (elevMidLabel) elevMidLabel.textContent = `${Math.round((mapBases.minE + mapBases.maxE) * 0.5)} m`;
+        if (elevMinLabel) elevMinLabel.textContent = `${Math.round(mapBases.minE)} m`;
+        if (cnEl) {
+          cnEl.textContent = tr
+            ? "20 m ara / 60 m ana eşyükselti eğrileri · küresel Mars kabartmasına bağlı."
+            : "20 m minor / 60 m major contours · seamlessly anchored on the spherical Mars globe.";
+        }
+      } else {
+        if (elevMaxLabel) elevMaxLabel.textContent = "+21,134 m";
+        if (elevMidLabel) elevMidLabel.textContent = "+6,533 m";
+        if (elevMinLabel) elevMinLabel.textContent = "-8,068 m";
+        if (cnEl) {
+          cnEl.textContent = tr
+            ? "Gerçek NASA MGS MOLA MEGDR 4ppd + Viking MDIM 2.1 · Olympus (+21.1 km) → Hellas (-8.1 km) · R = 3.389,5 km."
+            : "Real NASA MGS MOLA MEGDR 4ppd + Viking MDIM 2.1 · Olympus (+21.1 km) → Hellas (-8.1 km) · R = 3,389.5 km.";
+        }
+      }
+      if (ktEl) ktEl.textContent = tr ? "İŞARETLER VE KÜRE" : "MARKERS & GLOBE";
+      if (mapScopeGlobeBtn) {
+        mapScopeGlobeBtn.textContent = tr ? "Mars 3B Küre" : "Mars 3D Globe";
+        mapScopeGlobeBtn.classList.toggle("active", mapScope === "globe");
+      }
+      if (mapScopeWorldBtn) {
+        mapScopeWorldBtn.textContent = tr ? "Mars 2B (360°)" : "Mars 2D (360°)";
+        mapScopeWorldBtn.classList.toggle("active", mapScope === "world");
+      }
+      if (mapScopeLocalBtn) {
+        mapScopeLocalBtn.textContent = tr ? "Gale (2 km)" : "Gale (2 km)";
+        mapScopeLocalBtn.classList.toggle("active", mapScope === "local");
+      }
+    } else {
+      if (tEl) {
+        tEl.textContent = tr
+          ? "GALE KRATERİ / MOUNT SHARP — 3B YÜKSELTİ HARİTASI"
+          : "GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP";
+      }
+      if (sEl) {
+        sEl.textContent = tr
+          ? "HiRISE 1 m DTM KABARTMA · IŞINLANMAK İÇİN HARİTAYA TIKLA · KENARLAR KARŞIYA BAĞLANIR"
+          : "HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP";
+      }
+      if (etEl) etEl.textContent = tr ? "MOLA 3B YÜKSELTİ (m)" : "MOLA 3D ELEVATION (m)";
+      if (cnEl) {
+        cnEl.textContent = tr
+          ? "20 m ara / 60 m ana eşyükselti eğrileri · canlı 3B arazi normalleri ve güneş açısı ile gölgelenmiş."
+          : "20 m minor / 60 m major contours · shaded by live 3D terrain normals & sun angle.";
+      }
+      if (ktEl) ktEl.textContent = tr ? "İŞARETLER VE SINIR" : "MARKERS & WRAP";
     }
-    if (sEl) {
-      sEl.textContent = tr
-        ? "HiRISE 1 m DTM KABARTMA · IŞINLANMAK İÇİN HARİTAYA TIKLA · KENARLAR KARŞIYA BAĞLANIR"
-        : "HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP";
-    }
-    if (etEl) etEl.textContent = tr ? "MOLA 3B YÜKSELTİ (m)" : "MOLA 3D ELEVATION (m)";
-    if (cnEl) {
-      cnEl.textContent = tr
-        ? "20 m ara / 60 m ana eşyükselti eğrileri · canlı 3B arazi normalleri ve güneş açısı ile gölgelenmiş."
-        : "20 m minor / 60 m major contours · shaded by live 3D terrain normals & sun angle.";
-    }
-    if (ktEl) ktEl.textContent = tr ? "İŞARETLER VE SINIR" : "MARKERS & WRAP";
+
     if (mapModeBtn) {
       mapModeBtn.textContent =
         mapLayerMode === "elevation"
@@ -1576,14 +2524,46 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     if (mapCloseBtn) mapCloseBtn.textContent = tr ? "Kapat (M)" : "Close (M)";
     if (mapConfirmQEl) {
-      mapConfirmQEl.textContent = tr ? "Buraya ışınlanmak istiyor musun?" : "Do you want to teleport here?";
+      mapConfirmQEl.textContent = awaitingInitialLanding
+        ? tr
+          ? "Bu koordinata iniş yapmak istiyor musun?"
+          : "Deploy and land at this site?"
+        : tr
+          ? "Buraya ışınlanmak istiyor musun?"
+          : "Do you want to teleport here?";
     }
-    if (mapConfirmYesBtn) mapConfirmYesBtn.textContent = tr ? "Evet, Işınlan" : "Yes, Teleport";
+    if (mapConfirmYesBtn) {
+      mapConfirmYesBtn.textContent = awaitingInitialLanding
+        ? tr
+          ? "Evet, Buraya İn"
+          : "Yes, Land Here"
+        : tr
+          ? "Evet, Işınlan"
+          : "Yes, Teleport";
+    }
     if (mapConfirmNoBtn) mapConfirmNoBtn.textContent = tr ? "İptal" : "Cancel";
     if (btnMap) btnMap.textContent = isMapOpen() ? (tr ? "Harita: Açık" : "Map (M): ON") : tr ? "Harita (M)" : "Map (M)";
   }
 
+  function formatLonLatMetrics(lonDeg, latDeg) {
+    const lon = normalizeLonDeg(lonDeg);
+    const lat = Math.max(-89.95, Math.min(89.95, latDeg));
+    if (isDemoSphere && marsGlobal) {
+      const elevMola = marsGlobal.sampleElevM(lon, lat);
+      const slopeDeg = computeLocalSlopeDeg(0, 0, lon, lat);
+      const distM = marsDistanceM([playerGeo.lon, playerGeo.lat], [lon, lat]);
+      const region = marsGlobal.sampleRegionLabel(lon, lat, isTrLang());
+      return { tx: lonToX(lon), tz: latToZ(lat), lon, lat, elevMola, slopeDeg, distM, region };
+    }
+    return formatPointMetrics(lonToX(lon), latToZ(lat));
+  }
+
   function formatPointMetrics(tx, tz) {
+    if (isDemoSphere && marsGlobal) {
+      const lon = xToLon(tx);
+      const lat = zToLat(tz);
+      return formatLonLatMetrics(lon, lat);
+    }
     const wx = wrapSceneCoord(tx, worldW).val;
     const wz = wrapSceneCoord(tz, worldH).val;
     const lon = xToLon(wx);
@@ -1594,6 +2574,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return { tx: wx, tz: wz, lon, lat, elevMola, slopeDeg, distM };
   }
 
+  function formatDistanceText(distM) {
+    return distM >= 2000 ? `${(distM / 1000).toFixed(1)} km` : `${distM.toFixed(0)} m`;
+  }
+
   function updatePendingConfirmCard() {
     if (!mapConfirmEl) return;
     if (!pendingTeleport) {
@@ -1602,7 +2586,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     const tr = isTrLang();
     syncMapStaticText();
-    const { lon, lat, elevMola, slopeDeg, distM } = pendingTeleport;
+    const { lon, lat, elevMola, slopeDeg, distM, region } = pendingTeleport;
     const slopeWarn =
       slopeDeg > 20
         ? tr
@@ -1610,35 +2594,56 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           : " · WARNING: >20° STEEP CLIFF!"
         : "";
     if (mapConfirmMetaEl) {
+      const regionLine = region ? `<strong>${region}</strong><br/>` : "";
       mapConfirmMetaEl.innerHTML =
-        `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E<br/>` +
+        regionLine +
+        `${Math.abs(lat).toFixed(4)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(4)}°E<br/>` +
         `<strong>${tr ? "3B Yükselti" : "3D Elevation"}:</strong> ${elevMola.toFixed(1)} m MOLA<br/>` +
         `<strong>${tr ? "Eğim" : "Slope"}:</strong> ${slopeDeg.toFixed(1)}°${slopeWarn}<br/>` +
-        `<strong>${tr ? "Mesafe" : "Distance"}:</strong> ${distM.toFixed(0)} m`;
+        `<strong>${tr ? "Mesafe" : "Distance"}:</strong> ${formatDistanceText(distM)}`;
     }
     mapConfirmEl.style.display = "block";
   }
 
-  function setMapOpen(open) {
+  function setMapOpen(open, scopeOverride = null) {
     if (!mapOverlayEl) return;
     const next = Boolean(open);
+    if (!next && awaitingInitialLanding) {
+      return;
+    }
+    if (next && isDemoSphere && scopeOverride) {
+      mapScope = scopeOverride;
+    }
     mapOverlayEl.classList.toggle("open", next);
     if (next) {
       keys.clear();
       dragging = false;
+      if (isDemoSphere) {
+        globeCenterLon = playerGeo.lon;
+        globeCenterLat = Math.max(-75, Math.min(75, playerGeo.lat + 14));
+      }
       syncMapStaticText();
       renderTacticalMap();
+      requestAnimationFrame(() => renderTacticalMap());
     } else {
       pendingTeleport = null;
       hoverTarget = null;
       if (mapConfirmEl) mapConfirmEl.style.display = "none";
+      mapOverlayEl.classList.remove("landing-hero");
       syncMapStaticText();
     }
   }
 
-  btnMap?.addEventListener("click", () => setMapOpen(!isMapOpen()));
-  mapCloseBtn?.addEventListener("click", () => setMapOpen(false));
+  btnMap?.addEventListener("click", () => {
+    if (awaitingInitialLanding) return;
+    setMapOpen(!isMapOpen());
+  });
+  mapCloseBtn?.addEventListener("click", () => {
+    if (awaitingInitialLanding) return;
+    setMapOpen(false);
+  });
   mapOverlayEl?.addEventListener("click", (e) => {
+    if (awaitingInitialLanding) return;
     if (e.target === mapOverlayEl) setMapOpen(false);
   });
   mapModeBtn?.addEventListener("click", () => {
@@ -1646,9 +2651,28 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     syncMapStaticText();
     renderTacticalMap();
   });
+  const setMapScope = (nextScope) => {
+    if (!isDemoSphere) return;
+    mapScope = nextScope;
+    hoverTarget = null;
+    if (nextScope === "globe") {
+      globeCenterLon = playerGeo.lon;
+      globeCenterLat = Math.max(-85, Math.min(85, playerGeo.lat));
+    }
+    syncMapStaticText();
+    renderTacticalMap();
+  };
+  mapScopeGlobeBtn?.addEventListener("click", () => setMapScope("globe"));
+  mapScopeWorldBtn?.addEventListener("click", () => setMapScope("world"));
+  mapScopeLocalBtn?.addEventListener("click", () => setMapScope("local"));
   mapConfirmYesBtn?.addEventListener("click", () => {
     if (!pendingTeleport) return;
-    teleportToLocal(pendingTeleport.tx, pendingTeleport.tz, { keepYaw: true });
+    awaitingInitialLanding = false;
+    if (isDemoSphere) {
+      teleportToLonLat(pendingTeleport.lon, pendingTeleport.lat, { keepYaw: true });
+    } else {
+      teleportToLocal(pendingTeleport.tx, pendingTeleport.tz, { keepYaw: true });
+    }
     setMapOpen(false);
   });
   mapConfirmNoBtn?.addEventListener("click", () => {
@@ -1657,23 +2681,120 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     renderTacticalMap();
   });
 
+  const projectOrthoGlobe = (lonDeg, latDeg, cLonDeg, cLatDeg, cx, cy, rPx) => {
+    const d2r = Math.PI / 180;
+    const lam = lonDeg * d2r;
+    const phi = latDeg * d2r;
+    const lam0 = cLonDeg * d2r;
+    const phi0 = cLatDeg * d2r;
+    const sinP0 = Math.sin(phi0);
+    const cosP0 = Math.cos(phi0);
+    const sinP = Math.sin(phi);
+    const cosP = Math.cos(phi);
+    const dLam = lam - lam0;
+    const cosD = Math.cos(dLam);
+    const sinD = Math.sin(dLam);
+    const cosC = sinP0 * sinP + cosP0 * cosP * cosD;
+    const x = cx + rPx * cosP * sinD;
+    const y = cy - rPx * (cosP0 * sinP - sinP0 * cosP * cosD);
+    return { x, y, visible: cosC >= 0, cosC };
+  };
+
+  const unprojectOrthoGlobe = (px, py, cLonDeg, cLatDeg, cx, cy, rPx) => {
+    const nx = (px - cx) / rPx;
+    const ny = (cy - py) / rPx;
+    const rho2 = nx * nx + ny * ny;
+    if (rho2 > 1) return null;
+    const rho = Math.sqrt(rho2);
+    const d2r = Math.PI / 180;
+    const phi0 = cLatDeg * d2r;
+    const lam0 = cLonDeg * d2r;
+    if (rho < 1e-6) return { lonDeg: normalizeLonDeg(cLonDeg), latDeg: cLatDeg };
+    const c = Math.asin(Math.min(1, rho));
+    const sinC = Math.sin(c);
+    const cosC = Math.cos(c);
+    const sinP0 = Math.sin(phi0);
+    const cosP0 = Math.cos(phi0);
+    const phi = Math.asin(Math.max(-1, Math.min(1, cosC * sinP0 + (ny * sinC * cosP0) / rho)));
+    const lam = lam0 + Math.atan2(nx * sinC, rho * cosP0 * cosC - ny * sinP0 * sinC);
+    return { lonDeg: normalizeLonDeg(lam / d2r), latDeg: phi / d2r };
+  };
+
+  let mapDragState = null;
+  let suppressNextMapClick = false;
+
   if (mapCanvasEl) {
-    const pointerToLocal = (e) => {
+    const canvasCoords = (e) => {
       const rect = mapCanvasEl.getBoundingClientRect();
       const u = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
       const v = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
-      return { tx: (u - 0.5) * worldW, tz: (v - 0.5) * worldH };
+      return { u, v, cx: u * mapCanvasEl.width, cy: v * mapCanvasEl.height };
     };
+    const pointerToTarget = (e) => {
+      const { u, v, cx, cy } = canvasCoords(e);
+      if (isDemoSphere && mapScope === "globe") {
+        const W = mapCanvasEl.width;
+        const H = mapCanvasEl.height;
+        const rPx = Math.min(W, H) * 0.415;
+        const hit = unprojectOrthoGlobe(cx, cy, globeCenterLon, globeCenterLat, W * 0.5, H * 0.5, rPx);
+        return hit ? formatLonLatMetrics(hit.lonDeg, hit.latDeg) : null;
+      }
+      if (isDemoSphere && mapScope === "world") {
+        const lon = -180 + u * 360;
+        const lat = 90 - v * 180;
+        return formatLonLatMetrics(lon, lat);
+      }
+      return formatPointMetrics((u - 0.5) * worldW, (v - 0.5) * worldH);
+    };
+
+    mapCanvasEl.addEventListener("pointerdown", (e) => {
+      if (isDemoSphere && mapScope === "globe") {
+        mapDragState = {
+          x: e.clientX,
+          y: e.clientY,
+          moved: 0,
+          lon0: globeCenterLon,
+          lat0: globeCenterLat,
+        };
+      }
+    });
+    window.addEventListener("pointermove", (e) => {
+      if (!mapDragState) return;
+      const dx = e.clientX - mapDragState.x;
+      const dy = e.clientY - mapDragState.y;
+      mapDragState.moved = Math.max(mapDragState.moved, Math.hypot(dx, dy));
+      if (mapDragState.moved > 3) {
+        const cosLat = Math.max(0.35, Math.cos((mapDragState.lat0 * Math.PI) / 180));
+        globeCenterLon = normalizeLonDeg(mapDragState.lon0 - (dx * 0.35) / cosLat);
+        globeCenterLat = Math.max(-85, Math.min(85, mapDragState.lat0 + dy * 0.35));
+        renderTacticalMap();
+      }
+    });
+    window.addEventListener("pointerup", () => {
+      if (mapDragState) {
+        if (mapDragState.moved > 5) suppressNextMapClick = true;
+        mapDragState = null;
+      }
+    });
+
     mapCanvasEl.addEventListener("mousemove", (e) => {
-      const { tx, tz } = pointerToLocal(e);
-      hoverTarget = formatPointMetrics(tx, tz);
+      if (mapDragState && mapDragState.moved > 3) return;
+      hoverTarget = pointerToTarget(e);
       if (mapHoverEl) {
-        const tr = isTrLang();
-        const { lat, lon, elevMola, slopeDeg, distM } = hoverTarget;
-        mapHoverEl.textContent =
-          `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E · ` +
-          `${tr ? "YÜKSELTİ" : "3D ELEV"}: ${elevMola.toFixed(1)} m · ` +
-          `${tr ? "EĞİM" : "SLOPE"}: ${slopeDeg.toFixed(1)}° · ${distM.toFixed(0)} m`;
+        if (!hoverTarget) {
+          mapHoverEl.textContent = isTrLang()
+            ? "Sürükle: Mars küresini döndür · Yüzeye tıkla: ışınlan"
+            : "Drag: spin Mars globe · Click surface: teleport";
+        } else {
+          const tr = isTrLang();
+          const { lat, lon, elevMola, slopeDeg, distM, region } = hoverTarget;
+          const regPrefix = region ? `${region} · ` : "";
+          mapHoverEl.textContent =
+            regPrefix +
+            `${Math.abs(lat).toFixed(4)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(4)}°E · ` +
+            `${tr ? "YÜKSELTİ" : "3D ELEV"}: ${elevMola.toFixed(1)} m · ` +
+            `${tr ? "EĞİM" : "SLOPE"}: ${slopeDeg.toFixed(1)}° · ${formatDistanceText(distM)}`;
+        }
       }
       renderTacticalMap();
     });
@@ -1682,17 +2803,346 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       renderTacticalMap();
     });
     mapCanvasEl.addEventListener("click", (e) => {
-      const { tx, tz } = pointerToLocal(e);
-      pendingTeleport = formatPointMetrics(tx, tz);
+      if (suppressNextMapClick) {
+        suppressNextMapClick = false;
+        return;
+      }
+      const picked = pointerToTarget(e);
+      if (!picked) return;
+      pendingTeleport = picked;
       updatePendingConfirmCard();
       renderTacticalMap();
     });
+  }
+
+  function renderGlobe3D(W, H) {
+    if (!globalMarsBases || !globeScratch) return;
+    const tr = isTrLang();
+    mapCtx.fillStyle = "#06080d";
+    mapCtx.fillRect(0, 0, W, H);
+
+    // Subtle background starfield (deterministic)
+    mapCtx.fillStyle = "rgba(255,255,255,0.45)";
+    for (let i = 0; i < 42; i++) {
+      const sx = ((i * 197 + 31) % 997) / 997 * W;
+      const sy = ((i * 353 + 79) % 991) / 991 * H;
+      mapCtx.fillRect(sx, sy, i % 4 === 0 ? 1.6 : 1, i % 4 === 0 ? 1.6 : 1);
+    }
+
+    const cx = W * 0.5;
+    const cy = H * 0.5;
+    const rPx = Math.min(W, H) * 0.415;
+
+    // Martian dusty atmosphere limb glow
+    const halo = mapCtx.createRadialGradient(cx, cy, rPx * 0.94, cx, cy, rPx * 1.12);
+    halo.addColorStop(0, "rgba(232, 139, 92, 0.35)");
+    halo.addColorStop(0.55, "rgba(184, 96, 58, 0.14)");
+    halo.addColorStop(1, "rgba(6, 8, 13, 0)");
+    mapCtx.fillStyle = halo;
+    mapCtx.beginPath();
+    mapCtx.arc(cx, cy, rPx * 1.12, 0, Math.PI * 2);
+    mapCtx.fill();
+
+    // Render shaded orthographic sphere into scratch buffer
+    const S = globeScratch.size;
+    const imgData = globeScratch.img;
+    const pxOut = imgData.data;
+    const texData = mapLayerMode === "hazard" ? globalMarsBases.hData : globalMarsBases.eData;
+    const gw = globalMarsBases.width;
+    const gh = globalMarsBases.height;
+    const d2r = Math.PI / 180;
+    const phi0 = globeCenterLat * d2r;
+    const lam0 = globeCenterLon * d2r;
+    const sinP0 = Math.sin(phi0);
+    const cosP0 = Math.cos(phi0);
+    const halfS = S * 0.5;
+    const invHalf = 1 / halfS;
+    const lx = 0.46;
+    const ly = 0.38;
+    const lz = 0.80;
+
+    for (let py = 0; py < S; py++) {
+      const ny = (halfS - py - 0.5) * invHalf;
+      for (let px = 0; px < S; px++) {
+        const nx = (px + 0.5 - halfS) * invHalf;
+        const r2 = nx * nx + ny * ny;
+        const o = (py * S + px) * 4;
+        if (r2 > 1) {
+          pxOut[o + 3] = 0;
+          continue;
+        }
+        const nz = Math.sqrt(1 - r2);
+        const rho = Math.sqrt(r2);
+        let latDeg = globeCenterLat;
+        let lonDeg = globeCenterLon;
+        if (rho > 1e-6) {
+          const c = Math.asin(Math.min(1, rho));
+          const sinC = Math.sin(c);
+          const cosC = nz;
+          const phi = Math.asin(Math.max(-1, Math.min(1, cosC * sinP0 + (ny * sinC * cosP0) / rho)));
+          const lam = lam0 + Math.atan2(nx * sinC, rho * cosP0 * cosC - ny * sinP0 * sinC);
+          lonDeg = lam / d2r;
+          latDeg = phi / d2r;
+        }
+        let uIdx = Math.floor(((normalizeLonDeg(lonDeg) + 180) / 360) * gw);
+        uIdx = ((uIdx % gw) + gw) % gw;
+        const vIdx = Math.max(0, Math.min(gh - 1, Math.floor(((90 - latDeg) / 180) * gh)));
+        const ti = (vIdx * gw + uIdx) * 4;
+
+        const ndotl = Math.max(0, nx * lx + ny * ly + nz * lz);
+        const limbRim = Math.pow(1 - nz, 2.4);
+        const shade = 0.42 + 0.72 * ndotl;
+
+        pxOut[o] = Math.min(255, Math.round(texData[ti] * shade + 195 * limbRim * 0.25));
+        pxOut[o + 1] = Math.min(255, Math.round(texData[ti + 1] * shade + 115 * limbRim * 0.25));
+        pxOut[o + 2] = Math.min(255, Math.round(texData[ti + 2] * shade + 82 * limbRim * 0.25));
+        pxOut[o + 3] = 255;
+      }
+    }
+    globeScratch.ctx.putImageData(imgData, 0, 0);
+    mapCtx.save();
+    mapCtx.beginPath();
+    mapCtx.arc(cx, cy, rPx, 0, Math.PI * 2);
+    mapCtx.clip();
+    mapCtx.imageSmoothingEnabled = true;
+    mapCtx.drawImage(globeScratch.canvas, cx - rPx, cy - rPx, rPx * 2, rPx * 2);
+
+    // 30 deg graticule meridians and parallels on visible hemisphere
+    mapCtx.strokeStyle = "rgba(255, 224, 194, 0.16)";
+    mapCtx.lineWidth = 1;
+    for (let lon = -150; lon <= 180; lon += 30) {
+      mapCtx.beginPath();
+      let pen = false;
+      for (let lat = -85; lat <= 85; lat += 5) {
+        const pr = projectOrthoGlobe(lon, lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+        if (pr.visible) {
+          if (!pen) {
+            mapCtx.moveTo(pr.x, pr.y);
+            pen = true;
+          } else {
+            mapCtx.lineTo(pr.x, pr.y);
+          }
+        } else {
+          pen = false;
+        }
+      }
+      mapCtx.stroke();
+    }
+    for (let lat = -60; lat <= 60; lat += 30) {
+      mapCtx.beginPath();
+      let pen = false;
+      for (let lon = -180; lon <= 180; lon += 5) {
+        const pr = projectOrthoGlobe(lon, lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+        if (pr.visible) {
+          if (!pen) {
+            mapCtx.moveTo(pr.x, pr.y);
+            pen = true;
+          } else {
+            mapCtx.lineTo(pr.x, pr.y);
+          }
+        } else {
+          pen = false;
+        }
+      }
+      mapCtx.stroke();
+    }
+
+    // Major Mars landmarks
+    mapCtx.font = "600 10px monospace";
+    for (const lm of MARS_LANDMARKS) {
+      const pr = projectOrthoGlobe(lm.lon, lm.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      if (!pr.visible) continue;
+      const isGale = lm.id === "gale";
+      mapCtx.beginPath();
+      mapCtx.arc(pr.x, pr.y, isGale ? 5 : 3.5, 0, Math.PI * 2);
+      mapCtx.fillStyle = isGale ? "#4ade80" : "#fde68a";
+      mapCtx.fill();
+      mapCtx.strokeStyle = "#000000";
+      mapCtx.lineWidth = 1.2;
+      mapCtx.stroke();
+
+      const label = tr ? lm.nameTr : lm.nameEn;
+      const tw = mapCtx.measureText(label).width;
+      const lxTxt = Math.min(cx + rPx - tw - 6, pr.x + 7);
+      const lyTxt = Math.max(cy - rPx + 14, pr.y - 5);
+      mapCtx.fillStyle = "rgba(6, 8, 13, 0.72)";
+      mapCtx.fillRect(lxTxt - 3, lyTxt - 9, tw + 6, 13);
+      mapCtx.fillStyle = isGale ? "#bbf7d0" : "#fef3c7";
+      mapCtx.fillText(label, lxTxt, lyTxt + 1);
+    }
+
+    // Pending teleport crosshair / hover marker
+    if (pendingTeleport) {
+      const pr = projectOrthoGlobe(pendingTeleport.lon, pendingTeleport.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      if (pr.visible) {
+        mapCtx.strokeStyle = "#fbbf24";
+        mapCtx.lineWidth = 2;
+        mapCtx.beginPath();
+        mapCtx.arc(pr.x, pr.y, 9, 0, Math.PI * 2);
+        mapCtx.moveTo(pr.x - 14, pr.y);
+        mapCtx.lineTo(pr.x + 14, pr.y);
+        mapCtx.moveTo(pr.x, pr.y - 14);
+        mapCtx.lineTo(pr.x, pr.y + 14);
+        mapCtx.stroke();
+      }
+    } else if (hoverTarget) {
+      const pr = projectOrthoGlobe(hoverTarget.lon, hoverTarget.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      if (pr.visible) {
+        mapCtx.strokeStyle = "rgba(255,255,255,0.7)";
+        mapCtx.lineWidth = 1.2;
+        mapCtx.beginPath();
+        mapCtx.arc(pr.x, pr.y, 7, 0, Math.PI * 2);
+        mapCtx.stroke();
+      }
+    }
+
+    // Astronaut position + gaze direction on globe
+    const pPr = projectOrthoGlobe(playerGeo.lon, playerGeo.lat, globeCenterLon, globeCenterLat, cx, cy, rPx);
+    if (pPr.visible) {
+      const totalYaw = autoYaw + userYaw;
+      const ahead = stepOnMarsSphere(playerGeo.lon, playerGeo.lat, playerGeo.altM, -Math.sin(totalYaw) * 90000, -Math.cos(totalYaw) * 90000, totalYaw);
+      const aPr = projectOrthoGlobe(ahead.lonDeg, ahead.latDeg, globeCenterLon, globeCenterLat, cx, cy, rPx);
+      const ang = Math.atan2(aPr.y - pPr.y, aPr.x - pPr.x);
+      mapCtx.beginPath();
+      mapCtx.moveTo(pPr.x, pPr.y);
+      mapCtx.arc(pPr.x, pPr.y, 26, ang - 0.45, ang + 0.45);
+      mapCtx.closePath();
+      mapCtx.fillStyle = "rgba(56, 189, 248, 0.42)";
+      mapCtx.fill();
+
+      mapCtx.beginPath();
+      mapCtx.arc(pPr.x, pPr.y, 6, 0, Math.PI * 2);
+      mapCtx.fillStyle = "#38bdf8";
+      mapCtx.fill();
+      mapCtx.lineWidth = 2;
+      mapCtx.strokeStyle = "#ffffff";
+      mapCtx.stroke();
+    }
+    mapCtx.restore();
+
+    // Outer limb stroke & telemetry caption
+    mapCtx.strokeStyle = "rgba(251, 191, 142, 0.45)";
+    mapCtx.lineWidth = 1.5;
+    mapCtx.beginPath();
+    mapCtx.arc(cx, cy, rPx, 0, Math.PI * 2);
+    mapCtx.stroke();
+
+    mapCtx.fillStyle = "rgba(10, 6, 4, 0.78)";
+    mapCtx.fillRect(10, H - 30, 290, 20);
+    mapCtx.fillStyle = "#f7dec4";
+    mapCtx.font = "bold 10px monospace";
+    mapCtx.fillText(
+      tr ? "R = 3.389,5 km · ÇEVRE = 21.297 km" : "R = 3,389.5 km · CIRC = 21,297 km",
+      18,
+      H - 16
+    );
+    mapCtx.fillText("N ↑", W - 32, 20);
+  }
+
+  function renderGlobalMars2D(W, H) {
+    if (!globalMarsBases) return;
+    const tr = isTrLang();
+    const img = mapLayerMode === "hazard" ? globalMarsBases.hazCanvas : globalMarsBases.elevCanvas;
+    mapCtx.clearRect(0, 0, W, H);
+    mapCtx.imageSmoothingEnabled = true;
+    mapCtx.drawImage(img, 0, 0, W, H);
+
+    // 30° lat / 60° lon graticule
+    mapCtx.strokeStyle = "rgba(255, 224, 194, 0.16)";
+    mapCtx.lineWidth = 1;
+    for (let lon = -120; lon <= 120; lon += 60) {
+      const x = ((lon + 180) / 360) * W;
+      mapCtx.beginPath();
+      mapCtx.moveTo(x, 0);
+      mapCtx.lineTo(x, H);
+      mapCtx.stroke();
+    }
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const y = ((90 - lat) / 180) * H;
+      mapCtx.beginPath();
+      mapCtx.moveTo(0, y);
+      mapCtx.lineTo(W, y);
+      mapCtx.stroke();
+    }
+
+    const toXY = (lon, lat) => [
+      ((normalizeLonDeg(lon) + 180) / 360) * W,
+      ((90 - Math.max(-90, Math.min(90, lat))) / 180) * H,
+    ];
+
+    mapCtx.font = "600 10px monospace";
+    for (const lm of MARS_LANDMARKS) {
+      const [lx, ly] = toXY(lm.lon, lm.lat);
+      const isGale = lm.id === "gale";
+      mapCtx.beginPath();
+      mapCtx.arc(lx, ly, isGale ? 5 : 3.5, 0, Math.PI * 2);
+      mapCtx.fillStyle = isGale ? "#4ade80" : "#fde68a";
+      mapCtx.fill();
+      mapCtx.strokeStyle = "#000000";
+      mapCtx.lineWidth = 1.2;
+      mapCtx.stroke();
+
+      const label = tr ? lm.nameTr : lm.nameEn;
+      const tw = mapCtx.measureText(label).width;
+      const tx = Math.min(W - tw - 8, lx + 6);
+      const ty = Math.max(13, ly - 5);
+      mapCtx.fillStyle = "rgba(0,0,0,0.74)";
+      mapCtx.fillRect(tx - 3, ty - 9, tw + 6, 13);
+      mapCtx.fillStyle = isGale ? "#bbf7d0" : "#fef3c7";
+      mapCtx.fillText(label, tx, ty + 1);
+    }
+
+    if (pendingTeleport) {
+      const [px, py] = toXY(pendingTeleport.lon, pendingTeleport.lat);
+      mapCtx.strokeStyle = "#fbbf24";
+      mapCtx.lineWidth = 2;
+      mapCtx.beginPath();
+      mapCtx.arc(px, py, 9, 0, Math.PI * 2);
+      mapCtx.moveTo(px - 14, py);
+      mapCtx.lineTo(px + 14, py);
+      mapCtx.moveTo(px, py - 14);
+      mapCtx.lineTo(px, py + 14);
+      mapCtx.stroke();
+    }
+
+    const [ax, ay] = toXY(playerGeo.lon, playerGeo.lat);
+    const totalYaw = autoYaw + userYaw;
+    const coneAngle = Math.atan2(-Math.cos(totalYaw), -Math.sin(totalYaw));
+    mapCtx.beginPath();
+    mapCtx.moveTo(ax, ay);
+    mapCtx.arc(ax, ay, 24, coneAngle - 0.5, coneAngle + 0.5);
+    mapCtx.closePath();
+    mapCtx.fillStyle = "rgba(56, 189, 248, 0.44)";
+    mapCtx.fill();
+    mapCtx.beginPath();
+    mapCtx.arc(ax, ay, 5.5, 0, Math.PI * 2);
+    mapCtx.fillStyle = "#38bdf8";
+    mapCtx.fill();
+    mapCtx.lineWidth = 1.8;
+    mapCtx.strokeStyle = "#ffffff";
+    mapCtx.stroke();
+
+    mapCtx.fillStyle = "rgba(10, 6, 4, 0.78)";
+    mapCtx.fillRect(10, H - 30, 260, 20);
+    mapCtx.fillStyle = "#f7dec4";
+    mapCtx.font = "bold 10px monospace";
+    mapCtx.fillText("360° × 180° · C = 21,297 km", 18, H - 16);
+    mapCtx.fillText("N ↑", W - 32, 20);
   }
 
   function renderTacticalMap() {
     if (!mapCtx || !mapCanvasEl || !isMapOpen()) return;
     const W = mapCanvasEl.width;
     const H = mapCanvasEl.height;
+    if (isDemoSphere && mapScope === "globe") {
+      renderGlobe3D(W, H);
+      return;
+    }
+    if (isDemoSphere && mapScope === "world") {
+      renderGlobalMars2D(W, H);
+      return;
+    }
+
     const baseImg = mapLayerMode === "hazard" ? mapBases.hazCanvas : mapBases.elevCanvas;
 
     mapCtx.clearRect(0, 0, W, H);
@@ -1712,13 +3162,15 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       mapCtx.stroke();
     }
 
-    // Wrap-around border frame cue
-    mapCtx.save();
-    mapCtx.setLineDash([6, 5]);
-    mapCtx.strokeStyle = "rgba(245, 198, 146, 0.45)";
-    mapCtx.lineWidth = 2;
-    mapCtx.strokeRect(3, 3, W - 6, H - 6);
-    mapCtx.restore();
+    if (!isDemoSphere) {
+      // Wrap-around border frame cue (flat wrap mode only)
+      mapCtx.save();
+      mapCtx.setLineDash([6, 5]);
+      mapCtx.strokeStyle = "rgba(245, 198, 146, 0.45)";
+      mapCtx.lineWidth = 2;
+      mapCtx.strokeRect(3, 3, W - 6, H - 6);
+      mapCtx.restore();
+    }
 
     const toCanvasXY = (x, z) => [
       Math.max(0, Math.min(W, (x / worldW + 0.5) * W)),
@@ -1777,7 +3229,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
 
     // Astronaut live position + gaze cone (yaw=0 -> North -Z -> canvas UP)
-    const [ax, ay] = toCanvasXY(player.x, player.z);
+    const astroX = isDemoSphere ? lonToX(playerGeo.lon) : player.x;
+    const astroZ = isDemoSphere ? latToZ(playerGeo.lat) : player.z;
+    const [ax, ay] = toCanvasXY(astroX, astroZ);
     const totalYaw = autoYaw + userYaw;
     const dirX = -Math.sin(totalYaw);
     const dirY = -Math.cos(totalYaw);
@@ -1830,12 +3284,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const k = e.key.toLowerCase();
     if (k === "m" && !e.repeat) {
       e.preventDefault();
-      setMapOpen(!isMapOpen());
+      if (!awaitingInitialLanding) setMapOpen(!isMapOpen());
       return;
     }
     if (e.key === "Escape" && isMapOpen()) {
       e.preventDefault();
-      setMapOpen(false);
+      if (!awaitingInitialLanding) setMapOpen(false);
       return;
     }
     if (isMapOpen()) return;
@@ -1880,7 +3334,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const slopeClass = classifySlope(slopeDeg, 20);
     if (viewLabelEl && Number.isFinite(lat) && Number.isFinite(lon)) {
       const latHem = lat < 0 ? "S" : "N";
-      viewLabelEl.textContent = `GALE CRATER · MOUNT SHARP · ${Math.abs(lat).toFixed(4)}°${latHem} ${lon.toFixed(4)}°E`;
+      if (isDemoSphere && marsGlobal) {
+        const regName = marsGlobal.sampleRegionLabel(lon, lat, isTrLang());
+        const altM = marsGlobal.sampleElevM(lon, lat);
+        viewLabelEl.textContent = `${regName} · ${altM.toFixed(0)}m · ${Math.abs(lat).toFixed(4)}°${latHem} ${lon.toFixed(4)}°E`;
+      } else {
+        viewLabelEl.textContent = `GALE CRATER · MOUNT SHARP · ${Math.abs(lat).toFixed(4)}°${latHem} ${lon.toFixed(4)}°E`;
+      }
     }
 
     const { stop: nextStop, distanceM: nextStopDist, mode: nextMode } = resolveNextStopAlongRoute(
@@ -1984,6 +3444,15 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
   };
 
+  const _sNorm = new THREE.Vector3(0, 1, 0);
+  const _qSphereTilt = new THREE.Quaternion();
+  const _qLocalYaw = new THREE.Quaternion();
+  const _qCamHead = new THREE.Quaternion();
+  const _eulerCam = new THREE.Euler(0, 0, 0, "YXZ");
+  const _rNorm = new THREE.Vector3(0, 1, 0);
+  const _qRemoteTilt = new THREE.Quaternion();
+  const _qRemoteYaw = new THREE.Quaternion();
+
   function animate(now) {
     requestAnimationFrame(animate);
     const dt = Math.min(0.1, (now - prevT) / 1000);
@@ -1992,141 +3461,323 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
     // progress along the route = the route point nearest to you (for the HUD only)
-    alongM = nearestAlongRoute(freePos.x, freePos.z, alongM);
+    if (isDemoSphere) {
+      const distFromRouteM =
+        routeCoords.length > 0 ? marsDistanceM([routeCoords[0][0], routeCoords[0][1]], [playerGeo.lon, playerGeo.lat]) : Infinity;
+      if (routeCoords.length > 1 && distFromRouteM < 15000) {
+        const nearestGeomS = closestAlongM(routeCoords, cumDist, playerGeo.lon, playerGeo.lat);
+        alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+      } else {
+        alongM = 0;
+      }
+    } else {
+      alongM = nearestAlongRoute(freePos.x, freePos.z, alongM);
+    }
     const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
     let px;
+    let py;
     let pz;
-    if (freeRoam) {
+    let ground;
+    let sphereStepM = 0;
+    let sphereGaitDir = null;
+
+    if (isDemoSphere && marsGlobal) {
+      let moveE = 0;
+      let moveN = 0;
       if (!isMapOpen()) {
         const run = keys.has("shift");
-        fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
-        right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
-        moveDir.set(0, 0, 0);
-        if (keys.has("w") || keys.has("arrowup")) moveDir.add(fwd);
-        if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
-        if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
-        if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
-        if (moveDir.lengthSq() > 0) {
-          moveDir.normalize();
-          // slow down on steep ground (uphill or downhill), like a suited walker would
-          const here = sampleElevSceneY(freePos.x, freePos.z);
-          const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
-          const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
+        const sinY = Math.sin(userYaw);
+        const cosY = Math.cos(userYaw);
+        const fE = -sinY;
+        const fN = cosY;
+        const rE = cosY;
+        const rN = sinY;
+        if (keys.has("w") || keys.has("arrowup")) {
+          moveE += fE;
+          moveN += fN;
+        }
+        if (keys.has("s") || keys.has("arrowdown")) {
+          moveE -= fE;
+          moveN -= fN;
+        }
+        if (keys.has("d") || keys.has("arrowright")) {
+          moveE += rE;
+          moveN += rN;
+        }
+        if (keys.has("a") || keys.has("arrowleft")) {
+          moveE -= rE;
+          moveN -= rN;
+        }
+        const mLen = Math.hypot(moveE, moveN);
+        if (mLen > 0) {
+          moveE /= mLen;
+          moveN /= mLen;
+          const hereAlt = marsGlobal.sampleElevM(playerGeo.lon, playerGeo.lat);
+          const aheadGeo = stepOnMarsSphere(playerGeo.lon, playerGeo.lat, hereAlt, moveE * 1.5, moveN * 1.5, userYaw);
+          const aheadAlt = marsGlobal.sampleElevM(aheadGeo.lonDeg, aheadGeo.latDeg);
+          const slopeDeg = Math.abs(Math.atan2(aheadAlt - hereAlt, 1.5)) * (180 / Math.PI);
           const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
           const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
-          freePos.addScaledVector(moveDir, v * dt);
+          const distStep = v * dt;
+          if (distStep > 0) {
+            const nextGeo = stepOnMarsSphere(
+              playerGeo.lon,
+              playerGeo.lat,
+              playerGeo.altM,
+              moveE * distStep,
+              moveN * distStep,
+              userYaw
+            );
+            playerGeo.lon = nextGeo.lonDeg;
+            playerGeo.lat = nextGeo.latDeg;
+            userYaw += nextGeo.deltaYawRad;
+            sphereStepM = distStep;
+            const bSin = Math.sin(userYaw);
+            const bCos = Math.cos(userYaw);
+            sphereGaitDir = {
+              f: moveE * -bSin + moveN * bCos,
+              s: moveE * bCos + moveN * bSin,
+            };
+          }
         }
       }
-      // Wrap around to the opposite edge when crossing the 3D map boundary (Mars globe-style loop)
-      const wx = wrapSceneCoord(freePos.x, worldW);
-      const wz = wrapSceneCoord(freePos.z, worldH);
-      if (wx.wrapped || wz.wrapped) {
-        freePos.x = wx.val;
-        freePos.z = wz.val;
-        justTeleportedOrWrapped = true;
-        const wLon = xToLon(freePos.x);
-        const wLat = zToLat(freePos.z);
-        const nearestGeomS = closestAlongM(routeCoords, cumDist, wLon, wLat);
-        alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
-        const dirs = [];
-        if (wx.crossedPosToNeg) dirs.push(isTrLang() ? "DOĞU → BATI" : "EAST → WEST");
-        else if (wx.crossedNegToPos) dirs.push(isTrLang() ? "BATI → DOĞU" : "WEST → EAST");
-        if (wz.crossedPosToNeg) dirs.push(isTrLang() ? "GÜNEY → KUZEY" : "SOUTH → NORTH");
-        else if (wz.crossedNegToPos) dirs.push(isTrLang() ? "KUZEY → GÜNEY" : "NORTH → SOUTH");
-        showWrapNotice(
-          (isTrLang() ? "HARİTA SINIRI GEÇİLDİ · KARŞI KENAR: " : "MAP BOUNDARY WRAPPED: ") +
-            dirs.join(" · ")
+
+      // Radial Mars gravity along sphere altitude `playerGeo.altM` (invariant under origin rebase)
+      const groundAltM = marsGlobal.sampleElevM(playerGeo.lon, playerGeo.lat);
+      if (!player.init || justTeleportedOrWrapped) {
+        playerGeo.altM = groundAltM;
+        player.vy = 0;
+        player.grounded = true;
+        player.init = true;
+      }
+      if (player.grounded && playerGeo.altM - groundAltM > 0.25) {
+        player.grounded = false;
+      }
+      if (!player.grounded) {
+        player.vy -= MARS_G * dt;
+        playerGeo.altM += player.vy * dt;
+        if (playerGeo.altM <= groundAltM) {
+          playerGeo.altM = groundAltM;
+          player.vy = 0;
+          player.grounded = true;
+        }
+      } else {
+        playerGeo.altM = groundAltM;
+      }
+
+      // Project to local WebGL tangent frame & silently rebase before Float32 drift (>140 m)
+      let proj = marsLonLatAltToLocalScene(
+        playerGeo.lon,
+        playerGeo.lat,
+        playerGeo.altM,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      );
+      if (Math.hypot(proj.x, proj.z) > 140) {
+        rebaseSphereOrigin(playerGeo.lon, playerGeo.lat);
+        proj = marsLonLatAltToLocalScene(
+          playerGeo.lon,
+          playerGeo.lat,
+          playerGeo.altM,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
         );
       }
 
-      // Solid collision against visible NPC partner or live crewmates so free-roam cannot clip through them
-      if (partner && partner.group.visible) {
-        pushApart(partner.group.position);
-      }
+      // Solid collision against remote crewmates in tangent space
+      freePos.set(proj.x, 0, proj.z);
       for (const remote of remoteAvatars.values()) {
         pushApart(remote.group.position);
       }
-      px = freePos.x;
-      pz = freePos.z;
-    } else {
-      px = lonToX(sample.lon);
-      pz = latToZ(sample.lat);
-      // follow the path heading smoothly (no snapping on turns)
-      const target = routeHeading(alongM);
-      let diff = target - autoYaw;
-      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      autoYaw += diff * Math.min(1, dt * 1.6);
-    }
+      if (Math.hypot(freePos.x - proj.x, freePos.z - proj.z) > 1e-4) {
+        const pushedGeo = localSceneXZToLonLat(freePos.x, freePos.z, sphereOrigin.lonDeg, sphereOrigin.latDeg);
+        playerGeo.lon = pushedGeo.lonDeg;
+        playerGeo.lat = pushedGeo.latDeg;
+        proj = marsLonLatAltToLocalScene(
+          playerGeo.lon,
+          playerGeo.lat,
+          playerGeo.altM,
+          sphereOrigin.lonDeg,
+          sphereOrigin.latDeg,
+          sphereOrigin.elevM
+        );
+      }
 
-    // Mars gravity: feet follow the ground uphill, but the body falls (3.71 m/s^2) off drops.
-    const ground = sampleElevSceneY(px, pz);
-    if (!player.init) {
+      px = proj.x;
+      py = proj.y;
+      pz = proj.z;
+      player.x = px;
+      player.y = py;
+      player.z = pz;
+      ground = marsLonLatAltToLocalScene(
+        playerGeo.lon,
+        playerGeo.lat,
+        groundAltM,
+        sphereOrigin.lonDeg,
+        sphereOrigin.latDeg,
+        sphereOrigin.elevM
+      ).y;
+    } else {
+      if (freeRoam) {
+        if (!isMapOpen()) {
+          const run = keys.has("shift");
+          fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
+          right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
+          moveDir.set(0, 0, 0);
+          if (keys.has("w") || keys.has("arrowup")) moveDir.add(fwd);
+          if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
+          if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
+          if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
+          if (moveDir.lengthSq() > 0) {
+            moveDir.normalize();
+            // slow down on steep ground (uphill or downhill), like a suited walker would
+            const here = sampleElevSceneY(freePos.x, freePos.z);
+            const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
+            const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
+            const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
+            const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
+            freePos.addScaledVector(moveDir, v * dt);
+          }
+        }
+        // Wrap around to the opposite edge when crossing the 3D map boundary (Mars globe-style loop)
+        const wx = wrapSceneCoord(freePos.x, worldW);
+        const wz = wrapSceneCoord(freePos.z, worldH);
+        if (wx.wrapped || wz.wrapped) {
+          freePos.x = wx.val;
+          freePos.z = wz.val;
+          justTeleportedOrWrapped = true;
+          const wLon = xToLon(freePos.x);
+          const wLat = zToLat(freePos.z);
+          const nearestGeomS = closestAlongM(routeCoords, cumDist, wLon, wLat);
+          alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+          const dirs = [];
+          if (wx.crossedPosToNeg) dirs.push(isTrLang() ? "DOĞU → BATI" : "EAST → WEST");
+          else if (wx.crossedNegToPos) dirs.push(isTrLang() ? "BATI → DOĞU" : "WEST → EAST");
+          if (wz.crossedPosToNeg) dirs.push(isTrLang() ? "GÜNEY → KUZEY" : "SOUTH → NORTH");
+          else if (wz.crossedNegToPos) dirs.push(isTrLang() ? "KUZEY → GÜNEY" : "NORTH → SOUTH");
+          showWrapNotice(
+            (isTrLang() ? "HARİTA SINIRI GEÇİLDİ · KARŞI KENAR: " : "MAP BOUNDARY WRAPPED: ") +
+              dirs.join(" · ")
+          );
+        }
+
+        // Solid collision against live crewmates so free-roam cannot clip through them
+        for (const remote of remoteAvatars.values()) {
+          pushApart(remote.group.position);
+        }
+        px = freePos.x;
+        pz = freePos.z;
+      } else {
+        px = lonToX(sample.lon);
+        pz = latToZ(sample.lat);
+        // follow the path heading smoothly (no snapping on turns)
+        const target = routeHeading(alongM);
+        let diff = target - autoYaw;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        autoYaw += diff * Math.min(1, dt * 1.6);
+      }
+
+      // Mars gravity: feet follow the ground uphill, but the body falls (3.71 m/s^2) off drops.
+      ground = sampleElevSceneY(px, pz);
+      if (!player.init) {
+        player.x = px;
+        player.z = pz;
+        player.y = ground;
+        player.init = true;
+      }
+      const movedXZ = Math.hypot(px - player.x, pz - player.z);
+      const mvx = px - player.x;
+      const mvz = pz - player.z;
       player.x = px;
       player.z = pz;
-      player.y = ground;
-      player.init = true;
-    }
-    const movedXZ = Math.hypot(px - player.x, pz - player.z);
-    const mvx = px - player.x;
-    const mvz = pz - player.z;
-    player.x = px;
-    player.z = pz;
-    if (justTeleportedOrWrapped || movedXZ > 20) {
-      // Teleport, wrap-around, or route reset moved us to a new terrain height: land cleanly on ground
-      player.y = ground;
-      player.vy = 0;
-      player.grounded = true;
-    }
-    if (player.grounded && player.y - ground > 0.25) player.grounded = false; // stepped off a drop
-    if (!player.grounded) {
-      player.vy -= MARS_G * dt;
-      player.y += player.vy * dt;
-      if (player.y <= ground) {
+      if (justTeleportedOrWrapped || movedXZ > 20) {
+        // Teleport, wrap-around, or route reset moved us to a new terrain height: land cleanly on ground
         player.y = ground;
         player.vy = 0;
         player.grounded = true;
       }
-    } else {
-      player.y = ground;
+      if (player.grounded && player.y - ground > 0.25) player.grounded = false; // stepped off a drop
+      if (!player.grounded) {
+        player.vy -= MARS_G * dt;
+        player.y += player.vy * dt;
+        if (player.y <= ground) {
+          player.y = ground;
+          player.vy = 0;
+          player.grounded = true;
+        }
+      } else {
+        player.y = ground;
+      }
+      py = player.y;
+      sphereStepM = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0; // ignore teleport/wrap jumps
+      if (sphereStepM > 1e-5) {
+        const yw = autoYaw + userYaw;
+        const fx = -Math.sin(yw);
+        const fz = -Math.cos(yw);
+        sphereGaitDir = { f: (mvx * fx + mvz * fz) / movedXZ, s: (mvx * -fz + mvz * fx) / movedXZ };
+      }
     }
+
     const yaw = autoYaw + userYaw;
-    const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0; // ignore teleport/wrap jumps
+    const step = justTeleportedOrWrapped ? 0 : sphereStepM;
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
 
     // own body: rigged walk driven by distance actually covered
-    self.group.position.set(px, player.y, pz);
-    self.group.rotation.y = yaw;
-    // walking direction in the body frame, so strafing side-steps and S walks backwards
-    let gaitDir = null;
-    if (step > 1e-5) {
-      const fx = -Math.sin(yaw);
-      const fz = -Math.cos(yaw);
-      gaitDir = { f: (mvx * fx + mvz * fz) / movedXZ, s: (mvx * -fz + mvz * fx) / movedXZ };
+    self.group.position.set(px, py, pz);
+    if (isDemoSphere) {
+      const [snx, sny, snz] = sphereNormalAtLocal(px, py, pz);
+      _sNorm.set(snx, sny, snz);
+      _qSphereTilt.setFromUnitVectors(UP, _sNorm);
+      _qLocalYaw.setFromAxisAngle(UP, yaw);
+      self.group.quaternion.copy(_qSphereTilt).multiply(_qLocalYaw);
+    } else {
+      self.group.rotation.set(0, yaw, 0);
     }
-    self.update(dt, step, groundSpeed, !player.grounded, gaitDir);
+    self.update(dt, step, groundSpeed, !player.grounded, sphereGaitDir);
     self.group.updateMatrixWorld(true);
 
     // helmet camera at the visor, with only a few millimetres of walking sway
     const ph = self.phase ?? 0;
     const amt = Math.min(1, self.amount ?? 0);
-    fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
-    right.set(1, 0, 0).applyAxisAngle(UP, yaw);
     const swayY = Math.sin(ph * 2) * 0.004 * amt;
     const swayX = Math.sin(ph) * 0.003 * amt;
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
     // looking down tips the head forward a little, like a real neck
     const tip = Math.max(0, -pitch);
     const eyeFwd = EYE_FORWARD_M + tip * 0.1;
-    camera.position.set(
-      px + fwd.x * eyeFwd + right.x * swayX,
-      player.y + EYE_HEIGHT_M - tip * 0.07 + swayY,
-      pz + fwd.z * eyeFwd + right.z * swayX
-    );
-    camera.rotation.order = "YXZ";
-    camera.rotation.y = yaw + micro(0.6, 0.0007);
-    camera.rotation.x = pitch + micro(0.9, 0.0006);
-    camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
+
+    if (isDemoSphere) {
+      fwd.set(0, 0, -1).applyQuaternion(self.group.quaternion);
+      right.set(1, 0, 0).applyQuaternion(self.group.quaternion);
+      camera.position
+        .set(px, py, pz)
+        .addScaledVector(_sNorm, EYE_HEIGHT_M - tip * 0.07 + swayY)
+        .addScaledVector(fwd, eyeFwd)
+        .addScaledVector(right, swayX);
+      _eulerCam.set(
+        pitch + micro(0.9, 0.0006),
+        yaw + micro(0.6, 0.0007),
+        Math.sin(ph) * 0.0025 * amt,
+        "YXZ"
+      );
+      _qCamHead.setFromEuler(_eulerCam);
+      camera.quaternion.copy(_qSphereTilt).multiply(_qCamHead);
+    } else {
+      fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
+      right.set(1, 0, 0).applyAxisAngle(UP, yaw);
+      camera.position.set(
+        px + fwd.x * eyeFwd + right.x * swayX,
+        py + EYE_HEIGHT_M - tip * 0.07 + swayY,
+        pz + fwd.z * eyeFwd + right.z * swayX
+      );
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = yaw + micro(0.6, 0.0007);
+      camera.rotation.x = pitch + micro(0.9, 0.0006);
+      camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
+    }
 
     // Smoothly animate live multiplayer crewmates
     const lerpAlpha = Math.min(1, dt * 12);
@@ -2137,31 +3788,45 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       remote.cur.y += (remote.target.y - remote.cur.y) * lerpAlpha;
       remote.cur.z += (remote.target.z - remote.cur.z) * lerpAlpha;
       remote.cur.yaw = lerpAngleRad(remote.cur.yaw, remote.target.yaw, lerpAlpha);
+      if (Number.isFinite(remote.target.lon) && Number.isFinite(remote.target.lat)) {
+        remote.cur.lon = remote.target.lon;
+        remote.cur.lat = remote.target.lat;
+        remote.cur.altM = remote.target.altM;
+      }
       const rStep = Math.hypot(remote.cur.x - prevRx, remote.cur.z - prevRz);
       const rSpeed = dt > 0 ? Math.max(rStep / dt, remote.target.speed * 0.5) : 0;
       remote.group.position.set(remote.cur.x, remote.cur.y, remote.cur.z);
-      remote.group.rotation.y = remote.cur.yaw;
+      if (isDemoSphere) {
+        const [rnx, rny, rnz] = sphereNormalAtLocal(remote.cur.x, remote.cur.y, remote.cur.z);
+        _rNorm.set(rnx, rny, rnz);
+        _qRemoteTilt.setFromUnitVectors(UP, _rNorm);
+        _qRemoteYaw.setFromAxisAngle(UP, remote.cur.yaw);
+        remote.group.quaternion.copy(_qRemoteTilt).multiply(_qRemoteYaw);
+      } else {
+        remote.group.rotation.y = remote.cur.yaw;
+      }
       remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne);
     }
 
     // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
-    const curLon = xToLon(px);
-    const curLat = zToLat(pz);
+    const curLon = isDemoSphere ? playerGeo.lon : xToLon(px);
+    const curLat = isDemoSphere ? playerGeo.lat : zToLat(pz);
     const movedOrTurned =
       !lastSentPose ||
       Math.hypot(px - lastSentPose.x, pz - lastSentPose.z) > 0.04 ||
-      Math.abs(player.y - lastSentPose.y) > 0.04 ||
+      Math.abs(py - lastSentPose.y) > 0.04 ||
       Math.abs(yaw - lastSentPose.yaw) > 0.03 ||
       !player.grounded !== lastSentPose.airborne;
     if (now - lastMpSendMs > 1200 || (movedOrTurned && now - lastMpSendMs > 65)) {
       lastMpSendMs = now;
-      lastSentPose = { x: px, y: player.y, z: pz, yaw, airborne: !player.grounded };
+      lastSentPose = { x: px, y: py, z: pz, yaw, airborne: !player.grounded };
       const posePayload = {
         x: Number(px.toFixed(3)),
-        y: Number(player.y.toFixed(3)),
+        y: Number(py.toFixed(3)),
         z: Number(pz.toFixed(3)),
         lon: Number(curLon.toFixed(6)),
         lat: Number(curLat.toFixed(6)),
+        altM: isDemoSphere ? Number(playerGeo.altM.toFixed(2)) : undefined,
         yaw: Number(yaw.toFixed(4)),
         speed: Number(groundSpeed.toFixed(2)),
         airborne: !player.grounded,
@@ -2185,7 +3850,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     hudTimer += dt;
     if (hudTimer > 0.1) {
       hudTimer = 0;
-      if (freeRoam) {
+      if (isDemoSphere) {
+        updateHudReadouts(alongM, playerGeo.lon, playerGeo.lat, computeLocalSlopeDeg(px, pz, playerGeo.lon, playerGeo.lat));
+      } else if (freeRoam) {
         updateHudReadouts(alongM, xToLon(px), zToLat(pz), computeLocalSlopeDeg(px, pz));
       } else {
         updateHudReadouts(alongM, sample.lon, sample.lat);
@@ -2209,6 +3876,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     onResize: () => {
       onResize();
     },
+    setMapOpen,
+    isAwaitingInitialLanding: () => awaitingInitialLanding,
     dropLocalPing,
     syncAlongM: (s) => {
       alongM = Math.max(0, Math.min(totalDist, Number(s) || 0));
@@ -2217,15 +3886,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     },
     teleportTo: (lon, lat) => {
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-      const tx = lonToX(lon);
-      const tz = latToZ(lat);
       if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
-      freePos.set(tx, 0, tz);
-      player.x = tx;
-      player.z = tz;
-      player.y = sampleElevSceneY(tx, tz);
-      player.vy = 0;
-      player.grounded = true;
+      teleportToLonLat(lon, lat, { keepYaw: true });
     },
   };
 }
