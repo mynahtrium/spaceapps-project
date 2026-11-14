@@ -23,7 +23,6 @@
     <nav id="start-menu" class="start-menu" aria-label="Main menu">
       <button class="menu-item" data-action="eva" data-i18n="menu_eva">BEGIN EVA</button>
       <button class="menu-item" data-action="orbit" data-i18n="menu_orbit">ORBIT VIEW</button>
-      <button class="menu-item" data-action="planner" data-i18n="menu_planner">ROUTE PLANNER</button>
       <button class="menu-item" data-action="credits" data-i18n="menu_credits">SOURCES &amp; HONESTY</button>
     </nav>
     <div class="start-foot">
@@ -47,111 +46,15 @@
       <span id="badge-example" class="pill example" style="display:none;">EXAMPLE ROUTE · PRE-07 OPEN</span>
     </div>
     <div class="topbar-actions">
-      <button id="btn-tab-planner" class="btn active">Planner</button>
+      <button id="btn-tab-hud" class="btn active">EVA HUD</button>
       <button id="btn-tab-orbit" class="btn">Orbit</button>
-      <button id="btn-tab-hud" class="btn">EVA HUD</button>
       <button id="btn-crew" class="btn">Crew (1)</button>
       <button id="btn-credits" class="btn">Sources</button>
-      <button id="btn-menu" class="btn">Menu</button>
+      <button id="btn-menu" class="btn">Menu (ESC)</button>
     </div>
   </header>
 
   <main class="app-shell">
-    <!-- 2D MapLibre Planner -->
-    <section id="planner-view" class="view active">
-      <div id="map-container">
-        <div id="map"></div>
-        <div id="map-probe-readout" class="map-probe">
-          <span id="map-probe-text">CLICK TO INSPECT · DOUBLE-CLICK MAP TO TELEPORT</span>
-          <button id="map-fit-btn" class="txt-btn map-fit-btn" type="button">FIT EVA</button>
-          <button id="map-teleport-btn" class="txt-btn map-teleport-btn" type="button" style="display:none;">TELEPORT HERE</button>
-        </div>
-        <div class="map-legend">
-          <div style="color:#fff;letter-spacing:0.2em;font-size:9.5px;margin-bottom:6px;">SLOPE / HAZARD — LUNAR STAND-IN</div>
-          <div class="legend-row"><span class="swatch" style="background:#22c55e;"></span> ≤ 10° preferred</div>
-          <div class="legend-row"><span class="swatch" style="background:#f59e0b;"></span> 10–15° caution</div>
-          <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span> 15–20° steep</div>
-          <div class="legend-row"><span class="swatch" style="background:#a855f7;"></span> &gt; <span id="legend-limit">20</span>° blocked / no-data</div>
-          <div class="honesty-note" style="margin-top:8px;">
-            DTM slope matches Curiosity tilt only weakly (5 m medians 9.0° vs 8.6°); keep a safety margin.
-          </div>
-        </div>
-      </div>
-
-      <aside class="planner-sidebar">
-        <div class="card">
-          <h3 class="card-title">
-            <span>EVA route</span>
-            <label style="font-size:10px;text-transform:none;cursor:pointer;display:flex;gap:6px;align-items:center;">
-              <input type="checkbox" id="toggle-strict-15" /> strict 15°
-            </label>
-          </h3>
-          <div class="stat-grid">
-            <div class="stat-box">
-              <div class="stat-label">Distance (Mars R)</div>
-              <div class="stat-val" id="sum-distance">—</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">Climb / descent</div>
-              <div class="stat-val" id="sum-climb">—</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">Walk time (placeholder)</div>
-              <div class="stat-val" id="sum-duration">—</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">Dose (RAD × time)</div>
-              <div class="stat-val" id="sum-dose">—</div>
-            </div>
-          </div>
-          <div class="honesty-note" id="sum-honesty">
-            Frame: "if a crew visited where Curiosity studied Mount Sharp."
-          </div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">
-            <span>Elevation &amp; slope</span>
-            <span style="font-size:9px;color:var(--faint);letter-spacing:0.12em;">click to jump</span>
-          </h3>
-          <svg id="profile-svg" class="profile-svg" viewBox="0 0 320 110"></svg>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title"><span>Layers</span></h3>
-          <div class="toggle-grid">
-            <label class="toggle-item"><input type="checkbox" id="layer-ortho" checked /> HiRISE ortho</label>
-            <label class="toggle-item"><input type="checkbox" id="layer-slope" checked /> Slope hazard</label>
-            <label class="toggle-item"><input type="checkbox" id="layer-themis-day" /> THEMIS day IR</label>
-            <label class="toggle-item"><input type="checkbox" id="layer-themis-night" /> THEMIS night IR</label>
-            <label class="toggle-item"><input type="checkbox" id="layer-crism" checked /> CRISM footprints</label>
-            <label class="toggle-item"><input type="checkbox" id="layer-ctx" checked /> Mars Trek CTX</label>
-            <label class="toggle-item"><input type="checkbox" id="layer-mola" /> MOLA colour</label>
-            <label class="toggle-item"><input type="checkbox" id="toggle-3d-map" checked /> 3D terrain (DEM)</label>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">
-            <span>NASA Mars rovers (5)</span>
-            <span style="font-size:9px;color:var(--faint);letter-spacing:0.12em;">real Mars coords</span>
-          </h3>
-          <div id="fleet-list"></div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title"><span>Science stops &amp; rover POV</span></h3>
-          <div id="stops-list"></div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title"><span>Space weather &amp; REMS</span></h3>
-          <div id="donki-banner" class="banner-warn">Loading space weather…</div>
-          <div id="weather-box" class="honesty-note"></div>
-          <div id="dose-box" class="honesty-note"></div>
-        </div>
-      </aside>
-    </section>
 
     <!-- Orbit view: Mars globe, real day/night, Phobos & Deimos, click to land -->
     <section id="orbit-view" class="view">
@@ -200,7 +103,7 @@
     </section>
 
     <!-- 3D bodycam view -->
-    <section id="hud-view" class="view">
+    <section id="hud-view" class="view active">
       <div id="hud-canvas-wrap"></div>
       <div class="hud-reticle"></div>
       <div id="hud-rover-target" class="hud-rover-target" aria-live="polite"></div>
@@ -332,7 +235,7 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:4px;">
-              WASD MOVE · SHIFT BOOST · SPACE JUMP · F ROVER · G GOLD VISOR · L LAMP · Z ZOOM · M MAP · O ORBIT · ESC PLANNER
+              WASD MOVE · SHIFT BOOST · SPACE JUMP · F ROVER · G GOLD VISOR · L LAMP · Z ZOOM · M MAP · O ORBIT · ESC MENU
             </div>
           </div>
 
@@ -352,6 +255,59 @@
       </div>
     </section>
   </main>
+
+  <!-- ESC Command / Pause Menu -->
+  <div id="esc-menu" class="esc-menu" role="dialog" aria-modal="true" aria-label="Command Menu">
+    <div class="esc-card">
+      <div class="esc-head">
+        <div>
+          <div class="esc-title" id="esc-title">EVA COMMAND MENU</div>
+          <div class="esc-sub" id="esc-sub">GALE CRATER · MOUNT SHARP</div>
+        </div>
+        <button id="esc-resume" class="btn primary" type="button">Resume (ESC)</button>
+      </div>
+
+      <div class="esc-section">
+        <div class="esc-label" id="esc-lbl-views">VIEWS &amp; NAVIGATION</div>
+        <div class="esc-grid">
+          <button id="esc-go-hud" class="btn esc-btn" type="button">EVA Bodycam</button>
+          <button id="esc-go-orbit" class="btn esc-btn" type="button">Orbit View (O)</button>
+          <button id="esc-open-map" class="btn esc-btn" type="button">Elevation Map (M)</button>
+          <button id="esc-open-rovers" class="btn esc-btn" type="button">Rovers (5)</button>
+        </div>
+      </div>
+
+      <div class="esc-section">
+        <div class="esc-label" id="esc-lbl-eva">EVA &amp; OPTICS CONTROLS</div>
+        <div class="esc-grid">
+          <button id="esc-sun" class="btn esc-btn" type="button">Sun: day</button>
+          <button id="esc-gold" class="btn esc-btn" type="button">Gold Visor (G)</button>
+          <button id="esc-lamp" class="btn esc-btn" type="button">Lamp (L)</button>
+          <button id="esc-tex" class="btn esc-btn" type="button">Tex: relief</button>
+          <button id="esc-pin" class="btn esc-btn" type="button">Drop Pin (P)</button>
+          <button id="esc-pov" class="btn esc-btn" type="button">Rover POV</button>
+        </div>
+      </div>
+
+      <div class="esc-section">
+        <div class="esc-label" id="esc-lbl-system">MISSION &amp; SETTINGS</div>
+        <div class="esc-grid">
+          <button id="esc-crew" class="btn esc-btn" type="button">Crew (1)</button>
+          <button id="esc-dev" class="btn esc-btn" type="button">Developer Settings</button>
+          <button id="esc-sources" class="btn esc-btn" type="button">Sources &amp; Honesty</button>
+          <button id="esc-title-btn" class="btn esc-btn" type="button">Title Screen</button>
+        </div>
+      </div>
+
+      <div class="esc-foot">
+        <div class="esc-lang">
+          <button id="esc-lang-en" class="txt-btn" type="button">EN</button>
+          <button id="esc-lang-tr" class="txt-btn" type="button">TR</button>
+        </div>
+        <span class="esc-hint" id="esc-hint">PRESS ESC TO RESUME</span>
+      </div>
+    </div>
+  </div>
 
   <!-- Multiplayer Crew & Comms Drawer -->
   <aside id="crew-drawer" class="crew-drawer" aria-label="Crew multiplayer &amp; radio">

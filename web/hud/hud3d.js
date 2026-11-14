@@ -346,8 +346,9 @@ const LENS_FRAG = /* glsl */ `
 
 export async function initHud3D(
   data,
-  { onBackToPlanner, onOpenPov, onOpenRoverInfo = null, mp = null, onLocalPose = null, onOpenOrbit = null }
+  { onOpenMenu = null, onBackToPlanner, onOpenPov, onOpenRoverInfo = null, mp = null, onLocalPose = null, onOpenOrbit = null }
 ) {
+  const openPauseMenu = onOpenMenu || onBackToPlanner;
   const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
   let surfaceG = 3.717;
   const wrap = document.getElementById("hud-canvas-wrap");
@@ -1835,7 +1836,8 @@ export async function initHud3D(
   const isMapOpen = () => Boolean(mapOverlayEl?.classList.contains("open"));
   const isHudActive = () => Boolean(hudView?.classList.contains("active"));
   const isPointerLocked = () => document.pointerLockElement === renderer.domElement;
-  const hasOpenModalOverlay = () => Boolean(document.querySelector(".modal-backdrop.open, #crew-drawer.open"));
+  const hasOpenModalOverlay = () =>
+    Boolean(document.querySelector(".modal-backdrop.open, #crew-drawer.open, #esc-menu.open"));
 
   const raycaster = new THREE.Raycaster();
   const rayNdc = new THREE.Vector2();
@@ -1922,7 +1924,7 @@ export async function initHud3D(
       releasePointerLock();
       return;
     }
-    // Pressing ESC while pointer-locked releases lock; directly return to Planner when HUD was active.
+    // Pressing ESC while pointer-locked releases lock; open the ESC menu when HUD was active.
     if (!locked && !manualUnlockPending && isHudActive() && !isMapOpen() && !hasOpenModalOverlay()) {
       setTimeout(() => {
         if (
@@ -1934,7 +1936,8 @@ export async function initHud3D(
           document.hasFocus() &&
           !document.hidden
         ) {
-          onBackToPlanner?.();
+          keys.clear();
+          openPauseMenu?.();
         }
       }, 25);
     }
@@ -3039,8 +3042,9 @@ export async function initHud3D(
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
     const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
     const crewOpen = document.getElementById("crew-drawer")?.classList.contains("open");
+    const escMenuOpen = document.getElementById("esc-menu")?.classList.contains("open");
     const menuOpen = !document.getElementById("start-screen")?.classList.contains("hidden");
-    if (modalOpen || crewOpen || menuOpen) return;
+    if (modalOpen || crewOpen || escMenuOpen || menuOpen) return;
 
     const k = e.key.toLowerCase();
     if (k === "m" && !e.repeat) {
@@ -3057,9 +3061,17 @@ export async function initHud3D(
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopImmediatePropagation?.();
-      if (isMapOpen()) setMapOpen(false);
+      keys.clear();
+      if (isMapOpen()) {
+        setMapOpen(false);
+        return;
+      }
+      if (fleetPanelEl?.classList.contains("open")) {
+        fleetPanelEl.classList.remove("open");
+        return;
+      }
       releasePointerLock();
-      onBackToPlanner?.();
+      openPauseMenu?.();
       return;
     }
     if (isMapOpen()) return;

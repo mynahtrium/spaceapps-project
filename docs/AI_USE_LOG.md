@@ -1005,3 +1005,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Replaced the browser right-click menu with a mission-styled one that changes with the view. Planner map: coordinates, elevation and slope heading, teleport here, drop crew pin, copy coordinates, fit EVA. Bodycam: pin, map, orbit, sun, texture, rovers, POV, copy my coordinates. Orbit: find me, layer, live time. Every view also has view switching, crew, sources, dev settings and main menu. Text fields, selected text and Shift + right-click keep the native menu. A right-drag (map rotate) does not open it, and it stays closed while the mouse is locked. Keyboard: arrows, Enter, Esc. Planner exposes `lonLatAt`, `teleportTo`, `fitEva`. Verified `node --check` and `node --test web/tests/*.test.mjs` (46/46 pass). Not tested in a browser (Doruk asked to skip).
 - Commit: this commit
 - Next step: Eymen checks it in the browser (Linux and Windows right-click timing differ).
+
+### 2026-11-15 00:48 Europe/Istanbul — Remove Planner UI, add translucent ESC command menu
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: frontend-1 (requested UI/menu restructure)
+- Task id: n/a
+- Files changed: `web/index.html`, `web/app.js`, `web/hud/hud3d.js`, `web/styles.css`, `docs/coordination/AGENT_LOG.md`
+- Why: Removed the 2D Planner view/tab/start-menu item and replaced `Escape` back-to-planner with a translucent `#esc-menu` command menu accessible via `ESC` (both Bodycam pointer-lock/unlocked and Orbit View) and `Menu (ESC)` button, exposing all existing controls (`Resume`, `EVA Bodycam`, `Orbit View`, `Elevation Map`, `Rovers (5)`, `Sun`, `Gold Visor`, `Lamp`, `Tex`, `Drop Pin`, `Rover POV`, `Crew`, `Developer Settings`, `Sources & Honesty`, `Title Screen`, and `EN/TR` switcher). Made `#start-screen`, `#esc-menu`, `.modal-backdrop`, `.modal-card`, `.topbar`, and `.crew-drawer` backgrounds semi-transparent with blur so Mars shows through. Verified `node --check` on `app.js`/`hud3d.js` and `node --test web/tests/*.mjs` (`46/46` pass).
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` and test `ESC` menu flow in EVA Bodycam and Orbit View.
