@@ -913,3 +913,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Added all 5 NASA Mars historic rovers (`Curiosity`, `Perseverance` GLB, `Sojourner`, `Spirit`, `Opportunity`) scattered across slope-safe walkable coordinates in 3D and plotted on the 2D Planner & `M` Tactical Map with mission info click modals and `Rovers (5)` fleet quick-teleport; added `roverSpeedMultiplier` (`0.3×–4×`) in Developer Settings; upgraded NASA MMSEV physics (`stepAdvancedRoverPhysics` 2D tire slip + 4-speed gearbox + RPM telemetry HUD + `Space` handbrake drift + mid-air attitude trim) while keeping only NASA MMSEV per user request (removed temporary Scout Buggy / Heavy Hauler options); fixed initialization order (`isTrLang` / `devCfg`) and `handbrake` ReferenceErrors; upgraded edge wrapping (`2 * worldW`, `2 * worldH`) with particle & rover relative translation (`mars-fx.js` `shiftParticles`) for seamless map transitions. Verified `node --check` (0 syntax errors) and `node --test web/tests/*.mjs` (`32/32` passing) after final code edits; pushed directly to `developermenu` per user instruction (`direkt yükle`).
 - Commit: this commit
 - Next step: Quick live smoke test of `developermenu` and review PR into `main`.
+
+### 2026-11-14 22:50 Europe/Istanbul � walker jitter, MMSEV rover physics (developermenu)
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Claude Sonnet 5.5)
+- Role: frontend visor (edits in web/ at the user's request, branch developermenu)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, web/hud/experimental-rover.js, docs/coordination/AGENT_LOG.md
+- Why: The helmet camera shook while walking: eye height followed the raw terrain sample every frame and the gait speed was a per-frame distance/dt value. Eye height is now low-passed (snaps on teleport or wrap) and gait speed is smoothed; walker stop is snappier and cuts residual creep. The MMSEV rover floated off small crests: launch now needs about 14.5 m/s, a clear 0.14 m rise and is capped at 2.4 m/s vertical; bump launches need a larger impulse; idle rolling resistance is higher and creep below 0.18 m/s is zeroed. The existing 6-wheel rig (articulated pods, suspension, pitch/roll) was kept.
+- Commit: this commit
+- Next step: Drive the rover on ?demo=1 and tune the launch thresholds in stepRoverBallisticPhysics if it feels too planted.

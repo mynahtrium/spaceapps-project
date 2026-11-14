@@ -2788,6 +2788,9 @@ export async function initHud3D(
   let lastMpSendMs = 0;
   let lastSentPose = null;
   let hudTimer = 1;
+  // anti-jitter: low-passed eye height and walking speed (raw terrain samples and per-frame dt are noisy)
+  let eyeBaseY = null;
+  let groundSpeedSm = 0;
 
   const pushApart = (targetPos, minRadius = PARTNER_COLLISION_R) => {
     if (!targetPos) return;
@@ -3100,10 +3103,14 @@ export async function initHud3D(
 
         if (devCfg.realisticPhysics) {
           // Physical regolith momentum + inertia, and loose scree slide down slopes > 22 deg
-          const accelK = moveDir.lengthSq() > 0 ? (player.grounded ? 11.5 : 2.2) : player.grounded ? 9.5 : 0.6;
+          const accelK = moveDir.lengthSq() > 0 ? (player.grounded ? 14 : 2.2) : player.grounded ? 18 : 0.6;
           const alpha = Math.min(1, dt * accelK);
           walkVelX += (desiredVx - walkVelX) * alpha;
           walkVelZ += (desiredVz - walkVelZ) * alpha;
+          if (moveDir.lengthSq() === 0 && player.grounded && Math.hypot(walkVelX, walkVelZ) < 0.08) {
+            walkVelX = 0;
+            walkVelZ = 0;
+          }
 
           if (player.grounded) {
             const e = 0.8;
@@ -3269,7 +3276,9 @@ export async function initHud3D(
       const fz = -Math.cos(yaw);
       gaitDir = { f: (mvx * fx + mvz * fz) / movedXZ, s: (mvx * -fz + mvz * fx) / movedXZ };
     }
-    self.update(dt, step, groundSpeed, !player.grounded, gaitDir);
+    groundSpeedSm += (groundSpeed - groundSpeedSm) * Math.min(1, dt * 9);
+    if (groundSpeedSm < 0.03 && step === 0) groundSpeedSm = 0;
+    self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir);
     self.group.updateMatrixWorld(true);
 
     // Bootstep Martian regolith kickup puffs on foot plant while walking/running
@@ -3337,10 +3346,12 @@ export async function initHud3D(
     } else {
       // looking down tips the head forward a little, like a real neck
       const tip = Math.max(0, -pitch);
+      if (eyeBaseY == null || snappedThisFrame || Math.abs(player.y - eyeBaseY) > 0.8) eyeBaseY = player.y;
+      else eyeBaseY += (player.y - eyeBaseY) * Math.min(1, dt * 14);
       const eyeFwd = EYE_FORWARD_M + tip * 0.1;
       camera.position.set(
         px + fwd.x * eyeFwd + right.x * swayX,
-        player.y + EYE_HEIGHT_M - tip * 0.07 + swayY,
+        eyeBaseY + EYE_HEIGHT_M - tip * 0.07 + swayY,
         pz + fwd.z * eyeFwd + right.z * swayX
       );
       camera.rotation.order = "YXZ";

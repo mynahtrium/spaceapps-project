@@ -147,9 +147,10 @@ export function stepAdvancedRoverPhysics(
         ? spec.brakeGain
         : throttle !== 0
           ? spec.accelGain * (boost ? 1.32 : 1.0) * lowEndBoost
-          : 2.6;
+          : 4.2;
 
     let nextVFwd = vFwd + (targetVel - vFwd) * Math.min(1, safeDt * rate);
+    if (throttle === 0 && !handbrake && Math.abs(nextVFwd) < 0.18) nextVFwd = 0; // no endless creep
 
     if (realisticPhysics) {
       // Slope longitudinal gravity load + lateral side-camber slide
@@ -272,19 +273,19 @@ export function stepRoverBallisticPhysics(
       return { launched: false, landed: false, impactSpeed: 0 };
     }
     const rawClimb = Math.max(groundRiseRate * 0.48 + slopeClimbVy * 0.45, slopeClimbVy * 0.78) + bumpImpulseVy;
-    const maxLaunchVy = 3.8 * Math.min(1.12, Math.max(0.75, jumpBias));
+    const maxLaunchVy = 2.4 * Math.min(1.1, Math.max(0.75, jumpBias));
     const effectiveClimb = Math.max(-4, Math.min(maxLaunchVy, (rawClimb - 0.55) * jumpBias));
     s.peakLaunchVy = Math.max((s.peakLaunchVy || 0) * Math.exp(-safeDt * 8.5), effectiveClimb);
 
     const ballisticY = s.posY + s.peakLaunchVy * safeDt - 0.5 * marsG * safeDt * safeDt;
     const clearance = ballisticY - groundY;
-    const launchSpeedThresh = 8.4 / Math.max(0.75, jumpBias);
+    const launchSpeedThresh = 14.5 / Math.max(0.75, jumpBias);
     const shouldLaunch =
-      (clearance > 0.065 && s.peakLaunchVy > 1.85 && horizSpeed > launchSpeedThresh) || bumpImpulseVy > 2.1;
+      (clearance > 0.14 && s.peakLaunchVy > 2.2 && horizSpeed > launchSpeedThresh) || bumpImpulseVy > 3.4;
 
     if (shouldLaunch) {
       s.airborne = true;
-      s.velY = Math.min(maxLaunchVy, Math.max(s.peakLaunchVy, bumpImpulseVy > 2.1 ? bumpImpulseVy * jumpBias : 1.9));
+      s.velY = Math.min(maxLaunchVy, Math.max(s.peakLaunchVy, bumpImpulseVy > 3.4 ? bumpImpulseVy * jumpBias : 1.9));
       s.posY = Math.max(s.posY, groundY) + s.velY * safeDt;
       s.airTime = 0;
       s.peakLaunchVy = 0;
