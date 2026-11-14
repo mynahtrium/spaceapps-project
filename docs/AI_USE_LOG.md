@@ -1,3 +1,5 @@
+> **Historical record.** This was the append-only agent log (formerly `docs/coordination/AGENT_LOG.md`) until 15 November 2026, when the team dropped agent orchestration. It is kept as source material for the AI-use description in [AI_USE.md](./AI_USE.md). It is no longer appended on every commit.
+
 # Agent log
 
 Append-only record of **every change**. One entry per change (one PR, or one commit if you are landing a single docs fix). Newest entry at the **bottom**.

@@ -1,8 +1,10 @@
 # ROADMAP — Martian Mappers, 48-hour build
 
+> **Historical plan.** The role assignments and coordination steps below are no longer used (15 November 2026): team members now coordinate by hand. The interface contracts (§3) and the honesty rules still apply.
+
 Team **Martian Mappers**, NASA Space Apps 2026 (14–15 November). This is the hour-by-hour plan for six people. **No application code and no project data pipeline before 14 November 2026.** Until then, only accounts, installs, reading, route locking on paper / HiView, a practice pull request, and these docs.
 
-Companion docs: [AGENTS.md](./AGENTS.md) (design and data sources), [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md) (how to use Git), [docs/roles/](./docs/roles/) (one sheet per person), [docs/contracts/](./docs/contracts/) (example JSON). A 13 November 2026 re-check could not read the official [Resources tab](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/), the challenge Details tab, or the 2026 judging guide (certificate error / HTTP 500). Those items, the "do not build early" rule, the official SI-tools / AI-use form, and any official video length remain **UNVERIFIED**. Confirmed submission and registration rules are in §1 below.
+Companion docs: [AGENTS.md](./AGENTS.md) (design and data sources), [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md) (how to use Git), [docs/contracts/](./docs/contracts/) (example JSON). A 13 November 2026 re-check could not read the official [Resources tab](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/), the challenge Details tab, or the 2026 judging guide (certificate error / HTTP 500). Those items, the "do not build early" rule, the official SI-tools / AI-use form, and any official video length remain **UNVERIFIED**. Confirmed submission and registration rules are in §1 below.
 
 ## 1. Locked decisions (12 November 2026)
 
@@ -108,7 +110,7 @@ No project code, no `package.json` install in this repo, no notebooks, no pipeli
 
 | Who | Tasks |
 |---|---|
-| All | Create a GitHub account; get added to this private repo; install Git, Python 3, and a code editor; read [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md); complete **one practice PR** (add your GitHub username to [docs/team/ROSTER.md](./docs/team/ROSTER.md)); first agent session: onboarding interview into [docs/team/profiles/](./docs/team/profiles/); read AGENTS.md, this roadmap, and your role sheet; log work in [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md). |
+| All | Create a GitHub account; get added to this private repo; install Git, Python 3, and a code editor; read [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md); complete **one practice PR** (add your GitHub username to `docs/team/ROSTER.md` (removed 15 Nov)); first agent session: onboarding interview into `docs/team/profiles/` (removed 15 Nov); read AGENTS.md, this roadmap, and your role sheet; log work in [AI_USE_LOG.md](./docs/AI_USE_LOG.md). |
 | All, on 13 Nov | Read the official Resources tab, Project Submission Guide, and judging guide. A 13 November check could not load those pages (certificate error / HTTP 500); they stay **UNVERIFIED**. Testers recorded a partial PRE-05 / PRE-06 pass in [docs/JUDGING_CHECKLIST.md](./docs/JUDGING_CHECKLIST.md) (status still `todo`). Adjust this plan if a later reading of the guide requires it; do not start coding. |
 | B1 | Install GDAL with OpenJPEG; run `gdalinfo --formats` on your machine (not on project data); skim [gdaldem](https://gdal.org/en/stable/programs/gdaldem.html) and the PDS driver notes in AGENTS.md. |
 | B2 | Understand A\* / Dijkstra at a high level; read the route contract; sit with the team to **lock stop candidates** on HiView / official maps (write ids and reasons in a notes issue or on paper — not application code). |
@@ -219,9 +221,7 @@ No new stretch after hour 40. If MUST or SHOULD is still shaky, **do not start s
 
 ## 9. How to start reading
 
-1. Your [role sheet](./docs/roles/).
-2. This file, §2–§7.
-3. [docs/contracts/README.md](./docs/contracts/README.md) and the JSON for your outputs.
-4. [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md).
-5. [AGENTS.md](./AGENTS.md) for data links, slope and radiation rules, sources, and the session / log rules.
-6. [docs/coordination/BOARD.md](./docs/coordination/BOARD.md) and the latest [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md) entries.
+1. This file, §2–§7.
+2. [docs/contracts/README.md](./docs/contracts/README.md) and the JSON for your outputs.
+3. [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md).
+4. [AGENTS.md](./AGENTS.md) for data links, slope and radiation rules, and sources.

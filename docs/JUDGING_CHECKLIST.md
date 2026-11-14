@@ -2,7 +2,7 @@
 
 **UNVERIFIED.** The official NASA Space Apps 2026 judging guide is expected on **13 November 2026**. Until testers complete board task **PRE-06**, treat the categories below as **past-year** headings from the 11 November planning note (impact, creativity, validity, relevance, presentation). Do not claim they are this year's criteria.
 
-After the guide appears, update this table (add, rename, or drop rows) and keep the feature / demo-moment / owner mapping. Related: [ROADMAP.md](../ROADMAP.md), [docs/coordination/BOARD.md](./coordination/BOARD.md) (PRE-06, SUB-01).
+After the guide appears, update this table (add, rename, or drop rows) and keep the feature / demo-moment / owner mapping. Related: [ROADMAP.md](../ROADMAP.md).
 
 | Criterion (past-year, UNVERIFIED) | Feature we can point to | Demo moment (about 2–3 min live / 30 s video) | Owner |
 |---|---|---|---|

@@ -2,7 +2,7 @@
 
 Short record of locked product and process choices. Add a row when the team (or Doruk) makes a new one. Do not invent names; use **Doruk / team** or **Doruk via planning** as in the seed rows. First names or nicknames only if a profile already exists.
 
-Related: [ROADMAP.md](../ROADMAP.md), [AGENTS.md](../AGENTS.md), [docs/coordination/BOARD.md](./coordination/BOARD.md).
+Related: [ROADMAP.md](../ROADMAP.md), [AGENTS.md](../AGENTS.md).
 
 | Date | Decision | Options considered | Why | Who |
 |---|---|---|---|---|
@@ -13,3 +13,4 @@ Related: [ROADMAP.md](../ROADMAP.md), [AGENTS.md](../AGENTS.md), [docs/coordinat
 | 2026-11-12 | Interface: static JSON contracts, with an optional live API that must fall back to those files | Live API only; static files only; static files plus optional API | Offline / demo reliability; a process crash mid-stage must not blank the HUD | Doruk via planning |
 | 2026-11-12 | Multi-agent coordination (Claude, Gemini, Grok, DeepSeek): shared AGENTS.md, board, handoffs, onboarding interviews, and an append-only agent log | Ad hoc chat only; one shared tool only | Six people and four AI tools; Doruk asked that agents first learn who their human is, and that every change is logged | Doruk / team |
 | 2026-11-13 | Demo video has English subtitles, is 30 s or less, and is shared as a public no-login link (or a 7-slide presentation instead); AI/SI tools must be disclosed and must never be used to come up with the challenge idea | Video without subtitles or with a private/login link; 7-slide alternative only; undisclosed SI use, or SI used to invent the challenge idea | Provisionally official (official pages read 13 Nov with an unverified certificate via curl -k; confirm with a cert-valid fetch on 14 Nov 08:00), from the [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/). Locked by Doruk (relayed via Lumi/Ari, 13 Nov 17:46 Europe/Istanbul). | Doruk (relayed via Lumi/Ari, 13 Nov 17:46 Europe/Istanbul) — locked |
+| 2026-11-15 | Drop multi-agent orchestration: no board, handoffs, role sheets, onboarding interviews, standups, or per-commit agent log | Keep the coordination process | Team members coordinate by hand now; the process slowed work. The old agent log is kept as `docs/AI_USE_LOG.md` for the AI-use description | Doruk |

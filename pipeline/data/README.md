@@ -1,6 +1,6 @@
 # pipeline/data/
 
-Owned by **Backend 3** (long-lived branch `backend/science`). These scripts cache REMS, RAD, DONKI, Curiosity POV stills, weather, and THEMIS / CRISM layer metadata. See [docs/roles/backend-3-data.md](../../docs/roles/backend-3-data.md).
+These scripts cache REMS, RAD, DONKI, Curiosity POV stills, weather, and THEMIS / CRISM layer metadata. See [AGENTS.md](../../AGENTS.md) for the data sources.
 
 ## Offline (no NASA_API_KEY)
 

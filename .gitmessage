@@ -1,10 +1,9 @@
 # Short sentence of what this change does (the first line becomes the subject).
 #
 # Before you commit:
-# 1. Append an entry to docs/coordination/AGENT_LOG.md
-#    (Commit field: this commit). Use scripts/log-entry.sh if you want a stamped blank.
-# 2. Stay in your owned folders. Update BOARD.md / HANDOFFS.md if needed.
-# 3. Do not commit .env, API keys, data/raw/, or personal data.
+# - Do not commit .env, API keys, data/raw/, or personal data.
+# - If you changed docs/contracts/, add a row to docs/contracts/CHANGES.md.
+# - If an AI tool did substantive work, add a row to docs/AI_USE.md.
 #
 # Enable this template once per clone:
 #   git config commit.template .gitmessage

@@ -7,7 +7,7 @@ description: Build the first-person Mount Sharp terrain view and helmet HUD (thr
 
 Do **not** write application code in `web/` before 14 November 2026. This skill is instructions only.
 
-The 12 November 2026 team decision: the main experience is a **3D first-person terrain view** with a **helmet HUD**, fed by the 2D MapLibre planner (`skills/map-ui`). VR / **WebXR is stretch only** (hours 32–40) and must not break the default web view. Details and timing: [ROADMAP.md](../../ROADMAP.md). Role sheet: [docs/roles/frontend-1-hud.md](../../docs/roles/frontend-1-hud.md).
+The 12 November 2026 team decision: the main experience is a **3D first-person terrain view** with a **helmet HUD**, fed by the 2D MapLibre planner (`skills/map-ui`). VR / **WebXR is stretch only** (hours 32–40) and must not break the default web view. Details and timing: [ROADMAP.md](../../ROADMAP.md).
 
 ## Engine
 

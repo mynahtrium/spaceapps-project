@@ -23,7 +23,7 @@
 ## 2. Under-18 & Privacy Compliance Check (Mandatory)
 
 - [ ] **No minor likenesses:** Video, screenshots, slides, and repo contain **zero** photos, webcam clips, voices, or likenesses of under-18 team members.
-- [ ] **No personal data:** Profiles (`docs/team/profiles/`), slides, video credits, and commit messages use **first names or nicknames only** (no surnames, phone numbers, emails, home addresses, school names, or ages).
+- [ ] **No personal data:** Slides, video credits, and commit messages use **first names or nicknames only** (no surnames, phone numbers, emails, home addresses, school names, or ages).
 - [ ] **Guardian & registration rule:** All team members registered online before the event start and accompanied by a parent/legal guardian per the [official terms](https://www.spaceappschallenge.org/legal/).
 
 ---
@@ -55,7 +55,6 @@
 
 ## 5. AI / SI-Tools Disclosure Check
 
-- [ ] `docs/coordination/AGENT_LOG.md` is up to date for every commit.
 - [ ] Tester 1 and authors have rolled all tools and uses into [docs/AI_USE.md](../AI_USE.md).
 - [ ] Submission form SI-tools blurb prepared from `docs/AI_USE.md`:
   - States clearly which AI/SI tools were used (Grok Bot, Gemini / Antigravity, Claude, Copilot) and for what (documentation, pipeline scripts, UI code, testing/demo checklists).
@@ -67,5 +66,5 @@
 
 - [ ] All submission text on the Space Apps Project tab is written in **English**.
 - [ ] Project description, challenge name (*Interplanetary Survival Guide: Martian Map*), NASA data links, repo reference, and public demo link pasted into the **Team page → Project tab** and **saved/submitted before Hour 44**.
-- [ ] Create or note the submission commit on `main` (e.g., `git tag demo-submit` or record the exact commit SHA in `BOARD.md` and `AGENT_LOG.md`).
+- [ ] Create or note the submission commit on `main` (e.g., `git tag demo-submit` or note the exact commit SHA).
 - [ ] Do not push risky changes after submission; keep the team on standby until 23:59 Sunday 15 November.

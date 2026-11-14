@@ -2,7 +2,7 @@
 
 This team is new to GitHub. Follow this page exactly during the 48 hours. The repo is **private**: [mynahtrium/nasathingamajig](https://github.com/mynahtrium/nasathingamajig). Do not make it public and do not connect Vercel or other hosting.
 
-If you have never used Git, pair with a tester for the first clone and the practice pull request (before 14 November). **Do not write application code before 14 November 2026.** The practice PR is docs only.
+If you have never used Git, pair with a teammate for the first clone.
 
 ## 1. Get an account and access
 
@@ -28,32 +28,21 @@ git status
 
 You should be on `main`. Do not invent a second copy of the project on your Desktop and type over it; always work inside this clone.
 
-## 3. Never code on `main`
+## 3. Branches
 
-`main` is the shared, working demo. You only update it through **reviewed pull requests** (or an admin hotfix that still goes through a PR if at all possible).
+Use a short branch for each piece of work and merge it into `main` when it works. Name it however the team agrees (for example `frontend/context-menu`, `fix/hud-slope`). Small direct commits to `main` are fine when the team agrees.
 
 ```bash
 git checkout main
 git pull
-git checkout -b ROLE/short-topic
+git checkout -b topic/short-name
 ```
 
-### Branch names
+`short-name` is a few words, no spaces. One topic per branch.
 
-| Role | Prefix | Example |
-|---|---|---|
-| Backend 1 | `backend-1/` | `backend-1/slope-preview` |
-| Backend 2 | `backend-2/` | `backend-2/first-route` |
-| Backend 3 | `backend-3/` | `backend-3/donki-cache` |
-| Frontend 1 | `frontend-1/` | `frontend-1/hud-o2` |
-| Tester 1 | `tester-1/` | `tester-1/must-checklist` |
-| Tester 2 | `tester-2/` | `tester-2/video-beats` |
+## 4. Talk before editing the same file
 
-`short-topic` is a few words, no spaces. One topic per branch. Prefer many small PRs over one giant PR.
-
-## 4. Stay in your folders
-
-Folder ownership is in [ROADMAP.md](../ROADMAP.md) §2 and in your [role sheet](./roles/). If you need a change in someone else's file, open a GitHub issue or ask them to make a PR. Testers review; they do not quietly rewrite `web/` or `pipeline/`.
+Agree with teammates who is changing which file. Conflicts happen when two people change the same lines.
 
 ## 5. Pull `main` often (before you start work, and before you open a PR)
 
@@ -62,7 +51,7 @@ Beginners should **merge** `main` into the branch (not rebase), so history stays
 ```bash
 git checkout main
 git pull
-git checkout ROLE/short-topic
+git checkout topic/short-name
 git merge main
 ```
 
@@ -74,51 +63,31 @@ If Git reports conflicts, see §8. Do not keep a branch alive for 12 hours witho
 git status
 git add path/to/your/file
 git commit -m "A short sentence of what this change does"
-git push -u origin ROLE/short-topic
+git push -u origin topic/short-name
 ```
 
-Then open a pull request on GitHub: from your branch into `main`. In the PR text include:
+Then merge into `main` yourself, or open a pull request if you want someone to look first. A good PR text says what changed, how to check it, whether any **contract** field changed, and "I did not commit `.env` or `data/raw/`".
 
-- What you changed, and which folder
-- How a tester can check it (commands or clicks)
-- Whether any **contract** field changed (say so clearly)
-- Screenshots for UI work
-- "I did not commit `.env` or `data/raw/`"
+## 7. When you are stuck, or Git looks scary
 
-Ask **Tester 1** (backends / docs / AI log) or **Tester 2** (frontend / demo) for review. Either tester may review if the other is busy. **Do not merge your own PR.** Wait for one tester approval.
-
-Keep PRs small enough to review in 10 minutes. If a reviewer asks for changes, push more commits to the **same branch**; the PR updates itself.
-
-## 7. Practice PR (before 14 November)
-
-1. Create a branch `ROLE/practice-roster`.
-2. Add your GitHub username next to your role in [docs/team/ROSTER.md](./team/ROSTER.md).
-3. Open a PR. A tester approves and someone with access merges it.
-4. After it is merged: `git checkout main && git pull`.
-
-That is the whole loop you will use during the hackathon.
-
-## 8. When you are stuck, or Git looks scary
-
-- Read the error slowly. Copy it into a message to a tester **without** pasting secrets.
+- Read the error slowly. Copy it into a message to a teammate **without** pasting secrets.
 - `git status` and `git log --oneline -5` are safe and useful.
 - Do not run `git push --force` on `main`. Do not run `git checkout --` on files you still need unless you intend to throw away work.
-- If you edited the wrong folder, do not "just finish it." Stop and tell the owner.
 
 ### Merge conflicts (step by step)
 
-A conflict means you and `main` both changed the same lines. Because of folder ownership this should be rare.
+A conflict means you and `main` both changed the same lines.
 
 1. After `git merge main`, Git lists unmerged files.
 2. Open each file. Look for `<<<<<<<`, `=======`, `>>>>>>>`. Keep the correct final text (often *both* changes, combined). Delete the marker lines.
 3. `git add` those files, then `git commit` (Git may already offer a merge message).
-4. If you feel lost, stop. Zip nothing; call a tester. Do not delete the `.git` folder.
+4. If you feel lost, stop. Zip nothing; call a teammate. Do not delete the `.git` folder.
 
-## 9. Emergency rollback (revert, never force-push `main`)
+## 8. Emergency rollback (revert, never force-push `main`)
 
 If a bad commit is already on `main`:
 
-1. Tell the testers. Stop merging other PRs for a few minutes.
+1. Tell the team. Stop merging other PRs for a few minutes.
 2. Someone with access creates a revert:
 
 ```bash
@@ -137,38 +106,21 @@ git push
 
 If the bad change is only on your branch and was never merged, you may abandon the branch and start a new one from `main`.
 
-## 10. Secrets and bulky files
+## 9. Secrets and bulky files
 
-Never commit `.env`, API keys, `data/raw/`, or large `.tif` / `.IMG` / JP2 files. The NASA key is only `NASA_API_KEY` in a local `.env`. If a key might have been pushed, tell a tester immediately, assume it is leaked, and request a new key. Testers will reject PRs that contain secrets.
+Never commit `.env`, API keys, `data/raw/`, or large `.tif` / `.IMG` / JP2 files. The NASA key is only `NASA_API_KEY` in a local `.env`. If a key might have been pushed, tell the team immediately, assume it is leaked, and request a new key.
 
-## 11. Session start and end (short version)
-
-The full checklist is in [AGENTS.md](../AGENTS.md). In Git terms:
-
-**Start:** `git checkout main && git pull`. Read [BOARD.md](./coordination/BOARD.md), [HANDOFFS.md](./coordination/HANDOFFS.md), the latest [AGENT_LOG.md](./coordination/AGENT_LOG.md) entries, and all [docs/team/profiles/](./team/profiles/). First session: run the [onboarding interview](./team/profiles/README.md) before any other work. Claim a board task, then `git checkout -b ROLE/short-topic`.
-
-**End:** test; append AGENT_LOG with `Commit: this commit` (optional helper: `scripts/log-entry.sh`); update the board and any handoff; commit; merge `main` into your branch; push; open a PR for a tester. At a 6-hour mark, also append [STANDUP.md](./coordination/STANDUP.md).
-
-Optional commit reminder, once per clone:
-
-```bash
-git config commit.template .gitmessage
-```
-
-## 12. Day-of-event cheat sheet
+## 10. Cheat sheet
 
 ```bash
 git checkout main && git pull
-# read BOARD, HANDOFFS, AGENT_LOG, profiles; first session: interview first
-git checkout -b ROLE/short-topic
-# claim the task on docs/coordination/BOARD.md, then work only in your folders
-# append docs/coordination/AGENT_LOG.md (Commit: this commit)
-# optional: scripts/log-entry.sh >> docs/coordination/AGENT_LOG.md
-git add PATH docs/coordination/AGENT_LOG.md
+git checkout -b topic/short-name
+# work, then check: node --test web/tests/*.test.mjs
+git add PATH
 git commit -m "A short sentence of what this change does"
-git checkout main && git pull && git checkout ROLE/short-topic && git merge main
-git push -u origin ROLE/short-topic
-# open a PR, wait for a tester, then start the next small branch from a fresh main
+git checkout main && git pull && git checkout topic/short-name && git merge main
+git push -u origin topic/short-name
+# merge into main (or open a PR), then start the next branch from a fresh main
 ```
 
-More detail on timing: [ROADMAP.md](../ROADMAP.md). Role prompts: [docs/roles/](./roles/).
+Optional commit reminder, once per clone: `git config commit.template .gitmessage`

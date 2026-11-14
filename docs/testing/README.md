@@ -2,7 +2,7 @@
 
 Tester 1 writes checklists and sign-offs here. Before 14 November 2026, only documentation (for example a MUST checklist draft). Do not add test-runner code yet.
 
-See [docs/roles/tester-1.md](../roles/tester-1.md) and [ROADMAP.md](../../ROADMAP.md) §7.
+See [ROADMAP.md](../../ROADMAP.md) §7.
 
 - [test-plan.md](./test-plan.md) — MUST walk, SHOULD regression, PR gate, sign-off marks
 - [contract-checklist.md](./contract-checklist.md) — required JSON fields and the 14 Nov 2026 document review

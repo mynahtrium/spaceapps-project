@@ -2,7 +2,7 @@
 
 **Checked:** 2026-11-14 15:21 Europe/Istanbul (commit `2b217d1`)  
 **Reviewer:** Eymen (`ParongUs`, Bug tester 2)  
-**Reference:** `docs/roles/prompts/eymen.md` §4
+**Reference:** [AGENTS.md](../../AGENTS.md) data layers
 
 ---
 

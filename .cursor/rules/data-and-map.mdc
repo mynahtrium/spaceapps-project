@@ -6,7 +6,7 @@ globs: data/**,pipeline/**,web/**,skills/**,docs/contracts/**
 
 # Data, routing, planner, and HUD conventions
 
-**[AGENTS.md](../../AGENTS.md) is the single source of truth.** Read the matching skill in `skills/`, the owner's sheet in `docs/roles/`, [ROADMAP.md](../../ROADMAP.md), and the data-layer table in [AGENTS.md](../../AGENTS.md).
+**[AGENTS.md](../../AGENTS.md) is the single source of truth.** Read the matching skill in `skills/` and the data-layer table in [AGENTS.md](../../AGENTS.md).
 
 - Do not start downloads or processing before 14 November 2026.
 - Prefer official PDS / ODE / Mars Trek / api.nasa.gov sources listed in AGENTS.md. Re-check the official Resources tab on 13 November.
