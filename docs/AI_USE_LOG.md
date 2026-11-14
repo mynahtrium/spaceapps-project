@@ -1057,3 +1057,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Removed the HUD tactical elevation map overlay (`#hud-map-overlay`, `#hud-map-btn`, `#esc-open-map`, `.hud-map-*` CSS, and `renderTacticalMap` / `setMapOpen` implementation) and rebound `M` in the EVA HUD to open Orbit View (`onOpenOrbit?.()`), updating HUD hints, `#hud-orbit-btn` (`Orbit (M)`), `#esc-go-orbit` (`Orbit View (M)`), and context menu hints accordingly. Resolved merge conflicts with upstream `27891f0` and `dbaa678` while preserving upstream `E` Interact, `F` Flashlight, unified cyan styling, 20% curved black visor bezel, and astronaut rig updates. Verified zero conflict markers, `node --check web/app.js`, `node --check web/hud/hud3d.js`, and `node --test web/tests/*.test.mjs` (`46/46` pass).
 - Commit: this commit
 - Next step: Reload `http://localhost:8000/web/` (`Ctrl+Shift+R`) and verify pressing `M` in EVA Bodycam opens Orbit View.
+
+### 2026-11-15 01:41 Europe/Istanbul — Fix Three.js r170 PhysicalMaterial GLSL field in ray-tracer
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen)
+- Role: frontend graphics (`main`)
+- Task id: RT-01 fix
+- Files changed: `web/hud/ray-tracer.js`, `docs/AI_USE_LOG.md`
+- Why: Replaced non-existent `material.metalness` and `diffuseColor.rgb` in `patchObjectRayTracer` (`#include <lights_fragment_end>`) with `material.specularColor`, `metalnessFactor`, and `material.diffuseColor` so Three.js r170 `MeshPhysicalMaterial`/`MeshStandardMaterial` shaders (including the ACES astronaut suit and rovers) compile cleanly with zero GLSL errors. Verified in headless Chromium at `http://localhost:8000/web/?demo=1` (astronaut torso/legs/boots visible both with Ray Tracing OFF and ON, zero console/WebGL errors) and `node --test web/tests/fallback.test.mjs` (`19/19` pass).
+- Commit: this commit
+- Next step: Hard-reload (`Ctrl+Shift+R`) in browser.

@@ -411,15 +411,15 @@ export function patchObjectRayTracer(THREE, root, rtUniforms, { reflectScale = 1
               float rtJ2 = rtIgn(gl_FragCoord.xy + fract(uRtTime * 1.7) * 61.0);
               float gloss = pow(clamp(1.0 - material.roughness, 0.0, 1.0), 1.65);
               float ndv = clamp(dot(rtWN, rtWV), 0.0, 1.0);
-              vec3 f0 = mix(vec3(0.04), diffuseColor.rgb, material.metalness);
+              vec3 f0 = material.specularColor;
               vec3 fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - ndv, 5.0);
-              float reflMask = clamp(gloss * (0.28 + 0.72 * max(material.metalness, pow(1.0 - ndv, 2.5))), 0.0, 0.92) * uRtReflectScale;
+              float reflMask = clamp(gloss * (0.28 + 0.72 * max(metalnessFactor, pow(1.0 - ndv, 2.5))), 0.0, 0.92) * uRtReflectScale;
               if (reflMask > 0.015) {
                 vec3 tracedRefl = rtTraceReflectionRay(vRtWorldPos + rtWN * 0.08, rtR, uRtSunDir, rtJ2);
                 reflectedLight.indirectSpecular += tracedRefl * fresnel * reflMask * 0.95;
               }
               float groundFacing = clamp(-rtWN.y * 0.5 + 0.5, 0.0, 1.0);
-              reflectedLight.indirectDiffuse += diffuseColor.rgb * vec3(0.55, 0.24, 0.12) * groundFacing * (1.0 - material.metalness) * 0.32;
+              reflectedLight.indirectDiffuse += material.diffuseColor * vec3(0.55, 0.24, 0.12) * groundFacing * 0.32;
             }`
           );
       };
