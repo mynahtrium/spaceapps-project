@@ -252,4 +252,15 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: not ray tracing (WebGL rasterisation with PBR, image-based sky light and shadow maps). The rig is procedural, so deformation at hips and shoulders is approximate and feet can slide slightly. Ground detail noise and the Mars tint are visual, not data. Terrain beyond the real tile is mirrored. Checked in the in-app browser with no console errors (only favicon before it was added); not tested on a low-end GPU.
 - Please do next: Divarci reviews the web/ changes before any merge to main; Eymen checks ?demo=1 offline (all new assets are local).
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received: 2026-11-14 16:54 (Eymen / Tester 2 — verified ?demo=1 live + reported partner astronaut collision bug fixed below)
+
+### HANDOFF-20261114-1654 — from Tester 2 (Eymen) to Frontend 1 (Divarci) / Cagan
+
+- Task id: MUST-09 / MUST-12
+- What is ready: Patched `web/hud/hud3d.js` so the partner crew astronaut (`partner.group.position`) acts as a solid obstacle (`PARTNER_COLLISION_R = 1.05` horizontal cylinder push-out in `freeRoam`, plus an overlap guard keeping `partnerS` ahead of `alongM` in route mode so returning from free-roam or walking on the route does not clip inside the partner model). Verified syntax with `node --check web/hud/hud3d.js`.
+- Paths (files or folders): web/hud/hud3d.js
+- How to try it: Run `start.bat` or `python -m http.server 8000`, open `http://localhost:8000/web/?demo=1` (hard-reload with `Ctrl+Shift+R`), click `BEGIN EVA`, enable `Free roam`, walk into the crew partner ahead or switch back to route mode — the player camera/rig stops outside the partner suit instead of clipping through it.
+- What is not done / known limits: Horizontal cylinder check (`PARTNER_COLLISION_R = 1.05`) assumes upright standing astronauts; does not collide with terrain rocks or slope walls, and still pending Frontend 1 code review alongside `BUG-15`/`BUG-16` in `POSSIBLE_BUGS.md`.
+- Please do next: Divarci / Cagan review `web/hud/hud3d.js` collision constants and tackle `BUG-15` and `BUG-16`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:

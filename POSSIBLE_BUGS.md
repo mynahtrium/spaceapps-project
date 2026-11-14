@@ -36,15 +36,13 @@
 ### [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
 - **Where:** `docs/team/ROSTER.md`
 
-### [BUG-15] 3D HUD `NEXT` stop shows the *nearest* stop instead of the *upcoming* stop along `route.legs`
-- **Where:** `web/hud/hud3d.js` (lines 672–684)
-- **What:** `updateHudReadouts` picks whichever stop has the smallest Euclidean distance (`minStopDist`) to the astronaut. At the start of the walk (`sM = 0`), `NEXT` displays `Habitat / EVA start (Sol 4527 candidate)` (`19 m`) instead of the next target (`stop-mudstone-a`), and stays stuck on each passed stop until halfway to the next one.
-- **Suggested fix:** Use `activeRoute.legs` (`from_stop_id` → `to_stop_id` with cumulative `distance_m`) to determine the upcoming `to_stop_id` for the current `sM`.
+### [FIXED] [BUG-15] 3D HUD `NEXT` stop shows the *nearest* stop instead of the *upcoming* stop along `route.legs`
+- **Where:** `web/hud/hud3d.js` (`updateHudReadouts`) and `web/shared/route-bridge.js` (`resolveNextStopAlongRoute`)
+- **Status:** Fixed — `resolveNextStopAlongRoute(activeRoute, stops, sM, [lon, lat])` walks `activeRoute.legs` (`to ?? to_stop_id` and cumulative `distance_m`) for the current `sM` so `NEXT` tracks the upcoming stop and counts down route distance cleanly, falling back to `marsDistanceM` only if `legs` are absent.
 
-### [BUG-16] 3D HUD `remaining` distance (`824.7 m`) disagrees with `route.json` `totals.distance_m` (`790.3 m`)
-- **Where:** `web/hud/hud3d.js` (`totalDist` calculation vs. `route.json`)
-- **What:** `hud3d.js` computes `totalDist` via flat planar `Math.hypot(dx, dz)` on equirectangular `lonToX`/`latToZ`, whereas `route.json` uses Mars spherical haversine (`790.3 m`). This produces a ~4.3% discrepancy (`824.7 m` in 3D HUD vs `790.3 m` in 2D planner).
-- **Suggested fix:** Scale `sM` / `rem` against `activeRoute.totals.distance_m` (or use `cos(lat)` in `lonToX` so 1° lon matches Mars spherical scale).
+### [FIXED] [BUG-16] 3D HUD `remaining` distance (`824.7 m`) disagrees with `route.json` `totals.distance_m` (`790.3 m`)
+- **Where:** `web/hud/hud3d.js` (`totalDist`, `toGeomDist`, `updateHudReadouts`) and `web/shared/route-bridge.js`
+- **Status:** Fixed — `totalDist` uses `activeRoute.totals.distance_m` (`790.3 m`) when present (falling back to Mars spherical polyline length `geomTotalDist`), `toGeomDist(s)` maps reported walk progress proportionally onto `geomTotalDist` for `sampleAlongRoute`, and `updateHudReadouts` receives `alongM` directly so `0.0 m → 790.3 m`, `remaining`, `profile`, and `scrubber` match `route.json` and the 2D planner.
 
 ---
 

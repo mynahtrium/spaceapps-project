@@ -704,3 +704,24 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan said the arms looked odd. The NASA model's arms reach forward with bent elbows; rotating each whole arm from the shoulder pushed the elbows out and stretched the shoulder. Added elbow bones (elbow and hand measured from the mesh), a wider shoulder blend, and a suited rest pose (upper arm slightly forward and out, elbow bent, hands in front of the hips) with opposite-phase swing. Checked with front, back, side and walking renders and in first person (both gloves and boots visible when looking down).
 - Commit: this commit
 - Next step: none for the arms.
+
+### 2026-11-14 16:53 Europe/Istanbul — Fix BUG-15 & BUG-16 in 3D HUD stop/distance tracking
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`main`)
+- Task id: BUG-15, BUG-16
+- Files changed: web/shared/route-bridge.js, web/hud/hud3d.js, web/tests/route-bridge.test.mjs, POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Fixed `BUG-15` (3D HUD `NEXT` stop showed nearest Euclidean stop instead of upcoming stop along `route.legs`) and `BUG-16` (3D HUD `totalDist`/`remaining` disagreed with `route.json` `totals.distance_m` `790.3 m`). Added `resolveNextStopAlongRoute()` in `web/shared/route-bridge.js` using `legs[].to` / `to_stop_id` and cumulative `distance_m` with `marsDistanceM` fallback, scaled `alongM` onto `geomTotalDist` in `web/hud/hud3d.js`, added `web/tests/route-bridge.test.mjs`, and marked `BUG-15` and `BUG-16` fixed in `POSSIBLE_BUGS.md`.
+- Commit: this commit
+- Next step: Reload `http://127.0.0.1:8765/web/?demo=1` in browser to verify `NEXT` stop and `790.3 m` readout.
+
+### 2026-11-14 16:54 Europe/Istanbul — MUST-09 / MUST-12 (solid partner astronaut collision)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-09 / MUST-12
+- Files changed: web/hud/hud3d.js, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Eymen reported that free-roaming into the partner astronaut or turning back onto the route caused the player to clip inside the partner model. Added `PARTNER_COLLISION_R = 1.05` solid horizontal cylinder collision in `freeRoam` and an overlap guard on `partnerS` vs `alongM` in route mode in `web/hud/hud3d.js`, passed `node --check web/hud/hud3d.js`, and logged the cross-folder patch in `HANDOFFS.md`.
+- Commit: this commit
+- Next step: Divarci / Cagan review `web/hud/hud3d.js` collision patch; Eymen re-tests free-roam and route return collision in browser.
