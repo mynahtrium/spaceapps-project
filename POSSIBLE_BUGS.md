@@ -1,8 +1,8 @@
 # Possible Bugs & Integration Risks (`main`)
 
-**Last checked:** 2026-11-14 14:02 Europe/Istanbul (commit `0f200d0`)  
+**Last checked:** 2026-11-14 14:12 Europe/Istanbul (commit `65c2e5e`)  
 **Checked by:** Eymen (`ParongUs`, Bug tester 2); non-frontend fixes applied by CC (`backend-3`)  
-**Scope:** Full repo audit (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/`) after `tester/demo`, `tester/review`, and `f81df38` landed on `main`.
+**Scope:** Deep geometry, telemetry, manifest, link, and module audit across `pipeline/`, `data/processed/`, `data/demo/`, `web/`, and `docs/`.
 
 ---
 
@@ -62,11 +62,19 @@
 - **Impact:** In `?demo=1` mode, if Frontend 1 loads nested asset paths directly from the JSON without rewriting `data/processed/<domain>/` → `data/demo/`, it will read from `data/processed/` (or break if only `data/demo/` is bundled).
 - **Suggested fix:** Either rewrite `data/processed/(terrain|routing|science)/` → `data/demo/` in `export_demo_fixtures.py`, or have Frontend 1's `?demo=1` loader normalize `data/processed/*/` paths to `data/demo/`.
 
+### [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
+- **Where:** `docs/team/ROSTER.md`
+- **What:** Only Tester 1 (`Asil`) and Tester 2 (`ParongUs`) have GitHub usernames filled in `ROSTER.md`; Backend 1, Backend 2, Backend 3, and Frontend 1 rows are still blank.
+- **Suggested fix:** Each teammate adds their GitHub username to `docs/team/ROSTER.md` (and Frontend 1 completes onboarding).
+
 ---
 
-## 3. Passed Checks (as of `0f200d0` — 2026-11-14 14:02)
+## 3. Passed Checks (as of `65c2e5e` — 2026-11-14 14:12)
 - **Python syntax:** 28 / 28 files in `pipeline/` compiled cleanly (`py_compile`); `pipeline/costmap/crop_window.py` wrapper import verified.
 - **JSON validity & NaN/Inf:** 49 / 49 `.json` files parsed cleanly with `0` `NaN`/`Infinity` values; 9 / 9 core JSONs match 1:1 between `data/processed/` and `data/demo/`.
+- **Route geometry vs. cost-map:** 132 / 132 vertices in `route.json` are inside `cost-map.json` bounds with **0** hits on blocked (`9e99`) cells; `sum(legs) = 790.30 m` matches `totals.distance_m = 790.3 m`; `profile[].s_m` is monotonic.
+- **HUD telemetry consistency:** 8 / 8 samples in `hud-telemetry.json` have matching `slope_class` (`green`/`amber`/`red`/`blocked`), valid `suit_o2_remaining_percent` (`0..100`), and `distance_travelled_m + distance_remaining_m == 790.3 m`.
+- **Demo manifest completeness:** All 28 files listed in `data/demo/science-manifest.json` exist on disk (`0` missing, `0` unlisted).
 - **3D Height PNG format:** `height-preview.png` verified as `395×395` `8-bit RGB` (`bit_depth=8`, `color_type=2`, `332269` bytes) in both `data/processed/terrain/` and `data/demo/`.
-- **Cost-map ↔ Stops alignment:** 4 / 4 stops in `stops.json` sit inside `cost-map.json` bounds.
+- **Markdown link integrity:** `0` broken relative links across all root and `docs/` markdown files.
 - **Merge hygiene & static size:** `0` conflict markers found; no `.env`, API keys, `.IMG`, `.tif`, or `.jp2` files tracked; `data/` total is **4.50 MB** (well under the ~100 MB target).
