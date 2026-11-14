@@ -170,14 +170,19 @@ These override ad-hoc “push everything to main” habits unless Doruk explicit
 2. **After every prompt:** `git pull` (fast-forward) on the **current** branch, then `git push` that branch. No force-push. Do not switch to `main` unless asked.
 3. **Never commit** `.env`, `NASA_API_KEY`, or other secrets.
 
-### Work split for what is left (backend pass)
+### Work split (14 November 2026, astronaut visor)
 
-| Who | Size | Owns (write here) | Notes |
-|---|---|---|---|
-| **Cagan** (Backend 1) | Largest | `pipeline/terrain/`, `pipeline/costmap/`, `data/processed/terrain/` | HiRISE crop + cost map that **routing still needs** (re-crop after PRE-07 so stops sit inside the cost grid). Branches: `backend/terrain`, `backend/costmap`. |
-| **Doruk** (Backend 2) | Second | `pipeline/routing/`, `pipeline/stops/`, `data/processed/routing/` | Stops + route + HUD telemetry. Keep `is_example` / `status: example` until PRE-07 outcrop lock. Branches: `backend/routing`, `backend/stops` (or `backend-2/…`). |
-| **CC** (Backend 3) | Small | `pipeline/data/`, `data/processed/science/` | Science cache leftovers and small doc/board tidy only. Branch: `backend/science`. |
-| **Frontend 1, Tester 1, Tester 2** | — | Their owned trees in [ROADMAP.md](./ROADMAP.md) §2 | **Not this backend pass.** Do not start their build in a Backend 1/2/3 session. |
+The instruction files in [docs/roles/prompts/](./docs/roles/prompts/README.md) are the assignment for this pass. Paste one file into that person's agent. Older role sheets stay the technical reference. If a prompt and this table's older notes disagree, the prompt wins. Asil is not in this pack; [docs/roles/tester-1.md](./docs/roles/tester-1.md) stays as it is.
+
+Numbers on the visor are cached NASA and PDS products (source URL, product id, fetch date). `NASA_API_KEY` lives only in a gitignored `.env`. DONKI uses `api.nasa.gov`. Refuse `DEMO_KEY`.
+
+| Who | Owns (write here) | Prompt |
+|---|---|---|
+| **Cagan** (Claude Code, first) | `pipeline/terrain/`, `pipeline/costmap/`, `pipeline/routing/`, `pipeline/stops/`, `data/processed/terrain/`, `data/processed/routing/` | [cagan.md](./docs/roles/prompts/cagan.md). Branches: `backend/terrain`, `backend/costmap`, `backend/routing`. HiRISE terrain plus the route. Stops stay `is_example` until PRE-07. |
+| **Cetin** (profile CC, Gemini) | `pipeline/data/`, `data/processed/science/` | [cetin.md](./docs/roles/prompts/cetin.md). Branch: `backend/science`. Live DONKI first, then REMS, RAD, POV, THEMIS, CRISM caches. |
+| **Divarci** (UI) | `web/` | [divarci.md](./docs/roles/prompts/divarci.md). Branch: `frontend/planner-hud`. First-person visor after Cagan's four JSON files exist. |
+| **Eymen** (debugging) | `docs/testing/`, `docs/demo/`, `docs/AI_USE.md` rollup | [eymen.md](./docs/roles/prompts/eymen.md). Reviews the other branches. |
+| **Doruk** (orchestrator) | `docs/coordination/`, `docs/roles/prompts/` | [doruk.md](./docs/roles/prompts/doruk.md). Compiles branches when the owner and Eymen say the unit is ready. No feature code in `pipeline/` or `web/`. |
 
 ## Session start and end
 

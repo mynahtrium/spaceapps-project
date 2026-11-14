@@ -1,7 +1,7 @@
 # Profile — CC
 
-- First name or nickname: CC
-- Role (from [docs/team/ROSTER.md](../ROSTER.md)): Backend 3 — data
+- First name or nickname: Cetin (this pack). Profiled earlier as CC. Same person. Do not add a second profile.
+- Role (from [docs/team/ROSTER.md](../ROSTER.md)): data collection and APIs (Backend 3 science cache). Prompt: [cetin.md](../../roles/prompts/cetin.md).
 - GitHub username (optional, same as the roster):
 - Skills (for example Python, git, maps, 3D, design, video — whatever they already know): AI-assisted workflows
 - Experience level (beginner / some practice / comfortable) at: coding, git, maps, 3D: beginner (high experience working with AI)

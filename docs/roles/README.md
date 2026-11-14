@@ -1,5 +1,7 @@
 # Role sheets
 
+**Current assignment (14 November 2026):** the five prompts in [prompts/](./prompts/README.md). Paste one file into that person's agent. If a prompt and a sheet below disagree about who owns a folder, the prompt wins. The sheets stay the technical reference (contracts, hour plan, checklists).
+
 One page per person. Each sheet has responsibilities, phase tasks, owned folders, handoffs, a checklist, and a ready-to-paste prompt for that person's AI coding agent.
 
 | Role | File |

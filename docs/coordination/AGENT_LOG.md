@@ -559,3 +559,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Removed automatic camera yaw rotation on route turns per F1 request; camera position follows the route while look direction remains strictly user-controlled via mouse drag.
 - Commit: this commit
 - Next step: Reload `http://localhost:8000/web/` in browser to verify.
+
+### 2026-11-14 14:50 Europe/Istanbul — n/a
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: orchestrator
+- Task id: n/a
+- Files changed: docs/roles/prompts/README.md, docs/roles/prompts/cagan.md, docs/roles/prompts/cetin.md, docs/roles/prompts/divarci.md, docs/roles/prompts/eymen.md, docs/roles/prompts/doruk.md, docs/roles/README.md, AGENTS.md, docs/team/ROSTER.md, docs/team/profiles/cc.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Wrote one instruction file per nickname for the astronaut-visor pass (Cagan first in Claude, Cetin beside him, Divarci on the visor, Eymen reviewing, Doruk compiling). Each file starts with a nickname grill. Science and terrain numbers must come from cached NASA and PDS products. Live DONKI uses `NASA_API_KEY` from the gitignored `.env` (present on this machine; the value is not in git). CC's profile nickname for this pack is Cetin.
+- Commit: this commit
+- Next step: Paste `docs/roles/prompts/cagan.md` into Claude Code. Cetin then runs a live DONKI fetch. Divarci waits until Cagan's four processed JSON files are confirmed.
