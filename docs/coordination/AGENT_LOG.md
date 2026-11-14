@@ -891,3 +891,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Eymen reported extruded N/S/E/W border cross-lines and tile cutoffs around the HiRISE box on the Planner map, and asked for a low-profile theme-matched Developer Settings button in the menu with frame effect, speed, and experimental super graphics toggles. Added a `smoothstep` 0.0085° outer DEM taper toward `borderMeanElevM` in `MarsDemSampler.js`, `Promise.allSettled` + procedural regional dust context + toned CTX + `minZoom: 11.2` in `MapLibreMarsAdapter.js`, `zoom: 14.7` + dashed HiRISE corridor + zoom-scaled markers + `[ FIT EVA ]` in `planner.js`, and a persistent `dev-settings.js` modal (`#btn-dev-settings` in `.start-foot`) wired live to `hud3d.js` (bodycam frame/lens toggle & strength, speed multiplier, 4096px soft-shadow/4x MSAA/1.25x supersampled Experimental Super Graphics, FOV, clean HUD). Verified live in browser (`0` console/WebGL errors on `?demo=1`), syntax check (`27` files), and `24/24` Node unit tests.
 - Commit: this commit
 - Next step: Divarci / Doruk / Cagan review cross-folder `web/` changes; Eymen tests via live server on port 8000 (`Ctrl+Shift+R`).
+
+### 2026-11-14 20:33 Europe/Istanbul — PHYS-01 Martian visor physics core
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor) / Grok 4.7
+- Role: frontend visor (Doruk overriding `web/` on `frontend/mars-physics`)
+- Task id: PHYS-01
+- Files changed: `web/physics/MarsConstants.js`, `web/physics/MarsGravityField.js`, `web/physics/Terramechanics.js`, `web/physics/SuitBiomechanics.js`, `web/physics/MetabolicPlssModel.js`, `web/physics/MarsAcoustics.js`, `web/physics/MarsPhysicsWorld.js`, `web/hud/hud3d.js`, `web/hud/astronaut-rig.js`, `web/app.js`, `web/index.html`, `web/tests/physics.test.mjs`, `docs/coordination/BOARD.md`, `docs/coordination/AGENT_LOG.md`
+- Why: The visor walked with instant WASD speed, mid-air steering, and a flat 3.71 m/s². The helmet view now steps a 120 Hz Martian model: Gale gravity anchored at 3.717 m/s², 180 kg inertia, friction-limited braking, downhill slip above the 20°/15° lunar stand-in, and jumps that keep their horizontal speed. `#hud-o2` stays the linear placeholder. A second line shows a Pandolf stand-in and an illustrative sky-view factor. No Rapier binary.
+- Commit: this commit
+- Next step: Eymen reviews on `frontend/mars-physics`. Do not merge until asked.

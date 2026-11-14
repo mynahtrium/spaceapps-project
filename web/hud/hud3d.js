@@ -7,7 +7,8 @@
  *   (astronaut-rig.js) with a distance-driven walk / run cycle. You see through a helmet camera;
  *   your own helmet is hidden, so looking down shows your legs and gloves. A second crew member
  *   walks ahead on the route (buddy EVA).
- * - Physics: Mars gravity (3.71 m/s^2), jumping, falling off drops, slower walking on steep ground.
+ * - Physics: Gale gravity, 180 kg suited inertia, boot traction, slope slip, ballistic jumps
+ *   (`web/physics/`). Slope limits stay lunar stand-ins. O2 on the HUD stays a placeholder.
  * - Look: physically based materials, a Mars sky dome, sun shadows, ACES tone mapping and a camera
  *   lens pass (barrel distortion, chromatic aberration, vignette, grain). This is real-time
  *   rasterisation, not ray tracing.
@@ -30,14 +31,17 @@ import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
+import { MARS_GEODESY } from "../physics/MarsConstants.js";
+import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
+import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
+import { createMarsBody, stepPhysicsWorld } from "../physics/MarsPhysicsWorld.js";
+import { torsoLeanRad } from "../physics/SuitBiomechanics.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
 const EYE_FORWARD_M = 0.36; // at the visor, ahead of the suit's deep chest so the legs show when looking down
 const WALK_SPEED_MS = 1.4; // placeholder walking pace (Earth hiking stand-in)
 const RUN_SPEED_MS = 2.5; // a light suited run (Shift); clearly faster than walking, not a sprint
-const MARS_G = 3.71; // m/s^2
-const JUMP_SPEED_MS = 1.7; // about 0.4 m apex under Mars gravity
 const PARTNER_AHEAD_M = 6;
 const PARTNER_COLLISION_R = 1.05; // solid suit + backpack + 0.36 m visor clearance
 const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
@@ -260,6 +264,7 @@ const LENS_FRAG = /* glsl */ `
 
 export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, onLocalPose = null }) {
   const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
+  let surfaceG = 3.717;
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
 
@@ -663,6 +668,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
   pbr.dustNormalTex.repeat.set(640, 640);
 
+  const galeRadii = ellipsoidMetersPerDeg(MARS_GEODESY.GALE_ANCHOR_LAT_DEG);
+  const curvAnchor = { value: new THREE.Vector2() };
+  const curvInv2N = {
+    value: 1 / (2 * (galeRadii.primeVerticalM + MARS_GEODESY.GALE_ANCHOR_ELEV_M)),
+  };
+  const curvInv2M = {
+    value: 1 / (2 * (galeRadii.meridionalM + MARS_GEODESY.GALE_ANCHOR_ELEV_M)),
+  };
   const terrainMat = new THREE.MeshStandardMaterial({
     map: reliefTex,
     normalMap: pbr.dustNormalTex,
@@ -674,6 +687,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const superDetailUniform = { value: 0 };
   terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.detailMap = { value: detailTex };
+    shader.uniforms.uCurvAnchor = curvAnchor;
+    shader.uniforms.uCurvInv2N = curvInv2N;
+    shader.uniforms.uCurvInv2M = curvInv2M;
     shader.uniforms.pbrDust = { value: pbr.dustAlbedoTex };
     shader.uniforms.pbrRock = { value: pbr.rockAlbedoTex };
     shader.uniforms.sunMask = { value: sunMask };
@@ -682,10 +698,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
     shader.uniforms.uSuperDetail = superDetailUniform;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vMmWorldXZ;")
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
+      )
       .replace(
         "#include <project_vertex>",
-        "#include <project_vertex>\nvMmWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;"
+        "vec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
       );
     const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
       "getDirectionalLightInfo( directionalLight, directLight );",
@@ -1111,10 +1130,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       crewEl.innerHTML = `${cs} · 1.80 M · <span id="hud-suit">${suitLabel}</span>`;
     }
     if (summaryEl) {
+      const gTxt = `MARS g ${surfaceG.toFixed(3)} M/S²`;
       if (remoteAvatars.size > 0) {
-        summaryEl.textContent = `MARS g 3.71 M/S² · CREW: ${1 + remoteAvatars.size} LIVE · ROOM ${mp?.room || "GALE-01"}`;
+        summaryEl.textContent = `${gTxt} · CREW: ${1 + remoteAvatars.size} LIVE · ROOM ${mp?.room || "GALE-01"}`;
       } else {
-        summaryEl.textContent = "MARS g 3.71 M/S² · CREW: 2 (BUDDY EVA)";
+        summaryEl.textContent = `${gTxt} · CREW: 2 (BUDDY EVA)`;
       }
     }
   }
@@ -1196,9 +1216,42 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const partnerPos = new THREE.Vector3(freePos.x, 0, freePos.z);
   let partnerYaw = userYaw;
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
+  const phys = createMarsBody({ x: freePos.x, z: freePos.z, y: 0, grounded: true });
+  const heightEnv = {
+    sampleHeight: sampleElevSceneY,
+    molaElevM: (x, z) => elevMin + sampleElevSceneY(x, z),
+  };
+  function syncPlayerFromPhys() {
+    player.x = phys.x;
+    player.y = phys.y;
+    player.z = phys.z;
+    player.vy = phys.vy;
+    player.grounded = phys.grounded;
+    player.init = true;
+    surfaceG = phys.g;
+    freePos.set(phys.x, phys.y, phys.z);
+  }
+  function snapPhys(x, z) {
+    phys.x = x;
+    phys.z = z;
+    phys.vx = 0;
+    phys.vz = 0;
+    phys.vy = 0;
+    phys.grounded = true;
+    phys.jumpQueued = false;
+    phys.crouch = 0;
+    phys.impactSpeed = 0;
+    phys.accumulator = 0;
+    phys.y = sampleElevSceneY(x, z);
+    syncPlayerFromPhys();
+    justTeleportedOrWrapped = true;
+  }
   let partnerS = PARTNER_AHEAD_M;
   let justTeleportedOrWrapped = false;
   const keys = new Set();
+  phys.y = sampleElevSceneY(phys.x, phys.z);
+  syncPlayerFromPhys();
+  justTeleportedOrWrapped = false;
 
   const mapOverlayEl = document.getElementById("hud-map-overlay");
   const isMapOpen = () => Boolean(mapOverlayEl?.classList.contains("open"));
@@ -1321,11 +1374,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     autoYaw = 0;
     if (routeCoords.length > 1) {
       const p = routePoint(alongM);
-      freePos.set(p.x, 0, p.z);
       userYaw = routeHeading(alongM);
       partnerPos.set(p.x, 0, p.z);
-      player.init = false;
-      justTeleportedOrWrapped = true;
+      snapPhys(p.x, p.z);
     }
   });
 
@@ -1343,21 +1394,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   function teleportToLocal(tx, tz, { keepYaw = false } = {}) {
     const wx = wrapSceneCoord(tx, worldW).val;
     const wz = wrapSceneCoord(tz, worldH).val;
-    const ty = sampleElevSceneY(wx, wz);
     const lon = xToLon(wx);
     const lat = zToLat(wz);
 
     const nearestGeomS = closestAlongM(routeCoords, cumDist, lon, lat);
     alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
 
-    freePos.set(wx, 0, wz);
-    player.x = wx;
-    player.z = wz;
-    player.y = ty;
-    player.vy = 0;
-    player.grounded = true;
-    player.init = true;
-    justTeleportedOrWrapped = true;
+    snapPhys(wx, wz);
 
     autoYaw = 0;
     if (!keepYaw && routeCoords.length > 1) {
@@ -1861,10 +1904,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     if (k === " ") {
       e.preventDefault();
-      if (player.grounded) {
-        player.vy = JUMP_SPEED_MS;
-        player.grounded = false;
-      }
+      if (phys.grounded) phys.jumpQueued = true;
     }
   });
 
@@ -2074,11 +2114,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     // progress along the route = the route point nearest to you (for the HUD only)
     alongM = nearestAlongRoute(freePos.x, freePos.z, alongM);
     const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
-    let px;
-    let pz;
+    let px = player.x;
+    let pz = player.z;
+    const prevX = player.x;
+    const prevZ = player.z;
     if (freeRoam) {
       if (!isMapOpen()) {
-        const run = keys.has("shift");
         fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
         right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
         moveDir.set(0, 0, 0);
@@ -2086,30 +2127,33 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
         if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
         if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
-        if (moveDir.lengthSq() > 0) {
-          moveDir.normalize();
-          // slow down on steep ground (uphill or downhill), like a suited walker would
-          const here = sampleElevSceneY(freePos.x, freePos.z);
-          const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
-          const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
-          const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
-          const v =
-            (run ? RUN_SPEED_MS : WALK_SPEED_MS) *
-            (devCfg.speedMultiplier || 1) *
-            slowdown *
-            (player.grounded ? 1 : 0.6);
-          freePos.addScaledVector(moveDir, v * dt);
-        }
+        if (moveDir.lengthSq() > 0) moveDir.normalize();
+        const strict = document.getElementById("toggle-strict-15")?.checked;
+        stepPhysicsWorld(
+          phys,
+          dt,
+          {
+            wishX: moveDir.x,
+            wishZ: moveDir.z,
+            run: keys.has("shift"),
+            speedMultiplier: devCfg.speedMultiplier || 1,
+            slopeLimitDeg: strict ? 15 : 20,
+            latDeg: zToLat(phys.z),
+          },
+          heightEnv
+        );
       }
-      // Wrap around to the opposite edge when crossing the 3D map boundary (Mars globe-style loop)
-      const wx = wrapSceneCoord(freePos.x, worldW);
-      const wz = wrapSceneCoord(freePos.z, worldH);
+      const wx = wrapSceneCoord(phys.x, worldW);
+      const wz = wrapSceneCoord(phys.z, worldH);
       if (wx.wrapped || wz.wrapped) {
-        freePos.x = wx.val;
-        freePos.z = wz.val;
+        phys.x = wx.val;
+        phys.z = wz.val;
+        phys.y = sampleElevSceneY(phys.x, phys.z);
+        phys.vy = 0;
+        phys.grounded = true;
         justTeleportedOrWrapped = true;
-        const wLon = xToLon(freePos.x);
-        const wLat = zToLat(freePos.z);
+        const wLon = xToLon(phys.x);
+        const wLat = zToLat(phys.z);
         const nearestGeomS = closestAlongM(routeCoords, cumDist, wLon, wLat);
         alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
         const dirs = [];
@@ -2123,72 +2167,71 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         );
       }
 
-      // Solid collision against visible NPC partner or live crewmates so free-roam cannot clip through them
-      if (partner && partner.group.visible) {
-        pushApart(partner.group.position);
+      freePos.set(phys.x, phys.y, phys.z);
+      if (partner && partner.group.visible) pushApart(partner.group.position);
+      for (const remote of remoteAvatars.values()) pushApart(remote.group.position);
+      if (freePos.x !== phys.x || freePos.z !== phys.z) {
+        phys.x = freePos.x;
+        phys.z = freePos.z;
+        phys.vx *= 0.2;
+        phys.vz *= 0.2;
       }
-      for (const remote of remoteAvatars.values()) {
-        pushApart(remote.group.position);
-      }
-      px = freePos.x;
-      pz = freePos.z;
+      syncPlayerFromPhys();
+      px = phys.x;
+      pz = phys.z;
     } else {
       px = lonToX(sample.lon);
       pz = latToZ(sample.lat);
-      // follow the path heading smoothly (no snapping on turns)
       const target = routeHeading(alongM);
       let diff = target - autoYaw;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       autoYaw += diff * Math.min(1, dt * 1.6);
-    }
-
-    // Mars gravity: feet follow the ground uphill, but the body falls (3.71 m/s^2) off drops.
-    const ground = sampleElevSceneY(px, pz);
-    if (!player.init) {
+      const ground = sampleElevSceneY(px, pz);
+      if (!player.grounded) {
+        player.vy -= surfaceG * dt;
+        player.y += player.vy * dt;
+        if (player.y <= ground) {
+          player.y = ground;
+          player.vy = 0;
+          player.grounded = true;
+        }
+      } else {
+        player.y = ground;
+      }
       player.x = px;
       player.z = pz;
-      player.y = ground;
-      player.init = true;
     }
-    const movedXZ = Math.hypot(px - player.x, pz - player.z);
-    const mvx = px - player.x;
-    const mvz = pz - player.z;
-    player.x = px;
-    player.z = pz;
-    if (justTeleportedOrWrapped || movedXZ > 20) {
-      // Teleport, wrap-around, or route reset moved us to a new terrain height: land cleanly on ground
-      player.y = ground;
-      player.vy = 0;
-      player.grounded = true;
-    }
-    if (player.grounded && player.y - ground > 0.25) player.grounded = false; // stepped off a drop
-    if (!player.grounded) {
-      player.vy -= MARS_G * dt;
-      player.y += player.vy * dt;
-      if (player.y <= ground) {
-        player.y = ground;
-        player.vy = 0;
-        player.grounded = true;
-      }
-    } else {
-      player.y = ground;
-    }
+
     const yaw = autoYaw + userYaw;
-    const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0; // ignore teleport/wrap jumps
+    const movedXZ = Math.hypot(px - prevX, pz - prevZ);
+    const mvx = px - prevX;
+    const mvz = pz - prevZ;
+    const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0;
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
 
-    // own body: rigged walk driven by distance actually covered
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
-    // walking direction in the body frame, so strafing side-steps and S walks backwards
     let gaitDir = null;
     if (step > 1e-5) {
       const fx = -Math.sin(yaw);
       const fz = -Math.cos(yaw);
       gaitDir = { f: (mvx * fx + mvz * fz) / movedXZ, s: (mvx * -fz + mvz * fx) / movedXZ };
     }
-    self.update(dt, step, groundSpeed, !player.grounded, gaitDir);
+    fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
+    right.set(1, 0, 0).applyAxisAngle(UP, yaw);
+    const footLx = px + fwd.x * 0.16 - right.x * 0.12;
+    const footLz = pz + fwd.z * 0.16 - right.z * 0.12;
+    const footRx = px + fwd.x * 0.16 + right.x * 0.12;
+    const footRz = pz + fwd.z * 0.16 + right.z * 0.12;
+    const uphillAlign = fwd.x * phys.uphillX + fwd.z * phys.uphillZ;
+    const lean = uphillAlign > 0 ? torsoLeanRad(((phys.slopeDeg * Math.PI) / 180) * uphillAlign) : 0.08;
+    self.update(dt, step, groundSpeed, !player.grounded, gaitDir, {
+      crouch: phys.crouch,
+      lean,
+      footDyL: sampleElevSceneY(footLx, footLz) - player.y,
+      footDyR: sampleElevSceneY(footRx, footRz) - player.y,
+    });
     self.group.updateMatrixWorld(true);
 
     // helmet camera at the visor, with only a few millimetres of walking sway
@@ -2204,7 +2247,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const eyeFwd = EYE_FORWARD_M + tip * 0.1;
     camera.position.set(
       px + fwd.x * eyeFwd + right.x * swayX,
-      player.y + EYE_HEIGHT_M - tip * 0.07 + swayY,
+      player.y + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
       pz + fwd.z * eyeFwd + right.z * swayX
     );
     camera.rotation.order = "YXZ";
@@ -2259,7 +2302,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
     // sun, moons and shadow box follow the walker
     const texel = (2 * shadowHalfM) / shadowMapPx;
-    sun.target.position.set(Math.round(px / texel) * texel, Math.round(ground / texel) * texel, Math.round(pz / texel) * texel);
+    const groundY = sampleElevSceneY(px, pz);
+    sun.target.position.set(Math.round(px / texel) * texel, Math.round(groundY / texel) * texel, Math.round(pz / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
     skyMoons.position.copy(camera.position);
@@ -2269,12 +2313,25 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     hudTimer += dt;
     if (hudTimer > 0.1) {
       hudTimer = 0;
+      const metW = metabolicPowerW({
+        eta: phys.eta,
+        gMs2: phys.g || surfaceG,
+        speedMs: groundSpeed,
+        gradePercent: phys.gradePercent,
+      });
+      const metEl = document.getElementById("hud-metabolic");
+      if (metEl) {
+        const svf = skyViewFactor(sampleElevSceneY, px, pz);
+        metEl.textContent = `METABOLIC: ${metW.toFixed(0)} W · ${oxygenLitresPerMin(metW).toFixed(2)} L/min O₂ (Pandolf stand-in) · SVF ${svf.toFixed(2)} illustrative`;
+      }
+      updateCrewHudSummary();
       if (freeRoam) {
-        updateHudReadouts(alongM, xToLon(px), zToLat(pz), computeLocalSlopeDeg(px, pz));
+        updateHudReadouts(alongM, xToLon(px), zToLat(pz), phys.slopeDeg);
       } else {
         updateHudReadouts(alongM, sample.lon, sample.lat);
       }
     }
+    curvAnchor.value.set(camera.position.x, camera.position.z);
     followEndless(camera.position);
     if (isMapOpen()) renderTacticalMap();
 
@@ -2304,15 +2361,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     },
     teleportTo: (lon, lat) => {
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-      const tx = lonToX(lon);
-      const tz = latToZ(lat);
       if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
-      freePos.set(tx, 0, tz);
-      player.x = tx;
-      player.z = tz;
-      player.y = sampleElevSceneY(tx, tz);
-      player.vy = 0;
-      player.grounded = true;
+      teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: true });
     },
   };
 }

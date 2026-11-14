@@ -12,6 +12,7 @@
  */
 
 import * as THREE from "three";
+import { FROUDE_LOPE_MS, HIP_NEUTRAL_RAD, KNEE_NEUTRAL_RAD } from "../physics/SuitBiomechanics.js";
 
 const smooth = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -328,15 +329,16 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
    * @param moved metres travelled this frame along the ground
    * @param speed current ground speed (m/s)
    * @param airborne true while falling or jumping
-   * @param dir optional walking direction in the body frame: { f: forward, s: right }, unit length
+   * @param dir optional walking direction in the body frame: { f: forward, s: right }
+   * @param pose optional { crouch, lean, footDyL, footDyR } from the physics step
    */
-  function update(dt, moved, speed, airborne, dir) {
-    const running = speed > 1.9;
-    const stride = running ? 2.1 : 1.5; // metres per full gait cycle (two steps)
+  function update(dt, moved, speed, airborne, dir, pose) {
+    const lope = speed >= FROUDE_LOPE_MS;
+    const stride = lope ? 2.25 : 1.35;
     if (!airborne) phase += (moved / stride) * Math.PI * 2;
-    const target = speed < 0.05 ? 0 : running ? 1.45 : Math.min(1, speed / 1.3);
+    const target = speed < 0.05 ? 0 : lope ? 1.35 : Math.min(1, speed / 1.05);
     amount += (target - amount) * Math.min(1, dt * 6);
-    air += ((airborne ? 1 : 0) - air) * Math.min(1, dt * 8);
+    air += ((airborne ? 1 : 0) - air) * Math.min(1, dt * (airborne ? 4.5 : 7));
     if (dir && speed > 0.05) {
       const k = Math.min(1, dt * 8);
       dirF += (dir.f - dirF) * k;
@@ -348,43 +350,42 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     const sd = dirS; // sideways share (positive = to the right)
     const side = Math.abs(sd);
     const legPose = (p) => {
-      const hip = a * 0.33 * Math.sin(p) * fw; // fore-aft swing only for the forward part
-      // knees lift the swinging foot in any direction; side steps use a shorter, higher lift
-      const knee = a * (0.05 + (running ? 0.85 : 0.6) * (1 - 0.25 * side) * Math.max(0, Math.cos(p)) ** 2);
+      const hip = a * 0.33 * Math.sin(p) * fw;
+      const knee = a * (0.05 + (lope ? 0.85 : 0.6) * (1 - 0.25 * side) * Math.max(0, Math.cos(p)) ** 2);
       return { hip, knee, ankle: -(hip - knee) * 0.7 };
     };
     const L = legPose(phase);
     const R = legPose(phase + Math.PI);
-    // Side-stepping: the leading leg reaches out, the trailing leg closes in after it; feet never cross.
     const reach = a * 0.26 * side;
-    const out = (p) => 0.5 + 0.5 * Math.sin(p); // 0..1 over the cycle
-    const leadR = sd > 0; // moving right: right leg leads
+    const out = (p) => 0.5 + 0.5 * Math.sin(p);
+    const leadR = sd > 0;
     const abdR = reach * (leadR ? out(phase + Math.PI) : 0.35 * out(phase + Math.PI));
     const abdL = reach * (leadR ? 0.35 * out(phase) : out(phase));
-    const tuck = air * 0.45;
-    thighL.rotation.x = L.hip + tuck * 0.6;
-    thighL.rotation.z = -abdL; // out to the left
-    shinL.rotation.x = -(L.knee + tuck);
+    const tuck = air * 0.62;
+    const crouch = pose?.crouch || 0;
+    const lean = pose?.lean || 0;
+    const plant = (knee, dy) => (knee < 0.35 && Number.isFinite(dy) ? Math.max(-0.12, Math.min(0.1, dy)) : 0);
+    thighL.rotation.x = L.hip + HIP_NEUTRAL_RAD + tuck * 0.6;
+    thighL.rotation.z = -abdL;
+    shinL.rotation.x = -(L.knee + KNEE_NEUTRAL_RAD + tuck) - plant(L.knee, pose?.footDyL) * 1.4;
     footL.rotation.x = L.ankle + tuck * 0.3;
-    footL.rotation.z = abdL * 0.6; // keep the sole flat
-    thighR.rotation.x = R.hip + tuck * 0.4;
-    thighR.rotation.z = abdR; // out to the right
-    shinR.rotation.x = -(R.knee + tuck * 0.8);
+    footL.rotation.z = abdL * 0.6;
+    thighR.rotation.x = R.hip + HIP_NEUTRAL_RAD + tuck * 0.4;
+    thighR.rotation.z = abdR;
+    shinR.rotation.x = -(R.knee + KNEE_NEUTRAL_RAD + tuck * 0.8) - plant(R.knee, pose?.footDyR) * 1.4;
     footR.rotation.x = R.ankle + tuck * 0.3;
     footR.rotation.z = -abdR * 0.6;
 
-    pelvis.position.y = basePelvisY - a * 0.022 * Math.abs(Math.sin(phase)) - air * 0.03;
+    pelvis.position.y = basePelvisY - a * 0.022 * Math.abs(Math.sin(phase)) - air * 0.05 - crouch;
     pelvis.rotation.y = a * 0.07 * Math.sin(phase) * Math.abs(fw);
-    // weight shifts over the standing leg; leaning slightly into a side step
     pelvis.rotation.z = a * 0.025 * Math.cos(phase) - sd * a * 0.04;
     spine.rotation.y = -a * 0.05 * Math.sin(phase);
-    spine.rotation.x = a * (running ? 0.12 : 0.04);
+    spine.rotation.x = a * (lope ? 0.12 : 0.04) + lean;
     chest.rotation.y = -a * 0.03 * Math.sin(phase);
-    // arms swing opposite to the legs (more when running); forward and out for balance in the air
-    const swing = a * (running ? 0.32 : 0.2) * Math.abs(fw); // little arm swing when side-stepping
-    const balance = a * side * 0.12; // arms ease out a little for balance on a side step
-    poseArm(armL, foreL, "L", -swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.3, air * 0.25 + balance);
-    poseArm(armR, foreR, "R", swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.3, air * 0.25 + balance);
+    const swing = a * (lope ? 0.32 : 0.2) * Math.abs(fw);
+    const balance = a * side * 0.12;
+    poseArm(armL, foreL, "L", -swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.35, air * 0.3 + balance);
+    poseArm(armR, foreR, "R", swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.35, air * 0.3 + balance);
     head.rotation.y = a * 0.02 * Math.sin(phase);
   }
 
