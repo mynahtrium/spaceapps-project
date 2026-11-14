@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -103,6 +104,84 @@ def rowcol_to_lonlat(r: float, c: float, cm: dict) -> tuple[float, float]:
     return lon, lat
 
 
+def stop_block_report(cm: dict, coords: dict[str, tuple[float, float]]) -> list[dict]:
+    """Cell under each stop. Does not move a stop off a blocked cell."""
+    cost = cost_array(cm)
+    sent = float(cm.get("blocked_sentinel", BLOCKED))
+    seen: list[str] = []
+    for sid in STOP_ORDER:
+        if sid not in seen:
+            seen.append(sid)
+    report: list[dict] = []
+    for sid in seen:
+        lon, lat = coords[sid]
+        if not in_bounds(lon, lat, cm["bounds"]):
+            report.append(
+                {
+                    "id": sid,
+                    "blocked": True,
+                    "reason": "outside cost-map bounds",
+                }
+            )
+            continue
+        r, c = lonlat_to_rowcol(lon, lat, cm)
+        val = float(cost[r, c])
+        blocked = (not math.isfinite(val)) or val >= sent
+        report.append(
+            {
+                "id": sid,
+                "row": r,
+                "col": c,
+                "blocked": blocked,
+                "reason": "blocked cost cell" if blocked else "passable",
+            }
+        )
+    return report
+
+
+def contract_blocked_points(cm: dict) -> list[dict]:
+    """Blocked points in the contract example file. Does not move them."""
+    path = ROOT / "docs/contracts/stops.json"
+    if not path.exists():
+        return []
+    doc = json.loads(path.read_text())
+    sent = float(cm.get("blocked_sentinel", BLOCKED))
+    cost = cost_array(cm)
+    found: list[dict] = []
+    for feature in doc.get("features", []):
+        sid = feature["properties"]["id"]
+        lon, lat = feature["geometry"]["coordinates"]
+        lon, lat = float(lon), float(lat)
+        if not in_bounds(lon, lat, cm["bounds"]):
+            found.append(
+                {
+                    "id": sid,
+                    "lon": lon,
+                    "lat": lat,
+                    "source": "docs/contracts/stops.json",
+                    "blocked": True,
+                    "reason": "outside cost-map bounds",
+                }
+            )
+            continue
+        r, c = lonlat_to_rowcol(lon, lat, cm)
+        val = float(cost[r, c])
+        if (not math.isfinite(val)) or val >= sent:
+            found.append(
+                {
+                    "id": sid,
+                    "lon": lon,
+                    "lat": lat,
+                    "row": r,
+                    "col": c,
+                    "source": "docs/contracts/stops.json",
+                    "blocked": True,
+                    "reason": "blocked cost cell",
+                }
+            )
+    return found
+
+
 def pick_cost_map(coords: dict[str, tuple[float, float]]) -> tuple[dict | None, Path | None, str]:
     ordered_ids: list[str] = []
     for sid in STOP_ORDER:
@@ -150,27 +229,17 @@ def leg_distances(coords: dict[str, tuple[float, float]]) -> list[dict]:
     return legs
 
 
-def build_profile(line: list[list[float]], n: int = 6) -> list[dict]:
-    if len(line) < 2:
-        return []
-    s_at = [0.0]
-    for i in range(1, len(line)):
-        s_at.append(s_at[-1] + haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]))
-    total = s_at[-1] or 1.0
+def build_profile(total_m: float, n: int = 6) -> list[dict]:
+    """Distance samples of the reported total (the sum of the legs)."""
     profile = []
     for i in range(n):
-        target = total * i / (n - 1) if n > 1 else 0.0
-        # find segment
-        j = 0
-        while j + 1 < len(s_at) and s_at[j + 1] < target:
-            j += 1
-        # placeholder slope / elev (no DTM at these lon/lat yet)
+        target = total_m * i / (n - 1) if n > 1 else 0.0
         profile.append(
             {
                 "s_m": round(target, 1),
                 "elev_m": None,
                 "slope_deg": None,
-                "note": "Elevation/slope null until route sits on a covering HiRISE cost/DTM crop.",
+                "note": "Elevation/slope not sampled. s_m is a fraction of the leg-sum distance.",
             }
         )
     return profile
@@ -192,48 +261,49 @@ def build_hud(
     route_id: str,
     line: list[list[float]],
     names: dict[str, str],
-    coords: dict[str, tuple[float, float]],
+    reported_total_m: float,
+    legs: list[dict],
     planned_min: float,
     n_samples: int = 8,
 ) -> dict:
-    # cumulative s
-    s_at = [0.0]
+    # Drawn path is for the marker. Reported meters follow the leg sum.
+    poly = [0.0]
     for i in range(1, len(line)):
-        s_at.append(s_at[-1] + haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]))
-    total = s_at[-1]
+        poly.append(poly[-1] + haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]))
+    poly_total = poly[-1]
 
-    # stop cumulative distances along order
-    stop_s = {STOP_ORDER[0]: 0.0}
+    stop_s: dict[str, float] = {}
     acc = 0.0
-    for a, b in zip(STOP_ORDER, STOP_ORDER[1:]):
-        lon1, lat1 = coords[a]
-        lon2, lat2 = coords[b]
-        acc += haversine_m(lon1, lat1, lon2, lat2)
-        stop_s[b] = acc  # last write for habitat closing is total
+    for leg in legs:
+        acc = round(acc + leg["distance_m"], 1)
+        stop_s[leg["to"]] = acc
+    total = reported_total_m
 
     samples = []
     for i in range(n_samples):
-        target = total * (i + 1) / (n_samples + 1)
+        fraction = (i + 1) / (n_samples + 1)
+        target = total * fraction
+        arc = poly_total * fraction
         j = 0
-        while j + 1 < len(s_at) and s_at[j + 1] < target:
+        while j + 1 < len(poly) and poly[j + 1] < arc:
             j += 1
         if j + 1 >= len(line):
             lon, lat = line[-1]
             heading = 0.0
         else:
-            t = 0.0 if s_at[j + 1] == s_at[j] else (target - s_at[j]) / (s_at[j + 1] - s_at[j])
+            span = poly[j + 1] - poly[j]
+            t = 0.0 if span == 0 else (arc - poly[j]) / span
             lon = line[j][0] + (line[j + 1][0] - line[j][0]) * t
             lat = line[j][1] + (line[j + 1][1] - line[j][1]) * t
             heading = bearing_deg(line[j][0], line[j][1], line[j + 1][0], line[j + 1][1])
 
-        # next stop: first stop in order with stop_s > target (excluding start at 0 if target>0)
         next_id = STOP_ORDER[-1]
         for sid in STOP_ORDER[1:]:
             if stop_s.get(sid, total) >= target - 1e-6:
                 next_id = sid
                 break
         dist_to_next = max(0.0, stop_s.get(next_id, total) - target)
-        elapsed = (target / total) * planned_min if total > 0 else 0.0
+        elapsed = fraction * planned_min if planned_min > 0 else 0.0
         o2 = max(0.0, 100.0 * (1.0 - elapsed / planned_min)) if planned_min > 0 else 0.0
 
         samples.append(
@@ -333,13 +403,31 @@ def main() -> None:
         )
 
     legs = leg_distances(coords)
-    # Prefer polyline length for totals when Dijkstra; else sum of legs
-    poly_m = 0.0
-    for i in range(1, len(line)):
-        poly_m += haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1])
-    total_m = poly_m if method == "dijkstra_8_neighbour" else sum(leg["distance_m"] for leg in legs)
+    # Reported distance is the sum of the stop-to-stop legs. The cell-center
+    # path can be longer; using that length made the total disagree with the legs.
+    total_m = round(sum(leg["distance_m"] for leg in legs), 1)
     planned_min = total_m / WALK_SPEED_M_PER_MIN if WALK_SPEED_M_PER_MIN > 0 else 0.0
     route_id = "eva-example-pre07-scaffold-001"
+    cell_report = stop_block_report(cm, coords) if cm is not None else []
+    blocked_ids = [row["id"] for row in cell_report if row["blocked"]]
+    contract_blocked = contract_blocked_points(cm) if cm is not None else []
+    if blocked_ids:
+        block_sentence = (
+            "Blocked routed stop cells (stops not moved): " + ", ".join(blocked_ids) + "."
+        )
+    elif cell_report:
+        block_sentence = "No routed example stop sits in a blocked cell. Stops were not moved."
+    else:
+        block_sentence = "No covering cost map, so stop cells were not tested for blocked cost."
+    if contract_blocked:
+        bits = [
+            f"{row['id']} ({row['lon']}, {row['lat']})" for row in contract_blocked
+        ]
+        block_sentence += (
+            " Blocked contract example points, left where they are: " + "; ".join(bits) + "."
+        )
+    cost_ref = os.environ.get("ROUTE_COST_MAP_REF", "").strip()
+    ref_sentence = f" Cost map ref: {cost_ref}." if cost_ref else ""
 
     route = {
         "contract": "martian-mappers.route.v1",
@@ -347,7 +435,14 @@ def main() -> None:
         "note": (
             "Example route while PRE-07 is open. Not locked science stops. "
             + method_note
+            + " Reported distance_m is the sum of the stop-to-stop legs."
+            + ref_sentence
+            + " "
+            + block_sentence
         ),
+        "blocked_stops": blocked_ids,
+        "blocked_contract_example_stops": contract_blocked,
+        "stop_cells": cell_report,
         "crs": "mars-geographic-planetocentric",
         "mars_radius_km": MARS_RADIUS_M / 1000.0,
         "slope_limit_deg": 20,
@@ -371,7 +466,7 @@ def main() -> None:
         },
         "geometry": {"type": "LineString", "coordinates": line},
         "legs": legs,
-        "profile": build_profile(line),
+        "profile": build_profile(total_m),
         "totals": {
             "distance_m": round(total_m, 1),
             "climb_m": None,
@@ -381,12 +476,21 @@ def main() -> None:
         },
     }
 
-    hud = build_hud(route_id, line, names, coords, planned_min)
+    hud = build_hud(route_id, line, names, total_m, legs, planned_min)
+
+    leg_sum = round(sum(leg["distance_m"] for leg in route["legs"]), 1)
+    if route["properties"]["distance_m"] != leg_sum or route["totals"]["distance_m"] != leg_sum:
+        raise SystemExit(f"distance mismatch {route['totals']['distance_m']} vs legs {leg_sum}")
+    if not route["profile"] or route["profile"][-1]["s_m"] != leg_sum:
+        raise SystemExit("profile end does not match the leg sum")
+    if route["status"] != "example":
+        raise SystemExit("status must stay example")
 
     (OUT_DIR / "route.json").write_text(json.dumps(route, indent=2) + "\n")
     (OUT_DIR / "hud-telemetry.json").write_text(json.dumps(hud, indent=2) + "\n")
     print("method", method, "cost", cm_label)
-    print("distance_m", round(total_m, 1), "duration_min_placeholder", round(planned_min, 1))
+    print("blocked_stops", blocked_ids)
+    print("distance_m", round(total_m, 1), "leg_sum", leg_sum, "duration_min_placeholder", round(planned_min, 1))
     print("wrote", (OUT_DIR / "route.json").relative_to(ROOT))
     print("wrote", (OUT_DIR / "hud-telemetry.json").relative_to(ROOT))
 

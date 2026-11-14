@@ -342,6 +342,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Next step: Each backend agent continues on its long-lived branch per the split.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
 =======
 ### 2026-11-14 13:12 Europe/Istanbul — MUST-02 (example-stop cost map)
@@ -393,3 +394,26 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Audited `main` (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/contracts/`), verified all 24 Python files compile, checked for secrets/bulky files and `data/` size (3.23 MB), and documented 7 bugs/integration risks in `POSSIBLE_BUGS.md` (empty `web/`, `cost-map.json` vs `stops.json` bounds mismatch, `hud-telemetry.json` wrapper mismatch, `dose.json` stale duration, missing terrain/routing `data/demo/` fixtures, and `MUST-03` tilt wording update).
 - Commit: this commit
 - Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1–3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
+=======
+### 2026-11-14 12:57 Europe/Istanbul — MUST-04/05/06 (B2 ship note + regenerate)
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: MUST-04, MUST-05, MUST-06
+- Files changed: docs/comms/note-backend-2-ship.md (new), docs/comms/intro-backend-2.md, docs/comms/README.md, pipeline/routing/README.md, data/processed/routing/{stops,route,hud-telemetry}.json, docs/coordination/BOARD.md (B2 rows), docs/coordination/AGENT_LOG.md
+- Why: Comms ship note; keep example stops/route/HUD working. Dijkstra still on docs/contracts cost-map because B1 crop does not cover stop lon/lats. All is_example. No invented outcrop names. Branches backend/stops + backend/routing; not merging to main.
+- Commit: this commit
+- Next step: Re-run when Cagan re-crops cost map over stops; clear is_example only after PRE-07 lock.
+
+### 2026-11-14 13:19 Europe/Istanbul — MUST-05 distance fix and cost-map re-run
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor Grok 4.7)
+- Role: backend-2
+- Task id: MUST-05, MUST-06
+- Files changed: pipeline/routing/build_route.py, pipeline/routing/README.md, data/processed/routing/route.json, data/processed/routing/hud-telemetry.json, docs/comms/note-backend-2-ship.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Tester 2 reported the example route total (947.1 m) did not equal the four legs (790.3 m). Reported distance_m is now the sum of the stop-to-stop legs. Re-ran Dijkstra on Cagan's cost map backend/costmap @ 5e84db6 (crop covers the example stops; terrain file on this branch was not replaced). Routed stops are passable and were not moved. The contract example boxwork point at 137.393, -4.803 is blocked and was left in place. status stays example. No invented outcrop names. No secrets.
+- Commit: this commit
+- Next step: Clear is_example only after PRE-07 lock. Do not merge backend/routing or backend/stops to main until asked.
+>>>>>>> origin/backend/routing
