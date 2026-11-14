@@ -33,25 +33,23 @@
   - **RAD** surface radiation baseline (**0.64 ± 0.12 mSv/day**, Hassler et al., *Science* 2014 + PDS RDR archive).
   - **REMS** surface temperature / weather windows + MSL raw camera POV stills at stops.
 - **Space Weather (NASA CCMC DONKI):** Cached **WSA-Enlil** solar-wind simulations filtered for `"Mars"` in `impactList`.
-- *(All fetch dates: 11–14 November 2026; works 100% offline via `?demo=1` fixtures.)*
+- *(Fetch dates: 11–14 November 2026. Science fixtures are already in `data/demo/`. The web `?demo=1` switch is not built yet.)*
 
 ---
 
 ## Slide 4 — Hazard Cost Map & Optimal A* / Dijkstra Routing
-- **Terrain Pipeline (`pipeline/terrain/` & `pipeline/routing/`):**
-  1. Resample 1 m HiRISE DTM to 2–5 m cells to suppress stereo noise (reducing >20° noise share from 32% to 26% in our planning strip).
-  2. Compute slope (`gdaldem slope`) and roughness / TRI (`gdaldem roughness`), masking no-data cells (~25% of raw strip) and slopes above threshold as impassable (`cost = ∞`).
-  3. Minimize step cost `step_length × (1 + (slope / 10°)² + k_rough × roughness)` across 8 neighbours (`skimage.graph.route_through_array`) using Mars radius (**3,389.5 km** mean / **3,396.19 km** equatorial).
-- **Visual:** Slope/hazard map showing Green (≤10°), Amber (10–15°), Red (15–20°), Blocked (>20°), and the computed safe loop connecting Habitat → Mudstone stops → Boxwork bonus → Habitat.
+- **What is on disk (14 Nov), say it is a first pass:**
+  - HiRISE crop of DTEEC_019698, centre 4.83°S, 137.39°E (placeholder until PRE-07), ~5 m cells. Median slope 9.7°. About 28% of cells steeper than 15°, about 18% steeper than 20°. No no-data in this crop (`slope_stats.json`).
+  - Example route `eva-example-pre07-scaffold-001`: 8-neighbour Dijkstra on **`docs/contracts/cost-map.json`**, not on this crop. The crop’s north edge is 4.813°S; example stops are near 4.80°S, outside it.
+  - Stated length **947.1 m**. Climb null. **71 min** is an Earth-hiking placeholder. The four legs sum to 790.3 m — do not add them on the slide until Backend 2 confirms the total.
+- **Visual:** `slope-preview.png` with the colour key (green ≤10°, amber 10–15°, red 15–20°, blocked >20°) and a caption that the loop is an example: Habitat → mudstone stops → boxwork bonus → habitat.
 
 ---
 
 ## Slide 5 — 2D MapLibre Planner → 3D First-Person Helmet HUD
-- **Seamless Two-View Architecture (`web/planner/` + `web/hud/`):**
-  - **2D Planner:** Layer toggles (CTX, THEMIS thermal, HiRISE hazard mask, 15°/20° threshold), stop inspector with Curiosity POV stills, elevation/slope profile.
-  - **Browser Route Bridge (`mm:set-route`):** Clicking *Start EVA* sends the GeoJSON route and profile directly into the **three.js 3D first-person terrain visor**.
-  - **Helmet HUD Readouts:** Distance (travelled / to next stop), real-time slope angle & colour class, next stop cue, and suit O₂ % bar.
-- **Resilience:** Loads `data/processed/` first, falls back to `docs/contracts/`, and locks to local `data/demo/` in `?demo=1` offline stage mode.
+- **Not built yet (14 Nov).** `web/planner/`, `web/hud/`, and `web/shared/` are README-only. MUST-08–10 are `todo`. This slide describes the plan. Do not show a fake screenshot of a visor.
+- **Planned readouts** (the example HUD file already has one sample): distance travelled **526.1 m**, remaining **420.9 m**, next stop **boxwork bonus (example)**, slope **unknown** until the path sits on a covering DTM, suit O₂ **44.4%** with the label “illustrative placeholder”.
+- **When it exists:** the planner sends the route with `mm:set-route`. Loads `data/processed/` first, then `docs/contracts/`, and only `data/demo/` in `?demo=1`. Science fixtures are already in `data/demo/`. Terrain previews and the route are not in that folder yet.
 
 ---
 
@@ -59,17 +57,19 @@
 - **Time-Based Radiation Model (Not a Fake Rock Map):**
   - Galactic Cosmic Ray dose does not vary meaningfully across a 10 km walk; it varies with **time** and **shielding**.
   - `EVA Dose = RAD Baseline (0.64 ± 0.12 mSv/day) × EVA Duration`, paired with a **DONKI WSA-Enlil** banner alerting the crew to predicted CME/SEP arrivals at Mars.
-- **Transparent Scientific Caveats (Shown in UI & Docs):**
-  - **Slope thresholds (15° / 20°):** Stand-ins from NASA's *Lunar Exploration EVA Concept of Operations* and LPSC 2023 #1413 (no Mars-specific suit slope limit is published).
-  - **DTM vs. Rover Tilt:** The 1 m HiRISE DTM under-reads local slope vs. Curiosity's onboard tilt sensors (4–10° DTM vs. 9–17° rover tilt at four boxwork Sols) — we apply a conservative margin and report the offset.
-  - **Suit O₂ & Walk Speed:** Explicitly labelled as **illustrative placeholders** (linear O₂ drain / Earth hiking speed).
+- **On the dose card today:** **0.0427 ± 0.008 mSv**, from the **96 min** contract-route placeholder. The example route file says 71 min. Do not mix them until `dose.json` is rebuilt. RAD RDR tables did not load on 14 Nov (expired TLS); the baseline stays Hassler et al. 2014.
+- **DONKI banner (cached, no live call on stage):** 13 WSA-Enlil runs list Mars between 2026-10-15 and 2026-11-14. Latest predicted arrival 2026-11-13T12:00Z (glancing blow).
+- **Transparent scientific caveats:**
+  - **Slope thresholds (15° / 20°):** Lunar EVA stand-ins (NASA Exploration EVA ConOps; LPSC 2023 #1413). No Mars-specific suit limit was found.
+  - **DTM vs rover tilt (14 Nov, 176 waypoints, Sol 4400–5073):** At about 5 m, median DTM slope 9.0° and median rover tilt 8.6° (difference −0.06°). Correlation is weak (r about 0.15). This does **not** confirm the 11 Nov note that the 1 m DTM under-read tilt at four boxwork sols. Rover tilt and DTM slope are related, not the same measurement. Keep a safety margin. First pass, not a validation (`tilt-check.json`).
+  - **Suit O₂ and walk time:** Illustrative placeholders (linear O₂ drain; Earth-hiking speed).
 
 ---
 
 ## Slide 7 — Impact, Verification & AI/SI Tool Disclosure
 - **Why It Matters:** Bridges orbital planetary GIS and human-scale surface operations with an honest, offline-ready open architecture.
-- **Verification Summary:**
-  - Route verified inside `DTEEC_019698` footprint; zero blocked/no-data crossings; offline `?demo=1` network-off check passed.
+- **What is verified, and what is not (14 Nov):**
+  - Example route only. PRE-07 outcrop lock is open. Stops are outside the current HiRISE cost crop. `?demo=1` has not been run: there is no web app yet. Science JSON and stills are copied under `data/demo/`.
 - **AI / SI Tools Disclosure (per NASA Space Apps guidelines):**
   - The project concept, site choice, and scientific framing were created by the human team.
   - AI coding assistants (Grok Bot, Gemini / Antigravity, Claude) were used for documentation scaffolding, data pipeline scripts, and UI implementation, with all changes logged in `docs/coordination/AGENT_LOG.md` and `docs/AI_USE.md`. No NASA logos or branding were generated or modified by AI.

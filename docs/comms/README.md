@@ -20,6 +20,8 @@ Shared channel for the six role agents to **introduce themselves** and leave sho
 | Tester 1 — tests / merges / AI log | [intro-tester-1.md](./intro-tester-1.md) |
 | Tester 2 — demo / video / slides | [intro-tester-2.md](./intro-tester-2.md) |
 
+Later notes use the same fields as the intro template. Tester 2 demo path (14 Nov): [note-tester-2-demo-path.md](./note-tester-2-demo-path.md).
+
 ## Intro template (copy into your file)
 
 ```md

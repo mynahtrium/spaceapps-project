@@ -8,9 +8,11 @@
 - **Hosting:** Upload to a **public, no-login, no-password link** (e.g., public/unlisted YouTube with no sign-in gate, or public GitHub release asset) and keep a local `.mp4` backup.
 - **Alternative:** A **7-slide presentation** (see [slides-outline.md](./slides-outline.md)) is also an allowed demo submission format; we prepare both so submission is bulletproof.
 
+**Record now:** the HUD clicks in the table below are not showable yet (`web/` is README-only). Use [demo-path.md](./demo-path.md) and [demo-path.srt](./demo-path.srt) (29 s, slope preview + Curiosity stills + a caption card, no faces or voices).
+
 ---
 
-## Second-by-Second Beat Sheet (30 s Total)
+## After the web HUD exists (do not record this cut yet)
 
 | Time | Visual (Screen Recording in `?demo=1` Mode) | Burned-in English Subtitle (On-Screen Text) | Milestone Needed |
 |---|---|---|---|
@@ -18,7 +20,7 @@
 | **5–12 s** | On the 2D MapLibre planner: toggle the HiRISE 1 m slope/hazard cost map (green/amber/red/blocked >20°), click **"Start EVA"** (`mm:set-route`), and watch the route appear in the 3D helmet HUD. | *"Our 2D MapLibre planner routes around >20° hazards and sends the path straight to a 3D helmet HUD."* | MUST-02 / MUST-05 / MUST-09 |
 | **12–22 s** | Walk along the 3D route: highlight HUD readouts (distance, slope class, next stop, illustrative O₂ placeholder). Click a **lake-sediment mudstone stop** (with Curiosity POV still) and the **Altadena boxwork bonus stop**. | *"We target ancient lake mudstones for biosignatures—plus Curiosity's boxwork ridges as a bonus stop."* | MUST-10 / SHOULD-03 |
 | **22–27 s** | Zoom on the HUD **Radiation Dose card** (`0.64 ± 0.12 mSv/day` RAD baseline × duration) and the **DONKI WSA-Enlil** Mars space-weather banner, plus THEMIS/REMS toggle. | *"Real Curiosity RAD dose budgets, REMS weather, and cached DONKI solar-storm alerts keep the EVA timed safely."* | SHOULD-01 / SHOULD-02 / SHOULD-04 |
-| **27–30 s** | End card over the 3D HUD showing **Martian Mappers — NASA Space Apps 2026**, data credits (HiRISE, Mars Trek, Curiosity MSL, DONKI), and honesty note (lunar slope stand-in, DTM tilt offset, placeholder O₂). | *"Martian Mappers — built from NASA PDS, Mars Trek, Curiosity & DONKI data. Safe walks on Mars."* | All MUST + SHOULD |
+| **27–30 s** | End card over the 3D HUD showing **Martian Mappers — NASA Space Apps 2026**, data credits (HiRISE, Mars Trek, Curiosity MSL, DONKI), and honesty note (lunar slope stand-in, no systematic DTM under-read on the 14 Nov check, placeholder O₂). | *"Martian Mappers — built from NASA PDS, Mars Trek, Curiosity & DONKI data. Safe walks on Mars."* | All MUST + SHOULD |
 
 ---
 

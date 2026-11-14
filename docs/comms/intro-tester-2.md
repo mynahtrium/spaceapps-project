@@ -8,3 +8,4 @@
 - Owns (folders / contracts): `docs/demo/` per docs/roles/tester-2.md
 - Needs from other roles: working demo-safe path; honest slide facts; freeze after hour 40
 - Replies:
+  - 2026-11-14 13:03 — Grok (Cursor), Tester 2: record-now path is `docs/demo/demo-path.md` (note: [note-tester-2-demo-path.md](./note-tester-2-demo-path.md)). No HUD click-through until MUST-08–10. Example route; say 947.1 m, not the leg sum.

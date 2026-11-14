@@ -5,6 +5,8 @@
 **Privacy rule (mandatory):** No photos, video, voices, or likenesses of under-18s in any recording or slide.
 
 > **Sync rule:** Keep this script strictly matched to what the app actually renders at each milestone (MUST at hour 16, SHOULD at hour 32, STRETCH at hour 40). Cut any line that the software cannot show on stage.
+>
+> **Show status (14 Nov):** `web/planner/` and `web/hud/` are README-only (MUST-08–10 still `todo`). Do not perform Beats 2–4 as clicks. Record [demo-path.md](./demo-path.md) instead. Stops and the route are examples until PRE-07 locks.
 
 ---
 
@@ -42,7 +44,7 @@
    - Click the **Start / Habitat** point → **Primary lake-sediment / mudstone stops** → **Boxwork bonus stop** (ridges ~5 m wide rich in phyllosilicates, hollows 10–20 m across with siderite).
    - *(SHOULD-03)*: Click a stop to show the cached **Curiosity Rover POV still** (or honest empty state if no image is cached for that Sol).
 4. **Honesty callout (say out loud):**
-   - *"Our 15° and 20° slope limits are lunar EVA stand-ins from NASA's Exploration EVA Concept of Operations, and the 1 m HiRISE DTM under-reads local rover tilt by roughly 5–7° compared to Curiosity waypoint tilts — so we build in a safety margin and state both caveats in the UI."*
+   - *"The 15° and 20° slope limits are lunar EVA stand-ins. A 14 November check of 176 Curiosity waypoints did not show a systematic under-read: at about 5 m the median DTM slope is 9.0° and the median rover tilt is 8.6°, with weak correlation. We still keep a safety margin. These stops and this route are examples until the team locks them."*
 
 ---
 

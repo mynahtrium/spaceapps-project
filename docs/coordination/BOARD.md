@@ -56,7 +56,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
 | MUST-11 | MUST test plan + sign-off | T1 | Asil | Gemini | doing | hour 16 | Drafted in docs/testing/must-checklist.md |
-| MUST-12 | Review early PRs; rough demo walk | T1, T2 | Eymen (T2), Asil (T1) | Gemini (Antigravity) | doing | hour 16 | Drafted demo docs in docs/demo/ and test checklist in docs/testing/; ready to review early PRs |
+| MUST-12 | Review early PRs; rough demo walk | T1, T2 | Eymen (T2), Asil (T1) | Gemini (Antigravity); Grok (Cursor) | doing | hour 16 | Drafted demo docs in docs/demo/ and test checklist in docs/testing/; ready to review early PRs. 14 Nov Tester 2: record-now path in docs/demo/demo-path.md (example route, PRE-07 open, web HUD not built). 7-slide outline corrected for the 14 Nov tilt check. |
 
 ### SHOULD (hours 16–32)
 
@@ -94,5 +94,6 @@ Add a row when you need an answer. Cross it out or mark `answered` when done. Fi
 | Date | From (role) | To (role) | Question | Status |
 |---|---|---|---|---|
 | 2026-11-14 | B2 (Doruk) | Doruk / team (+ T1/T2 record) | PRE-07: Lock habitat + two lake-sediment mudstone stops (official names + lat/lon inside DTEEC_019698) and confirm boxwork bonus (Sol 4534 candidate cited). Also: allow example-contract routing scaffold until then? See [PRE07_LOCK_REQUEST.md](../../pipeline/routing/PRE07_LOCK_REQUEST.md). | open |
+| 2026-11-14 | T2 (Eymen) | B2 (Doruk) | Example `route.json`: `properties.distance_m` is 947.1 m, but the four legs sum to 790.3 m. Which figure should the demo say until you confirm? `dose.json` is still the 96 min contract placeholder (0.0427 mSv), not the 71 min example route. | open |
 
 When a question is about a **contract field change**, also add a line to [docs/contracts/CHANGES.md](../contracts/CHANGES.md) and a [handoff](./HANDOFFS.md) for the owning role, Frontend 1, and both testers.
