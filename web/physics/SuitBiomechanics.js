@@ -9,7 +9,7 @@ import { marsGravityMs2 } from "./MarsGravityField.js";
 const DEG = Math.PI / 180;
 
 export const WALK_SPEED_MS = 1.4;
-export const RUN_SPEED_MS = 2.5;
+export const RUN_SPEED_MS = 4.4;
 export const JUMP_SPEED_MS = 1.7;
 export const RESPONSE_TAU_S = 0.22;
 

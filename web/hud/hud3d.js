@@ -1275,6 +1275,7 @@ export async function initHud3D(
       try {
         const rig = await loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M);
         suitRig = rig;
+        if (rig.bootBounds) footsteps.setSuitProfile(rig.bootBounds);
         self = createAstronaut(rig, { hideHead: true });
         suitLabel = m.label + " · RIGGED";
         break;
@@ -1784,9 +1785,11 @@ export async function initHud3D(
     phys.y = sampleElevSceneY(x, z);
     syncPlayerFromPhys();
     justTeleportedOrWrapped = true;
+    lastMoveYaw = null;
   }
   let partnerS = PARTNER_AHEAD_M;
   let justTeleportedOrWrapped = false;
+  let lastMoveYaw = null;
   let drivingRover = false;
   let roverThrottleVel = 0;
   let roverVelX = 0;
@@ -3987,6 +3990,13 @@ export async function initHud3D(
     const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0;
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
+    if (snappedThisFrame) {
+      lastMoveYaw = null;
+    } else if (step > 5e-4) {
+      lastMoveYaw = Math.atan2(-mvx, -mvz);
+    } else if (Math.hypot(phys.vx, phys.vz) > 0.05) {
+      lastMoveYaw = Math.atan2(-phys.vx, -phys.vz);
+    }
 
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
@@ -4030,7 +4040,7 @@ export async function initHud3D(
         const gy = sampleElevSceneY(footPos.x, footPos.z);
         const n = sampleNormal(footPos.x, footPos.z);
         footsteps.play(side, phys.faciesId);
-        footsteps.stamp(footPos.x, gy, footPos.z, n, yaw, phys.faciesId);
+        footsteps.stamp(footPos.x, gy, footPos.z, n, lastMoveYaw ?? yaw, phys.faciesId, side);
         if (devCfg.realisticDust && groundSpeed > 0.35 && movedXZ > 1e-5) {
           const runFast = groundSpeed > 1.9;
           marsFx.emitBurst(
