@@ -319,6 +319,8 @@ export class TileSourceRegistry {
     this._activeAttributionIds = new Set(["hirise-dtm-local"]);
     /** @type {Map<string, string>} */
     this._localThemisMap = new Map();
+    /** @type {{ day: number[], night: number[] }} */
+    this._localThemisLevels = { day: [], night: [] };
     /** @type {Set<(list: Array<object>) => void>} */
     this._attrListeners = new Set();
 
@@ -339,19 +341,28 @@ export class TileSourceRegistry {
       const pid = band === "day" ? "themis-day" : "themis-night";
       const prov = this._providers.get(pid);
       if (prov && cfg.tile_url_template) {
+        const styleVal = cfg.style || "default";
+        const tmsVal = cfg.tile_matrix_set || "default028mm";
         prov.urlTemplate = cfg.tile_url_template
+          .replace(".0.0//", ".0.0/")
+          .replace("{Style}", styleVal)
+          .replace("{TileMatrixSet}", tmsVal)
           .replace("{TileMatrix}", "{eqZ}")
           .replace("{TileRow}", "{row}")
           .replace("{TileCol}", "{col}");
       }
       if (Array.isArray(cfg.cached_gale_sample_tiles)) {
+        const levels = new Set(this._localThemisLevels[band]);
         for (const t of cfg.cached_gale_sample_tiles) {
-          const key = `${band}:${t.z}:${t.row}:${t.col}`;
+          const zNum = Number(t.z);
+          const key = `${band}:${zNum}:${t.row}:${t.col}`;
           const filename = String(t.relpath || "").split("/").pop();
           if (filename) {
             this._localThemisMap.set(key, `${baseUrl}/${band}/${filename}`);
+            if (Number.isFinite(zNum)) levels.add(zNum);
           }
         }
+        this._localThemisLevels[band] = [...levels].sort((a, b) => b - a);
       }
     }
   }
@@ -382,7 +393,18 @@ export class TileSourceRegistry {
     if (providerId === "themis-day" || providerId === "themis-night") {
       const band = providerId === "themis-day" ? "day" : "night";
       const localUrl = this._localThemisMap.get(`${band}:${eqZ}:${row}:${col}`);
-      if (localUrl) return { url: localUrl, isLocal: true };
+      if (localUrl) return { url: localUrl, isLocal: true, eqZ, col, row };
+      if (this.demoSafe) {
+        // Step down to cached Gale sample pyramid level (z=8, 6, 4) so high-zoom ?demo=1 works offline
+        for (const candZ of this._localThemisLevels[band] || []) {
+          if (candZ >= eqZ) continue;
+          const factor = 2 ** (eqZ - candZ);
+          const candCol = Math.floor(col / factor);
+          const candRow = Math.floor(row / factor);
+          const ancUrl = this._localThemisMap.get(`${band}:${candZ}:${candRow}:${candCol}`);
+          if (ancUrl) return { url: ancUrl, isLocal: true, eqZ: candZ, col: candCol, row: candRow };
+        }
+      }
     }
 
     if (this.demoSafe && !prov.localOnly) {
@@ -507,7 +529,10 @@ export class TileSourceRegistry {
         errors.push({ providerId, skipped: true, reason: this.demoSafe ? "demo-blocked" : "unavailable" });
         continue;
       }
-      const key = `${providerId}:${clampedZ}:${targetCol}:${targetRow}`;
+      const actualZ = resolved.eqZ ?? clampedZ;
+      const actualCol = resolved.col ?? targetCol;
+      const actualRow = resolved.row ?? targetRow;
+      const key = `${providerId}:${actualZ}:${actualCol}:${actualRow}`;
       try {
         const result = await this.fetchSingleflight(key, resolved.url, {
           providerId,
@@ -516,9 +541,9 @@ export class TileSourceRegistry {
         });
         return {
           ...result,
-          eqZ: clampedZ,
-          col: targetCol,
-          row: targetRow,
+          eqZ: actualZ,
+          col: actualCol,
+          row: actualRow,
           requestedEqZ: eqZ,
           requestedCol: col,
           requestedRow: row,

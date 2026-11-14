@@ -80,7 +80,7 @@ export class Fallback2DMap extends BaseMapAdapter {
 
     this._loadOverlayImage("slope-preview", this.slopePreviewUrl, true);
     if (this.orthoPreviewUrl) {
-      this._loadOverlayImage("hirise-ortho", this.orthoPreviewUrl, false);
+      this._loadOverlayImage("hirise-ortho", this.orthoPreviewUrl, true);
     }
 
     this._bindEvents(canvas);
@@ -150,6 +150,24 @@ export class Fallback2DMap extends BaseMapAdapter {
       if (!lonLat) return;
       const info = this.demSampler ? this.demSampler.sampleSlopeAndNormal(lonLat) : null;
       this.emit("click", {
+        lon: lonLat[0],
+        lat: lonLat[1],
+        lngLat: { lng: lonLat[0], lat: lonLat[1] },
+        elevM: info ? info.elevM : null,
+        slopeDeg: info ? info.slopeDeg : null,
+        x,
+        y,
+      });
+    });
+    canvas.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const lonLat = this.unproject([x, y]);
+      if (!lonLat) return;
+      const info = this.demSampler ? this.demSampler.sampleSlopeAndNormal(lonLat) : null;
+      this.emit("dblclick", {
         lon: lonLat[0],
         lat: lonLat[1],
         lngLat: { lng: lonLat[0], lat: lonLat[1] },

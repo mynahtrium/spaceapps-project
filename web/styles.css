@@ -296,6 +296,7 @@ body {
   position: absolute;
   left: 14px;
   bottom: 14px;
+  z-index: 5;
   max-width: 290px;
   background: rgba(0, 0, 0, 0.82);
   border: 1px solid var(--line);
@@ -501,6 +502,12 @@ svg.profile-svg {
 
 .maplibregl-popup-content * {
   color: #fff !important;
+}
+
+.maplibregl-popup-close-button {
+  color: #fff !important;
+  font-size: 16px;
+  padding: 2px 6px;
 }
 
 .maplibregl-popup-tip {
@@ -780,10 +787,25 @@ svg.profile-svg {
   right: 10px;
   top: 10px;
   z-index: 5;
-  padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 9px;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid var(--line);
   color: #fff;
   font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.08em;
   pointer-events: none;
+}
+
+.map-probe .map-teleport-btn {
+  pointer-events: auto;
+  font-size: 10px;
+  padding: 0 2px;
+  color: #38bdf8;
+}
+
+.map-probe .map-teleport-btn:hover {
+  color: #fff;
 }
