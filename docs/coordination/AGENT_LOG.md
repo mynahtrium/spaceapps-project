@@ -130,6 +130,28 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Other humans run onboarding and fill Human on their intro files; Doruk asked to push this work to main (no feature-branch PR).
 
+### 2026-11-14 11:30 Europe/Istanbul — PRE-02
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen Medium)
+- Role: backend-3
+- Task id: PRE-02
+- Files changed: docs/team/profiles/cc.md, docs/comms/intro-backend-3.md, docs/coordination/AGENT_LOG.md
+- Why: Completed first-session onboarding interview for CC (Backend 3 — data) and filled Human in docs/comms/intro-backend-3.md; pushed directly to main as requested.
+- Commit: this commit
+- Next step: Check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
+
+### 2026-11-14 11:40 Europe/Istanbul — PRE-02 / MUST-01 (claim)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend-1
+- Task id: PRE-02, MUST-01
+- Files changed: docs/team/profiles/cagan.md (new), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Ran the onboarding interview (skills and GitHub username not asked) and wrote Cagan's profile. Claimed MUST-01 as Backend 1. Tried a first slope preview and cost map locally, then Cagan asked to drop it; none of that code or data is in this commit.
+- Commit: this commit
+- Next step: Install GDAL/rasterio and start MUST-01 again.
+
 ### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
 
 - Human: Eymen
