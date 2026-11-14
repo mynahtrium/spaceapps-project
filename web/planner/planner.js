@@ -147,7 +147,7 @@ function buildStrict15Canvas(costMap) {
   return canvas.toDataURL();
 }
 
-export function initPlanner(data, { onOpenPov }) {
+export function initPlanner(data, { onOpenPov, onRequestCloseSettings }) {
   const { costMap, stops, alerts, dose, weather, povIndex, crism, demoSafe, assets } = data;
 
   const bounds = costMap?.bounds || {
@@ -182,16 +182,21 @@ export function initPlanner(data, { onOpenPov }) {
   let map = null;
   let mapReady = false;
   const startCoord = stops?.features?.[0]?.geometry?.coordinates || center;
+  let followPlayer = true;
+  let latestLon = startCoord[0];
+  let latestLat = startCoord[1];
+  let lastFollowedLon = null;
+  let lastFollowedLat = null;
 
   if (window.maplibregl) {
     map = new window.maplibregl.Map({
       container: "map",
       style: buildRasterStyle(demoSafe),
-      center,
-      zoom: 14.0,
+      center: startCoord,
+      zoom: 15.2,
       attributionControl: false,
+      dragRotate: false,
     });
-    map.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), "top-left");
 
     map.on("load", () => {
       mapReady = true;
@@ -387,26 +392,56 @@ export function initPlanner(data, { onOpenPov }) {
     });
   }
 
-  // Visor Dock Expand / Collapse buttons
+  // Minimap Layout & Auto-Follow Controls (housed in ESC Settings overlay)
   const mapDock = document.getElementById("visor-map-dock");
   const btnMapExpand = document.getElementById("btn-map-expand");
   const btnMapCollapse = document.getElementById("btn-map-collapse");
-  btnMapExpand?.addEventListener("click", () => {
-    const expanded = mapDock.classList.toggle("expanded");
-    btnMapExpand.textContent = expanded ? "Compact" : "Expand";
-    setTimeout(() => map?.resize(), 210);
-  });
-  btnMapCollapse?.addEventListener("click", () => {
-    const collapsed = mapDock.classList.toggle("collapsed");
-    btnMapCollapse.textContent = collapsed ? "Show" : "Hide";
-    if (!collapsed) setTimeout(() => map?.resize(), 50);
+  const toggleFollow = document.getElementById("toggle-map-follow");
+  const btnRecenter = document.getElementById("btn-recenter-map");
+  const minimapStatus = document.getElementById("minimap-status");
+  const minimapHeading = document.getElementById("minimap-heading");
+
+  function syncFollowUi() {
+    if (toggleFollow) toggleFollow.checked = followPlayer;
+    if (minimapStatus) {
+      minimapStatus.textContent = followPlayer ? "FOLLOW" : "MANUAL";
+      minimapStatus.classList.toggle("manual", !followPlayer);
+    }
+    if (minimapHeading) {
+      minimapHeading.classList.toggle("hidden", !followPlayer);
+    }
+  }
+  syncFollowUi();
+
+  toggleFollow?.addEventListener("change", () => {
+    followPlayer = toggleFollow.checked;
+    syncFollowUi();
+    if (followPlayer && map) {
+      lastFollowedLon = null;
+      lastFollowedLat = null;
+      map.jumpTo({ center: [latestLon, latestLat] });
+    }
   });
 
-  const sciDock = document.getElementById("visor-science-dock");
-  const btnSciCollapse = document.getElementById("btn-science-collapse");
-  btnSciCollapse?.addEventListener("click", () => {
-    const collapsed = sciDock.classList.toggle("collapsed");
-    btnSciCollapse.textContent = collapsed ? "Show" : "Hide";
+  btnRecenter?.addEventListener("click", () => {
+    followPlayer = true;
+    syncFollowUi();
+    if (map) {
+      lastFollowedLon = latestLon;
+      lastFollowedLat = latestLat;
+      map.flyTo({ center: [latestLon, latestLat], zoom: 15.2, duration: 400 });
+    }
+  });
+
+  btnMapExpand?.addEventListener("click", () => {
+    const expanded = mapDock?.classList.toggle("expanded");
+    btnMapExpand.textContent = expanded ? "Compact" : "Expand";
+    setTimeout(() => map?.resize(), 220);
+  });
+  btnMapCollapse?.addEventListener("click", () => {
+    const collapsed = mapDock?.classList.toggle("collapsed");
+    btnMapCollapse.textContent = collapsed ? "Show" : "Hide";
+    if (!collapsed) setTimeout(() => map?.resize(), 50);
   });
 
   // Stops list with Jump & POV
@@ -433,10 +468,18 @@ export function initPlanner(data, { onOpenPov }) {
           </div>
         `;
         div.querySelector("[data-jump]")?.addEventListener("click", () => {
+          followPlayer = true;
+          syncFollowUi();
+          lastFollowedLon = null;
+          lastFollowedLat = null;
           dispatchJumpToCoord(f.geometry.coordinates, p.name);
+          onRequestCloseSettings?.();
         });
         div.querySelector("[data-zoom]")?.addEventListener("click", () => {
+          followPlayer = false;
+          syncFollowUi();
           if (map) map.flyTo({ center: f.geometry.coordinates, zoom: 15.8 });
+          onRequestCloseSettings?.();
         });
         div.querySelector("[data-pov]")?.addEventListener("click", () => {
           onOpenPov(povEntry || { stop_id: p.id, stop_name: p.name, missing: true, missing_label: "no NASA value — POV index entry missing" });
@@ -484,7 +527,14 @@ export function initPlanner(data, { onOpenPov }) {
     }
   }
 
-  function updateAstronautPosition(lon, lat) {
+  function updateAstronautPosition(lon, lat, headingDeg = 0) {
+    latestLon = lon;
+    latestLat = lat;
+
+    if (minimapHeading && followPlayer) {
+      minimapHeading.style.transform = `translate(-50%, -50%) rotate(${Number(headingDeg || 0).toFixed(1)}deg)`;
+    }
+
     if (mapReady && map) {
       const src = map.getSource("astronaut-pos");
       if (src) {
@@ -492,6 +542,16 @@ export function initPlanner(data, { onOpenPov }) {
           type: "Feature",
           geometry: { type: "Point", coordinates: [lon, lat] },
         });
+      }
+      if (
+        followPlayer &&
+        (lastFollowedLon === null ||
+          Math.abs(lon - lastFollowedLon) > 1e-7 ||
+          Math.abs(lat - lastFollowedLat) > 1e-7)
+      ) {
+        lastFollowedLon = lon;
+        lastFollowedLat = lat;
+        map.jumpTo({ center: [lon, lat] });
       }
     }
   }

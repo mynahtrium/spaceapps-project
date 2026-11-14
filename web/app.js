@@ -35,6 +35,33 @@ async function boot() {
     if (e.target === modalBackdrop) modalBackdrop.classList.remove("open");
   };
 
+  const settingsModal = document.getElementById("settings-modal");
+  const btnOpenSettings = document.getElementById("btn-open-settings");
+  const btnCloseSettings = document.getElementById("btn-close-settings");
+
+  const isSubModalOpen = () => Boolean(modalBackdrop?.classList.contains("open"));
+  const closeSubModal = () => modalBackdrop?.classList.remove("open");
+  const isSettingsOpen = () => Boolean(settingsModal?.classList.contains("open"));
+
+  function openSettings() {
+    settingsModal?.classList.add("open");
+    if (document.pointerLockElement && document.exitPointerLock) {
+      document.exitPointerLock();
+    }
+    window.dispatchEvent(new CustomEvent("mm:settings-change", { detail: { open: true } }));
+  }
+
+  function closeSettings(relock = false) {
+    settingsModal?.classList.remove("open");
+    window.dispatchEvent(new CustomEvent("mm:settings-change", { detail: { open: false, relock } }));
+  }
+
+  btnOpenSettings?.addEventListener("click", openSettings);
+  btnCloseSettings?.addEventListener("click", () => closeSettings(true));
+  settingsModal?.addEventListener("click", (e) => {
+    if (e.target === settingsModal) closeSettings(false);
+  });
+
   function openPovModal(povEntry) {
     modalTitle.textContent = `Curiosity Rover POV — ${povEntry.stop_name || "Stop"}`;
     if (!povEntry || povEntry.missing) {
@@ -96,12 +123,22 @@ async function boot() {
 
   document.getElementById("btn-credits").onclick = openCreditsModal;
 
-  const plannerApi = initPlanner(data, { onOpenPov: openPovModal });
+  const plannerApi = initPlanner(data, {
+    onOpenPov: openPovModal,
+    onRequestCloseSettings: () => closeSettings(false),
+  });
 
   await initHud3D(data, {
     onOpenPov: openPovModal,
-    onPositionChange: (lon, lat) => {
-      plannerApi.updateAstronautPosition(lon, lat);
+    onPositionChange: (lon, lat, headingDeg) => {
+      plannerApi.updateAstronautPosition(lon, lat, headingDeg);
+    },
+    settings: {
+      isOpen: isSettingsOpen,
+      open: openSettings,
+      close: closeSettings,
+      isSubModalOpen,
+      closeSubModal,
     },
   });
 }

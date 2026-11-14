@@ -775,7 +775,7 @@ function createBodycamPostPipeline(renderer, w, h) {
   return { rt, postScene, postCamera, postMat, resize };
 }
 
-export async function initHud3D(data, { onOpenPov, onPositionChange }) {
+export async function initHud3D(data, { onOpenPov, onPositionChange, settings }) {
   const { costMap, stops, route, telemetry, povIndex, assets } = data;
   const wrap = document.getElementById("hud-canvas-wrap");
 
@@ -1607,8 +1607,10 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
   let smoothExposure = 1.15;
   let smoothGlare = 0;
 
-  // Pointer Lock mouse look (click 3D view to lock cursor; Esc to unlock) + drag fallback
+  // Pointer Lock mouse look (click 3D view to lock cursor; Esc opens Settings) + drag fallback
   const reticleEl = document.getElementById("hud-reticle");
+  const lockBtnEl = document.getElementById("btn-open-settings");
+  const lockPillEl = document.getElementById("hud-lock-pill");
   const lockHintEl = document.getElementById("hud-lock-hint");
   const condensationEl = document.getElementById("visor-condensation");
   const solClockEl = document.getElementById("hud-sol-clock");
@@ -1623,36 +1625,63 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
   let movedWhileDragging = false;
   let lastX = 0;
   let lastY = 0;
+  let wasLocked = false;
+  let lastLockUnlockMs = 0;
 
   const isLocked = () => document.pointerLockElement === renderer.domElement;
 
-  function syncLockUi() {
+  function requestCanvasLock() {
+    if (isLocked() || !renderer.domElement.requestPointerLock) return;
+    try {
+      const res = renderer.domElement.requestPointerLock();
+      if (res && typeof res.catch === "function") res.catch(() => {});
+    } catch {
+      // Fallback drag look remains active if pointer lock is blocked
+    }
+  }
+
+  function syncLockUi(ev) {
     const locked = isLocked();
     reticleEl?.classList.toggle("locked", locked);
+    lockBtnEl?.classList.toggle("locked", locked);
+    if (lockPillEl) {
+      lockPillEl.textContent = locked ? "Mouse Locked" : "Click 3D: Look";
+    }
     if (lockHintEl) {
       lockHintEl.textContent = locked
-        ? "Mouse Locked · Esc: Unlock · WASD: Walk"
-        : "Click 3D view: Lock Mouse (Esc: Unlock)";
+        ? "Mouse Locked · Esc: Settings · WASD: Walk"
+        : "Click 3D view: Lock Mouse (Esc: Settings)";
     }
     if (locked) dragging = false;
+
+    if (ev?.type === "pointerlockchange" && wasLocked && !locked) {
+      lastLockUnlockMs = performance.now();
+      keys.clear();
+      if (document.hasFocus() && !settings?.isSubModalOpen?.() && !settings?.isOpen?.()) {
+        settings?.open?.();
+      }
+    }
+    wasLocked = locked;
   }
 
   document.addEventListener("pointerlockchange", syncLockUi);
   document.addEventListener("pointerlockerror", syncLockUi);
+
+  window.addEventListener("mm:settings-change", (e) => {
+    keys.clear();
+    dragging = false;
+    if (e.detail && e.detail.open === false && e.detail.relock) {
+      requestCanvasLock();
+    }
+  });
 
   renderer.domElement.addEventListener("click", () => {
     if (movedWhileDragging) {
       movedWhileDragging = false;
       return;
     }
-    if (!isLocked() && renderer.domElement.requestPointerLock) {
-      try {
-        const res = renderer.domElement.requestPointerLock();
-        if (res && typeof res.catch === "function") res.catch(() => {});
-      } catch {
-        // Fallback drag look remains active if pointer lock is blocked
-      }
-    }
+    if (settings?.isOpen?.() || settings?.isSubModalOpen?.()) return;
+    requestCanvasLock();
   });
 
   window.addEventListener("mousemove", (e) => {
@@ -1662,7 +1691,7 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
   });
 
   renderer.domElement.addEventListener("pointerdown", (e) => {
-    if (isLocked()) return;
+    if (isLocked() || settings?.isOpen?.() || settings?.isSubModalOpen?.()) return;
     dragging = true;
     movedWhileDragging = false;
     lastX = e.clientX;
@@ -1700,6 +1729,19 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
   }
 
   window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (performance.now() - lastLockUnlockMs < 180) return;
+      if (settings?.isSubModalOpen?.()) {
+        settings.closeSubModal?.();
+      } else if (settings?.isOpen?.()) {
+        settings.close?.(false);
+      } else if (!isLocked()) {
+        settings?.open?.();
+      }
+      return;
+    }
+
+    if (settings?.isOpen?.() || settings?.isSubModalOpen?.()) return;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     const k = e.key.toLowerCase();
@@ -1805,14 +1847,16 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
   });
 
   const compassEl = document.getElementById("hud-compass");
+  const nextArrowEl = document.getElementById("hud-next-arrow");
+  const nextMetaEl = document.getElementById("hud-next-meta");
 
   function updateHudReadouts(sM, camX, camZ) {
     for (const st of stopSprites) {
       updateArLabelDist(st.sprite, Math.hypot(st.x - camX, st.z - camZ));
     }
 
+    const lookHeadingDeg = (-yawOffset * 180) / Math.PI;
     if (compassEl) {
-      const lookHeadingDeg = (-yawOffset * 180) / Math.PI;
       compassEl.textContent = `HDG ${compassLabel(lookHeadingDeg)}`;
     }
 
@@ -1832,6 +1876,8 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
 
     let nextStop = stops?.features?.[0] || null;
     let minStopDist = Infinity;
+    let stopDx = 0;
+    let stopDz = -1;
     if (stops?.features?.length) {
       for (const f of stops.features) {
         const dx = lonToX(f.geometry.coordinates[0]) - camX;
@@ -1840,6 +1886,8 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
         if (d < minStopDist) {
           minStopDist = d;
           nextStop = f;
+          stopDx = dx;
+          stopDz = dz;
         }
       }
     }
@@ -1854,8 +1902,8 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
     const inCentreTile = Math.abs(camX) <= worldW * 0.5 && Math.abs(camZ) <= worldH * 0.5;
     document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
     document.getElementById("hud-dist-sub").textContent = inCentreTile
-      ? `WASD Walk (1.7m) · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`
-      : `Mirrored copy (real DTM on centre tile) · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "—"}`;
+      ? `WASD Walk · 1.7 m eye`
+      : `Mirrored copy (real DTM on centre tile)`;
     document.getElementById("hud-slope").textContent =
       slopeDeg != null ? `${Number(slopeDeg).toFixed(1)}°` : "no NASA value";
 
@@ -1871,6 +1919,19 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
       condensationEl.classList.toggle("active", stressed);
     }
 
+    if (minStopDist < Infinity) {
+      const stopAzimuthDeg = ((Math.atan2(stopDx, -stopDz) * 180) / Math.PI + 360) % 360;
+      const relAngleDeg = stopAzimuthDeg - (((lookHeadingDeg % 360) + 360) % 360);
+      if (nextArrowEl) {
+        nextArrowEl.style.transform = `rotate(${relAngleDeg.toFixed(1)}deg)`;
+      }
+      if (nextMetaEl) {
+        nextMetaEl.textContent = `${compassLabel(stopAzimuthDeg)} · ${minStopDist.toFixed(0)} m`;
+      }
+    } else if (nextMetaEl) {
+      nextMetaEl.textContent = "—";
+    }
+
     document.getElementById("hud-next-stop").textContent =
       nextStop?.properties?.name || primaryTel?.next_stop_name || "no NASA value";
     document.getElementById("hud-next-kind").textContent =
@@ -1878,7 +1939,11 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
 
     document.getElementById("hud-o2").textContent = `${o2Pct.toFixed(1)}%`;
     const o2Fill = document.getElementById("hud-o2-fill");
-    if (o2Fill) o2Fill.style.width = `${o2Pct.toFixed(1)}%`;
+    if (o2Fill) {
+      o2Fill.style.width = `${o2Pct.toFixed(1)}%`;
+      o2Fill.classList.toggle("warn", o2Pct < 35 && o2Pct >= 15);
+      o2Fill.classList.toggle("crit", o2Pct < 15);
+    }
 
     if (btnPov) {
       btnPov.onclick = () => {
@@ -1986,13 +2051,16 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
     if (solValEl) solValEl.textContent = clockStr;
     if (solClockEl) solClockEl.textContent = `SOL 4534 // LTST ${clockStr}`;
 
-    // 2. Movement & Realistic Gait Physics
-    const fwdInput =
-      (keys.has("w") || keys.has("arrowup") ? 1 : 0) -
-      (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
-    const strafeInput =
-      (keys.has("d") || keys.has("arrowright") ? 1 : 0) -
-      (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
+    // 2. Movement & Realistic Gait Physics (paused cleanly while Settings overlay is open)
+    const menuPaused = settings?.isOpen?.() || settings?.isSubModalOpen?.();
+    const fwdInput = menuPaused
+      ? 0
+      : (keys.has("w") || keys.has("arrowup") ? 1 : 0) -
+        (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+    const strafeInput = menuPaused
+      ? 0
+      : (keys.has("d") || keys.has("arrowright") ? 1 : 0) -
+        (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
 
     const isMoving = fwdInput !== 0 || strafeInput !== 0;
     const sprint = keys.has("shift");
@@ -2156,8 +2224,9 @@ roughnessFactor = clamp(mix(0.96, 0.84, mmSteepR) + (mmRoughMicro - 0.5) * 0.08,
     // 7. Endless Terrain, HUD & Map Sync
     const hudLon = clamp(xToLon(freePos.x), -180, 180);
     const hudLat = clamp(zToLat(freePos.z), -85, 85);
+    const lookHeadingDeg = (((-yawOffset * 180) / Math.PI) % 360 + 360) % 360;
     updateHudReadouts(walkedM, freePos.x, freePos.z);
-    if (onPositionChange) onPositionChange(hudLon, hudLat, walkedM);
+    if (onPositionChange) onPositionChange(hudLon, hudLat, lookHeadingDeg);
     followEndless(camera.position);
 
     // 8. Render Scene (Single-pass Bodycam Post-Processing OR Raw Direct Render)

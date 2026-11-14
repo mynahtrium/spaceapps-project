@@ -715,3 +715,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Upgraded the first-person 3D HUD into a Bodycam helmet-cam scene featuring a procedural Martian sky dome with dusty-blue twilight forward scattering and starfield, Gale Crater (4.8°S) solar ephemeris + Sol Time scrubber (`0..24.62` LTST) + Auto-Cycle, ACESFilmic tone mapping + sun-glare adaptation + PCF soft shadows + helmet `SpotLight` headlamp (`L`), orbiting Phobos (`W -> E`) and Deimos (`E -> W`) with cratered regolith textures and phases, world-space micro-detail terrain shader (`onBeforeCompile`), `1,600` map-colored multi-scale angular boulders & mudstone slabs, `camera.far = 12000` + outer LOD seam fix + synced `uFogColor` distance haze (`FogExp2`), custom single-pass `WebGLRenderTarget` fisheye/CA/bloom/flare/grain/vignette post-processing shader, and CSS/SVG Bodycam visor OSD (`● REC`, tactical corner brackets, condensation pulse) with 100% offline `?demo=1` safety and all 4 MUST readouts preserved.
 - Commit: this commit
 - Next step: Merge `origin/main` (`2860d7e`) into `frontend/planner-hud` and integrate with NASA Mark III rigged astronaut + Mars gravity + black UI.
+
+### 2026-11-14 16:47 Europe/Istanbul — MUST-08..10 (Minimalist Tracking HUD & ESC Settings Menu)
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (UI designer)
+- Task id: MUST-08, MUST-09, MUST-10
+- Files changed: web/index.html, web/styles.css, web/app.js, web/planner/planner.js, web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Redesigned the visor HUD with sleek frosted-glass styling keeping only the 4 requested live elements on screen — Distance (`#hud-dist`), Next Waypoint (`#hud-next-stop` with live relative directional arrow `#hud-next-arrow` and bearing/distance `#hud-next-meta`), Suit O₂ (`#hud-o2` + color-reactive bar), and live player-tracking Minimap (`map.jumpTo({ center: [lon, lat] })` + rotating heading chevron `#minimap-heading`) — and moved all remaining controls and panels (walk speed, terrain texture, AR beacons, headlamp `L`, bodycam FX, moons, Sol Time slider, Curiosity POV, slope readout + strict 15°, map layers, DONKI/RAD/REMS, stops list, `?demo=1`, credits) into a 3-column frosted-glass `ESC` Settings overlay (`#settings-modal`) synchronized with Pointer Lock unlock/relock transitions. Verified all JS files via `node --check`, DOM ID consistency check, and ephemeral HTTP 200 checks.
+- Commit: this commit
+- Next step: Push `frontend/planner-hud` so user can test tracking minimap, clean visor HUD, and `ESC` settings menu live.
