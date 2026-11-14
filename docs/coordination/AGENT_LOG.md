@@ -761,3 +761,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Added zero-dependency multiplayer EVA support across both 2D Mission Control Planner and 3D Bodycam views. Added `scripts/mp-hub.mjs` + `scripts/server.mjs` (pure Node RFC 6455 WebSocket room relay `/ws?room=<code>`, `/api/mp/status` LAN URL discovery, static file serving), updated `scripts/start-app.sh` and `start.bat` to prefer `node scripts/server.mjs` with Python fallback, built dual-transport `web/shared/multiplayer.js` (`BroadcastChannel` always active offline including in `?demo=1` with 0 network calls, plus LAN WebSocket with sequence deduplication), rendered live animated rigged NASA Mark III crewmate avatars with callsign badges, backpack LEDs, solid collision, shared terrain beacon pillars (`P` key / Pin button), Crew/Comms drawer, EVA radio chat, `Go To` crewmate teleport, and live 2D `eva-crew`/`eva-pings` layers. Verified DOM ID audit (0 missing) and 20/20 unit tests (`node --test web/tests/*.test.mjs`).
 - Commit: this commit
 - Next step: Test two tabs (e.g. Planner + Bodycam or two Bodycam windows) at `http://localhost:8765/web/` or `?room=GALE-01`, and push `main` when ready.
+
+### 2026-11-14 17:39 Europe/Istanbul — Vercel static production config
+
+- Human: Doruk
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: docs
+- Task id: n/a
+- Files changed: vercel.json, .vercelignore, .gitignore, docs/coordination/AGENT_LOG.md
+- Why: Published the static Marswalk app to Vercel production (`martian-mappers`). Root redirects to `/web/`. The deploy ignore list leaves out team profiles, coordination notes, pipeline code, secrets, and the relief STL. `.vercel/` stays untracked so link metadata and pulled env files are not committed.
+- Commit: this commit
+- Next step: Turn off Vercel Authentication if judges should open https://martian-mappers.vercel.app without a Vercel login. Cross-device crew still needs the local server.
