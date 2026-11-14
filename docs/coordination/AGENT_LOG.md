@@ -603,3 +603,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: BUG-13: re-ran the export so the four data/demo/ JSON copies match data/processed/ (all four byte-identical; they now carry sources[]). BUG-14: the export now also copies ortho-preview.png (560 KB) into data/demo/, and orthoPreviewUrl uses baseTerrainDir so ?demo=1 reads data/demo/ instead of data/processed/. Loader passes node --check. Not tested in a browser. BUG-12 (trek.nasa.gov and unpkg.com still loaded in ?demo=1) is Frontend 1's and was not touched.
 - Commit: this commit
 - Next step: Divarci and Eymen re-check ?demo=1 with the network off; Divarci fixes BUG-12; Cetin to know his export script gained one line.
+
+### 2026-11-14 15:32 Europe/Istanbul — MUST-12 / SHOULD-07 (deep web JS & demo sync verification)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12, SHOULD-07
+- Files changed: POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/AGENT_LOG.md
+- Why: Pulled `20fc36f` and ran deep verification: `node --check` passed on all 5 JS files in `web/`, `0` missing DOM IDs against `web/index.html`, verified `BUG-13` and `BUG-14` are fixed (`data/demo/` matches `data/processed/` 1:1 and `ortho-preview.png` is bundled), and verified `web/planner/planner.js` already guards `trek.nasa.gov` CTX/THEMIS tiles behind `if (!demoSafe)`. Narrowed `BUG-12` strictly to `web/index.html` CDN links (`unpkg.com` for `maplibre-gl` and `three.js`).
+- Commit: this commit
+- Next step: Frontend 1 (Dıvarcı) optionally vendors `maplibre-gl` and `three.js` locally (`BUG-12`); team locks `PRE-07` stops (`BUG-09`).

@@ -28,9 +28,8 @@
 - **Deprecated `mars-photos`:** Never used in code (only mentioned in comments as "never use").
 - **UI Labels (`web/index.html`):** Lunar slope stand-in label, `MUST-03` tilt caveat, and suit O₂ placeholder label are present in the UI.
 
-## 3. `?demo=1` (Demo-Safe) Audit — **FAIL (Needs Fix)**
+## 3. `?demo=1` (Demo-Safe) Audit (updated at `20fc36f`)
 
-- **FAIL 1 (`web/planner/planner.js`):** Lines 19, 150, 166 register `https://trek.nasa.gov/...` WMTS tile URLs even when `?demo=1` is active (violates zero-network rule in `SHOULD-07`).
-- **FAIL 2 (`web/index.html`):** MapLibre GL JS and Three.js load from `https://unpkg.com/...` CDN instead of local vendor files.
-- **FAIL 3 (`web/shared/data-loader.js`):** Line 141–143 points `orthoPreviewUrl` to `../data/processed/terrain/ortho-preview.png` even when `demoSafe === true`.
-- **FAIL 4 (`data/demo/` sync):** After commit `2b217d1`, `cost-map.json`, `stops.json`, `route.json`, and `hud-telemetry.json` in `data/demo/` are out of sync with `data/processed/`.
+- **PASS (`web/planner/planner.js`):** Lines 15 & 146 properly guard `trek.nasa.gov` CTX and THEMIS WMTS tiles behind `if (!demoSafe)`.
+- **PASS (`web/shared/data-loader.js` & `data/demo/`):** `20fc36f` synced all JSONs between `data/processed/` and `data/demo/` and bundled `data/demo/ortho-preview.png`.
+- **WARN (`web/index.html`):** MapLibre GL JS and Three.js still load from `https://unpkg.com/...` CDN — fails if stage Wi-Fi is off and browser cache is cold (see `BUG-12`).

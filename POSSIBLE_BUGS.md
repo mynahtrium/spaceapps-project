@@ -1,30 +1,25 @@
 # Possible Bugs & Integration Risks (`main`)
 
-**Last checked:** 2026-11-14 15:21 Europe/Istanbul (commit `2b217d1`)  
+**Last checked:** 2026-11-14 15:31 Europe/Istanbul (commit `20fc36f`)  
 **Checked by:** Eymen (`ParongUs`, Bug tester 2)  
-**Scope:** Full audit of `web/`, `pipeline/`, `data/processed/`, `data/demo/`, and `docs/roles/prompts/eymen.md` §4 NASA data & `?demo=1` rules. See [docs/testing/nasa-data-audit.md](./docs/testing/nasa-data-audit.md) for the full source/date table.
+**Scope:** Deep verification of `web/` JS syntax (`node --check`), DOM ID matching, `?demo=1` network guards, `data/demo/` sync (`20fc36f`), and NASA data citations. See [docs/testing/nasa-data-audit.md](./docs/testing/nasa-data-audit.md).
 
 ---
 
 ## 1. Critical / Blocking Issues
 
-### [BUG-12] `?demo=1` still makes external network calls to `trek.nasa.gov` and `unpkg.com` (`SHOULD-07` FAIL)
-- **Where:** `web/planner/planner.js` (lines 19, 150, 166) and `web/index.html` (lines 7, 12, 193)
+### [BUG-12] `web/index.html` loads `maplibre-gl` and `three.js` from `unpkg.com` CDN (`SHOULD-07` offline risk)
+- **Where:** `web/index.html` (lines 7, 12, 193)
 - **What:**
-  - `planner.js` unconditionally adds `https://trek.nasa.gov/tiles/Mars/EQ/CTX_...`, `THEMIS_DayIR_...`, and `THEMIS_NightIR_...` WMTS sources to MapLibre even when `?demo=1` (`demoSafe === true`) is enabled.
-  - `web/index.html` loads `maplibre-gl` CSS/JS and `three.js` from `https://unpkg.com/...` CDN.
-- **Impact:** Fails the `SHOULD-07` / `eymen.md` §4 network-off check if stage Wi-Fi is off.
-- **Suggested fix (Frontend 1):** Guard `trek.nasa.gov` sources behind `if (!data.demoSafe)` in `planner.js` (using local `slope-preview.png` / cached THEMIS tiles in `?demo=1`), and optionally vendor `maplibre-gl` and `three.js` under `web/vendor/`.
+  - *(Verified OK)* `web/planner/planner.js` already guards `trek.nasa.gov` CTX and THEMIS WMTS tiles behind `if (!demoSafe)` (lines 15, 146).
+  - *(Still open)* `web/index.html` loads `maplibre-gl` CSS/JS and `three.js` from `https://unpkg.com/...` CDN. If stage Wi-Fi is off and the browser cache is cold, MapLibre and Three.js will fail to load even in `?demo=1` mode.
+- **Suggested fix (Frontend 1):** Vendor `maplibre-gl` and `three.js` locally under `web/vendor/` (or ensure browser cache is pre-warmed on the demo machine).
 
-### [BUG-13] `data/demo/` is out of sync with `data/processed/` after commit `2b217d1`
-- **Where:** `data/demo/cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`
-- **What:** Commit `2b217d1` added NASA/PDS citations to `data/processed/` (`cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`), but `export_demo_fixtures.py` was not re-run afterwards, so the 4 copies in `data/demo/` are stale.
-- **Suggested fix (Backend 3 / Backend 2):** Re-run `python -m pipeline.data.export_demo_fixtures` so `data/demo/` matches `data/processed/`.
+### [FIXED] [BUG-13] `data/demo/` synced with `data/processed/` (`20fc36f`)
+- Verified 1:1 match for `cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`, `alerts.json`, and `dose.json`.
 
-### [BUG-14] `orthoPreviewUrl` points to `data/processed/` even in `?demo=1` mode
-- **Where:** `web/shared/data-loader.js` (lines 141–143)
-- **What:** `orthoPreviewUrl` returns `"../data/processed/terrain/ortho-preview.png"` in both normal and `demoSafe` modes (and `ortho-preview.png` is not bundled in `data/demo/`).
-- **Suggested fix:** Bundle `ortho-preview.png` (560 KB) in `data/demo/` via `export_demo_fixtures.py` and switch `orthoPreviewUrl` to `${baseTerrainDir}/ortho-preview.png`.
+### [FIXED] [BUG-14] `orthoPreviewUrl` now serves from `data/demo/` in `?demo=1` (`20fc36f`)
+- `data/demo/ortho-preview.png` is bundled and `web/shared/data-loader.js` points `orthoPreviewUrl` to `${baseTerrainDir}/ortho-preview.png`.
 
 ---
 
@@ -46,7 +41,9 @@
 
 ---
 
-## 3. Passed Checks (as of `2b217d1` — 2026-11-14 15:21)
+## 3. Passed Checks (as of `20fc36f` — 2026-11-14 15:31)
+- **Web JS syntax & DOM IDs:** `node --check` passed on all 5 JS files (`app.js`, `planner.js`, `hud3d.js`, `data-loader.js`, `route-bridge.js`); `0` missing DOM `getElementById` references against `web/index.html`.
+- **Demo-Safe Sync (`20fc36f`):** `data/processed/` and `data/demo/` match 1:1 on all core JSONs, and `data/demo/ortho-preview.png` is bundled. `planner.js` properly skips `trek.nasa.gov` tiles when `?demo=1` is active.
 - **NASA Data & Citations (`eymen.md` §4):** All 11 processed terrain/routing/science JSONs have NASA/PDS source citations and fetch/compute dates; `alerts.json` & `donki-cache.json` are from live `api.nasa.gov/DONKI` (`2026-11-14T09:08:04Z`); `dose.json` uses Hassler et al. 2014 × duration; O₂ & lunar slope limits are labelled placeholders in `web/index.html`.
 - **Secrets & Deprecated APIs:** `0` `.env` files, API keys, or `DEMO_KEY` values in repo; `api.nasa.gov/mars-photos` is never used.
 - **Python syntax & JSON validity:** 28 / 28 `.py` files compile; 0 `NaN`/`Infinity` in `data/`.
