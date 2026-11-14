@@ -794,3 +794,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan said the astronaut looked like it walked forward while strafing. hud3d.js now passes the walking direction in the body frame to the rig; the fore-aft leg swing scales with the forward part (reversed when walking backwards), and the sideways part drives a side-step (leading leg reaches out, trailing leg closes, feet do not cross, soles kept flat, pelvis leans into the step, arm swing reduced). Checked with front-view renders of a right and a left side-step.
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-14 17:39 Europe/Istanbul — 3D view performance
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/hud at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan reported stutter. Cut per-frame work: pixel ratio capped at 1.25 (was 2), MSAA 4 -> 2 samples, shadow map 4096 -> 2048 px over a 40 m box with PCF instead of PCF-soft, terrain no longer drawn into the shadow map (terrain shadows come from the baked sun mask), mirrored copies at a quarter of the vertex density, HUD text updated 10 times a second, and adaptive render resolution (scene scale drops to 0.55 when frames average over 24 ms and recovers under 15 ms). In the in-app browser the frame rate is capped by vsync (median 13.9 ms before and after), so the gain could not be measured there; no console errors and shadows still render.
+- Commit: this commit
+- Next step: Cagan checks the frame rate on his machine.

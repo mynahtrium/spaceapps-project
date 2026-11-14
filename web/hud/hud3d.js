@@ -289,12 +289,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const camera = new THREE.PerspectiveCamera(78, 1, 0.06, 15000);
 
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Performance: draw at most 1.25 device pixels per CSS pixel; adaptive scaling below lowers it further.
+  const MAX_PIXEL_RATIO = Math.min(window.devicePixelRatio, 1.25);
+  renderer.setPixelRatio(MAX_PIXEL_RATIO);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap; // PCF: crisp enough, far cheaper than PCFSoft
   wrap.appendChild(renderer.domElement);
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
@@ -302,8 +304,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const sunDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize();
   // Mars sees a small sun disc (about 0.35 deg), so near shadows are crisp; the thin dusty sky
   // fills them with a weak reddish light rather than washing them out.
-  const SHADOW_HALF_M = 28;
-  const SHADOW_MAP_PX = 4096;
+  const SHADOW_HALF_M = 20; // about 2 cm per shadow texel around the walker
+  const SHADOW_MAP_PX = 2048;
   const sun = new THREE.DirectionalLight(0xfff0de, 3.6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP_PX, SHADOW_MAP_PX);
@@ -495,7 +497,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
   const terrainGeom = buildTerrainGeometry(fullSeg);
-  const copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 2)));
+  // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
+  const copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
 
   // ---------- far terrain shadows (baked) ----------
   // The real-time shadow map only covers the ground near the walker. For the rest, march from every
@@ -656,7 +659,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
   terrainMesh.receiveShadow = true;
-  terrainMesh.castShadow = true;
+  terrainMesh.castShadow = false; // terrain shadows come from the baked sun mask, not the shadow map
   scene.add(terrainMesh);
 
   // Endless ground: mirrored copies meet the real tile with identical edges. Only the
@@ -886,7 +889,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   if (suitEl) suitEl.textContent = suitLabel;
 
   // ---------- bodycam lens pass ----------
-  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -1137,10 +1140,28 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
-    const pr = renderer.getPixelRatio();
-    rt.setSize(Math.floor(w * pr), Math.floor(h * pr));
+    const pr = renderer.getPixelRatio() * renderScale;
+    rt.setSize(Math.max(1, Math.floor(w * pr)), Math.max(1, Math.floor(h * pr)));
     lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
   };
+
+  // Adaptive resolution: the 3D scene renders into rt, so its size can drop when frames are slow
+  // and come back when there is headroom. The lens pass scales it to the screen.
+  let renderScale = 1;
+  let frameAvg = 16;
+  let lastScaleChange = 0;
+  function adaptResolution(frameMs, now) {
+    frameAvg += (frameMs - frameAvg) * 0.05;
+    if (now - lastScaleChange < 1200) return;
+    let next = renderScale;
+    if (frameAvg > 24 && renderScale > 0.55) next = Math.max(0.55, renderScale - 0.1);
+    else if (frameAvg < 15 && renderScale < 1) next = Math.min(1, renderScale + 0.05);
+    if (next !== renderScale) {
+      renderScale = next;
+      lastScaleChange = now;
+      onResize();
+    }
+  }
   window.addEventListener("resize", onResize);
   onResize();
 
@@ -1151,6 +1172,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const moveDir = new THREE.Vector3();
   let prevT = performance.now();
   let clockT = 0;
+  let hudTimer = 1;
 
   function animate(now) {
     requestAnimationFrame(animate);
@@ -1290,13 +1312,19 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     updateMoons(clockT);
     skyMoons.position.copy(camera.position);
 
-    if (freeRoam) {
-      updateHudReadouts(alongM, xToLon(px), zToLat(pz), computeLocalSlopeDeg(px, pz));
-    } else {
-      updateHudReadouts(alongM, sample.lon, sample.lat);
+    // the HUD text only needs ~10 updates a second
+    hudTimer += dt;
+    if (hudTimer > 0.1) {
+      hudTimer = 0;
+      if (freeRoam) {
+        updateHudReadouts(alongM, xToLon(px), zToLat(pz), computeLocalSlopeDeg(px, pz));
+      } else {
+        updateHudReadouts(alongM, sample.lon, sample.lat);
+      }
     }
     followEndless(camera.position);
 
+    adaptResolution(dt * 1000, now);
     lensMat.uniforms.uTime.value = clockT;
     lensMat.uniforms.uExposure.value = 1.0 + Math.sin(clockT * 0.7) * 0.015 + Math.sin(clockT * 13.0) * 0.006;
     renderer.setRenderTarget(rt);
