@@ -12,7 +12,8 @@ Related: [ROADMAP.md](../../ROADMAP.md), [HANDOFFS.md](./HANDOFFS.md), [AGENT_LO
 4. When you are blocked, set `blocked`, add a row in **Questions for other roles**, and write a [handoff](./HANDOFFS.md) if files are involved.
 5. When the work is ready for a tester (or for the next role), set `review` and link the PR. A tester moves it to `done` after sign-off (or the owner does, after the tester approves the PR).
 6. Stay in your owned folders ([ROADMAP.md](../../ROADMAP.md) §2). One person, one doing-task when you can; finish or split rather than sitting on five.
-7. After 14 November, work happens on a branch and a PR, not as silent edits to `main`.
+7. After 14 November, work happens on a **long-lived role branch** (and a PR when ready), not as silent edits to `main`. **Merge to `main` only when asked.** After every prompt: pull, then push your current branch (no force).
+8. **Backend pass (what is left):** Cagan → terrain + costmap (incl. HiRISE crop routing needs); Doruk → routing + stops (example until PRE-07); CC → science leftovers + small tidy. Frontend / testers: not this pass. See [AGENTS.md](../../AGENTS.md) § Standing branch and sync rules.
 
 ## Status words
 

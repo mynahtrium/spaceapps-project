@@ -317,3 +317,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Merged all existing role branches into main; split backend pipeline into five folder-scoped long-lived branches (terrain, costmap, stops, routing, science). Did not merge those five back together. No secrets.
 - Commit: this commit
 - Next step: Later pass merges the five backend branches into the full project.
+
+### 2026-11-14 12:52 Europe/Istanbul — standing branch rules
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: docs / Backend 2 (integration)
+- Task id: n/a
+- Files changed: AGENTS.md, docs/coordination/README.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md, docs/roles/backend-1-terrain.md, backend-2-routing.md, backend-3-data.md, frontend-1-hud.md, tester-1.md, tester-2.md
+- Why: Document long-lived branches (merge to main only when asked), pull-then-push after every prompt, and remaining backend work split (Cagan terrain+costmap; Doruk routing+stops example until PRE-07; CC science leftovers). Frontend/testers marked not this pass. No application code for Cagan/CC; no secrets.
+- Commit: this commit
+- Next step: Each backend agent continues on its long-lived branch per the split.

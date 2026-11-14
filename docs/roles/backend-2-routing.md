@@ -9,7 +9,10 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [docs/
 
 ## Session start and end
 
-Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+Follow the checklist in [AGENTS.md](../../AGENTS.md): stay on your long-lived branch (`backend/routing`, `backend/stops`, or `backend-2/…`); **after every prompt** `git pull` then `git push` (no force; merge to `main` only when asked); read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+
+**This pass (Doruk — second remaining backend):** routing and stops only. Keep outputs `is_example` / `status: example` until the PRE-07 outcrop lock. Do not build Cagan’s terrain/costmap or CC’s science pipeline.
+
 ## Responsibilities
 
 - Turn the team's locked stops into `stops.json` (habitat, lake-sediment / mudstone stops, boxwork bonus).
@@ -21,7 +24,8 @@ Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md
 
 ## Owned folders
 
-- `pipeline/routing/`
+- `pipeline/stops/` — `write_stops.py` → `stops.json` (branch `backend/stops`)
+- `pipeline/routing/` — Dijkstra / route + HUD telemetry (branch `backend/routing`)
 - `data/processed/routing/`
 - `docs/contracts/stops.json`, `route.json`, `hud-telemetry.json`
 

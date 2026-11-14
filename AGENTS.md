@@ -162,23 +162,40 @@ Nothing in `pipeline/` or `web/` is built yet. After 14 November 2026:
 7. Re-read the official challenge, FAQ, Resources tab, Project Submission Guide, and judging guide when they can be loaded. A 13 November check could not read the challenge Details or Resources tabs or the 2026 judging guide (certificate error / HTTP 500). Do not treat past-year judging categories as confirmed for 2026. [docs/JUDGING_CHECKLIST.md](./docs/JUDGING_CHECKLIST.md) has a Status 2026-11-13 note and stays **UNVERIFIED**; board tasks PRE-05 and PRE-06 remain `todo`.
 8. **Claim a task** on [docs/coordination/BOARD.md](./docs/coordination/BOARD.md) before starting work. Follow the session checklist below.
 
+## Standing branch and sync rules (14 November 2026)
+
+These override ad-hoc “push everything to main” habits unless Doruk explicitly asks to merge:
+
+1. **Long-lived role branches.** Each agent keeps its own long-lived branch (for example `backend/terrain`, `backend/costmap`, `backend/stops`, `backend/routing`, `backend/science`, or `ROLE/short-topic`). **Merge that branch into `main` only when asked.** Do not merge other people’s long-lived branches into yours unless asked.
+2. **After every prompt:** `git pull` (fast-forward) on the **current** branch, then `git push` that branch. No force-push. Do not switch to `main` unless asked.
+3. **Never commit** `.env`, `NASA_API_KEY`, or other secrets.
+
+### Work split for what is left (backend pass)
+
+| Who | Size | Owns (write here) | Notes |
+|---|---|---|---|
+| **Cagan** (Backend 1) | Largest | `pipeline/terrain/`, `pipeline/costmap/`, `data/processed/terrain/` | HiRISE crop + cost map that **routing still needs** (re-crop after PRE-07 so stops sit inside the cost grid). Branches: `backend/terrain`, `backend/costmap`. |
+| **Doruk** (Backend 2) | Second | `pipeline/routing/`, `pipeline/stops/`, `data/processed/routing/` | Stops + route + HUD telemetry. Keep `is_example` / `status: example` until PRE-07 outcrop lock. Branches: `backend/routing`, `backend/stops` (or `backend-2/…`). |
+| **CC** (Backend 3) | Small | `pipeline/data/`, `data/processed/science/` | Science cache leftovers and small doc/board tidy only. Branch: `backend/science`. |
+| **Frontend 1, Tester 1, Tester 2** | — | Their owned trees in [ROADMAP.md](./ROADMAP.md) §2 | **Not this backend pass.** Do not start their build in a Backend 1/2/3 session. |
+
 ## Session start and end
 
 Do this at **every** agent session (mirrored briefly in [docs/GITHUB_WORKFLOW.md](./docs/GITHUB_WORKFLOW.md) and the role sheets).
 
 **Start**
 
-1. `git checkout main && git pull` (then create or update your branch; do not work on `main` after 14 November).
+1. Stay on (or check out) **your long-lived role branch**, then `git pull` (do not work on `main` after 14 November unless Doruk asked for a docs/integration commit on `main`).
 2. Read [BOARD.md](./docs/coordination/BOARD.md), [HANDOFFS.md](./docs/coordination/HANDOFFS.md), the latest [AGENT_LOG.md](./docs/coordination/AGENT_LOG.md) entries, and **all** [docs/team/profiles/](./docs/team/profiles/) (except you may skip `_TEMPLATE.md`).
 3. **First session** with this human: run the onboarding interview in [docs/team/profiles/README.md](./docs/team/profiles/README.md) **before any other work**, and write their profile (first name or nickname only; no personal data).
 4. Claim a task on the board (`todo` → `doing`, add first name or nickname and agent tool).
-5. Work only in owned folders, on a `ROLE/short-topic` branch.
+5. Work only in owned folders (see work split above and [ROADMAP.md](./ROADMAP.md) §2).
 
 **End**
 
 6. Test, or review docs, in line with the task.
 7. Append an **AGENT_LOG** entry (Commit: `this commit`). Update BOARD, and write a handoff or contract CHANGES row if needed. If the event clock is at a 6-hour mark, append [STANDUP.md](./docs/coordination/STANDUP.md) (Done / Next / Blocked).
-8. Commit, push, and open a PR for a tester. Do not merge your own PR.
+8. Commit, **`git pull` then `git push` your current branch** (no force). Open a PR for a tester when the unit is ready. **Do not merge to `main` unless asked.** Do not merge your own PR.
 
 ## Standup (every 6 hours)
 
