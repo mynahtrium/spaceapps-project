@@ -54,7 +54,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-08 | Scaffold planner + 3D scene; load contract JSON | F1 | TBD | TBD | todo | hour 2 | `web/planner/`, `web/hud/` |
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
-| MUST-11 | MUST test plan + sign-off | T1 | TBD | TBD | todo | hour 16 | |
+| MUST-11 | MUST test plan + sign-off | T1 | Asil | Gemini | doing | hour 16 | Drafted in docs/testing/must-checklist.md |
 | MUST-12 | Review early PRs; rough demo walk | T1, T2 | TBD | TBD | todo | hour 16 | |
 
 ### SHOULD (hours 16–32)

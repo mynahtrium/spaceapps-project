@@ -118,3 +118,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Completed first-session onboarding interview for Asil (Tester 1); created profile, updated roster and board.
 - Commit: this commit
 - Next step: Draft MUST test checklist in docs/testing/ (MUST-11) and review judging checklist (PRE-06).
+
+### 2026-11-14 11:32 Europe/Istanbul — MUST-11
+
+- Human: Asil
+- Agent tool + model: Gemini (Gemini 3.8 Flash)
+- Role: tester-1
+- Task id: MUST-11
+- Files changed: docs/testing/must-checklist.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Drafted beginner-friendly MUST test checklist covering PR gating, B1/B2/F1 criteria, and fallback requirements for hour 16 sign-off.
+- Commit: this commit
+- Next step: Review incoming PRs and coordinate with B1, B2, B3, F1 as MUST tasks get claimed.
