@@ -269,13 +269,14 @@ const LENS_VERT = /* glsl */ `
   }
 `;
 
-// Clean optical pass: gold filter tint (G), optical magnifier (Z), subtle sun streak & cosmic-ray ticks.
+// Optical lens pass: default 20% curved black visor bezel housing HUD text, gentle optical curve, gold filter (G), zoom (Z).
 const LENS_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform vec2 uResolution;
   uniform float uTime;
   uniform float uDistort;
   uniform float uFrameZoom;
+  uniform float uBezelScale;
   uniform float uAberration;
   uniform float uGrain;
   uniform float uVignette;
@@ -297,13 +298,53 @@ const LENS_FRAG = /* glsl */ `
     float aspect = uResolution.x / max(1.0, uResolution.y);
     vec2 c = vUv - 0.5;
     c.x *= aspect;
-    vec2 d = c / max(1.0, uOptZoom);
+    float r2 = dot(c, c);
+    float dist = 1.0 + uDistort * r2 + 0.35 * uDistort * r2 * r2;
+    vec2 d = (c * dist * uFrameZoom) / max(1.0, uOptZoom);
     d.x /= aspect;
     vec2 uv = d + 0.5;
-    vec3 col = texture2D(tDiffuse, uv).rgb;
+
+    vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
+    float ca = uAberration * r2;
+    vec3 col;
+    if (ca > 0.0001) {
+      col.r = texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r;
+      col.g = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).g;
+      col.b = texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b;
+    } else {
+      col = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).rgb;
+    }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
 
+    // 20% default curved black visor frame (b = 1.0 => ~17% top/bottom center -> ~21% corners, ~8.5% -> ~14% sides)
+    float b = clamp(uBezelScale, 0.0, 1.5);
+    float bezel = 1.0;
+    float bezelRim = 0.0;
+    if (b > 0.001) {
+      vec2 q = (vUv - 0.5) * 2.0;
+      float bY = clamp(0.168 * b, 0.0, 0.30);
+      float bCornerY = clamp(0.214 * b, 0.0, 0.36);
+      float bX = clamp(0.085 * b, 0.0, 0.22);
+      float bCornerX = clamp(0.142 * b, 0.0, 0.28);
+      float yHalf = max(0.22, 1.0 - 2.0 * mix(bY, bCornerY, pow(abs(q.x), 1.85)));
+      float xHalf = max(0.32, 1.0 - 2.0 * mix(bX, bCornerX, pow(abs(q.y), 1.85)));
+      vec2 pBox = vec2(abs(q.x) * aspect, abs(q.y));
+      vec2 halfBox = vec2(xHalf * aspect, yHalf);
+      float cr = 0.13 * min(1.0, b);
+      vec2 qBox = pBox - (halfBox - vec2(cr));
+      float dPx = length(max(qBox, 0.0)) + min(max(qBox.x, qBox.y), 0.0) - cr;
+      bezel = 1.0 - smoothstep(-0.004, 0.008, dPx);
+      bezelRim = smoothstep(-0.08, 0.0, dPx) * min(1.0, b);
+    }
+
     col *= uExposure;
+    if (bezelRim > 0.001) {
+      col *= mix(1.0, 0.62, bezelRim);
+    }
+    if (uVignette > 0.001) {
+      float vig = smoothstep(1.30, 0.40, length(c) * uVignette);
+      col *= mix(0.45, 1.0, vig);
+    }
 
     float goldAmt = clamp(max(uGoldSlide, uGold * 0.001), 0.0, 1.0);
     if (goldAmt > 0.002) {
@@ -341,6 +382,7 @@ const LENS_FRAG = /* glsl */ `
 
     float g = hash(vUv * uResolution + fract(uTime * 37.0) * 91.0) - 0.5;
     gl_FragColor.rgb += g * uGrain * (1.0 - 0.6 * dot(gl_FragColor.rgb, vec3(0.333)));
+    gl_FragColor.rgb *= bezel;
   }
 `;
 
@@ -1585,11 +1627,12 @@ export async function initHud3D(
       tDiffuse: { value: rt.texture },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
-      uDistort: { value: 0.0 },
+      uDistort: { value: 0.14 },
       uFrameZoom: { value: 1.0 },
-      uAberration: { value: 0.0 },
+      uBezelScale: { value: 1.0 },
+      uAberration: { value: 0.0014 },
       uGrain: { value: 0.008 },
-      uVignette: { value: 0.0 },
+      uVignette: { value: 0.72 },
       uExposure: { value: 1.0 },
       uGold: { value: 0 },
       uGoldSlide: { value: 0 },
@@ -2025,7 +2068,7 @@ export async function initHud3D(
     playing = false;
     if (btnPlay) btnPlay.textContent = "Play";
     setMapOpen(false);
-    onBackToPlanner();
+    openPauseMenu?.();
   });
   btnPlay?.addEventListener("click", () => {
     playing = !playing;
@@ -2959,15 +3002,15 @@ export async function initHud3D(
 
     // Scale bar & North indicator
     const pxPer500m = (500 / worldW) * W;
-    mapCtx.fillStyle = "rgba(10, 6, 4, 0.75)";
+    mapCtx.fillStyle = "rgba(0, 8, 12, 0.78)";
     mapCtx.fillRect(10, H - 30, pxPer500m + 18, 20);
-    mapCtx.strokeStyle = "#f7dec4";
+    mapCtx.strokeStyle = "#67e8f9";
     mapCtx.lineWidth = 2;
     mapCtx.beginPath();
     mapCtx.moveTo(18, H - 15);
     mapCtx.lineTo(18 + pxPer500m, H - 15);
     mapCtx.stroke();
-    mapCtx.fillStyle = "#f7dec4";
+    mapCtx.fillStyle = "#67e8f9";
     mapCtx.font = "bold 10px monospace";
     mapCtx.fillText("500 m", 18, H - 19);
     mapCtx.fillText("N ↑", W - 32, 20);
@@ -2990,7 +3033,7 @@ export async function initHud3D(
       btnGold.classList.toggle("is-gold", goldOn);
     }
     if (btnLamp) {
-      btnLamp.textContent = evaLampOn ? "Lamp: ON (L)" : "Lamp (L)";
+      btnLamp.textContent = evaLampOn ? "Flashlight: ON (F)" : "Flashlight (F)";
       btnLamp.classList.toggle("is-active", evaLampOn);
     }
     if (optGoldPill) {
@@ -2998,7 +3041,7 @@ export async function initHud3D(
       optGoldPill.classList.toggle("gold", goldOn);
     }
     if (optLampPill) {
-      optLampPill.textContent = evaLampOn ? "LAMP: ON" : "LAMP: OFF";
+      optLampPill.textContent = evaLampOn ? "LIGHT: ON" : "LIGHT: OFF";
       optLampPill.classList.toggle("active", evaLampOn);
     }
     if (optZoomPill) {
@@ -3080,7 +3123,7 @@ export async function initHud3D(
       toggleGoldVisor();
       return;
     }
-    if (k === "l" && !e.repeat) {
+    if (k === "f" && !e.repeat) {
       toggleHelmetLamp();
       return;
     }
@@ -3089,10 +3132,9 @@ export async function initHud3D(
       return;
     }
 
-    keys.add(k);
-    if (k === "f" && !e.repeat && devCfg.experimentalRover && rover.group.visible) {
+    if (k === "e" && !e.repeat) {
       const tr = isTrLang();
-      if (drivingRover) {
+      if (drivingRover && devCfg.experimentalRover && rover.group.visible) {
         drivingRover = false;
         resetRoverMotionState();
         chaseCamInit = false;
@@ -3115,8 +3157,22 @@ export async function initHud3D(
         snapPhys(wx, wz);
         syncDrivingCameraVisualState(false);
         if (self?.group) self.group.visible = suitRig != null;
-        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: F)" : "EXITED MARS ROVER (PRESS F TO BOARD)");
-      } else {
+        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E)" : "EXITED MARS ROVER (PRESS E TO BOARD)");
+        return;
+      }
+
+      const targetRover =
+        hoveredRoverSpec ||
+        pickHistoricRover(
+          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null,
+          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
+        );
+      if (targetRover) {
+        openRoverInfoSafe(targetRover);
+        return;
+      }
+
+      if (devCfg.experimentalRover && rover.group.visible) {
         const dist = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
         if (dist <= 5.4) {
           drivingRover = true;
@@ -3131,13 +3187,30 @@ export async function initHud3D(
           if (self?.group) self.group.visible = false;
           showWrapNotice(
             tr
-              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · F İN"
-              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · F EXIT"
+              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN"
+              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT"
           );
+          return;
         }
+      }
+
+      let nearRover = null;
+      let bestRoverDist = 7.0;
+      for (const entry of historicRovers.getAllEntries()) {
+        if (!entry?.group || !entry?.spec) continue;
+        const dH = Math.hypot(freePos.x - entry.group.position.x, freePos.z - entry.group.position.z);
+        if (dH < bestRoverDist) {
+          bestRoverDist = dH;
+          nearRover = entry.spec;
+        }
+      }
+      if (nearRover) {
+        openRoverInfoSafe(nearRover);
       }
       return;
     }
+
+    keys.add(k);
     if (k === "p") {
       dropLocalPing("EVA Waypoint");
     }
@@ -3259,10 +3332,26 @@ export async function initHud3D(
     if (visorOverlay) {
       visorOverlay.classList.toggle("driving-3p", Boolean(isDriving3p));
     }
+    if (!devCfg.frameEffect) {
+      lensMat.uniforms.uFrameZoom.value = 1.0;
+      lensMat.uniforms.uBezelScale.value = 0.0;
+      lensMat.uniforms.uDistort.value = 0.0;
+      lensMat.uniforms.uAberration.value = 0.0;
+      lensMat.uniforms.uVignette.value = 0.0;
+      return;
+    }
+    const strength = Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 1.0));
     lensMat.uniforms.uFrameZoom.value = 1.0;
-    lensMat.uniforms.uDistort.value = 0.0;
-    lensMat.uniforms.uAberration.value = 0.0;
-    lensMat.uniforms.uVignette.value = 0.0;
+    lensMat.uniforms.uBezelScale.value = strength;
+    if (isDriving3p) {
+      lensMat.uniforms.uDistort.value = 0.04 * strength;
+      lensMat.uniforms.uAberration.value = 0.0006 * strength;
+      lensMat.uniforms.uVignette.value = 0.45 * strength;
+    } else {
+      lensMat.uniforms.uDistort.value = 0.14 * strength;
+      lensMat.uniforms.uAberration.value = 0.0014 * strength;
+      lensMat.uniforms.uVignette.value = 0.72 * strength;
+    }
   }
 
   function applyDevSettings(cfg) {
@@ -3801,7 +3890,7 @@ export async function initHud3D(
         if (distR <= 4.6 && !nearRoverPrompted) {
           nearRoverPrompted = true;
           showWrapNotice(
-            isTrLang() ? "DENEYSEL MARS ARACI · BİNMEK İÇİN [F] TUŞUNA BAS" : "EXPERIMENTAL MARS ROVER · PRESS [F] TO DRIVE"
+            isTrLang() ? "DENEYSEL MARS ARACI · BİNMEK İÇİN [E] TUŞUNA BAS" : "EXPERIMENTAL MARS ROVER · PRESS [E] TO DRIVE"
           );
         } else if (distR > 6.2) {
           nearRoverPrompted = false;
@@ -4181,7 +4270,7 @@ export async function initHud3D(
             if (hitSpec) {
               const tr = isTrLang();
               roverTargetEl.textContent = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
-                tr ? "BİLGİ İÇİN TIKLA" : "CLICK FOR INFO"
+                tr ? "ETKİLEŞİM [E] / TIKLA" : "INTERACT [E] / CLICK"
               }`;
               roverTargetEl.classList.add("visible");
             } else {

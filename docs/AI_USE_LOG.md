@@ -1016,3 +1016,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Removed the 2D Planner view/tab/start-menu item and replaced `Escape` back-to-planner with a translucent `#esc-menu` command menu accessible via `ESC` (both Bodycam pointer-lock/unlocked and Orbit View) and `Menu (ESC)` button, exposing all existing controls (`Resume`, `EVA Bodycam`, `Orbit View`, `Elevation Map`, `Rovers (5)`, `Sun`, `Gold Visor`, `Lamp`, `Tex`, `Drop Pin`, `Rover POV`, `Crew`, `Developer Settings`, `Sources & Honesty`, `Title Screen`, and `EN/TR` switcher). Made `#start-screen`, `#esc-menu`, `.modal-backdrop`, `.modal-card`, `.topbar`, and `.crew-drawer` backgrounds semi-transparent with blur so Mars shows through. Verified `node --check` on `app.js`/`hud3d.js` and `node --test web/tests/*.mjs` (`46/46` pass).
 - Commit: this commit
 - Next step: Reload `http://localhost:8000/web/` and test `ESC` menu flow in EVA Bodycam and Orbit View.
+
+### 2026-11-15 00:56 Europe/Istanbul — Unify cyan HUD theme, 20% curved black visor bezel, E interact & F flashlight
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 / tester-2 (`main`)
+- Task id: UI theme & HUD finish
+- Files changed: `web/index.html`, `web/styles.css`, `web/app.js`, `web/hud/hud3d.js`, `web/planner/planner.js`, `docs/AI_USE_LOG.md`
+- Why: Merged `origin/main` through `96a866a` (keeping removed Planner view, translucent `#esc-menu`, custom `.ctx-menu`, softened footsteps, and removed `#hud-o2`), completed unified dark cyan (`#67e8f9` / `#a5f3fc`) styling across `#start-screen`, `.topbar`, `#esc-menu`, `.ctx-menu`, `#orbit-view`, `#crew-drawer`, `#modal-backdrop`, `#hud-map-overlay`, `.hud-fleet-panel`, `.hud-wrap-notice`, `.hud-rover-target`, and `.hud-reticle.locked`. Restored default ~20% curved solid-black visor frame aperture (`uBezelScale = 1.0`, `uDistort = 0.14`, `uVignette = 0.72` in `LENS_FRAG` / `syncDrivingCameraVisualState`) with tightened `.visor-top`/`.visor-bottom` typography inside the black frame border. Standardized universal `E` Interact and `F` Flashlight across `hud3d.js`, `index.html`, `#esc-menu`, right-click context menu, and Dev Settings copy. Verified zero conflict markers, `node --check` across all non-vendor `web/` JS/MJS files, and `node --test web/tests/*.test.mjs` (`46/46` pass). Not browser-tested after the final pull/merge edit (server stays ready locally).
+- Commit: this commit
+- Next step: Push `main` to `origin/main` and hard-refresh in browser (`Ctrl+Shift+R`).
+

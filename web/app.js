@@ -70,8 +70,8 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
       const key = el.dataset.i18n;
       if (t[key]) el.textContent = t[key];
     });
-    document.getElementById("lang-en").style.color = lang === "en" ? "#fff" : "";
-    document.getElementById("lang-tr").style.color = lang === "tr" ? "#fff" : "";
+    document.getElementById("lang-en").style.color = lang === "en" ? "#a5f3fc" : "";
+    document.getElementById("lang-tr").style.color = lang === "tr" ? "#a5f3fc" : "";
   }
 
   async function typeIntro() {
@@ -237,7 +237,7 @@ async function boot() {
       <div style="font-size:12px;line-height:1.55;">
         <div class="rover-modal-hero">
           <div>
-            <div style="font-size:15px;color:#fff;letter-spacing:0.08em;"><strong>${rover.name}</strong> · ${rover.agency}</div>
+            <div style="font-size:15px;color:var(--cyan-bright);letter-spacing:0.08em;"><strong>${rover.name}</strong> · ${rover.agency}</div>
             <div style="color:var(--faint);font-size:11px;">${rover.landingSite}</div>
             ${rover.landingCoordsNote ? `<div style="color:var(--muted);font-size:10px;margin-top:3px;">${rover.landingCoordsNote}</div>` : ""}
           </div>
@@ -281,7 +281,7 @@ async function boot() {
         </p>
         <div class="honesty-note">
           <strong>3D Asset:</strong> ${rover.modelSourceNote}.
-          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;">NASA Mission Page ↗</a>
+          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;">NASA Mission Page ↗</a>
         </div>
 
         <div class="rover-modal-actions">
@@ -361,8 +361,8 @@ async function boot() {
             <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
             <div class="dev-sub">${
               tr
-                ? "Altın vizör filtresi (G), kask farı (L) ve optik büyütme (Z) ayarları."
-                : "Gold sun filter (G), EVA lamp (L), optical zoom (Z), and subtle grain."
+                ? "Altın vizör filtresi (G), kask el feneri (F) ve optik büyütme (Z) ayarları."
+                : "Gold sun filter (G), EVA flashlight (F), optical zoom (Z), and subtle grain."
             }</div>
           </div>
           <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
@@ -431,8 +431,8 @@ async function boot() {
             </div>
             <div class="dev-sub">${
               tr
-                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + F tuşuyla sürüş)."
-                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press F to drive)."
+                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + E tuşuyla sürüş)."
+                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press E to drive)."
             }</div>
           </div>
           <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
@@ -670,7 +670,7 @@ async function boot() {
     const row = document.createElement("div");
     row.className = "crew-chat-line";
     const badge = document.createElement("strong");
-    badge.style.color = color || "#38bdf8";
+    badge.style.color = color || "#67e8f9";
     badge.textContent = `[${callsign}] `;
     row.appendChild(badge);
     row.appendChild(document.createTextNode(text));
@@ -710,7 +710,7 @@ async function boot() {
         const left = document.createElement("span");
         const dot = document.createElement("span");
         dot.className = "crew-dot";
-        dot.style.background = peer.color || "#38bdf8";
+        dot.style.background = peer.color || "#67e8f9";
         left.appendChild(dot);
         let distTxt = peer.role?.toUpperCase() || "EVA";
         if (lastSelfPose?.lon != null && peer.state?.lon != null) {
@@ -936,7 +936,7 @@ async function boot() {
       escGoldBtn.classList.toggle("active", Boolean(hudGold?.classList.contains("active")));
     }
     if (escLampBtn) {
-      escLampBtn.textContent = hudLamp?.textContent?.trim() || (tr ? "Kask Farı (L)" : "Lamp (L)");
+      escLampBtn.textContent = hudLamp?.textContent?.trim() || (tr ? "El Feneri (F)" : "Flashlight (F)");
       escLampBtn.classList.toggle("active", Boolean(hudLamp?.classList.contains("active")));
     }
     if (escTexBtn && hudTex) escTexBtn.textContent = hudTex;
@@ -948,8 +948,8 @@ async function boot() {
     const lang = readLang();
     const lEn = document.getElementById("esc-lang-en");
     const lTr = document.getElementById("esc-lang-tr");
-    if (lEn) lEn.style.color = lang === "en" ? "#fff" : "";
-    if (lTr) lTr.style.color = lang === "tr" ? "#fff" : "";
+    if (lEn) lEn.style.color = lang === "en" ? "#a5f3fc" : "";
+    if (lTr) lTr.style.color = lang === "tr" ? "#a5f3fc" : "";
   }
   syncEscMenuRef = syncEscMenuUi;
 
@@ -1082,6 +1082,8 @@ async function boot() {
         { label: t("Elevation map", "Yükselti haritası"), hint: "M", action: clickId("hud-map-btn") },
         { label: t("Orbit view", "Yörünge görünümü"), hint: "O", action: clickId("hud-orbit-btn") },
         { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
+        { label: btnLabel("hud-gold-btn", "Gold (G)"), action: clickId("hud-gold-btn") },
+        { label: btnLabel("hud-lamp-btn", "Flashlight (F)"), action: clickId("hud-lamp-btn") },
         { label: btnLabel("hud-tex", "Texture"), action: clickId("hud-tex") },
         { label: btnLabel("hud-fleet-btn", "Rovers"), action: clickId("hud-fleet-btn") },
         { label: t("Rover POV photo", "Gezgin POV fotoğrafı"), action: clickId("hud-pov-btn") },
