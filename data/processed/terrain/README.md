@@ -1,3 +1,6 @@
 # data/processed/terrain/
 
-Owned by **Backend 1**. Small derived cost-map JSON and previews will be written here after 14 November 2026. Do not commit raw DTMs.
+Owned by **Backend 1**. Small derived previews only. Do not commit raw DTMs.
+
+On `backend/terrain`, `slope-preview.png`, `slope_stats.json`, and `ortho-preview.png` are the HiRISE crop that covers the example stops already in the repo. `cost-map.json` and `height-preview.png` on this branch stay the earlier placeholder-centre grid until `backend/costmap` replaces them. PRE-07 is still open.
+
