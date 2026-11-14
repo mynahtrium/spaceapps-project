@@ -197,3 +197,17 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Verify `MUST-08`..`MUST-10` and `SHOULD-05`..`SHOULD-07` in the browser and sign off on `BOARD.md`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
+### HANDOFF-20261114-1520 — from backend (Cagan) to Divarci, Eymen, Cetin
+
+- Date (Europe/Istanbul): 2026-11-14 15:20
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (visor), Eymen (review), Cetin (demo fixture export)
+- Board task id: MUST-02, MUST-04, MUST-05, MUST-06
+- What is ready: the four visor files now cite their NASA / PDS source in a top-level `sources[]` (name, product_id, url, fetch_date, used_for): `data/processed/terrain/cost-map.json`, `data/processed/routing/stops.json`, `route.json`, `hud-telemetry.json`. Stops also carry `source_url` and `source_fetch_date`. All stay `status: example` / `is_example: true`.
+- Paths (files or folders): the four files above; generators `pipeline/costmap/make_cost_map.py`, `pipeline/stops/write_stops.py`, `pipeline/routing/build_route.py`
+- How to try it: `python pipeline/stops/write_stops.py` then `python pipeline/routing/build_route.py` (both local, no network). Route: 132 points, 790.3 m, 0 points outside the grid or on blocked cells.
+- What is not done / known limits: (1) `cost-map.json` got its `sources` block edited in place; the grid was not recomputed because the DTM re-download stalled. The generator has the same block for the next run. (2) `stop-mudstone-a` and `stop-mudstone-b` have **no NASA citation** (UNVERIFIED example points); PRE-07 must replace them. (3) `data/demo/` copies of these four files are now older than `data/processed/` (no `sources`); re-run `pipeline/data/export_demo_fixtures.py` (Cetin's tree, not edited here).
+- Please do next: Divarci may ignore or show `sources[]` in the credits panel; Eymen reviews the PR; Cetin re-exports demo fixtures.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
+- Received:

@@ -570,3 +570,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Wrote one instruction file per nickname for the astronaut-visor pass (Cagan first in Claude, Cetin beside him, Divarci on the visor, Eymen reviewing, Doruk compiling). Each file starts with a nickname grill. Science and terrain numbers must come from cached NASA and PDS products. Live DONKI uses `NASA_API_KEY` from the gitignored `.env` (present on this machine; the value is not in git). CC's profile nickname for this pack is Cetin.
 - Commit: this commit
 - Next step: Paste `docs/roles/prompts/cagan.md` into Claude Code. Cetin then runs a live DONKI fetch. Divarci waits until Cagan's four processed JSON files are confirmed.
+
+### 2026-11-14 15:20 Europe/Istanbul — MUST-02 / MUST-04..06 (source citations)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Fable 5.2)
+- Role: backend implementer (terrain, costmap, routing, stops)
+- Task id: MUST-02, MUST-04, MUST-05, MUST-06
+- Files changed: pipeline/costmap/make_cost_map.py, pipeline/stops/write_stops.py, pipeline/routing/build_route.py, data/processed/terrain/cost-map.json, data/processed/routing/stops.json, route.json, hud-telemetry.json, docs/contracts/CHANGES.md, docs/coordination/HANDOFFS.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Audit against docs/roles/prompts/cagan.md found that none of the four visor files cited a source URL or fetch date. Added an additive `sources[]` block (HiRISE DTEEC_019698 on PDS; MSL_waypoints.json; fetch date 2026-11-14) and per-stop `source_url`. Checked the Sol 4527 and Sol 4534 stop coordinates against the local waypoint file (exact match). Mudstone example stops have no citation and are marked UNVERIFIED. Regenerated stops, route and HUD locally; route numbers unchanged (790.3 m, 132 points, none outside the grid or on blocked cells); all four parse in Node. cost-map.json was edited in place (sources only) because the DTM re-download stalled. Status stays example.
+- Commit: this commit
+- Next step: Cetin re-exports data/demo fixtures; PRE-07 must replace the two uncited mudstone stops; PR for Eymen.
