@@ -79,7 +79,7 @@ export class Fallback2DMap extends BaseMapAdapter {
     this._mounted = true;
 
     this._loadOverlayImage("slope-preview", this.slopePreviewUrl, true);
-    if (!this.demoSafe && this.orthoPreviewUrl) {
+    if (this.orthoPreviewUrl) {
       this._loadOverlayImage("hirise-ortho", this.orthoPreviewUrl, false);
     }
 

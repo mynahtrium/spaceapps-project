@@ -188,17 +188,13 @@ export async function loadAllProjectData() {
     String(costMapRes.sourcePath || "").includes("contracts") ||
     demoSafe;
 
-  // Fixed BUG-14: in demoSafe mode, NEVER point to data/processed/ (orthoPreviewUrl = null).
+  // BUG-14: in demoSafe mode, assets come ONLY from data/demo/ (never data/processed/).
+  const terrainBase = demoSafe ? `${base}/data/demo` : `${base}/data/processed/terrain`;
   const assets = {
-    heightPreviewUrl: demoSafe
-      ? `${base}/data/demo/height-preview.png`
-      : `${base}/data/processed/terrain/height-preview.png`,
-    slopePreviewUrl: demoSafe
-      ? `${base}/data/demo/slope-preview.png`
-      : `${base}/data/processed/terrain/slope-preview.png`,
-    orthoPreviewUrl: demoSafe
-      ? null
-      : `${base}/data/processed/terrain/ortho-preview.png`,
+    heightPreviewUrl: `${terrainBase}/height-preview.png`,
+    slopePreviewUrl: `${terrainBase}/slope-preview.png`,
+    orthoPreviewUrl: `${terrainBase}/ortho-preview.png`,
+    reliefTextureUrl: `${terrainBase}/texture-relief.jpg`,
     povBaseUrl: demoSafe ? `${base}/data/demo/pov` : `${base}/data/processed/science/pov`,
     themisTileBaseUrl: `${base}/data/demo/tiles/themis`,
   };

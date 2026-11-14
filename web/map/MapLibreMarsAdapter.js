@@ -298,7 +298,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
     this.demSampler = opts.demSampler;
     this.registry = opts.registry;
     this.demoSafe = Boolean(opts.demoSafe);
-    this.orthoPreviewUrl = this.demoSafe ? null : opts.orthoPreviewUrl || null;
+    this.orthoPreviewUrl = opts.orthoPreviewUrl || null; // demo-safe URLs already point at data/demo/
     this.slopePreviewUrl = opts.slopePreviewUrl || null;
 
     this.map = null;
@@ -415,7 +415,7 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
         },
       ];
 
-      if (this.orthoPreviewUrl && !this.demoSafe) {
+      if (this.orthoPreviewUrl) {
         styleSources["hirise-ortho"] = {
           type: "image",
           url: this.orthoPreviewUrl,

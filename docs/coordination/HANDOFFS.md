@@ -49,7 +49,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Mudstone outcrop names and final coordinates are not chosen. Resources tab still may be UNVERIFIED. HiView confirmation still needed for any pick.
 - Please do next: Lock the four stops (or reject candidates and supply alternates inside DTEEC_019698). Testers copy the locked ids into `docs/testing/`. Then Backend 2 runs MUST-04.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
  2026-11-14 12:02 (Asil / Tester 1) — Alındı; durak kilitleme kararı bekleniyor.
 
 ### HANDOFF-20261114-1200 — from backend-1 to backend-2, frontend-1, testers
@@ -112,7 +112,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
   - Frontend 1: wire `data/processed/science/` (and `data/demo/` for `?demo=1`).
   - Backend 2: ping Backend 3 once `stops.json` and `route.json` are locked so we refresh `dose.json` + `pov/`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 ### HANDOFF-20261114-1303 — from Tester 2 to Frontend 1, Backend 2, Backend 3, Tester 1
@@ -127,7 +127,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Web HUD is not built. Stops are examples. Route total 947.1 m does not match the leg sum 790.3 m. Dose card is still 96 min / 0.0427 mSv. Slides no longer say the DTM systematically under-reads tilt; the 14 Nov 176-waypoint check did not show that.
 - Please do next: Tester 1 reviews this branch (do not merge unless asked). Backend 2 answers the board question on 947.1 vs 790.3. Backend 3 refreshes dose only when the duration to show is chosen. Frontend 1 tells Tester 2 when a real `mm:set-route` click exists.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 ### HANDOFF-20261114-1305 — from Backend 3 to Frontend 1, Tester 1, Tester 2
@@ -147,7 +147,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: PRE-07 is still open, so dose and stops stay examples. Walk time is still an Earth-hiking placeholder. PDS RAD tables are still unavailable (expired TLS on the earlier fetch). No personal NASA key on this machine.
 - Please do next: Frontend 1 can read `dose.json` and, for a keyless demo, the `*.example.json` DONKI files. Testers review branch `backend/science`. Do not merge to `main` unless asked.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 ### HANDOFF-20261114-1330 — from backend-1 to frontend-1, backend-2, testers (follow-up to HANDOFF-20261114-1200)
@@ -196,7 +196,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: MapLibre GL JS & Three.js load from CDN (`unpkg.com`); `data/` and `docs/` load locally. `ortho-preview.png` is read from `data/processed/terrain/` even in `?demo=1` because `data/demo/` does not bundle `ortho-preview.png`. Stops/route remain `example` until `PRE-07` locks.
 - Please do next: Verify `MUST-08`..`MUST-10` and `SHOULD-05`..`SHOULD-07` in the browser and sign off on `BOARD.md`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 ### HANDOFF-20261114-1520 — from backend (Cagan) to Divarci, Eymen, Cetin
 
@@ -210,4 +210,57 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: (1) `cost-map.json` got its `sources` block edited in place; the grid was not recomputed because the DTM re-download stalled. The generator has the same block for the next run. (2) `stop-mudstone-a` and `stop-mudstone-b` have **no NASA citation** (UNVERIFIED example points); PRE-07 must replace them. (3) `data/demo/` copies of these four files are now older than `data/processed/` (no `sources`); re-run `pipeline/data/export_demo_fixtures.py` (Cetin's tree, not edited here).
 - Please do next: Divarci may ignore or show `sources[]` in the credits panel; Eymen reviews the PR; Cetin re-exports demo fixtures.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
+- Received:
+
+### HANDOFF-20261114-1545 — from backend (Cagan) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 15:45
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (3D visor), Eymen (review)
+- Board task id: MUST-02 follow-up (visual quality)
+- What is ready: new visual terrain products for the same window as `cost-map.json`, listed in `data/processed/terrain/relief.json`: `texture-relief.jpg` (2048 px, ortho x hillshade with an illustrative Mars tint), `texture-ortho.jpg` (2048 px greyscale), `hillshade.png` (395 px), `relief.stl` (closed, watertight, 133,110 triangles, metres), `relief-preview.png` (oblique render).
+- Paths (files or folders): `data/processed/terrain/`, `pipeline/terrain/make_relief.py`, `pipeline/terrain/fetch_dtm.py`
+- How to try it: in the 3D view, use `texture-relief.jpg` as the terrain map on the existing `height-preview.png` mesh (same bounds, north up). Run `python pipeline/terrain/make_relief.py --from-preview` to rebuild offline.
+- What is not done / known limits: built in offline mode from the 5 m height and the 1000 px ortho preview, because the HiRISE server delivered about 5 KB/s today. Full mode (1 m height `height-hi.png` at 1024 px, 4096 px ortho texture) needs `fetch_dtm.py` to finish first. The Mars tint is illustrative (HiRISE RED is greyscale); label it. Route and cost grid unchanged. Not added to `data/demo/` yet.
+- Please do next: Divarci tries `texture-relief.jpg` in the HUD; Eymen checks the files and the STL in any 3D viewer.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (new files with their own manifest; existing contracts untouched)
+- Received:
+
+### HANDOFF-20261114-1559 — from backend (Cagan) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 15:59
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (owner of web/hud/hud3d.js), Eymen (review)
+- Board task id: MUST-09 follow-up
+- What is ready: endless terrain in the 3D HUD. The real tile is surrounded by mirrored copies (7 x 7 ring, same geometry and material), so neighbouring edges meet with identical heights and texture. The ring follows the camera in steps of one mirror period (2 tiles); `sampleElevSceneY` mirror-wraps coordinates so free-roam walking height matches the copies. Only the centre tile is real data; stops and the route stay on it.
+- Paths (files or folders): `web/hud/hud3d.js` (edited at Cagan's request; Divarci owns this file)
+- How to try it: `python -m http.server 8000`, open `http://localhost:8000/web/?demo=1`, 3D Helmet HUD, Free-Roam ON, hold W for about 35 s to cross the tile edge.
+- What is not done / known limits: `node --check` passes and the page loads with no console errors; crossing the edge was not watched by the agent (Cagan was testing in the same tab). The copies are mirror images, not real terrain; say so if they appear in the video. GPU cost is 48 extra draws of the same geometry.
+- Please do next: Divarci reviews the change; Eymen walks past the edge once in `?demo=1`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:
+
+### HANDOFF-20261114-1623 — from Cagan (Claude Code) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 16:23
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (owner of web/), Eymen (review)
+- Board task id: MUST-09 / MUST-10 / SHOULD-05 follow-up (visual overhaul, branch backend/simulation)
+- What is ready: on branch backend/simulation: (1) NASA 3D Resources Mark III spacesuit glTF scaled to a 1.80 m astronaut and rigged in code (web/hud/astronaut-rig.js: hips, knees, ankles, spine, head, shoulders; distance-driven walk and jog cycle); a crew member walks 6 m ahead on the route. (2) Helmet camera at eye level (1.64 m) in front of the suit's chest, own helmet hidden, so looking down shows your legs and gloves; only millimetres of walking sway; lens pass with barrel distortion, chromatic aberration, vignette, grain. Mars gravity 3.71 m/s², Space to jump, falls off drops, slower on steep ground; walk 1.4 m/s, Shift jog 2.2 m/s. No third-person camera. (3) Mars sky dome, sun shadows (PCF soft), ACES tone mapping, relief texture with close-range detail noise, survey poles at stops. Walking pace is 1.4 m/s (1x/4x/10x/30x). (4) New black UI: typed start screen with white text-as-buttons (EN/TR), white-on-black planner and bodycam HUD. All MUST HUD fields and honesty labels kept; element ids unchanged.
+- Paths (files or folders): web/index.html, web/styles.css, web/app.js, web/hud/hud3d.js, web/planner/planner.js (colours only), web/shared/data-loader.js (reliefTextureUrl), web/vendor/addons/ (GLTFLoader, DRACOLoader, BufferGeometryUtils, Draco decoder, three r170), web/assets/nasa-3d/, pipeline/data/export_demo_fixtures.py (+ texture-relief.jpg), data/demo/texture-relief.jpg
+- How to try it: python -m http.server 8000, open http://localhost:8000/web/?demo=1, choose BEGIN EVA, press Play; V for third person. Hard-reload once (Ctrl+Shift+R) if an old module is cached.
+- What is not done / known limits: not ray tracing (WebGL rasterisation with PBR, image-based sky light and shadow maps). The rig is procedural, so deformation at hips and shoulders is approximate and feet can slide slightly. Ground detail noise and the Mars tint are visual, not data. Terrain beyond the real tile is mirrored. Checked in the in-app browser with no console errors (only favicon before it was added); not tested on a low-end GPU.
+- Please do next: Divarci reviews the web/ changes before any merge to main; Eymen checks ?demo=1 offline (all new assets are local).
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received: 2026-11-14 16:54 (Eymen / Tester 2 — verified ?demo=1 live + reported partner astronaut collision bug fixed below)
+
+### HANDOFF-20261114-1654 — from Tester 2 (Eymen) to Frontend 1 (Divarci) / Cagan
+
+- Task id: MUST-09 / MUST-12
+- What is ready: Patched `web/hud/hud3d.js` so the partner crew astronaut (`partner.group.position`) acts as a solid obstacle (`PARTNER_COLLISION_R = 1.05` horizontal cylinder push-out in `freeRoam`, plus an overlap guard keeping `partnerS` ahead of `alongM` in route mode so returning from free-roam or walking on the route does not clip inside the partner model). Verified syntax with `node --check web/hud/hud3d.js`.
+- Paths (files or folders): web/hud/hud3d.js
+- How to try it: Run `start.bat` or `python -m http.server 8000`, open `http://localhost:8000/web/?demo=1` (hard-reload with `Ctrl+Shift+R`), click `BEGIN EVA`, enable `Free roam`, walk into the crew partner ahead or switch back to route mode — the player camera/rig stops outside the partner suit instead of clipping through it.
+- What is not done / known limits: Horizontal cylinder check (`PARTNER_COLLISION_R = 1.05`) assumes upright standing astronauts; does not collide with terrain rocks or slope walls, and still pending Frontend 1 code review alongside `BUG-15`/`BUG-16` in `POSSIBLE_BUGS.md`.
+- Please do next: Divarci / Cagan review `web/hud/hud3d.js` collision constants and tackle `BUG-15` and `BUG-16`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:

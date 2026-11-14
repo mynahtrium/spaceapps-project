@@ -49,7 +49,7 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
     this.THREE = opts.THREE;
     this.demSampler = opts.demSampler;
     this.demoSafe = Boolean(opts.demoSafe);
-    this.orthoPreviewUrl = this.demoSafe ? null : opts.orthoPreviewUrl || null;
+    this.orthoPreviewUrl = opts.orthoPreviewUrl || null;
     this.slopePreviewUrl = opts.slopePreviewUrl || null;
 
     this.rootBounds = {
@@ -225,7 +225,7 @@ export class HighResMarsTerrainEngine extends BaseMapAdapter {
       );
     }
 
-    if (this.orthoPreviewUrl && !this.demoSafe) {
+    if (this.orthoPreviewUrl) {
       loader.load(
         this.orthoPreviewUrl,
         (tex) => {

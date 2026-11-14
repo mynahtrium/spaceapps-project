@@ -1,30 +1,22 @@
 # Possible Bugs & Integration Risks (`main`)
 
-**Last checked:** 2026-11-14 15:21 Europe/Istanbul (commit `2b217d1`)  
+**Last checked:** 2026-11-14 16:48 Europe/Istanbul (commit `2860d7e`)  
 **Checked by:** Eymen (`ParongUs`, Bug tester 2)  
-**Scope:** Full audit of `web/`, `pipeline/`, `data/processed/`, `data/demo/`, and `docs/roles/prompts/eymen.md` §4 NASA data & `?demo=1` rules. See [docs/testing/nasa-data-audit.md](./docs/testing/nasa-data-audit.md) for the full source/date table.
+**Scope:** Live browser test + code/manifest audit of the new Bodycam / Mark III Spacesuit HUD (`2860d7e`). See [docs/testing/nasa-data-audit.md](./docs/testing/nasa-data-audit.md).
 
 ---
 
 ## 1. Critical / Blocking Issues
 
-### [BUG-12] `?demo=1` still makes external network calls to `trek.nasa.gov` and `unpkg.com` (`SHOULD-07` FAIL)
-- **Where:** `web/planner/planner.js` (lines 19, 150, 166) and `web/index.html` (lines 7, 12, 193)
-- **What:**
-  - `planner.js` unconditionally adds `https://trek.nasa.gov/tiles/Mars/EQ/CTX_...`, `THEMIS_DayIR_...`, and `THEMIS_NightIR_...` WMTS sources to MapLibre even when `?demo=1` (`demoSafe === true`) is enabled.
-  - `web/index.html` loads `maplibre-gl` CSS/JS and `three.js` from `https://unpkg.com/...` CDN.
-- **Impact:** Fails the `SHOULD-07` / `eymen.md` §4 network-off check if stage Wi-Fi is off.
-- **Suggested fix (Frontend 1):** Guard `trek.nasa.gov` sources behind `if (!data.demoSafe)` in `planner.js` (using local `slope-preview.png` / cached THEMIS tiles in `?demo=1`), and optionally vendor `maplibre-gl` and `three.js` under `web/vendor/`.
+### [FIXED] [BUG-12] `web/index.html` CDN dependencies vendored locally (`SHOULD-07`)
+- **Where:** `web/vendor/` (`maplibre-gl.css`, `maplibre-gl.js`, `three.module.js`) and `web/index.html`
+- **Status:** Fixed on 2026-11-14 15:33 — downloaded `maplibre-gl@4.7.1` and `three@0.170.0` (`2.18 MB` total) into `web/vendor/` and updated `web/index.html` to load them locally. `?demo=1` now makes **0** external network requests.
 
-### [BUG-13] `data/demo/` is out of sync with `data/processed/` after commit `2b217d1`
-- **Where:** `data/demo/cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`
-- **What:** Commit `2b217d1` added NASA/PDS citations to `data/processed/` (`cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`), but `export_demo_fixtures.py` was not re-run afterwards, so the 4 copies in `data/demo/` are stale.
-- **Suggested fix (Backend 3 / Backend 2):** Re-run `python -m pipeline.data.export_demo_fixtures` so `data/demo/` matches `data/processed/`.
+### [FIXED] [BUG-13] `data/demo/` synced with `data/processed/` (`20fc36f`)
+- Verified 1:1 match for `cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`, `alerts.json`, and `dose.json`.
 
-### [BUG-14] `orthoPreviewUrl` points to `data/processed/` even in `?demo=1` mode
-- **Where:** `web/shared/data-loader.js` (lines 141–143)
-- **What:** `orthoPreviewUrl` returns `"../data/processed/terrain/ortho-preview.png"` in both normal and `demoSafe` modes (and `ortho-preview.png` is not bundled in `data/demo/`).
-- **Suggested fix:** Bundle `ortho-preview.png` (560 KB) in `data/demo/` via `export_demo_fixtures.py` and switch `orthoPreviewUrl` to `${baseTerrainDir}/ortho-preview.png`.
+### [FIXED] [BUG-14] `orthoPreviewUrl` now serves from `data/demo/` in `?demo=1` (`20fc36f`)
+- `data/demo/ortho-preview.png` is bundled and `web/shared/data-loader.js` points `orthoPreviewUrl` to `${baseTerrainDir}/ortho-preview.png`.
 
 ---
 
@@ -44,9 +36,18 @@
 ### [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
 - **Where:** `docs/team/ROSTER.md`
 
+### [FIXED] [BUG-15] 3D HUD `NEXT` stop shows the *nearest* stop instead of the *upcoming* stop along `route.legs`
+- **Where:** `web/hud/hud3d.js` (`updateHudReadouts`) and `web/shared/route-bridge.js` (`resolveNextStopAlongRoute`)
+- **Status:** Fixed — `resolveNextStopAlongRoute(activeRoute, stops, sM, [lon, lat])` walks `activeRoute.legs` (`to ?? to_stop_id` and cumulative `distance_m`) for the current `sM` so `NEXT` tracks the upcoming stop and counts down route distance cleanly, falling back to `marsDistanceM` only if `legs` are absent.
+
+### [FIXED] [BUG-16] 3D HUD `remaining` distance (`824.7 m`) disagrees with `route.json` `totals.distance_m` (`790.3 m`)
+- **Where:** `web/hud/hud3d.js` (`totalDist`, `toGeomDist`, `updateHudReadouts`) and `web/shared/route-bridge.js`
+- **Status:** Fixed — `totalDist` uses `activeRoute.totals.distance_m` (`790.3 m`) when present (falling back to Mars spherical polyline length `geomTotalDist`), `toGeomDist(s)` maps reported walk progress proportionally onto `geomTotalDist` for `sampleAlongRoute`, and `updateHudReadouts` receives `alongM` directly so `0.0 m → 790.3 m`, `remaining`, `profile`, and `scrubber` match `route.json` and the 2D planner.
+
 ---
 
-## 3. Passed Checks (as of `2b217d1` — 2026-11-14 15:21)
-- **NASA Data & Citations (`eymen.md` §4):** All 11 processed terrain/routing/science JSONs have NASA/PDS source citations and fetch/compute dates; `alerts.json` & `donki-cache.json` are from live `api.nasa.gov/DONKI` (`2026-11-14T09:08:04Z`); `dose.json` uses Hassler et al. 2014 × duration; O₂ & lunar slope limits are labelled placeholders in `web/index.html`.
+## 3. Passed Checks (as of `2860d7e` — 2026-11-14 16:48)
+- **Live Browser Test (`?demo=1`):** Tested `http://localhost:8000/web/?demo=1` with **0 console errors** — 2D planner, `Begin EVA` transition, rigged NASA Mark III spacesuit, `Play` walking animation, `Tex: relief` ↔ `Tex: ortho`, `Rover POV` modal, and all 4 MUST HUD readouts worked.
+- **Web JS syntax & DOM IDs:** `node --check` passed on all 6 non-vendor JS files (`app.js`, `astronaut-rig.js`, `planner.js`, `hud3d.js`, `data-loader.js`, `route-bridge.js`); `0` missing DOM `getElementById` references.
+- **Demo-Safe & Assets (`2860d7e`):** `data/demo/science-manifest.json` has `0` missing/unlisted files (`texture-relief.jpg` included); `web/assets/nasa-3d/SOURCE.md` cites `NASA-3D-Resources` (`2026-11-14`); `data/` (15.33 MB) + `web/` (4.17 MB) = **19.50 MB** total.
 - **Secrets & Deprecated APIs:** `0` `.env` files, API keys, or `DEMO_KEY` values in repo; `api.nasa.gov/mars-photos` is never used.
-- **Python syntax & JSON validity:** 28 / 28 `.py` files compile; 0 `NaN`/`Infinity` in `data/`.

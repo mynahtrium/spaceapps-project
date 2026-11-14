@@ -217,7 +217,8 @@ test("Static BUG-12 & BUG-14 regression checks on web/index.html & web/shared/da
   assert.ok(fs.existsSync(path.join(WEB_DIR, "vendor/maplibre-gl.css")));
 
   const loader = fs.readFileSync(path.join(WEB_DIR, "shared/data-loader.js"), "utf8");
-  assert.match(loader, /orthoPreviewUrl:\s*demoSafe\s*\?\s*null/);
+  assert.match(loader, /terrainBase = demoSafe \? `\$\{base\}\/data\/demo`/);
+  assert.equal(/orthoPreviewUrl:[^\n]*data\/processed/.test(loader), false, "ortho must follow terrainBase (data/demo in ?demo=1)");
 });
 
 test("MarsPbrTextures synthesizes high-contrast offline PBR albedo + normals and shader uses logdepthbuf + albedo", () => {

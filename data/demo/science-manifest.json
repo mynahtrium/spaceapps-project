@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-11-14T10:52:57Z",
+  "generated_at": "2026-11-14T13:20:47Z",
   "owner": "backend-3",
   "purpose": "Frozen offline fixtures for DEMO_SAFE=1 / ?demo=1 (SHOULD-07)",
-  "file_count": 28,
+  "file_count": 30,
   "files": [
     "alerts.json",
     "alerts.example.json",
@@ -29,6 +29,8 @@
     "cost-map.json",
     "slope-preview.png",
     "height-preview.png",
+    "ortho-preview.png",
+    "texture-relief.jpg",
     "stops.json",
     "route.json",
     "hud-telemetry.json"

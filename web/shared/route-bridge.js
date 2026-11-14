@@ -71,19 +71,57 @@ export function closestAlongM(coords, cumDist, lon, lat) {
 }
 
 export function classifySlope(slopeDeg, strictLimitDeg = 20) {
-  if (slopeDeg == null || Number.isNaN(slopeDeg)) {
-    return { label: "NO DATA", color: "#64748b", level: "nodata" };
+  // `id` and `level` are aliases (2D planner reads `level`/`color`, bodycam HUD reads `id`).
+  const make = (level, label, color) => ({ id: level, level, label, color });
+  if (slopeDeg == null || Number.isNaN(slopeDeg)) return make("green", "NO DATA", "#64748b");
+  if (slopeDeg <= 10) return make("green", "NOMINAL <=10°", "#34d399");
+  if (slopeDeg <= (strictLimitDeg < 16 ? 13 : 15)) return make("amber", "MODERATE", "#fbbf24");
+  if (slopeDeg <= strictLimitDeg) return make("red", "STEEP", "#f87171");
+  return make("blocked", `EXCEEDS ${strictLimitDeg}° LIMIT`, "#ef4444");
+}
+
+/**
+ * Resolve the upcoming stop along `route.legs` at walk distance `sM` (BUG-15),
+ * falling back to nearest-stop Mars spherical distance if `legs` are absent (BUG-16).
+ */
+export function resolveNextStopAlongRoute(route, stops, sM, lonLat) {
+  const features = stops?.features || [];
+  const legs = route?.legs || [];
+  if (legs.length > 0 && features.length > 0) {
+    let cumLegM = 0;
+    let chosenLeg = legs[legs.length - 1];
+    let targetCumM = 0;
+    for (const leg of legs) {
+      cumLegM += Number(leg.distance_m) || 0;
+      targetCumM = cumLegM;
+      if (sM < cumLegM - 0.05 || leg === legs[legs.length - 1]) {
+        chosenLeg = leg;
+        break;
+      }
+    }
+    const targetId = chosenLeg.to ?? chosenLeg.to_stop_id;
+    const stopFeature = features.find((f) => f.properties?.id === targetId || f.id === targetId);
+    if (stopFeature) {
+      return {
+        stop: stopFeature,
+        distanceM: Math.max(0, targetCumM - sM),
+        mode: "leg",
+      };
+    }
   }
-  if (slopeDeg <= 10) return { label: "NOMINAL <=10°", color: "#34d399", level: "green" };
-  if (slopeDeg <= (strictLimitDeg < 16 ? 13 : 15)) {
-    return { label: "MODERATE", color: "#fbbf24", level: "amber" };
+
+  let nearest = features[0] || null;
+  let minStopDist = Infinity;
+  if (lonLat && features.length > 0) {
+    for (const f of features) {
+      const coords = f.geometry?.coordinates;
+      if (!coords) continue;
+      const d = marsDistanceM(lonLat, coords);
+      if (d < minStopDist) {
+        minStopDist = d;
+        nearest = f;
+      }
+    }
   }
-  if (slopeDeg <= strictLimitDeg) {
-    return { label: "STEEP", color: "#f87171", level: "red" };
-  }
-  return {
-    label: `EXCEEDS ${strictLimitDeg}° LIMIT`,
-    color: "#ef4444",
-    level: "blocked",
-  };
+  return { stop: nearest, distanceM: minStopDist, mode: "nearest" };
 }

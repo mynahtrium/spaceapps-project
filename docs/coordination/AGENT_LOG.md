@@ -593,6 +593,127 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Hand off `BUG-12`/`BUG-14` to Frontend 1 (Dıvarcı) and `BUG-13` (`export_demo_fixtures.py` re-run) to Backend 3 (Çetin).
 
+### 2026-11-14 15:45 Europe/Istanbul — BUG-13 / BUG-14
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (small edits outside own folders, asked for by Cagan)
+- Task id: SHOULD-07 (BUG-13, BUG-14)
+- Files changed: pipeline/data/export_demo_fixtures.py (one line, Cetin's tree), web/shared/data-loader.js (one line, Divarci's tree), data/demo/ (re-exported: cost-map, stops, route, hud-telemetry, ortho-preview.png, science-manifest.json), docs/coordination/AGENT_LOG.md
+- Why: BUG-13: re-ran the export so the four data/demo/ JSON copies match data/processed/ (all four byte-identical; they now carry sources[]). BUG-14: the export now also copies ortho-preview.png (560 KB) into data/demo/, and orthoPreviewUrl uses baseTerrainDir so ?demo=1 reads data/demo/ instead of data/processed/. Loader passes node --check. Not tested in a browser. BUG-12 (trek.nasa.gov and unpkg.com still loaded in ?demo=1) is Frontend 1's and was not touched.
+- Commit: this commit
+- Next step: Divarci and Eymen re-check ?demo=1 with the network off; Divarci fixes BUG-12; Cetin to know his export script gained one line.
+
+### 2026-11-14 15:45 Europe/Istanbul — MUST-02 follow-up (relief, textures, STL)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (terrain)
+- Task id: MUST-02 follow-up
+- Files changed: pipeline/terrain/make_relief.py (new), pipeline/terrain/fetch_dtm.py (new), pipeline/terrain/make_slope.py (uses a local DTM band if present), pipeline/terrain/README.md, data/processed/terrain/ (hillshade.png, texture-ortho.jpg, texture-relief.jpg, relief.stl, relief-preview.png, relief.json), docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for a better map like a DEM relief model (reference: DEM -> triangulated surface -> STL). Added multi-directional hillshade, an ortho x hillshade texture with an illustrative Mars tint, a closed STL (checked: 0 non-manifold edges, consistent outward winding, positive volume) and an oblique 3D preview rendered without extra libraries. The HiRISE server gave about 5 KB/s, so the products were built offline from the 5 m height preview and the 1000 px ortho preview (same window as cost-map.json). fetch_dtm.py downloads the needed DTM rows in resumable chunks for a later full-resolution run. Fixed a fill bug found on the way: a mean fill of one no-data cell made a 250 m spike; now nearest-neighbour fill. Cost grid and route untouched.
+- Commit: this commit
+- Next step: When the network allows, run fetch_dtm.py then make_slope.py and make_relief.py (full mode) for 1 m height and 4096 px textures; Divarci wires texture-relief.jpg into the HUD.
+
+- Correction (same day): the entry above was first written with 16:15; the real time was about 15:45. fetch_dtm.py now takes --chunk-kb (default 512) because the server reset 4 MB range requests ten times in a row.
+
+### 2026-11-14 15:32 Europe/Istanbul — MUST-12 / SHOULD-07 (deep web JS & demo sync verification)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12, SHOULD-07
+- Files changed: POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/AGENT_LOG.md
+- Why: Pulled `20fc36f` and ran deep verification: `node --check` passed on all 5 JS files in `web/`, `0` missing DOM IDs against `web/index.html`, verified `BUG-13` and `BUG-14` are fixed (`data/demo/` matches `data/processed/` 1:1 and `ortho-preview.png` is bundled), and verified `web/planner/planner.js` already guards `trek.nasa.gov` CTX/THEMIS tiles behind `if (!demoSafe)`. Narrowed `BUG-12` strictly to `web/index.html` CDN links (`unpkg.com` for `maplibre-gl` and `three.js`).
+- Commit: this commit
+- Next step: Frontend 1 (Dıvarcı) optionally vendors `maplibre-gl` and `three.js` locally (`BUG-12`); team locks `PRE-07` stops (`BUG-09`).
+
+### 2026-11-14 15:34 Europe/Istanbul — SHOULD-07 (fix BUG-12 offline vendoring)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2 (requested offline fix in `web/`)
+- Task id: SHOULD-07 (BUG-12)
+- Files changed: web/vendor/maplibre-gl.css (new), web/vendor/maplibre-gl.js (new), web/vendor/three.module.js (new), web/index.html, POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Vendored `maplibre-gl@4.7.1` and `three@0.170.0` (`2.18 MB` total) into `web/vendor/` and updated `web/index.html` to load them locally instead of `unpkg.com` CDN. Verified `web/index.html` now has 0 external URLs so `?demo=1` runs 100% offline.
+- Commit: this commit
+- Next step: Run live browser verification at `http://localhost:8000/web/?demo=1` with DevTools Offline mode enabled.
+
+### 2026-11-14 15:59 Europe/Istanbul — MUST-09 follow-up (endless mirrored terrain)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in Divarci's web/ tree at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for the map to repeat with no visible border. A raw DEM tile does not tile (about 480 m of relief, with different north and south edges), so the HUD now surrounds the real tile with mirrored copies that share edges exactly, keeps the ring centred on the camera, and mirror-wraps height sampling for free-roam. The mirror maths was checked numerically (edge u = 1 from both sides). Page loads in ?demo=1 with no console errors; the edge crossing itself was not observed by the agent.
+- Commit: this commit
+- Next step: Divarci reviews; Eymen walks past the edge once.
+
+### 2026-11-14 15:59 Europe/Istanbul — SHOULD-07 / MUST-12 (app launcher scripts)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: SHOULD-07, MUST-12
+- Files changed: start.bat (new), scripts/start-app.sh (new), docs/coordination/AGENT_LOG.md
+- Why: Added one-click/one-command local launcher scripts (`start.bat` for Windows, `scripts/start-app.sh` for bash/macOS/Linux) that start `http.server` on port 8000 and open `http://localhost:8000/web/?demo=1`. Also verified the live app in `?demo=1` mode via browser preview (2D MapLibre planner + 3D three.js helmet HUD + playback, 0 console errors).
+- Commit: this commit
+- Next step: Team can double-click `start.bat` to launch the demo locally.
+
+### 2026-11-14 16:23 Europe/Istanbul — bodycam simulation and black UI (branch backend/simulation)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in Divarci's web/ tree at Cagan's request)
+- Task id: MUST-09 / MUST-10 / SHOULD-05 follow-up
+- Files changed: web/index.html, web/styles.css, web/app.js, web/hud/hud3d.js, web/hud/astronaut-rig.js (new), web/planner/planner.js, web/shared/data-loader.js, web/vendor/addons/** (new), web/assets/nasa-3d/** (new), pipeline/data/export_demo_fixtures.py, data/demo/texture-relief.jpg, data/demo/science-manifest.json, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, docs/AI_USE.md
+- Why: Cagan asked for a 1.80 m astronaut with a NASA model, photorealistic bodycam-style graphics and a completely new black UI with white text buttons. Used NASA 3D Resources (Mark III spacesuit; Z2 download did not finish). Added PBR lighting, an image-based sky light, shadows, sky, tone mapping and a camera lens pass; true ray tracing is not possible in real time in WebGL, and the UI and credits say so. Follow-up the same session: the NASA model has no skeleton, so a procedural rig was written (joint heights for a 1.80 m body, skin weights from vertex position, distance-driven walk / jog, arms lowered from the model's forward-reaching pose); helmet camera moved in front of the deep chest so the legs show when looking down; camera sway cut to millimetres; third-person camera removed; Mars gravity, jumping and slower jog (2.2 m/s) added. Checked in the browser with side and front renders of the rig and in the live view; no console errors. Cagan pasted a NASA API key in chat: it was not used (NASA 3D Resources need no key) and was not written to any file; Cagan was advised to rotate it.
+- Commit: this commit
+- Next step: Divarci reviews; push the branch and open a PR only when Cagan asks.
+
+### 2026-11-14 16:49 Europe/Istanbul — shadows and Shift run (branch backend/simulation)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in Divarci's web/ tree at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, web/index.html, web/app.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan said shadows looked unrealistic and Shift did not run. Shadows: near sun shadows now use a 4096 px map over a 56 m box (about 1.4 cm per texel), snapped to texels so edges do not crawl, with lower sky/ambient fill so shade stays dark; far terrain shadows are baked at load by marching the height grid towards the sun over one mirror period (about 1.3 s, 5.5% of ground in terrain shadow at a 25 deg sun) and applied to the sun light only in the terrain shader. Shift: it did nothing in route playback, and in free-roam 2.2 m/s on slopes stayed below the run-pose threshold; now Shift is a light run (2.5 m/s) in both modes, WASD switches to free-roam, and the partner keeps pace. Checked in the browser, no console errors.
+- Commit: this commit
+- Next step: Divarci reviews web/; push when Cagan asks.
+
+### 2026-11-14 16:48 Europe/Istanbul — MUST-12 (live browser test & HUD bugs BUG-15, BUG-16)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Ran live browser verification on `2860d7e` (`http://localhost:8000/web/?demo=1`, 0 console errors), checked `node --check` on all 6 non-vendor JS files, verified `0` missing DOM IDs, `data/demo/science-manifest.json` completeness (`texture-relief.jpg` included), and `web/assets/nasa-3d/SOURCE.md` citation. Found and logged 2 HUD logic bugs in `web/hud/hud3d.js`: `BUG-15` (`NEXT` stop shows nearest Euclidean stop instead of upcoming `route.legs` target) and `BUG-16` (3D HUD `remaining` distance `824.7 m` vs `route.json` `790.3 m` due to planar `lonToX`/`latToZ` scaling).
+- Commit: this commit
+- Next step: Frontend 1 / Cagan fix `BUG-15` and `BUG-16` in `web/hud/hud3d.js`; team locks `PRE-07` (`BUG-09`).
+
+### 2026-11-14 16:53 Europe/Istanbul — Fix BUG-15 & BUG-16 in 3D HUD stop/distance tracking
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`main`)
+- Task id: BUG-15, BUG-16
+- Files changed: web/shared/route-bridge.js, web/hud/hud3d.js, web/tests/route-bridge.test.mjs, POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Fixed `BUG-15` (3D HUD `NEXT` stop showed nearest Euclidean stop instead of upcoming stop along `route.legs`) and `BUG-16` (3D HUD `totalDist`/`remaining` disagreed with `route.json` `totals.distance_m` `790.3 m`). Added `resolveNextStopAlongRoute()` in `web/shared/route-bridge.js` using `legs[].to` / `to_stop_id` and cumulative `distance_m` with `marsDistanceM` fallback, scaled `alongM` onto `geomTotalDist` in `web/hud/hud3d.js`, added `web/tests/route-bridge.test.mjs`, and marked `BUG-15` and `BUG-16` fixed in `POSSIBLE_BUGS.md`.
+- Commit: this commit
+- Next step: Reload `http://127.0.0.1:8765/web/?demo=1` in browser to verify `NEXT` stop and `790.3 m` readout.
+
+### 2026-11-14 16:54 Europe/Istanbul — MUST-09 / MUST-12 (solid partner astronaut collision)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-09 / MUST-12
+- Files changed: web/hud/hud3d.js, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Eymen reported that free-roaming into the partner astronaut or turning back onto the route caused the player to clip inside the partner model. Added `PARTNER_COLLISION_R = 1.05` solid horizontal cylinder collision in `freeRoam` and an overlap guard on `partnerS` vs `alongM` in route mode in `web/hud/hud3d.js`, passed `node --check web/hud/hud3d.js`, and logged the cross-folder patch in `HANDOFFS.md`.
+- Commit: this commit
+- Next step: Divarci / Cagan review `web/hud/hud3d.js` collision patch; Eymen re-tests free-roam and route return collision in browser.
 ### 2026-11-14 16:36 Europe/Istanbul — High-resolution Mars map & terrain visor replacement (`MAP-01`)
 - **Agent:** Gemini (Antigravity) acting for human teammate **Doruk** (`B2`, coordinator/branch override on `orchestrator/map-replacement`)
 - **Role / branch:** `orchestrator/map-replacement` (from `main` `a6a14e8`)
@@ -609,3 +730,13 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Fixed flat/missing 3D ground textures (especially offline in `?demo=1`), depth-buffer occlusion mismatch, and 2D CTX priority. Added zero-network `256×256` procedural Martian PBR albedo + normal synthesis (`MarsPbrTextures.js` with integer hashing and wind ripples, basalt gravel, Voronoi mudstone slabs, sulfate veins, and crevice AO), `#include <common>` + `#include <logdepthbuf_*>` vertex/fragment chunks in terrain & sky shaders, `520`-instance `InstancedMesh` boulder field, `_slopeTex` isolation from `Mars PBR` mode `0`, tilted default gaze (`-0.14 rad`), `0.09 m` AR route tube, NASA `mars-eq://trek-ctx/{z}/{x}/{y}` priority in `MapLibreMarsAdapter`, `0.36` slope overlay opacity, and regression unit tests in `web/tests/fallback.test.mjs`.
 - Commit: this commit
 - Next step: User reloads `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctl+Shift+R`) to visually confirm textures, boulders, and 2D hillshade/contours.
+
+### 2026-11-14 17:06 Europe/Istanbul — Merge `main` (415e3b9: NASA Mark III suit, physics, shadows, BUG-15/16) into `orchestrator/map-replacement`
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`orchestrator/map-replacement`)
+- Task id: MAP-01, BUG-15, BUG-16
+- Files changed: web/app.js, web/index.html, web/styles.css, web/planner/planner.js, web/hud/hud3d.js, web/shared/data-loader.js, web/shared/route-bridge.js, web/map/MapLibreMarsAdapter.js, web/map/Fallback2DMap.js, web/map/HighResMarsTerrainEngine.js, web/tests/fallback.test.mjs, web/tests/route-bridge.test.mjs, docs/coordination/AGENT_LOG.md (plus merged `main` files)
+- Why: Merged `main` (`415e3b9`) into `orchestrator/map-replacement` combining `main`'s NASA Mark III rigged spacesuit, buddy EVA, Mars gravity/jump/Shift run, endless mirrored terrain + sun mask shadows, start menu (EN/TR), black UI, and `BUG-15`/`BUG-16` fixes with the map-branch's `MapLibreMarsAdapter` (`mars-eq://` Trek WMTS + `mars-dem://` HiRISE hillshade/3D tilt + click elevation/slope probe + offline demo shaded relief) and `MarsPbrTextures` close-range wind-rippled dust / fractured mudstone shader detail on the 3D terrain. Also enabled bundled `data/demo/ortho-preview.png` in `?demo=1` while keeping `demoSafe` 0-network isolation, unified `classifySlope()` `id`/`level` fields, and verified zero missing DOM IDs and 16/16 passing tests.
+- Commit: this commit
+- Next step: Visually verify `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctrl+Shift+R`), then decide whether to open a PR to `main`.
