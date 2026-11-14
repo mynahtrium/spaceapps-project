@@ -981,3 +981,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Next step: Merge `origin/main` (orbit view + high-res terrain upscale), verify tests, push `main`, and pull `main`.
 
 
+
+### 2026-11-15 00:22 Europe/Istanbul — Custom right-click menu
+
+- Human: Doruk
+- Agent tool + model: Claude Code / Claude Opus 5.5
+- Role: frontend (requested by Doruk)
+- Task id: UI follow-up
+- Files changed: `web/shared/context-menu.js` (new), `web/app.js`, `web/planner/planner.js`, `web/styles.css`, `web/tests/context-menu.test.mjs` (new), `docs/coordination/AGENT_LOG.md`
+- Why: Replaced the browser right-click menu with a mission-styled one that changes with the view. Planner map: coordinates, elevation and slope heading, teleport here, drop crew pin, copy coordinates, fit EVA. Bodycam: pin, map, orbit, sun, texture, rovers, POV, copy my coordinates. Orbit: find me, layer, live time. Every view also has view switching, crew, sources, dev settings and main menu. Text fields, selected text and Shift + right-click keep the native menu. A right-drag (map rotate) does not open it, and it stays closed while the mouse is locked. Keyboard: arrows, Enter, Esc. Planner exposes `lonLatAt`, `teleportTo`, `fitEva`. Verified `node --check` and `node --test web/tests/*.test.mjs` (46/46 pass). Not tested in a browser (Doruk asked to skip).
+- Commit: this commit
+- Next step: Eymen checks it in the browser (Linux and Windows right-click timing differ).
