@@ -328,3 +328,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Document long-lived branches (merge to main only when asked), pull-then-push after every prompt, and remaining backend work split (Cagan terrain+costmap; Doruk routing+stops example until PRE-07; CC science leftovers). Frontend/testers marked not this pass. No application code for Cagan/CC; no secrets.
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
+
+### 2026-11-14 13:12 Europe/Istanbul — MUST-02 (example-stop cost map)
+
+- Human: Cagan
+- Agent tool + model: Grok (Cursor)
+- Role: backend-1
+- Task id: MUST-02
+- Files changed: pipeline/costmap/make_cost_map.py, pipeline/costmap/crop_window.py, pipeline/costmap/README.md, data/processed/terrain/cost-map.json, height-preview.png, README.md, docs/comms/intro-backend-1.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Rebuilt the hazard cost grid and 16-bit height preview on the same ~2 km DTEEC_019698 window as the terrain crop (395×395 cells, ~5.06 m, 23.8% blocked at the 20° lunar stand-in). Every example point in docs/contracts/stops.json and data/processed/routing/stops.json is inside the bounds (137.373–137.407°E, 4.817–4.783°S). The contract example boxwork point lands on a 20.8° cell, so that one cell is the blocked sentinel. The routing example at the cited Sol 4534 point is 14.0°. No official outcrop names. No raw rasters. PRE-07 is still open. Slope and ortho PNGs that match this window are on backend/terrain; this branch still has the earlier placeholder-centre previews.
+- Commit: this commit
+- Next step: Testers review backend/terrain and backend/costmap. Re-run both after PRE-07 locks real outcrops. Do not merge to main unless asked.

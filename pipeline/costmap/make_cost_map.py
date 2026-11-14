@@ -1,28 +1,41 @@
 """MUST-02: cost / hazard map and a height preview for the 3D view.
 
-Run make_slope.py first (it writes data/raw/terrain/dtm_crop_1m.tif).
-
 Usage (from repo root):
     python3 pipeline/costmap/make_cost_map.py
+
+The grid covers the example stops already in the repo (same window as
+pipeline/terrain/make_slope.py). Those ids are examples. This does not
+lock outcrops (PRE-07) and does not invent official names.
+
+If data/raw/terrain/dtm_crop_1m.tif already covers that window it is
+reused. Otherwise the script reads DTEEC_019698 over HTTP. The GeoTIFF
+stays gitignored.
 
 Outputs (data/processed/terrain/):
     cost-map.json       contract: docs/contracts/cost-map.json (cost is a multiplier; 9e99 = blocked)
     height-preview.png  16-bit height, scaled over height_preview_elevation_range_m
 """
 import json
-import math
 import sys
 from pathlib import Path
 
 import numpy as np
 import rasterio
+from rasterio.windows import Window
 from skimage.io import imsave
 
-_TERRAIN = Path(__file__).resolve().parents[1] / "terrain"
+_HERE = Path(__file__).resolve().parent
+_TERRAIN = _HERE.parent / "terrain"
+sys.path.insert(0, str(_HERE))
 sys.path.insert(0, str(_TERRAIN))
-from make_slope import CELL_M, LON0, MARS_R_M, block_mean, slope_deg  # noqa: E402
+from crop_window import crop_xy, load_example_stops, xy_to_lonlat  # noqa: E402
+from make_slope import CELL_M, block_mean, slope_deg  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+DTM_URL = (
+    "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/"
+    "ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG"
+)
 SLOPE_LIMIT_DEG = 20.0  # illustrative lunar stand-in
 K_ROUGH = 0.05
 BLOCKED = 9e99
@@ -41,21 +54,54 @@ def roughness_tri(z):
     return np.mean(diffs, axis=0)
 
 
-def xy_to_lonlat(x, y):
-    k = MARS_R_M * math.pi / 180.0
-    return x / k + LON0, y / k
+def read_stop_window(stops, half):
+    """Read the 1 m DTM for the example-stop window. Reuse a local crop when it covers it."""
+    cx, cy, half = crop_xy(stops, min_half_m=half)
+    west, north = cx - half, cy + half
+    east, south = cx + half, cy - half
+    raw_dir = ROOT / "data/raw/terrain"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    tif = raw_dir / "dtm_crop_1m.tif"
+    source = "/vsicurl/" + DTM_URL
+    if tif.is_file():
+        with rasterio.open(tif) as ds:
+            b = ds.bounds
+            if b.left <= west + ds.res[0] and b.bottom <= south + ds.res[0] and b.right >= east - ds.res[0] and b.top >= north - ds.res[0]:
+                source = tif
+    with rasterio.open(source) as ds:
+        r0, c0 = ds.index(west, north)
+        r1, c1 = ds.index(east, south)
+        if r0 < 0 or c0 < 0 or r1 > ds.height or c1 > ds.width or r1 <= r0 or c1 <= c0:
+            raise SystemExit(f"cost-map window falls outside the DTM ({r0},{c0})-({r1},{c1})")
+        for stop in stops:
+            row, col = ds.index(stop["x"], stop["y"])
+            if not (r0 <= row < r1 and c0 <= col < c1):
+                raise SystemExit(f"example stop {stop['id']} from {stop['source']} is outside the cost grid")
+        win = Window(c0, r0, c1 - c0, r1 - r0)
+        z = ds.read(1, window=win).astype("float32")
+        nodata = ds.nodata
+        transform = ds.window_transform(win)
+        res = ds.res[0]
+        profile = ds.profile | {
+            "driver": "GTiff",
+            "height": z.shape[0],
+            "width": z.shape[1],
+            "transform": transform,
+        }
+    if source != tif:
+        finite = np.where(np.isfinite(z) & (z > -1e6), z, nodata).astype("float32")
+        with rasterio.open(tif, "w", **profile) as dst:
+            dst.write(finite, 1)
+    return z, nodata, res, transform
 
 
 def main():
-    raw = ROOT / "data/raw/terrain/dtm_crop_1m.tif"
     out = ROOT / "data/processed/terrain"
     out.mkdir(parents=True, exist_ok=True)
 
-    with rasterio.open(raw) as ds:
-        z = ds.read(1).astype("float32")
-        nodata = ds.nodata
-        res = ds.res[0]
-        t = ds.transform
+    stops = load_example_stops(ROOT)
+    _cx, _cy, half = crop_xy(stops)
+    z, nodata, res, t = read_stop_window(stops, half)
     z[z == nodata] = np.nan
     z[z < -1e6] = np.nan
 
@@ -78,10 +124,16 @@ def main():
     east, south = west + zc.shape[1] * cell, north - zc.shape[0] * cell
     w_lon, n_lat = xy_to_lonlat(west, north)
     e_lon, s_lat = xy_to_lonlat(east, south)
+    for stop in stops:
+        col = int((stop["x"] - west) / cell)
+        row = int((north - stop["y"]) / cell)
+        if not (0 <= row < zc.shape[0] and 0 <= col < zc.shape[1]):
+            raise SystemExit(f"example stop {stop['id']} from {stop['source']} is outside the ~5 m cost grid")
+        print(stop["source"], stop["id"], "cell", row, col, "slope", float(s[row, col]), "cost", float(cost[row, col]))
 
     cost_map = {
         "contract": "martian-mappers.cost-map.v1",
-        "status": "first-pass, not validated (crop centre is a placeholder until stops are locked)",
+        "status": "example-stop crop, not a locked route (PRE-07 still open). Covers every example point in docs/contracts/stops.json and data/processed/routing/stops.json. The contract example boxwork point can still fall in a blocked cell. Matching slope and ortho previews are on branch backend/terrain.",
         "crs": "mars-geographic-planetocentric",
         "mars_radius_km": 3389.5,
         "mars_radius_equatorial_km": 3396.19,
