@@ -1028,3 +1028,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Push `main` to `origin/main` and hard-refresh in browser (`Ctrl+Shift+R`).
 
+### 2026-11-15 01:10 Europe/Istanbul — Remove tactical map overlay, bind M to Orbit View
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (requested HUD/navigation cleanup & stash merge)
+- Task id: n/a
+- Files changed: `web/index.html`, `web/app.js`, `web/hud/hud3d.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Removed the HUD tactical elevation map overlay (`#hud-map-overlay`, `#hud-map-btn`, `#esc-open-map`, `.hud-map-*` CSS, and `renderTacticalMap` / `setMapOpen` implementation) and rebound `M` in the EVA HUD to open Orbit View (`onOpenOrbit?.()`), updating HUD hints, `#hud-orbit-btn` (`Orbit (M)`), `#esc-go-orbit` (`Orbit View (M)`), and context menu hints accordingly. Resolved merge conflicts with upstream `27891f0` and `dbaa678` while preserving upstream `E` Interact, `F` Flashlight, unified cyan styling, 20% curved black visor bezel, and astronaut rig updates. Verified zero conflict markers, `node --check web/app.js`, `node --check web/hud/hud3d.js`, and `node --test web/tests/*.test.mjs` (`46/46` pass).
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` (`Ctrl+Shift+R`) and verify pressing `M` in EVA Bodycam opens Orbit View.
+

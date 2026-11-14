@@ -109,67 +109,6 @@
       <div id="hud-loading" class="loading-veil">LOADING TERRAIN · NASA SUIT MODEL</div>
       <div id="hud-wrap-notice" class="hud-wrap-notice" aria-live="polite"></div>
 
-      <!-- In-HUD Tactical Mars Elevation Map (toggled with M key) -->
-      <div id="hud-map-overlay" class="hud-map-overlay" role="dialog" aria-label="Mars 3D Elevation Map">
-        <div class="hud-map-dialog">
-          <div class="hud-map-header">
-            <div>
-              <div class="hud-map-title" id="hud-map-title">GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP</div>
-              <div class="hud-map-sub" id="hud-map-sub">HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP</div>
-            </div>
-            <div class="hud-map-header-actions">
-              <button id="hud-map-mode" class="btn" type="button">Layer: Elevation 3D</button>
-              <button id="hud-map-close" class="btn" type="button">Close (M)</button>
-            </div>
-          </div>
-
-          <div class="hud-map-body">
-            <div class="hud-map-canvas-col">
-              <div class="hud-map-canvas-frame">
-                <canvas id="hud-map-canvas" width="540" height="540"></canvas>
-              </div>
-              <div id="hud-map-hover" class="hud-map-hover">
-                HOVER OR CLICK ON MAP FOR 3D ELEVATION (m MOLA) &amp; SLOPE (°)
-              </div>
-            </div>
-
-            <aside class="hud-map-side">
-              <div class="hud-map-panel">
-                <div class="hud-map-panel-title" id="hud-map-elev-title">MOLA 3D ELEVATION (m)</div>
-                <div class="hud-map-legend-wrap">
-                  <div class="hud-map-legend-bar"></div>
-                  <div class="hud-map-legend-labels">
-                    <span id="hud-map-elev-max">-3369 m</span>
-                    <span id="hud-map-elev-mid">-3610 m</span>
-                    <span id="hud-map-elev-min">-3851 m</span>
-                  </div>
-                </div>
-                <div class="hud-map-legend-note" id="hud-map-contour-note">
-                  20 m minor / 60 m major contours · shaded by live 3D terrain normals &amp; sun angle.
-                </div>
-              </div>
-
-              <div class="hud-map-panel">
-                <div class="hud-map-panel-title" id="hud-map-key-title">MARKERS &amp; WRAP</div>
-                <div class="hud-map-key-row"><span class="dot-you"></span> You + gaze cone</div>
-                <div class="hud-map-key-row"><span class="dot-start"></span> Habitat / Start mast</div>
-                <div class="hud-map-key-row"><span class="dot-stop"></span> Science stops</div>
-                <div class="hud-map-key-row"><span class="dot-target"></span> Teleport target</div>
-              </div>
-
-              <div id="hud-map-confirm" class="hud-map-confirm" style="display:none;">
-                <div class="hud-map-confirm-q" id="hud-map-confirm-q">Do you want to teleport here?</div>
-                <div class="hud-map-confirm-meta" id="hud-map-confirm-meta">—</div>
-                <div class="hud-map-confirm-actions">
-                  <button id="hud-map-confirm-yes" class="btn primary" type="button">Yes, Teleport</button>
-                  <button id="hud-map-confirm-no" class="btn" type="button">Cancel</button>
-                </div>
-              </div>
-            </aside>
-          </div>
-        </div>
-      </div>
-
       <div id="visor-overlay" class="visor-overlay">
         <div id="hud-zoom-reticle" class="zoom-reticle" hidden>
           <div class="zoom-ring"></div>
@@ -234,17 +173,16 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:4px;">
-              WASD MOVE · SHIFT BOOST · SPACE JUMP · E INTERACT · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · M MAP · O ORBIT · ESC MENU
+              WASD MOVE · SHIFT BOOST · SPACE JUMP · E INTERACT · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · M ORBIT · ESC MENU
             </div>
           </div>
 
           <div class="hud-controls">
-            <button id="hud-orbit-btn" class="btn">Orbit (O)</button>
+            <button id="hud-orbit-btn" class="btn">Orbit (M)</button>
             <button id="hud-sun-btn" class="btn">Sun: day</button>
             <button id="hud-gold-btn" class="btn">Gold (G)</button>
             <button id="hud-lamp-btn" class="btn">Flashlight (F)</button>
             <button id="hud-fleet-btn" class="btn">Rovers (5)</button>
-            <button id="hud-map-btn" class="btn">Map (M)</button>
             <button id="hud-tex" class="btn">Tex: relief</button>
             <button id="hud-ping" class="btn">Pin (P)</button>
             <button id="hud-pov-btn" class="btn">Rover POV</button>
@@ -270,8 +208,7 @@
         <div class="esc-label" id="esc-lbl-views">VIEWS &amp; NAVIGATION</div>
         <div class="esc-grid">
           <button id="esc-go-hud" class="btn esc-btn" type="button">EVA Bodycam</button>
-          <button id="esc-go-orbit" class="btn esc-btn" type="button">Orbit View (O)</button>
-          <button id="esc-open-map" class="btn esc-btn" type="button">Elevation Map (M)</button>
+          <button id="esc-go-orbit" class="btn esc-btn" type="button">Orbit View (M)</button>
           <button id="esc-open-rovers" class="btn esc-btn" type="button">Rovers (5)</button>
         </div>
       </div>

@@ -916,8 +916,7 @@ async function boot() {
     setText("esc-lbl-eva", tr ? "EVA VE OPTİK KONTROLLER" : "EVA & OPTICS CONTROLS");
     setText("esc-lbl-system", tr ? "GÖREV VE AYARLAR" : "MISSION & SETTINGS");
     setText("esc-go-hud", tr ? "EVA Vücut Kamerası" : "EVA Bodycam");
-    setText("esc-go-orbit", tr ? "Yörünge Görünümü (O)" : "Orbit View (O)");
-    setText("esc-open-map", tr ? "Yükselti Haritası (M)" : "Elevation Map (M)");
+    setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
     setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
     setText("esc-dev", tr ? "Geliştirici Ayarları" : "Developer Settings");
@@ -977,11 +976,6 @@ async function boot() {
   escGoOrbitBtn?.addEventListener("click", () => {
     toggleEscMenu(false);
     switchToOrbit();
-  });
-  document.getElementById("esc-open-map")?.addEventListener("click", () => {
-    toggleEscMenu(false);
-    switchToHud();
-    document.getElementById("hud-map-btn")?.click();
   });
   escRoversBtn?.addEventListener("click", () => {
     toggleEscMenu(false);
@@ -1079,8 +1073,7 @@ async function boot() {
       return [
         { heading: t("BODYCAM", "VÜCUT KAMERASI") },
         { label: t("Drop waypoint pin", "Yol işareti bırak"), hint: "P", action: clickId("hud-ping") },
-        { label: t("Elevation map", "Yükselti haritası"), hint: "M", action: clickId("hud-map-btn") },
-        { label: t("Orbit view", "Yörünge görünümü"), hint: "O", action: clickId("hud-orbit-btn") },
+        { label: t("Orbit view", "Yörünge görünümü"), hint: "M", action: clickId("hud-orbit-btn") },
         { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
         { label: btnLabel("hud-gold-btn", "Gold (G)"), action: clickId("hud-gold-btn") },
         { label: btnLabel("hud-lamp-btn", "Flashlight (F)"), action: clickId("hud-lamp-btn") },
@@ -1143,11 +1136,9 @@ async function boot() {
         if (el?.closest?.("#crew-drawer")) {
           return [{ label: t("Close crew panel", "Ekip panelini kapat"), hint: "Esc", action: () => crewDrawer?.classList.remove("open") }];
         }
-        // The in-HUD elevation map has its own click-to-teleport flow; keep it to global items.
-        const inHudMap = el?.closest?.("#hud-map-overlay.open");
         const view = activeView();
         const local =
-          view === "hud" && !inHudMap
+          view === "hud"
             ? hudItems()
             : view === "orbit"
               ? orbitItems()
