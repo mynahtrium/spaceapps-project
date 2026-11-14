@@ -968,3 +968,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Ported the frosted obsidian glass + ice-cyan HUD theme (glassmorphic cam-stamp & telemetry cards, top-center quick-access key bar, capsule drive bar, rounded slope/O2 gauges, pill controls with ice-cyan Map CTA), walker camera/gait anti-jitter smoothing, snappy braking (BRAKE_BOOST 3.4x, RESPONSE_TAU_S 0.1 s), and planted MMSEV rover crest physics onto main so the live deployment and main branch reflect all requested updates. Verified 26/26 Node tests pass and syntax checks pass.
 - Commit: this commit
 - Next step: Hard-reload (Ctrl+Shift+R) on main / ?demo=1.
+
+### 2026-11-14 23:48 Europe/Istanbul — High-res ground texture upscale, multi-scale sharpening & elevation-aware slope blending
+
+- Human: Asil
+- Agent tool + model: Antigravity (Gemini)
+- Role: tester-1 (requested ground texture quality & sharpness upgrade in `web/hud/hud3d.js`)
+- Task id: MUST-09 follow-up
+- Files changed: `web/hud/hud3d.js`, `docs/coordination/AGENT_LOG.md`
+- Why: Added progressive 2x-step `upscaleWithFillers()` up to 4096 px (`~3950x3950`) with luminance-only multi-scale (`1 px` + upscale-radius) unsharp sharpening and zero-mean micro filler pixels; upgraded `makeDetailTexture` (256 -> 512 with 128 octave) and procedural PBR ground maps (256 -> 512 default, 512 -> 1024 high-res) with `960x960` normal repeat; added elevation-contour UV blending (`vMmSlope`, `vMmElev`) and close-range sub-meter grit (`mmMicro`) in `terrainMat.onBeforeCompile` so slopes and ground look crisp without shifting color balance. Verified `node --check web/hud/hud3d.js` and `node --test web/tests/fallback.test.mjs` (18/18 pass).
+- Commit: this commit
+- Next step: Hard-reload browser (`Ctrl+Shift+R`) to inspect ground sharpness.
