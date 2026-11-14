@@ -493,66 +493,105 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) pos.setY(i, sampleElevSceneY(pos.getX(i), pos.getZ(i)));
     g.computeVertexNormals();
-    return addSkirt(g, seg, 40);
+    return g;
   }
 
-  // Tiles of different vertex density meet with small height mismatches along their edges, which
-  // open thin cracks where the sky shows through. A skirt (a strip hanging 40 m down from every
-  // edge, textured like the edge) fills those cracks without changing the visible surface.
-  function addSkirt(g, seg, depth) {
-    const n = seg + 1;
-    const pos = g.attributes.position;
-    const uv = g.attributes.uv;
-    const nor = g.attributes.normal;
-    const ring = [];
-    for (let i = 0; i < n; i++) ring.push(i); // north edge
-    for (let j = 1; j < n; j++) ring.push(j * n + seg); // east edge
-    for (let i = seg - 1; i >= 0; i--) ring.push(seg * n + i); // south edge
-    for (let j = seg - 1; j >= 1; j--) ring.push(j * n); // west edge
-    const base = pos.count;
-    const m = ring.length;
-    const P = new Float32Array((pos.count + 2 * m) * 3);
-    const U = new Float32Array((pos.count + 2 * m) * 2);
-    const N = new Float32Array((pos.count + 2 * m) * 3);
-    P.set(pos.array);
-    U.set(uv.array);
-    N.set(nor.array);
-    ring.forEach((src, k) => {
-      for (const [o, dy] of [
-        [base + 2 * k, 0],
-        [base + 2 * k + 1, -depth],
-      ]) {
-        P[o * 3] = pos.getX(src);
-        P[o * 3 + 1] = pos.getY(src) + dy;
-        P[o * 3 + 2] = pos.getZ(src);
-        U[o * 2] = uv.getX(src);
-        U[o * 2 + 1] = uv.getY(src);
-        N[o * 3] = nor.getX(src);
-        N[o * 3 + 1] = nor.getY(src);
-        N[o * 3 + 2] = nor.getZ(src);
+  // Mirrored copies: half the vertex density inside, but every vertex on the tile edge at full
+  // density, so each copy meets the real tile and its neighbours exactly (no cracks, no walls).
+  // Coarse interior cells that touch the edge are fan-triangulated from their inner corner.
+  const COPY_STEP = 2;
+  function buildStitchedGeometry(seg, step) {
+    const idxOf = new Int32Array((seg + 1) * (seg + 1)).fill(-1);
+    const P = [];
+    const U = [];
+    const keep = (i, j) => (i % step === 0 && j % step === 0) || i === 0 || j === 0 || i === seg || j === seg;
+    for (let j = 0; j <= seg; j++) {
+      for (let i = 0; i <= seg; i++) {
+        if (!keep(i, j)) continue;
+        const x = -worldW / 2 + (i / seg) * worldW;
+        const z = -worldH / 2 + (j / seg) * worldH;
+        idxOf[j * (seg + 1) + i] = P.length / 3;
+        P.push(x, sampleElevSceneY(x, z), z);
+        U.push(i / seg, 1 - j / seg);
       }
-    });
-    const idx = Array.from(g.index.array);
-    for (let k = 0; k < m; k++) {
-      const a = base + 2 * k;
-      const b = base + 2 * ((k + 1) % m);
-      // both windings, so the strip shows from either side (mirrored copies flip winding)
-      idx.push(a, a + 1, b, b, a + 1, b + 1, a, b, a + 1, b, b + 1, a + 1);
     }
-    const out = new THREE.BufferGeometry();
-    out.setAttribute("position", new THREE.BufferAttribute(P, 3));
-    out.setAttribute("uv", new THREE.BufferAttribute(U, 2));
-    out.setAttribute("normal", new THREE.BufferAttribute(N, 3));
-    out.setIndex(idx);
-    out.computeBoundingSphere();
-    out.computeBoundingBox();
-    return out;
+    const id = (i, j) => idxOf[j * (seg + 1) + i];
+    const onBorder = (v) => v === 0 || v === seg;
+    const index = [];
+    for (let j0 = 0; j0 < seg; j0 += step) {
+      for (let i0 = 0; i0 < seg; i0 += step) {
+        const i1 = Math.min(seg, i0 + step);
+        const j1 = Math.min(seg, j0 + step);
+        // perimeter, in order: north edge, east edge, south edge, west edge (kept vertices only)
+        const ring = [];
+        for (let i = i0; i < i1; i++) if (id(i, j0) >= 0) ring.push([i, j0]);
+        for (let j = j0; j < j1; j++) if (id(i1, j) >= 0) ring.push([i1, j]);
+        for (let i = i1; i > i0; i--) if (id(i, j1) >= 0) ring.push([i, j1]);
+        for (let j = j1; j > j0; j--) if (id(i0, j) >= 0) ring.push([i0, j]);
+        // fan from a corner whose two edges are not subdivided (not on the tile border)
+        let start = ring.findIndex(([i, j]) => (i === i0 || i === i1) && (j === j0 || j === j1) && !onBorder(i) && !onBorder(j));
+        if (start < 0) start = 0;
+        const r = ring.slice(start).concat(ring.slice(0, start)).map(([i, j]) => id(i, j));
+        for (let k = 1; k < r.length - 1; k++) index.push(r[0], r[k], r[k + 1]);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2));
+    // make every triangle face up, like PlaneGeometry after rotateX(-PI/2)
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    for (let t = 0; t < index.length; t += 3) {
+      a.fromArray(P, index[t] * 3);
+      b.fromArray(P, index[t + 1] * 3);
+      c.fromArray(P, index[t + 2] * 3);
+      const ny = (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z);
+      if (ny < 0) {
+        const tmp = index[t + 1];
+        index[t + 1] = index[t + 2];
+        index[t + 2] = tmp;
+      }
+    }
+    g.setIndex(index);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  // Ground height that matches the drawn surface: full detail on the real tile (and the ring's
+  // centre copy, which uses the same mesh); the coarser stitched surface on the other copies.
+  function sampleGroundY(x, z) {
+    if (!elevGrid) return 0;
+    const ti = Math.round(x / worldW);
+    const tj = Math.round(z / worldH);
+    const gx = Math.round(endless.position.x / worldW);
+    const gz = Math.round(endless.position.z / worldH);
+    const fullTile = (ti === 0 && tj === 0) || (ti === gx && tj === gz);
+    if (fullTile) return sampleElevSceneY(x, z);
+    const seg = imgW - 1;
+    const fx = mirrorWrap(x / worldW + 0.5) * seg;
+    const fy = mirrorWrap(z / worldH + 0.5) * (imgH - 1);
+    // the edge ring keeps full detail
+    if (fx < COPY_STEP || fy < COPY_STEP || fx > seg - COPY_STEP || fy > imgH - 1 - COPY_STEP) {
+      return sampleElevSceneY(x, z);
+    }
+    const x0 = Math.floor(fx / COPY_STEP) * COPY_STEP;
+    const y0 = Math.floor(fy / COPY_STEP) * COPY_STEP;
+    const x1 = Math.min(seg, x0 + COPY_STEP);
+    const y1 = Math.min(imgH - 1, y0 + COPY_STEP);
+    const tx = (fx - x0) / COPY_STEP;
+    const ty = (fy - y0) / COPY_STEP;
+    const e = (i, j) => elevGrid[j * imgW + i];
+    const top = e(x0, y0) + (e(x1, y0) - e(x0, y0)) * tx;
+    const bot = e(x0, y1) + (e(x1, y1) - e(x0, y1)) * tx;
+    return top + (bot - top) * ty - elevMin;
   }
 
   const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
   const terrainGeom = buildTerrainGeometry(fullSeg);
   // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
-  const copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
+  const copyGeom =
+    elevGrid && fullSeg % COPY_STEP === 0 ? buildStitchedGeometry(fullSeg, COPY_STEP) : buildTerrainGeometry(fullSeg);
 
   // ---------- far terrain shadows (baked) ----------
   // The real-time shadow map only covers the ground near the walker. For the rest, march from every
@@ -922,7 +961,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       c.mesh.visible = c.who.group.visible;
       if (!c.mesh.visible) continue;
       c.foot.getWorldPosition(footPos);
-      const gy = sampleElevSceneY(footPos.x, footPos.z);
+      const gy = sampleGroundY(footPos.x, footPos.z);
       const lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
       c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
       const e = 0.3;
@@ -1498,7 +1537,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
 
     // Mars gravity: feet follow the ground uphill, but the body falls (3.71 m/s^2) off drops.
-    const ground = sampleElevSceneY(px, pz);
+    const ground = sampleGroundY(px, pz);
     if (!player.init) {
       player.x = px;
       player.z = pz;

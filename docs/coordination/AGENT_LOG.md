@@ -869,3 +869,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan saw a pale band where the terrain repeats (screenshot at about 4.8169 S, 137.4064 E, the tile's south-east corner). Since the performance change the mirrored copies use a quarter of the real tile's vertex density, so their shared edges no longer line up and thin cracks show the sky. Every terrain tile now has a 40 m skirt hanging from its edges (edge texture, both windings), which closes the cracks without changing the visible surface or the copies' low cost. Teleported near the east edge and looked around: no band seen; the exact corner was not re-checked because Cagan was using the same tab.
 - Commit: this commit
 - Next step: Cagan checks the corner; push when asked.
+
+### 2026-11-14 17:59 Europe/Istanbul — stitched terrain copies (replace skirts)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/hud at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: The 40 m skirts showed as walls on ridges (the coarse copies were metres off at the seams) and could be walked through. Removed the skirts. Mirrored copies now use a stitched mesh: half the vertex density inside, every edge vertex at full density, edge cells fan-triangulated, so each copy meets the real tile and its neighbours exactly. Walking and boot contact shadows sample the drawn surface (full detail on the real tile, the coarser stitched surface on copies), so the walker neither sinks into nor floats above copies. Teleported to the south-east corner (about 4.8155 S, 137.4050 E) and looked around: no walls or cracks, no console errors.
+- Commit: this commit
+- Next step: push when Cagan asks.
