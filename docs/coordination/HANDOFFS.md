@@ -285,3 +285,26 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Divarci / Doruk / Cagan review cross-folder `web/` changes and inspect 3D planner, teleport, and Phobos/Deimos in browser.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
+### HANDOFF-20261114-1738 — from Tester 2 (Eymen) to Frontend 1 (Divarci) / Cagan / Doruk
+
+- Date (Europe/Istanbul): 2026-11-14 17:38
+- From (role, first name or nickname only, agent tool): bug tester 2, Eymen, Antigravity (Gemini)
+- To (role, name if known): Frontend 1 (Divarci, owner of `web/`), Cagan, Doruk
+- Board task id: MAP-01 / MUST-09 follow-up
+- What is ready:
+  1. **Offline MOLA colour, zero empty-buffer decode errors, & Fallback2DMap parity (`web/map/MapLibreMarsAdapter.js`, `Fallback2DMap.js`, `TileSourceRegistry.js`, `planner.js`):**
+     - Replaced empty `new ArrayBuffer(0)` returns in `mars-dem://` and `mars-eq://` error/guard paths with a valid 1x1 transparent PNG (`getTransparentTileBytes`) so MapLibre v4.7.1 never logs `EncodingError`.
+     - Added offline hypsometric elevation ramp rendering (`renderMolaColorTileRgba`) for `mola-color` in `?demo=1` / offline mode instead of an empty transparent overlay.
+     - Wired `strict-15` raster overlay onto `Fallback2DMap` (`loadRasterOverlay`), added window pointer listener cleanup in `Fallback2DMap.unmount()`, and added hover probe updates in `planner.js` whenever no teleport target is pinned.
+     - Cleaned `TileSourceRegistry.configureFromThemisMetadata` URL slash/template handling and sorted `_localThemisEntries` ancestor lookup (`eqZ <= target`).
+  2. **Buffered teleport & Moon orientation fixes (`web/shared/route-bridge.js`, `web/hud/hud3d.js`, `web/tests/*.mjs`):**
+     - Added `pendingTeleport` buffering and `toLngLat` normalization in `route-bridge.js` so early double-click/button teleports wait cleanly until `hud3d.js` initializes, while keeping `{ route, alongM, along_m }`.
+     - Updated `hud3d.js` (`onSetRoute` accepting `alongM ?? along_m`) alongside Cagan's single-astronaut/boot-contact-shadow `612223b` changes, flipped Stickney crater to the Mars-facing `+Z` hemisphere (`nz - 0.83`), and updated `skyMoons.position.copy(camera.position)` before calling `phobos.lookAt(camPos)` / `deimos.lookAt(camPos)`.
+     - Added regression unit tests in `web/tests/route-bridge.test.mjs` and `web/tests/fallback.test.mjs` (all 18/18 Node tests and 22 JS/MJS `node --check` passes).
+- Paths (files or folders): `web/hud/hud3d.js`, `web/map/Fallback2DMap.js`, `web/map/MapLibreMarsAdapter.js`, `web/map/TileSourceRegistry.js`, `web/planner/planner.js`, `web/shared/route-bridge.js`, `web/tests/fallback.test.mjs`, `web/tests/route-bridge.test.mjs`
+- How to try it: Run `start.bat` or `python -m http.server 8000`, hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`), toggle `MOLA colour` / `Strict 15°` / `THEMIS Day/Night`, hover or click/double-click any spot on the map to teleport to 3D Bodycam, and look up at the upper sky for Phobos (with Stickney crater facing Mars) & Deimos.
+- What is not done / known limits: Verified via `node --check` on 22 JS/MJS files and 18/18 Node unit tests; live interactive WebGL/DOM re-check awaits browser hard-reload in Eymen's active tab.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Please do next: Divarci reviews `web/` map/bridge/HUD patches; Eymen hard-reloads (`Ctrl+Shift+R`) and tests visually.
+- Received:

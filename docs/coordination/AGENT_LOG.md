@@ -805,3 +805,13 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan reported stutter. Cut per-frame work: pixel ratio capped at 1.25 (was 2), MSAA 4 -> 2 samples, shadow map 4096 -> 2048 px over a 40 m box with PCF instead of PCF-soft, terrain no longer drawn into the shadow map (terrain shadows come from the baked sun mask), mirrored copies at a quarter of the vertex density, HUD text updated 10 times a second, and adaptive render resolution (scene scale drops to 0.55 when frames average over 24 ms and recovers under 15 ms). In the in-app browser the frame rate is capped by vsync (median 13.9 ms before and after), so the gain could not be measured there; no console errors and shadows still render.
 - Commit: this commit
 - Next step: Cagan checks the frame rate on his machine.
+
+### 2026-11-14 17:38 Europe/Istanbul — MAP-01 / MUST-09 follow-up: MOLA offline ramp, PNG fallback buffer, buffered teleport, Stickney orientation & unit tests
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: tester-2
+- Task id: MAP-01, MUST-09
+- Files changed: `web/hud/hud3d.js`, `web/map/Fallback2DMap.js`, `web/map/MapLibreMarsAdapter.js`, `web/map/TileSourceRegistry.js`, `web/planner/planner.js`, `web/shared/route-bridge.js`, `web/tests/fallback.test.mjs`, `web/tests/route-bridge.test.mjs`, `docs/coordination/HANDOFFS.md`, `docs/coordination/AGENT_LOG.md`
+- Why: Polished map protocol & fallback edge cases on top of `612223b` (keeping Cagan's single-astronaut free-roam HUD & boot contact shadows intact): replaced empty `ArrayBuffer(0)` returns with a valid 1x1 transparent PNG in `MapLibreMarsAdapter.js`, added offline hypsometric `renderMolaColorTileRgba()` for `mola-color`, wired `strict-15` and `unmount()` cleanup in `Fallback2DMap.js`, added pre-selection hover probe in `planner.js`, buffered `dispatchTeleport`/`onTeleport` in `route-bridge.js` for startup calls before `hud3d.js` finishes init, pointed Stickney crater (`+Z`) and `phobos`/`deimos.lookAt(camera.position)` toward the camera in `hud3d.js`, accepted `alongM ?? along_m` in `onSetRoute`, and added unit tests in `web/tests/route-bridge.test.mjs` and `web/tests/fallback.test.mjs`. Verified `node --check` on 22 JS/MJS files and 18/18 Node unit tests.
+- Commit: this commit
+- Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) to visually inspect MOLA offline color, double-click teleport, and Phobos/Deimos in browser.

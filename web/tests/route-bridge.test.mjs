@@ -4,7 +4,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { marsDistanceM, resolveNextStopAlongRoute } from "../shared/route-bridge.js";
+import {
+  dispatchTeleport,
+  marsDistanceM,
+  onTeleport,
+  resolveNextStopAlongRoute,
+} from "../shared/route-bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -43,4 +48,33 @@ test("resolveNextStopAlongRoute falls back to Mars spherical distance when legs 
 
   const expectedMarsDist = marsDistanceM(origin, target.geometry.coordinates);
   assert.ok(expectedMarsDist > 50 && expectedMarsDist < 400);
+});
+
+function assertCoordClose(actual, expected) {
+  assert.ok(Math.abs(actual.lon - expected.lon) < 1e-10, `lon ${actual.lon} != ${expected.lon}`);
+  assert.ok(Math.abs(actual.lat - expected.lat) < 1e-10, `lat ${actual.lat} != ${expected.lat}`);
+}
+
+test("dispatchTeleport and onTeleport buffer pending coordinates and deliver live updates", () => {
+  const buffered = [];
+  const returned = dispatchTeleport([137.392, -4.798]);
+  assertCoordClose(returned, { lon: 137.392, lat: -4.798 });
+
+  const off1 = onTeleport((evt) => buffered.push(evt));
+  assert.equal(buffered.length, 1);
+  assertCoordClose(buffered[0], { lon: 137.392, lat: -4.798 });
+
+  const second = [];
+  const off2 = onTeleport((evt) => second.push(evt));
+  assert.equal(second.length, 0, "stale buffered teleport must not replay after first consumer");
+
+  dispatchTeleport({ lon: 137.401, lat: -4.805 });
+  assertCoordClose(buffered[1], { lon: 137.401, lat: -4.805 });
+  assertCoordClose(second[0], { lon: 137.401, lat: -4.805 });
+
+  off1();
+  dispatchTeleport([137.385, -4.812]);
+  assert.equal(buffered.length, 2);
+  assertCoordClose(second[1], { lon: 137.385, lat: -4.812 });
+  off2();
 });

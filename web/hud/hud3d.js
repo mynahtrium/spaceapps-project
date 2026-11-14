@@ -355,8 +355,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       const nz = vz * invR;
       let scale = 1.0;
       if (craterProfile) {
-        // Stickney crater depression + minor surface lumps for Phobos's captured-asteroid silhouette
-        const dStickney = Math.hypot(nx - 0.62, ny - 0.18, nz + 0.76);
+        // Stickney crater depression (+Z faces Mars when lookAt(camPos) is applied) + surface lumps
+        const dStickney = Math.hypot(nx - 0.52, ny - 0.18, nz - 0.83);
         const stickney = Math.max(0, 1 - dStickney / 0.55);
         const dHall = Math.hypot(nx + 0.5, ny - 0.65, nz - 0.56);
         const hall = Math.max(0, 1 - dHall / 0.34);
@@ -403,7 +403,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   const PHOBOS_ORBIT_R = 9600;
   const DEIMOS_ORBIT_R = 10400;
-  function updateMoons(tSec) {
+  function updateMoons(tSec, camPos = camera.position) {
     // Phobos orbits faster than Mars rotates -> rises West (-X), drifts East (+X) across upper sky
     const pAngle = 1.05 - tSec * 0.014; // ~0.5 rad above NW horizon at start, gliding W -> E
     const pAzX = -Math.cos(pAngle);
@@ -415,7 +415,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       (pAltY / pLen) * PHOBOS_ORBIT_R,
       (pLatZ / pLen) * PHOBOS_ORBIT_R
     );
-    phobos.lookAt(0, 0, 0); // tidally locked toward Mars surface
+    phobos.lookAt(camPos); // tidally locked toward viewer / Mars surface
     phobos.rotateZ(0.32);
 
     // Deimos orbits slower than Mars rotates -> rises East (+X), slowly drifts West (-X)
@@ -429,7 +429,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       (dAltY / dLen) * DEIMOS_ORBIT_R,
       (dLatZ / dLen) * DEIMOS_ORBIT_R
     );
-    deimos.lookAt(0, 0, 0);
+    deimos.lookAt(camPos);
   }
   updateMoons(0);
 
@@ -1011,9 +1011,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   btnTex?.addEventListener("click", () => setTexMode((texMode + 1) % TEX.length));
 
   // A new route from the planner (Begin EVA): stand at its start, facing along it.
-  onSetRoute(({ route: newRoute, along_m }) => {
+  onSetRoute((detail) => {
+    const newRoute = detail?.route;
+    const nextAlong = Number(detail?.alongM ?? detail?.along_m ?? 0) || 0;
     rebuildRouteRibbon(newRoute);
-    alongM = along_m || 0;
+    alongM = nextAlong;
     autoYaw = 0;
     if (routeCoords.length > 1) {
       const p = routePoint(alongM);
@@ -1309,8 +1311,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     sun.target.position.set(Math.round(px / texel) * texel, Math.round(ground / texel) * texel, Math.round(pz / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
-    updateMoons(clockT);
     skyMoons.position.copy(camera.position);
+    updateMoons(clockT, camera.position);
 
     // the HUD text only needs ~10 updates a second
     hudTimer += dt;

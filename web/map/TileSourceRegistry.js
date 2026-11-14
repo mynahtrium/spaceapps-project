@@ -319,8 +319,8 @@ export class TileSourceRegistry {
     this._activeAttributionIds = new Set(["hirise-dtm-local"]);
     /** @type {Map<string, string>} */
     this._localThemisMap = new Map();
-    /** @type {{ day: number[], night: number[] }} */
-    this._localThemisLevels = { day: [], night: [] };
+    /** @type {{ day: Array<{eqZ:number,row:number,col:number,url:string}>, night: Array<{eqZ:number,row:number,col:number,url:string}> }} */
+    this._localThemisEntries = { day: [], night: [] };
     /** @type {Set<(list: Array<object>) => void>} */
     this._attrListeners = new Set();
 
@@ -341,28 +341,29 @@ export class TileSourceRegistry {
       const pid = band === "day" ? "themis-day" : "themis-night";
       const prov = this._providers.get(pid);
       if (prov && cfg.tile_url_template) {
-        const styleVal = cfg.style || "default";
-        const tmsVal = cfg.tile_matrix_set || "default028mm";
         prov.urlTemplate = cfg.tile_url_template
-          .replace(".0.0//", ".0.0/")
-          .replace("{Style}", styleVal)
-          .replace("{TileMatrixSet}", tmsVal)
+          .replace("{Style}", cfg.style || "default")
+          .replace("{TileMatrixSet}", cfg.tile_matrix_set || "default028mm")
           .replace("{TileMatrix}", "{eqZ}")
           .replace("{TileRow}", "{row}")
-          .replace("{TileCol}", "{col}");
+          .replace("{TileCol}", "{col}")
+          .replace(/\/1\.0\.0\/+/g, "/1.0.0/");
       }
       if (Array.isArray(cfg.cached_gale_sample_tiles)) {
-        const levels = new Set(this._localThemisLevels[band]);
+        this._localThemisEntries[band] = [];
         for (const t of cfg.cached_gale_sample_tiles) {
-          const zNum = Number(t.z);
-          const key = `${band}:${zNum}:${t.row}:${t.col}`;
+          const eqZ = Number(t.z);
+          const row = Number(t.row);
+          const col = Number(t.col);
+          const key = `${band}:${t.z}:${row}:${col}`;
           const filename = String(t.relpath || "").split("/").pop();
           if (filename) {
-            this._localThemisMap.set(key, `${baseUrl}/${band}/${filename}`);
-            if (Number.isFinite(zNum)) levels.add(zNum);
+            const url = `${baseUrl}/${band}/${filename}`;
+            this._localThemisMap.set(key, url);
+            this._localThemisEntries[band].push({ eqZ, row, col, url });
           }
         }
-        this._localThemisLevels[band] = [...levels].sort((a, b) => b - a);
+        this._localThemisEntries[band].sort((a, b) => b.eqZ - a.eqZ);
       }
     }
   }
@@ -392,17 +393,17 @@ export class TileSourceRegistry {
 
     if (providerId === "themis-day" || providerId === "themis-night") {
       const band = providerId === "themis-day" ? "day" : "night";
-      const localUrl = this._localThemisMap.get(`${band}:${eqZ}:${row}:${col}`);
-      if (localUrl) return { url: localUrl, isLocal: true, eqZ, col, row };
+      const exactUrl = this._localThemisMap.get(`${band}:${eqZ}:${row}:${col}`);
+      if (exactUrl) return { url: exactUrl, isLocal: true, eqZ, col, row };
+
+      // In demoSafe mode (or at intermediate zooms like eqZ=9/7/5), reuse cached ancestor tile
       if (this.demoSafe) {
-        // Step down to cached Gale sample pyramid level (z=8, 6, 4) so high-zoom ?demo=1 works offline
-        for (const candZ of this._localThemisLevels[band] || []) {
-          if (candZ >= eqZ) continue;
-          const factor = 2 ** (eqZ - candZ);
-          const candCol = Math.floor(col / factor);
-          const candRow = Math.floor(row / factor);
-          const ancUrl = this._localThemisMap.get(`${band}:${candZ}:${candRow}:${candCol}`);
-          if (ancUrl) return { url: ancUrl, isLocal: true, eqZ: candZ, col: candCol, row: candRow };
+        for (const cand of this._localThemisEntries[band] || []) {
+          if (cand.eqZ > eqZ) continue;
+          const shift = eqZ - cand.eqZ;
+          if (Math.floor(col / 2 ** shift) === cand.col && Math.floor(row / 2 ** shift) === cand.row) {
+            return { url: cand.url, isLocal: true, eqZ: cand.eqZ, col: cand.col, row: cand.row };
+          }
         }
       }
     }
@@ -420,7 +421,7 @@ export class TileSourceRegistry {
       .replace("{y}", String(row))
       .replace("{col}", String(col))
       .replace("{x}", String(col));
-    return { url, isLocal: false };
+    return { url, isLocal: false, eqZ, col, row };
   }
 
   /**

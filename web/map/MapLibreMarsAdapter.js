@@ -91,7 +91,7 @@ function ensureProtocolsRegistered(maplibregl) {
     maplibregl.addProtocol("mars-dem", async (params) => {
       const m = /mars-dem:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
       if (!m || !activeProtocolContext.demSampler) {
-        return { data: new ArrayBuffer(0) };
+        return { data: (await getTransparentTileBytes()).slice(0) };
       }
       const z = Number(m[1]);
       const x = Number(m[2]);
@@ -117,7 +117,7 @@ function ensureProtocolsRegistered(maplibregl) {
     maplibregl.addProtocol("mars-eq", async (params, abortController) => {
       const m = /mars-eq:\/\/([^/]+)\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
       if (!m || !activeProtocolContext.registry) {
-        return { data: new ArrayBuffer(0) };
+        return { data: (await getTransparentTileBytes()).slice(0) };
       }
       const layerId = m[1];
       const z = Number(m[2]);
@@ -250,6 +250,12 @@ function ensureProtocolsRegistered(maplibregl) {
         return { data };
       } catch (err) {
         if (err?.name === "AbortError") throw err;
+        // Offline / ?demo=1 fallback for MOLA color: render hypsometric elevation ramp from local DEM
+        if (layerId === "mola-color" && dem) {
+          const rgba = renderMolaColorTileRgba(dem, z, x, y, 256);
+          const blob = await blobFromRgba(rgba, 256, 256);
+          return { data: await blob.arrayBuffer() };
+        }
         // Overlay layers outside cached/offline coverage stay transparent rather than obscuring basemap
         if (layerId === "themis-day" || layerId === "themis-night" || layerId === "mola-color") {
           return { data: (await getTransparentTileBytes()).slice(0) };
@@ -313,6 +319,56 @@ function renderShadedReliefTileRgba(dem, z, x, y, size = 256) {
       rgba[idx + 1] = Math.min(255, Math.max(10, Math.round((78 + tElev * 40 + speck) * dot * contourBoost)));
       rgba[idx + 2] = Math.min(255, Math.max(8, Math.round((54 + tElev * 26 + speck * 0.8) * dot * contourBoost)));
       rgba[idx + 3] = 255;
+    }
+  }
+  return rgba;
+}
+
+/**
+ * Render an offline MOLA-style hypsometric color ramp overlay from the local Gale DEM.
+ */
+function renderMolaColorTileRgba(dem, z, x, y, size = 256) {
+  const rgba = new Uint8ClampedArray(size * size * 4);
+  const n = 2 ** z;
+  const tx0 = x / n;
+  const ty0 = y / n;
+  const txSpan = 1 / n;
+  const stops = [
+    [0.0, 42, 62, 168],
+    [0.25, 34, 152, 198],
+    [0.5, 92, 188, 92],
+    [0.75, 232, 168, 48],
+    [1.0, 224, 72, 48],
+  ];
+
+  for (let py = 0; py < size; py++) {
+    const ny = ty0 + ((py + 0.5) / size) * txSpan;
+    const lat = (Math.atan(Math.sinh(Math.PI * (1 - 2 * ny))) * 180) / Math.PI;
+    for (let px = 0; px < size; px++) {
+      const nx = tx0 + ((px + 0.5) / size) * txSpan;
+      const lon = normalizeLonDeg(nx * 360 - 180);
+      const info = dem.sampleSlopeAndNormal([lon, lat]);
+      const idx = (py * size + px) * 4;
+      if (!info) {
+        rgba[idx + 3] = 0;
+        continue;
+      }
+      const t = Math.max(0, Math.min(1, (info.elevM + 3850.6) / 481.3));
+      let s0 = stops[0];
+      let s1 = stops[stops.length - 1];
+      for (let i = 0; i < stops.length - 1; i++) {
+        if (t >= stops[i][0] && t <= stops[i + 1][0]) {
+          s0 = stops[i];
+          s1 = stops[i + 1];
+          break;
+        }
+      }
+      const frac = s1[0] > s0[0] ? (t - s0[0]) / (s1[0] - s0[0]) : 0;
+      const shade = Math.max(0.55, Math.min(1.25, 0.72 + info.normal.x * 0.35 + info.normal.z * -0.35));
+      rgba[idx] = Math.min(255, Math.round((s0[1] + (s1[1] - s0[1]) * frac) * shade));
+      rgba[idx + 1] = Math.min(255, Math.round((s0[2] + (s1[2] - s0[2]) * frac) * shade));
+      rgba[idx + 2] = Math.min(255, Math.round((s0[3] + (s1[3] - s0[3]) * frac) * shade));
+      rgba[idx + 3] = 225;
     }
   }
   return rgba;
