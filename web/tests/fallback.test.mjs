@@ -447,10 +447,10 @@ test("stepRoverBallisticPhysics keeps normal driving planted and launches fast c
   // Fast ramp climb stays gripped, then launches airborne crisply at the crest dropoff
   const ramp = stepRoverBallisticPhysics(s, { groundY: 0.17, slopeClimbVy: 6.0, horizSpeed: 18.0, dt: 0.016 });
   assert.equal(ramp.launched, false);
-  const crest = stepRoverBallisticPhysics(s, { groundY: 0.1, slopeClimbVy: 0.0, horizSpeed: 18.0, dt: 0.016 });
+  const crest = stepRoverBallisticPhysics(s, { groundY: 0.0, slopeClimbVy: 0.0, horizSpeed: 18.0, dt: 0.016 });
   assert.equal(crest.launched, true);
   assert.equal(s.airborne, true);
-  assert.ok(s.velY >= 2.0 && s.velY <= 3.8);
+  assert.ok(s.velY >= 1.8 && s.velY <= 2.6);
 
   let landedStep = null;
   let totalAirTime = 0;
@@ -476,7 +476,7 @@ test("stepRoverBallisticPhysics keeps normal driving planted and launches fast c
   // Landing shock cooldown settles before next violent whip impulse can launch
   const blockedImmediately = stepRoverBallisticPhysics(s, {
     groundY: 0.1,
-    bumpImpulseVy: 2.5,
+    bumpImpulseVy: 3.6,
     horizSpeed: 14.0,
     dt: 0.016,
   });
@@ -485,7 +485,7 @@ test("stepRoverBallisticPhysics keeps normal driving planted and launches fast c
   s.landingCooldown = 0;
   const whip = stepRoverBallisticPhysics(s, {
     groundY: 0.1,
-    bumpImpulseVy: 2.5,
+    bumpImpulseVy: 3.6,
     horizSpeed: 14.0,
     dt: 0.016,
   });

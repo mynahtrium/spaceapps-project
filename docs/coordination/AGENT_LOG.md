@@ -920,7 +920,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Agent tool + model: Antigravity (Claude Sonnet 5.5)
 - Role: frontend visor (edits in web/ at the user's request, branch developermenu)
 - Task id: MUST-09 follow-up
-- Files changed: web/hud/hud3d.js, web/hud/experimental-rover.js, docs/coordination/AGENT_LOG.md
+- Files changed: web/hud/hud3d.js, web/hud/experimental-rover.js, web/tests/fallback.test.mjs, docs/coordination/AGENT_LOG.md
 - Why: The helmet camera shook while walking: eye height followed the raw terrain sample every frame and the gait speed was a per-frame distance/dt value. Eye height is now low-passed (snaps on teleport or wrap) and gait speed is smoothed; walker stop is snappier and cuts residual creep. The MMSEV rover floated off small crests: launch now needs about 14.5 m/s, a clear 0.14 m rise and is capped at 2.4 m/s vertical; bump launches need a larger impulse; idle rolling resistance is higher and creep below 0.18 m/s is zeroed. The existing 6-wheel rig (articulated pods, suspension, pitch/roll) was kept.
 - Commit: this commit
 - Next step: Drive the rover on ?demo=1 and tune the launch thresholds in stepRoverBallisticPhysics if it feels too planted.

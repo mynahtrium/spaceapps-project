@@ -281,7 +281,7 @@ export function stepRoverBallisticPhysics(
     const clearance = ballisticY - groundY;
     const launchSpeedThresh = 14.5 / Math.max(0.75, jumpBias);
     const shouldLaunch =
-      (clearance > 0.14 && s.peakLaunchVy > 2.2 && horizSpeed > launchSpeedThresh) || bumpImpulseVy > 3.4;
+      (clearance > 0.14 && s.peakLaunchVy > 1.95 && horizSpeed > launchSpeedThresh) || bumpImpulseVy > 3.4;
 
     if (shouldLaunch) {
       s.airborne = true;

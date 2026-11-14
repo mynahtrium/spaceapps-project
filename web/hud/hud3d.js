@@ -2968,7 +2968,7 @@ export async function initHud3D(
         );
         const crossBump = Math.abs(hLeft - hRight);
         if ((steerJerk > 2.6 || Math.abs(roverLateralSpeed) > 5.0) && horizSpeed > 11.5 && (crossBump > 0.24 || slopeClimbVy > 2.2)) {
-          bumpImpulseVy = Math.min(2.8, steerJerk * 0.28 + crossBump * 2.2 + Math.abs(roverLateralSpeed) * 0.22);
+          bumpImpulseVy = Math.min(3.8, steerJerk * 0.28 + crossBump * 2.2 + Math.abs(roverLateralSpeed) * 0.22);
         }
       }
       const airStep = stepRoverBallisticPhysics(roverAirState, {
