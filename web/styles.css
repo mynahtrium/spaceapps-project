@@ -699,17 +699,15 @@ svg.profile-svg {
   --wg-sun: #67e8f9;
   position: absolute;
   inset: 0;
+  z-index: 5;
   pointer-events: none;
-  padding: 10px 28px;
+  padding: var(--visor-pad-top, clamp(28px, 4.4vh, 52px)) var(--visor-pad-x, clamp(46px, 5vw, 96px)) var(--visor-pad-bottom, clamp(28px, 4.4vh, 52px));
   color: var(--wg);
-  /* Light 20% top/bottom fallback gradient; default 20% curved black frame is drawn by LENS_FRAG */
-  background:
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.28) 12%, rgba(0, 0, 0, 0) 20%),
-    linear-gradient(to top, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.28) 12%, rgba(0, 0, 0, 0) 20%);
+  background: none;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.96), 0 0 8px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.96), 0 0 8px rgba(0, 0, 0, 0.92);
 }
 
 .visor-overlay.gold-deployed {
@@ -724,15 +722,15 @@ svg.profile-svg {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: start;
   gap: 14px;
-  max-height: 16vh;
+  max-height: 20vh;
 }
 
 .visor-bottom {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: 20px;
-  max-height: 16vh;
+  gap: 16px;
+  max-height: 20vh;
 }
 
 .cam-stamp {
@@ -772,6 +770,7 @@ svg.profile-svg {
   width: clamp(160px, 22vw, 270px);
   pointer-events: none;
   justify-self: center;
+  margin-top: calc(-1 * var(--visor-compass-lift, 0px));
   transition: opacity 0.25s ease;
 }
 
@@ -959,7 +958,7 @@ svg.profile-svg {
   justify-content: flex-end;
   align-items: center;
   gap: 2px 10px;
-  max-width: 58vw;
+  max-width: min(54vw, 620px);
 }
 
 .visor-overlay .btn,
@@ -1015,10 +1014,6 @@ svg.profile-svg {
 }
 
 @media (max-height: 760px) {
-  .visor-overlay {
-    padding: 8px 24px;
-  }
-
   .cam-stamp,
   .optics-head,
   .telemetry,
@@ -1041,6 +1036,7 @@ svg.profile-svg {
 .loading-veil {
   position: absolute;
   inset: 0;
+  z-index: 7;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1151,11 +1147,7 @@ svg.profile-svg {
 }
 
 .visor-overlay.driving-3p {
-  background:
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.46) 11%, rgba(0, 0, 0, 0) 20%),
-    linear-gradient(to top, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.46) 11%, rgba(0, 0, 0, 0) 20%),
-    linear-gradient(to right, rgba(0, 0, 0, 0.52) 0%, rgba(0, 0, 0, 0) 16%),
-    linear-gradient(to left, rgba(0, 0, 0, 0.52) 0%, rgba(0, 0, 0, 0) 16%);
+  background: none;
 }
 
 .visor-overlay.clean-hud {
@@ -1842,10 +1834,10 @@ svg.profile-svg {
 
 .hud-fleet-panel {
   position: absolute;
-  right: 18px;
-  bottom: 62px;
+  right: var(--visor-pad-x, clamp(46px, 5vw, 96px));
+  bottom: calc(var(--visor-pad-bottom, clamp(28px, 4.4vh, 52px)) + 52px);
   z-index: 35;
-  width: min(360px, calc(100vw - 36px));
+  width: min(360px, calc(100vw - 2 * var(--visor-pad-x, 46px)));
   background: rgba(0, 6, 10, 0.94);
   border: 1px solid var(--line-strong);
   padding: 10px 12px;

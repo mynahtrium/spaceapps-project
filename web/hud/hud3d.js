@@ -316,25 +316,26 @@ const LENS_FRAG = /* glsl */ `
     }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
 
-    // 20% default curved black visor frame (b = 1.0 => ~17% top/bottom center -> ~21% corners, ~8.5% -> ~14% sides)
+    // Thin curved black visor frame (default 20% strength => sleek thin visor border)
     float b = clamp(uBezelScale, 0.0, 1.5);
     float bezel = 1.0;
     float bezelRim = 0.0;
     if (b > 0.001) {
+      float bNorm = b <= 0.2 ? (b / 0.2) : (1.0 + (b - 0.2) * 0.65);
       vec2 q = (vUv - 0.5) * 2.0;
-      float bY = clamp(0.168 * b, 0.0, 0.30);
-      float bCornerY = clamp(0.214 * b, 0.0, 0.36);
-      float bX = clamp(0.085 * b, 0.0, 0.22);
-      float bCornerX = clamp(0.142 * b, 0.0, 0.28);
-      float yHalf = max(0.22, 1.0 - 2.0 * mix(bY, bCornerY, pow(abs(q.x), 1.85)));
-      float xHalf = max(0.32, 1.0 - 2.0 * mix(bX, bCornerX, pow(abs(q.y), 1.85)));
+      float bY = clamp(0.012 * bNorm, 0.0, 0.09);
+      float bCornerY = clamp(0.038 * bNorm, 0.0, 0.14);
+      float bX = clamp(0.015 * bNorm, 0.0, 0.08);
+      float bCornerX = clamp(0.034 * bNorm, 0.0, 0.12);
+      float yHalf = max(0.22, 1.0 - 2.0 * mix(bY, bCornerY, pow(max(abs(q.x), 1e-4), 1.85)));
+      float xHalf = max(0.32, 1.0 - 2.0 * mix(bX, bCornerX, pow(max(abs(q.y), 1e-4), 1.85)));
       vec2 pBox = vec2(abs(q.x) * aspect, abs(q.y));
       vec2 halfBox = vec2(xHalf * aspect, yHalf);
-      float cr = 0.13 * min(1.0, b);
+      float cr = 0.068 * min(1.0, bNorm);
       vec2 qBox = pBox - (halfBox - vec2(cr));
       float dPx = length(max(qBox, 0.0)) + min(max(qBox.x, qBox.y), 0.0) - cr;
-      bezel = 1.0 - smoothstep(-0.004, 0.008, dPx);
-      bezelRim = smoothstep(-0.08, 0.0, dPx) * min(1.0, b);
+      bezel = 1.0 - smoothstep(-0.003, 0.006, dPx);
+      bezelRim = smoothstep(-0.032, 0.0, dPx) * min(1.0, bNorm);
     }
 
     col *= uExposure;
@@ -1922,11 +1923,11 @@ export async function initHud3D(
     }
   }
 
-  function openRoverInfoSafe(spec) {
+  function openRoverInfoSafe(spec, opts = {}) {
     if (!spec) return;
     dragging = false;
     releasePointerLock();
-    if (onOpenRoverInfo) onOpenRoverInfo(spec);
+    if (onOpenRoverInfo) onOpenRoverInfo(spec, opts);
     else dispatchOpenRoverInfo(spec.id);
   }
 
@@ -3095,6 +3096,16 @@ export async function initHud3D(
       setMapOpen(!isMapOpen());
       return;
     }
+    if (k === "5" && !e.repeat && !isMapOpen()) {
+      if (fleetPanelEl) {
+        e.preventDefault();
+        releasePointerLock();
+        const nextOpen = !fleetPanelEl.classList.contains("open");
+        if (nextOpen) renderHudFleetPanel();
+        fleetPanelEl.classList.toggle("open", nextOpen);
+      }
+      return;
+    }
     if (k === "o" && !e.repeat && !isMapOpen()) {
       e.preventDefault();
       releasePointerLock();
@@ -3168,7 +3179,7 @@ export async function initHud3D(
           isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
         );
       if (targetRover) {
-        openRoverInfoSafe(targetRover);
+        openRoverInfoSafe(targetRover, { toggleKey: "e" });
         return;
       }
 
@@ -3205,7 +3216,7 @@ export async function initHud3D(
         }
       }
       if (nearRover) {
-        openRoverInfoSafe(nearRover);
+        openRoverInfoSafe(nearRover, { toggleKey: "e" });
       }
       return;
     }
@@ -3315,6 +3326,48 @@ export async function initHud3D(
   let frameAvg = 16;
   let lastScaleChange = 0;
 
+  function syncVisorSafeInsets(w, h, bezelScale) {
+    const host = hudView || document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
+    if (!host) return;
+    const width = Math.max(1, w || window.innerWidth);
+    const height = Math.max(1, h || window.innerHeight);
+    const b = Math.max(0, Math.min(1.5, bezelScale || 0));
+    if (b <= 0.001) {
+      host.style.setProperty("--visor-pad-top", "14px");
+      host.style.setProperty("--visor-pad-bottom", "14px");
+      host.style.setProperty("--visor-pad-x", "28px");
+      host.style.setProperty("--visor-compass-lift", "0px");
+      return;
+    }
+    const bNorm = b <= 0.2 ? b / 0.2 : 1.0 + (b - 0.2) * 0.65;
+    const bY = Math.min(0.09, 0.012 * bNorm);
+    const bCornerY = Math.min(0.14, 0.038 * bNorm);
+    const bX = Math.min(0.08, 0.015 * bNorm);
+    const bCornerX = Math.min(0.12, 0.034 * bNorm);
+    const cr = 0.068 * Math.min(1.0, bNorm);
+    const aspect = width / height;
+
+    const padXPct = Math.min(0.16, bCornerX + 0.016);
+    const qx = Math.max(0, 1 - 2 * padXPct);
+    const yHalf = Math.max(0.22, 1.0 - 2.0 * (bY + (bCornerY - bY) * Math.pow(Math.max(qx, 1e-4), 1.85)));
+    const xHalf = Math.max(0.32, 1.0 - 2.0 * (bX + (bCornerX - bX) * Math.pow(Math.max(yHalf, 1e-4), 1.85)));
+    const hx = xHalf * aspect;
+    const dx = Math.max(0, qx * aspect - Math.max(0, hx - cr));
+    const cornerDropY = cr - Math.sqrt(Math.max(0, cr * cr - Math.min(cr, dx) ** 2));
+    const clearY = Math.max(0.1, yHalf - cornerDropY);
+    const padYPct = Math.min(0.18, (1.0 - clearY) * 0.5 + 0.014);
+
+    const padX = Math.max(30, Math.round(width * padXPct));
+    const padY = Math.max(20, Math.round(height * padYPct));
+    const centerClearY = Math.round(height * (bY + 0.012));
+    const compassLift = Math.max(0, Math.min(14, padY - centerClearY));
+
+    host.style.setProperty("--visor-pad-top", `${padY}px`);
+    host.style.setProperty("--visor-pad-bottom", `${padY}px`);
+    host.style.setProperty("--visor-pad-x", `${padX}px`);
+    host.style.setProperty("--visor-compass-lift", `${compassLift}px`);
+  }
+
   const onResize = () => {
     const w = wrap.clientWidth || window.innerWidth;
     const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
@@ -3325,6 +3378,8 @@ export async function initHud3D(
     const pr = renderer.getPixelRatio() * renderScale;
     rt.setSize(Math.max(1, Math.floor(w * pr)), Math.max(1, Math.floor(h * pr)));
     lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
+    const activeScale = devCfg.frameEffect ? Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2)) : 0;
+    syncVisorSafeInsets(w, h, activeScale);
   };
 
   function syncDrivingCameraVisualState(isDriving3p) {
@@ -3332,25 +3387,31 @@ export async function initHud3D(
     if (visorOverlay) {
       visorOverlay.classList.toggle("driving-3p", Boolean(isDriving3p));
     }
+    const w = wrap.clientWidth || window.innerWidth;
+    const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
+    const h = wrap.clientHeight || window.innerHeight - topOff;
     if (!devCfg.frameEffect) {
       lensMat.uniforms.uFrameZoom.value = 1.0;
       lensMat.uniforms.uBezelScale.value = 0.0;
       lensMat.uniforms.uDistort.value = 0.0;
       lensMat.uniforms.uAberration.value = 0.0;
       lensMat.uniforms.uVignette.value = 0.0;
+      syncVisorSafeInsets(w, h, 0);
       return;
     }
-    const strength = Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 1.0));
+    const strength = Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2));
+    const lensAmt = Math.max(0.45, Math.min(1.5, 0.35 + strength * 0.65));
     lensMat.uniforms.uFrameZoom.value = 1.0;
     lensMat.uniforms.uBezelScale.value = strength;
+    syncVisorSafeInsets(w, h, strength);
     if (isDriving3p) {
-      lensMat.uniforms.uDistort.value = 0.04 * strength;
-      lensMat.uniforms.uAberration.value = 0.0006 * strength;
-      lensMat.uniforms.uVignette.value = 0.45 * strength;
+      lensMat.uniforms.uDistort.value = 0.04 * lensAmt;
+      lensMat.uniforms.uAberration.value = 0.0006 * lensAmt;
+      lensMat.uniforms.uVignette.value = 0.45 * lensAmt;
     } else {
-      lensMat.uniforms.uDistort.value = 0.14 * strength;
-      lensMat.uniforms.uAberration.value = 0.0014 * strength;
-      lensMat.uniforms.uVignette.value = 0.72 * strength;
+      lensMat.uniforms.uDistort.value = 0.11 * lensAmt;
+      lensMat.uniforms.uAberration.value = 0.0012 * lensAmt;
+      lensMat.uniforms.uVignette.value = 0.68 * lensAmt;
     }
   }
 
@@ -3457,8 +3518,8 @@ export async function initHud3D(
       if (hudView.classList.contains("active")) {
         showWrapNotice(
           isTrLang()
-            ? `${vSpec.nameTr.toUpperCase()} YANINDA OLUŞTU (BİN: F)`
-            : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (F TO BOARD)`
+            ? `${vSpec.nameTr.toUpperCase()} YANINDA OLUŞTU (BİN: E)`
+            : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (E TO BOARD)`
         );
       }
     } else if (!wantRover && drivingRover) {

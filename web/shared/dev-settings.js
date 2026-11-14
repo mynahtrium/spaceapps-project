@@ -8,7 +8,7 @@ export const DEV_SETTINGS_EVENT = "mm:dev-settings";
 
 export const DEFAULT_DEV_SETTINGS = Object.freeze({
   frameEffect: true,
-  frameStrength: 1.0,
+  frameStrength: 0.2,
   speedMultiplier: 1.0,
   roverSpeedMultiplier: 1.0,
   superGraphics: false,

@@ -390,6 +390,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(clean.fov, 60);
   assert.equal(clean.cleanHud, true);
   const defs = normalizeDevSettings();
+  assert.equal(defs.frameStrength, 0.2);
   assert.equal(defs.speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
   assert.equal(defs.roverSpeedMultiplier, 1.0);
   assert.equal(defs.experimentalRover, false);

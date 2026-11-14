@@ -1028,3 +1028,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Push `main` to `origin/main` and hard-refresh in browser (`Ctrl+Shift+R`).
 
+### 2026-11-15 01:36 Europe/Istanbul — Thinner 20% visor frame, safe HUD insets & symmetric keybind toggles
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 / tester-2 (`main`)
+- Task id: HUD frame & keybind polish
+- Files changed: `web/shared/dev-settings.js`, `web/app.js`, `web/hud/hud3d.js`, `web/styles.css`, `web/tests/fallback.test.mjs`, `docs/AI_USE_LOG.md`
+- Why: Changed default `frameStrength` to `0.2` (`20%`) and slimmed `LENS_FRAG` curved black visor bezel proportions (`1.2%` top/bottom center -> `3.8%` corner vertical, `1.5%` side center -> `3.4%` corner horizontal, tighter `-0.032` inner rim). Added `syncVisorSafeInsets` in `web/hud/hud3d.js` + CSS custom property layout in `web/styles.css` (and removed `@media (max-height: 760px)` padding collapse + background bars) so all HUD text, compass, and buttons sit strictly inside the clear inner visor window without touching or overlapping the curved black frame. Fixed `Escape` in `web/app.js` calling `e.stopImmediatePropagation()` when closing `#esc-menu`, `#modal-backdrop`, or `#crew-drawer` so `hud3d.js` does not re-open `#esc-menu` on the same keypress, added symmetric `O` Orbit<->HUD toggle, `E` close on historic rover modals opened via `E`, `5` toggle for `#hud-fleet-panel`, and fixed stale `(F TO BOARD)`/`(BİN: F)` notice to `E`.
+- Commit: pending
+- Next step: Run syntax/unit checks and verify thinner 20% bezel + all keybind toggles in browser.
+
