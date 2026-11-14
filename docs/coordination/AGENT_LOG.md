@@ -704,3 +704,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Merged `origin/main` (`e805280`) into `frontend/planner-hud` to bring in vendored offline `web/vendor/` libs (`BUG-12`), `data/demo/ortho-preview.png` (`BUG-14`), Cagan's `texture-relief.jpg` (illustrative Mars tint, wired alongside Ortho/Slope cycle on `btnTex`), and Cagan's endless 7x7 mirrored terrain (`followEndless` + `mirrorWrap` inside triangle-exact `sampleMeshY` at `EYE_HEIGHT_M = 1.7` without clipping and without boundary clamping so astronauts can walk across edges while labelling mirrored terrain copies honestly in the HUD), while preserving Divarci's unified visor, camera-relative WASD, Pointer Lock look, and route-free view.
 - Commit: this commit
 - Next step: Verify combined endless terrain + WASD + mouse lock in browser at `http://localhost:8000/web/`.
+
+### 2026-11-14 16:45 Europe/Istanbul — MUST-09 / SHOULD-07 (Dynamic Martian Skybox, Sol Time, Moons, Map-Colored Rocks & Bodycam Visor)
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (UI designer)
+- Task id: MUST-09, SHOULD-07
+- Files changed: web/hud/hud3d.js, web/index.html, web/styles.css, docs/coordination/AGENT_LOG.md
+- Why: Upgraded the first-person 3D HUD into a Bodycam helmet-cam scene featuring a procedural Martian sky dome with dusty-blue twilight forward scattering and starfield, Gale Crater (4.8°S) solar ephemeris + Sol Time scrubber (`0..24.62` LTST) + Auto-Cycle, ACESFilmic tone mapping + sun-glare adaptation + PCF soft shadows + helmet `SpotLight` headlamp (`L`), orbiting Phobos (`W -> E`) and Deimos (`E -> W`) with cratered regolith textures and phases, world-space micro-detail terrain shader (`onBeforeCompile`), `1,600` map-colored multi-scale angular boulders & mudstone slabs, `camera.far = 12000` + outer LOD seam fix + synced `uFogColor` distance haze (`FogExp2`), custom single-pass `WebGLRenderTarget` fisheye/CA/bloom/flare/grain/vignette post-processing shader, and CSS/SVG Bodycam visor OSD (`● REC`, tactical corner brackets, condensation pulse) with 100% offline `?demo=1` safety and all 4 MUST readouts preserved.
+- Commit: this commit
+- Next step: Merge `origin/main` (`2860d7e`) into `frontend/planner-hud` and integrate with NASA Mark III rigged astronaut + Mars gravity + black UI.
