@@ -592,3 +592,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Audited `web/`, `data/processed/`, and `data/demo/` against `docs/roles/prompts/eymen.md` §4 (NASA sources, fetch dates, placeholder labels, secrets/DEMO_KEY, `?demo=1` isolation). Verified all 11 processed JSONs cite NASA/PDS sources and fetch/compute dates (with 0 secrets or `DEMO_KEY`/`mars-photos` usage). Found and logged 3 `?demo=1` / sync bugs: `BUG-12` (`web/planner/planner.js` registers `trek.nasa.gov` tiles and `web/index.html` loads `unpkg.com` CDN even in `?demo=1`), `BUG-13` (`data/demo/` out of sync with `2b217d1` citations in `data/processed/`), and `BUG-14` (`web/shared/data-loader.js` hardcodes `data/processed/terrain/ortho-preview.png` in `?demo=1`).
 - Commit: this commit
 - Next step: Hand off `BUG-12`/`BUG-14` to Frontend 1 (Dıvarcı) and `BUG-13` (`export_demo_fixtures.py` re-run) to Backend 3 (Çetin).
+
+### 2026-11-14 15:45 Europe/Istanbul — BUG-13 / BUG-14
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (small edits outside own folders, asked for by Cagan)
+- Task id: SHOULD-07 (BUG-13, BUG-14)
+- Files changed: pipeline/data/export_demo_fixtures.py (one line, Cetin's tree), web/shared/data-loader.js (one line, Divarci's tree), data/demo/ (re-exported: cost-map, stops, route, hud-telemetry, ortho-preview.png, science-manifest.json), docs/coordination/AGENT_LOG.md
+- Why: BUG-13: re-ran the export so the four data/demo/ JSON copies match data/processed/ (all four byte-identical; they now carry sources[]). BUG-14: the export now also copies ortho-preview.png (560 KB) into data/demo/, and orthoPreviewUrl uses baseTerrainDir so ?demo=1 reads data/demo/ instead of data/processed/. Loader passes node --check. Not tested in a browser. BUG-12 (trek.nasa.gov and unpkg.com still loaded in ?demo=1) is Frontend 1's and was not touched.
+- Commit: this commit
+- Next step: Divarci and Eymen re-check ?demo=1 with the network off; Divarci fixes BUG-12; Cetin to know his export script gained one line.

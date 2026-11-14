@@ -138,9 +138,7 @@ export async function loadAllProjectData() {
     assets: {
       heightPreviewUrl: `${baseTerrainDir}/height-preview.png`,
       slopePreviewUrl: `${baseTerrainDir}/slope-preview.png`,
-      orthoPreviewUrl: demoSafe
-        ? "../data/processed/terrain/ortho-preview.png"
-        : "../data/processed/terrain/ortho-preview.png",
+      orthoPreviewUrl: `${baseTerrainDir}/ortho-preview.png`,
       povBaseUrl: `${baseScienceDir}/pov`,
       themisTileBaseUrl: `${baseScienceDir}/tiles/themis`,
     },

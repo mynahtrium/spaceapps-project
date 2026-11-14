@@ -51,6 +51,7 @@ def export_demo_fixtures() -> dict[str, Any]:
         REPO_ROOT / "data" / "processed" / "terrain" / "cost-map.json",
         REPO_ROOT / "data" / "processed" / "terrain" / "slope-preview.png",
         REPO_ROOT / "data" / "processed" / "terrain" / "height-preview.png",
+        REPO_ROOT / "data" / "processed" / "terrain" / "ortho-preview.png",
         REPO_ROOT / "data" / "processed" / "routing" / "stops.json",
         REPO_ROOT / "data" / "processed" / "routing" / "route.json",
         REPO_ROOT / "data" / "processed" / "routing" / "hud-telemetry.json",
