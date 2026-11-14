@@ -350,3 +350,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Tester 2 reported the example route total (947.1 m) did not equal the four legs (790.3 m). Reported distance_m is now the sum of the stop-to-stop legs. Re-ran Dijkstra on Cagan's cost map backend/costmap @ 5e84db6 (crop covers the example stops; terrain file on this branch was not replaced). Routed stops are passable and were not moved. The contract example boxwork point at 137.393, -4.803 is blocked and was left in place. status stays example. No invented outcrop names. No secrets.
 - Commit: this commit
 - Next step: Clear is_example only after PRE-07 lock. Do not merge backend/routing or backend/stops to main until asked.
+
+### 2026-11-14 13:44 Europe/Istanbul — MUST-06 height and slope on the example route
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor Grok 4.7)
+- Role: backend-2
+- Task id: MUST-05, MUST-06
+- Files changed: pipeline/routing/build_route.py, pipeline/routing/README.md, data/processed/routing/route.json, data/processed/routing/hud-telemetry.json, docs/comms/note-backend-2-ship.md, docs/coordination/BOARD.md (MUST-05 and MUST-06 rows), docs/coordination/AGENT_LOG.md
+- Why: The example route on backend/costmap @ 5e84db6 already reported 790.3 m, matching the four legs, so that fix was not repeated. Climb, descent, profile elevation, and HUD slope now come from the matching 16-bit height preview. Stops stay is_example. The blocked contract example boxwork point was not moved. No invented outcrop names. No secrets. Terrain files were not replaced.
+- Commit: this commit
+- Next step: Clear is_example only after PRE-07 lock. Do not merge to main until asked.
