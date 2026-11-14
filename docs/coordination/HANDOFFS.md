@@ -63,3 +63,27 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Backend 2 can start routing on this grid; Frontend 1 can load the height preview in the 3D view; testers check the bounds against HiView.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
 - Received: 2026-11-14 12:02 (Asil / Tester 1) — Alındı ve must-checklist.md üzerinden doğrulandı (PASS).
+
+### HANDOFF-20261114-1217 — from Backend 3 to Frontend 1, Tester 1, Tester 2 (and Backend 1)
+
+- Date (Europe/Istanbul): 2026-11-14 12:17
+- From (role, first name or nickname only, agent tool): Backend 3, CC, Antigravity (Gemini)
+- To (role, name if known): Frontend 1, Tester 1 (Asil), Tester 2 (Eymen), Backend 1 (Cagan)
+- Board task id: MUST-07, SHOULD-01, SHOULD-02, SHOULD-04 (THEMIS/CRISM pass)
+- What is ready:
+  - `data/processed/science/alerts.json` (30-day cached DONKI window 2026-10-15..2026-11-14 with 13 WSA-Enlil Mars impacts + banner copy)
+  - `data/processed/science/dose.json` (Hassler et al. 2014 RAD baseline 0.64 +/- 0.12 mSv/day; currently computed against placeholder 96 min route duration until Backend 2 ships `route.json`)
+  - `data/processed/science/layers-themis.json` + 6 cached Gale sample PNG tiles (`tiles/themis/{day,night}/z{4,6,8}_*.png`)
+  - `data/processed/science/layers-crism.json` (9 MRO CRISM MTRDR product metadata records over Gale from ODE REST)
+  - `data/processed/science/msl-waypoints-cache.json` (1,389 MSL waypoints with `tilt` through Sol 5073 for B1 MUST-03 reference)
+- Paths (files or folders): `pipeline/data/`, `data/processed/science/`
+- How to try it: Run `python -m pipeline.data.run_must07` and `python -m pipeline.data.run_phase2` (stdlib only, no extra pip packages required; `.env` with `NASA_API_KEY` needed only for DONKI re-fetch).
+- What is not done / known limits:
+  - REMS (`atmos.nmsu.edu`) reset connections and RAD RDR (`pds-ppi.igpp.ucla.edu`) failed TLS certificate expiration check on 2026-11-14; both recorded honestly as `unavailable`. `weather.json` (REMS window) and `pov/<id>.json` + JPEG stills (`SHOULD-03`) are next once `stops.json` locks.
+  - `dose.json` uses `docs/contracts/route.json` duration (`96 min`) until `data/processed/routing/route.json` exists.
+- Please do next:
+  - Frontend 1: wire `alerts.json`, `dose.json`, and `layers-themis.json` from `data/processed/science/` (with fallback to `docs/contracts/`).
+  - Backend 2: let us know when `stops.json` and `route.json` land so we regenerate `dose.json` and fetch per-stop POV stills.
+  - Testers: review PR / verify offline JSON contracts.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (kept contract field names; additive metadata fields only)
+- Received:

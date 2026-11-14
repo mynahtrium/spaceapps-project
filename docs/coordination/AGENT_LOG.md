@@ -261,3 +261,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Pulled latest team updates; verified and tested Backend 1 MUST-01 and MUST-02 outputs (crop, slope, TRI roughness, cost-map.json, height preview) against must-checklist.md; signed off section 2.1 as PASS (first pass); acknowledged handoffs from B1 and B2.
 - Commit: this commit
 - Next step: Wait for team decision on PRE-07 stop locking; review upcoming MUST-04 and routing PRs.
+
+### 2026-11-14 12:17 Europe/Istanbul — SHOULD-01, SHOULD-02, SHOULD-04 (Phase 2 science outputs)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: backend-3
+- Task id: SHOULD-01, SHOULD-02, SHOULD-04
+- Files changed: docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, pipeline/data/build_alerts.py, pipeline/data/build_dose.py, pipeline/data/build_layers_themis.py, pipeline/data/build_crism_index.py, pipeline/data/run_phase2.py, data/processed/science/alerts.json, data/processed/science/dose.json, data/processed/science/layers-themis.json, data/processed/science/layers-crism.json, data/processed/science/tiles/themis/{day,night}/z{4,6,8}_*.png
+- Why: Built Phase 2 science outputs from cached/live NASA & PDS sources: alerts.json (13 WSA-Enlil Mars impacts), dose.json (0.0427 +/- 0.008 mSv using Hassler et al. 2014 baseline and placeholder 96 min route duration), layers-themis.json + 6 cached Gale sample PNG tiles (Day/Night IR z4/z6/z8), and layers-crism.json (9 CRISM MTRDR products over Gale via ODE REST). Marked MUST-07 review on BOARD.md and logged handoff to F1/Testers/B1.
+- Commit: this commit
+- Next step: Once PRE-07/MUST-04 locks stops and Backend 2 produces route.json, re-run build_dose.py, build per-stop POV stills (SHOULD-03), resolve weather.json (SHOULD-04), and copy frozen fixtures into data/demo/ (SHOULD-07).
