@@ -1,8 +1,8 @@
 # Possible Bugs & Integration Risks (`main`)
 
-**Last checked:** 2026-11-14 13:43 Europe/Istanbul (commit `5542207`) · **Non-frontend cleanup:** 2026-11-14 13:55 Europe/Istanbul (CC / Backend 3 integration)  
+**Last checked:** 2026-11-14 14:02 Europe/Istanbul (commit `0f200d0`)  
 **Checked by:** Eymen (`ParongUs`, Bug tester 2); non-frontend fixes applied by CC (`backend-3`)  
-**Scope:** Static analysis of `pipeline/`, `data/processed/`, `data/demo/`, `web/`, and `docs/contracts/` after the 5-branch backend merge (`terrain`, `costmap`, `stops`, `routing`, `science`).
+**Scope:** Full repo audit (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/`) after `tester/demo`, `tester/review`, and `f81df38` landed on `main`.
 
 ---
 
@@ -56,11 +56,17 @@
 - **What:** All stops are still `is_example: true` and `dose.json` has `status: "example"`.
 - **Suggested fix:** Team locks real Curiosity/Mount Sharp stops (`PRE-07`), then re-runs B1 → B2 → B3 + `export_demo_fixtures.py` once so `is_example` can be cleared.
 
+### [BUG-10] `data/demo/*.json` still references `data/processed/...` asset paths (`SHOULD-07` risk)
+- **Where:** 13 JSON files in `data/demo/` (`cost-map.json`, `route.json`, `dose.json`, `layers-themis.json`, `pov/index.json`, `pov/stop-*.json`, `alerts*.json`, `layers-crism.json`)
+- **What:** `export_demo_fixtures.py` copies `data/processed/` JSONs verbatim into `data/demo/`, so fields like `preview_png_relpath` (`data/processed/terrain/slope-preview.png`), `height_preview_png_relpath`, `dose_mSv_see`, and POV/tile paths still point to `data/processed/` instead of `data/demo/`.
+- **Impact:** In `?demo=1` mode, if Frontend 1 loads nested asset paths directly from the JSON without rewriting `data/processed/<domain>/` → `data/demo/`, it will read from `data/processed/` (or break if only `data/demo/` is bundled).
+- **Suggested fix:** Either rewrite `data/processed/(terrain|routing|science)/` → `data/demo/` in `export_demo_fixtures.py`, or have Frontend 1's `?demo=1` loader normalize `data/processed/*/` paths to `data/demo/`.
+
 ---
 
-## 3. Passed Checks (as of 2026-11-14 13:55)
+## 3. Passed Checks (as of `0f200d0` — 2026-11-14 14:02)
 - **Python syntax:** 28 / 28 files in `pipeline/` compiled cleanly (`py_compile`); `pipeline/costmap/crop_window.py` wrapper import verified.
-- **JSON validity:** 49 / 49 `.json` files across `data/processed/`, `data/demo/`, and `docs/contracts/` parsed cleanly.
+- **JSON validity & NaN/Inf:** 49 / 49 `.json` files parsed cleanly with `0` `NaN`/`Infinity` values; 9 / 9 core JSONs match 1:1 between `data/processed/` and `data/demo/`.
 - **3D Height PNG format:** `height-preview.png` verified as `395×395` `8-bit RGB` (`bit_depth=8`, `color_type=2`, `332269` bytes) in both `data/processed/terrain/` and `data/demo/`.
 - **Cost-map ↔ Stops alignment:** 4 / 4 stops in `stops.json` sit inside `cost-map.json` bounds.
-- **Merge hygiene & static size:** `0` conflict markers found; no `.env`, API keys, `.IMG`, `.tif`, or `.jp2` files tracked; `data/processed/` is **2.56 MB** and `data/demo/` is **1.94 MB** (well under the ~100 MB target).
+- **Merge hygiene & static size:** `0` conflict markers found; no `.env`, API keys, `.IMG`, `.tif`, or `.jp2` files tracked; `data/` total is **4.50 MB** (well under the ~100 MB target).

@@ -504,3 +504,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Fixed all non-frontend issues reported in `POSSIBLE_BUGS.md` and `HANDOFF-20261114-1330`: converted `height-preview.png` on `main` to lossless 8-bit RGB (`R*256+G`), populated real `elev_m`/`slope_deg`/`climb_m`/`descent_m` and `dose_mSv_see` in `route.json` (`BUG-02`), exposed flat top-level contract keys alongside `primary`/`samples[]` in `hud-telemetry.json` (`BUG-03`), rebuilt `dose.json` against the 59.3 min route (`0.0263 +/- 0.0049 mSv`, `BUG-05`), exported terrain + routing offline fixtures into `data/demo/` (28 files, `BUG-06`), softened `MUST-03` tilt wording across non-frontend docs (`BUG-07`), and deduplicated `pipeline/costmap/crop_window.py` to re-export `pipeline/terrain/crop_window.py` (`BUG-08`).
 - Commit: this commit
 - Next step: Frontend 1 implements `web/` (`BUG-01`, `MUST-08`..`MUST-10`, `SHOULD-05`); team locks real stops for `PRE-07` (`BUG-09`).
+
+### 2026-11-14 14:03 Europe/Istanbul — MUST-12 (full re-audit on 0f200d0)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Re-audited `main` at `0f200d0` after `tester/demo`, `tester/review`, and `f81df38` (`BUG-02`..`BUG-08` fixes). Verified 28/28 Python files compile, 0 `NaN`/`Infinity` values across all `data/` JSONs, 9/9 core JSONs match between `data/processed/` and `data/demo/`, and total `data/` size is 4.50 MB. Found and logged `[BUG-10]`: 13 JSON files in `data/demo/` still reference `data/processed/...` relative asset paths, which could break strict `?demo=1` isolation unless rewritten by `export_demo_fixtures.py` or Frontend 1.
+- Commit: this commit
+- Next step: Hand off `BUG-10` to Backend 3 / Frontend 1; continue monitoring `web/` (`BUG-01`) and `PRE-07` (`BUG-09`).
