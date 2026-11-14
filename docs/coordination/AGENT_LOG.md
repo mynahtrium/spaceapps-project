@@ -239,3 +239,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Added TRI roughness, the cost grid (multiplier; 9e99 = blocked, 18% of cells) and a 16-bit height preview for the 3D view. cost-map.json (~0.8 MB) parses in Python and Node with no Infinity/NaN. Contract field names kept; additive fields logged in CHANGES.md and handed off to backend-2, frontend-1 and testers. Crop centre is still a placeholder until PRE-07.
 - Commit: this commit
 - Next step: Tilt check vs MSL waypoints (MUST-03); re-run both scripts when stops are locked.
+
+### 2026-11-14 12:05 Europe/Istanbul — MUST-11 (B1 terrain validation)
+
+- Human: Asil
+- Agent tool + model: Gemini (Gemini 3.8 Flash)
+- Role: tester-1
+- Task id: MUST-11
+- Files changed: docs/testing/must-checklist.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Pulled latest team updates; verified and tested Backend 1 MUST-01 and MUST-02 outputs (crop, slope, TRI roughness, cost-map.json, height preview) against must-checklist.md; signed off section 2.1 as PASS (first pass); acknowledged handoffs from B1 and B2.
+- Commit: this commit
+- Next step: Wait for team decision on PRE-07 stop locking; review upcoming MUST-04 and routing PRs.
