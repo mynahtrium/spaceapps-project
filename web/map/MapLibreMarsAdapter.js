@@ -99,7 +99,12 @@ function ensureProtocolsRegistered(maplibregl) {
       const key = `${z}:${x}:${y}`;
       let bytes = demTileCache.get(key);
       if (!bytes) {
-        const rgba = activeProtocolContext.demSampler.rasterizeTerrariumTileRGBA(z, x, y, 256);
+        // MapLibre's 3D terrain renders black when the ground sits ~3.6 km below datum (the camera and
+        // depth range assume heights near zero). Encode heights above the local minimum instead: the
+        // relief and hillshade are unchanged; true elevations for the UI still come from the sampler.
+        const sampler = activeProtocolContext.demSampler;
+        const base = Number.isFinite(sampler.minElevM) ? Math.floor(sampler.minElevM) - 20 : 0;
+        const rgba = sampler.rasterizeTerrariumTileRGBA(z, x, y, 256, base);
         const blob = await blobFromRgba(rgba, 256, 256);
         bytes = await blob.arrayBuffer();
         if (demTileCache.size > 96) {

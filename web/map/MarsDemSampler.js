@@ -255,9 +255,10 @@ export class MarsDemSampler {
    * @param {number} x
    * @param {number} y
    * @param {number} [size=256]
+   * @param {number} [baseElevM=0] subtracted from every height before encoding (see the adapter)
    * @returns {Uint8ClampedArray}
    */
-  rasterizeTerrariumTileRGBA(z, x, y, size = 256) {
+  rasterizeTerrariumTileRGBA(z, x, y, size = 256, baseElevM = 0) {
     const rgba = new Uint8ClampedArray(size * size * 4);
     const bounds = tileToLonLatBounds(z, x, y);
     const n = 2 ** z;
@@ -277,7 +278,7 @@ export class MarsDemSampler {
           // Smoothly clamp to boundary elevation with gentle Mount Sharp regional slope fallback
           elev = this.sampleElevation([lon, lat], true);
         }
-        const [r, g, b] = encodeTerrariumPixel(elev);
+        const [r, g, b] = encodeTerrariumPixel(elev - baseElevM);
         const idx = (py * size + px) * 4;
         rgba[idx] = r;
         rgba[idx + 1] = g;

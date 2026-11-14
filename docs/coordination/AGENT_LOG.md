@@ -815,3 +815,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Polished map protocol & fallback edge cases on top of `612223b` (keeping Cagan's single-astronaut free-roam HUD & boot contact shadows intact): replaced empty `ArrayBuffer(0)` returns with a valid 1x1 transparent PNG in `MapLibreMarsAdapter.js`, added offline hypsometric `renderMolaColorTileRgba()` for `mola-color`, wired `strict-15` and `unmount()` cleanup in `Fallback2DMap.js`, added pre-selection hover probe in `planner.js`, buffered `dispatchTeleport`/`onTeleport` in `route-bridge.js` for startup calls before `hud3d.js` finishes init, pointed Stickney crater (`+Z`) and `phobos`/`deimos.lookAt(camera.position)` toward the camera in `hud3d.js`, accepted `alongM ?? along_m` in `onSetRoute`, and added unit tests in `web/tests/route-bridge.test.mjs` and `web/tests/fallback.test.mjs`. Verified `node --check` on 22 JS/MJS files and 18/18 Node unit tests.
 - Commit: this commit
 - Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) to visually inspect MOLA offline color, double-click teleport, and Phobos/Deimos in browser.
+
+### 2026-11-14 17:48 Europe/Istanbul — fix black 2D map in 3D-terrain mode; one Planner button
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MAP-01 follow-up
+- Files changed: web/map/MarsDemSampler.js, web/map/MapLibreMarsAdapter.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Cagan reported the 2D map was buggy with two Planner buttons. The planner opens in MapLibre 3D terrain mode by default, and the whole map rendered black: the DEM tiles carried true Mars heights (about -3.6 km), which MapLibre's terrain camera/depth setup does not handle. The mars-dem:// tiles now encode heights above the local minimum (minElevM - 20 m); relief and hillshade are unchanged and UI elevations still come from the sampler. Removed the 3D HUD's own Planner button (the top bar one remains). Checked in the browser: map renders in 3D-terrain mode, no console errors; web tests pass.
+- Commit: this commit
+- Next step: push when Cagan asks.
