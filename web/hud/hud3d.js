@@ -2953,15 +2953,6 @@ export async function initHud3D(
   let eyeBaseY = null;
   let groundSpeedSm = 0;
 
-  document.getElementById("hud-quickkeys")?.addEventListener("click", (e) => {
-    const btn = e.target.closest?.("button[data-qk]");
-    if (!btn) return;
-    btn.blur();
-    const key = btn.dataset.qk;
-    window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
-    window.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true }));
-  });
-
   const pushApart = (targetPos, minRadius = PARTNER_COLLISION_R) => {
     if (!targetPos) return;
     const pdx = freePos.x - targetPos.x;
