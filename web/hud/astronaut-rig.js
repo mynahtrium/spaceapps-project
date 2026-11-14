@@ -364,5 +364,5 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     head.rotation.y = a * 0.02 * Math.sin(phase);
   }
 
-  return { group, bones: { root, pelvis, spine, chest, head }, update, get phase() { return phase; }, get amount() { return amount; } };
+  return { group, bones: { root, pelvis, spine, chest, head, footL, footR }, update, get phase() { return phase; }, get amount() { return amount; } };
 }

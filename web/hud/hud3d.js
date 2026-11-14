@@ -588,6 +588,32 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     return { x, z, y: sampleElevSceneY(x, z), smp };
   }
 
+  // The route is a loop (it ends back at the habitat), so search only near the last known
+  // progress; otherwise the start would match the end of the loop.
+  function nearestAlongRoute(x, z, prevRouteM) {
+    if (routeCoords.length < 2) return 0;
+    const prevG = toGeomDist(prevRouteM || 0);
+    let best = Infinity;
+    let bestS = 0;
+    for (let i = 0; i < routeCoords.length - 1; i++) {
+      if (cumDist[i + 1] < prevG - 80 || cumDist[i] > prevG + 80) continue;
+      const ax = lonToX(routeCoords[i][0]);
+      const az = latToZ(routeCoords[i][1]);
+      const bx = lonToX(routeCoords[i + 1][0]);
+      const bz = latToZ(routeCoords[i + 1][1]);
+      const vx = bx - ax;
+      const vz = bz - az;
+      const len2 = vx * vx + vz * vz || 1e-9;
+      const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / len2));
+      const d = Math.hypot(ax + vx * t - x, az + vz * t - z);
+      if (d < best) {
+        best = d;
+        bestS = cumDist[i] + (cumDist[i + 1] - cumDist[i]) * t; // geometry metres
+      }
+    }
+    return geomTotalDist > 0 && totalDist > 0 ? (bestS / geomTotalDist) * totalDist : bestS;
+  }
+
   function routeHeading(s) {
     const a = routePoint(s - 2);
     const b = routePoint(s + 4);
@@ -607,7 +633,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       try {
         const rig = await loadSuitRig(loader, m.url, ASTRONAUT_HEIGHT_M);
         self = createAstronaut(rig, { hideHead: true });
-        partner = createAstronaut(rig);
         suitLabel = m.label + " · RIGGED";
         break;
       } catch (err) {
@@ -630,10 +655,75 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     };
     self = make();
     self.group.visible = false;
-    partner = make();
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
-  scene.add(self.group, partner.group);
+  scene.add(self.group); // single astronaut: you
+
+  // ---------- contact shadows under the boots ----------
+  // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
+  // boot where almost no sky light reaches. It lies on the local slope and fades as the boot lifts.
+  const contactTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 128;
+    const g = c.getContext("2d");
+    const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+    grad.addColorStop(0, "rgba(0,0,0,0.85)");
+    grad.addColorStop(0.45, "rgba(0,0,0,0.5)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const contactGeom = new THREE.PlaneGeometry(0.34, 0.5);
+  contactGeom.rotateX(-Math.PI / 2);
+  const contacts = [];
+  for (const who of [self]) {
+    const feet = who.bones ? [who.bones.footL, who.bones.footR] : [];
+    for (const foot of feet) {
+      if (!foot) continue;
+      const mat = new THREE.MeshBasicMaterial({
+        map: contactTex,
+        color: 0x000000,
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+      });
+      const m = new THREE.Mesh(contactGeom, mat);
+      m.renderOrder = 2;
+      scene.add(m);
+      contacts.push({ who, foot, mesh: m });
+    }
+  }
+  const footPos = new THREE.Vector3();
+  const nrm = new THREE.Vector3();
+  const qTilt = new THREE.Quaternion();
+  const qYaw = new THREE.Quaternion();
+  const Y_AXIS = new THREE.Vector3(0, 1, 0);
+  function updateContactShadows() {
+    for (const c of contacts) {
+      c.mesh.visible = c.who.group.visible;
+      if (!c.mesh.visible) continue;
+      c.foot.getWorldPosition(footPos);
+      const gy = sampleElevSceneY(footPos.x, footPos.z);
+      const lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
+      c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
+      const e = 0.3;
+      nrm
+        .set(
+          sampleElevSceneY(footPos.x - e, footPos.z) - sampleElevSceneY(footPos.x + e, footPos.z),
+          2 * e,
+          sampleElevSceneY(footPos.x, footPos.z - e) - sampleElevSceneY(footPos.x, footPos.z + e)
+        )
+        .normalize();
+      qTilt.setFromUnitVectors(Y_AXIS, nrm);
+      qYaw.setFromAxisAngle(Y_AXIS, c.who.group.rotation.y);
+      c.mesh.quaternion.copy(qTilt).multiply(qYaw);
+      c.mesh.position.set(footPos.x, gy + 0.02, footPos.z);
+      const sc = 1 + lift * 1.5;
+      c.mesh.scale.set(sc, 1, sc);
+    }
+  }
   const suitEl = document.getElementById("hud-suit");
   if (suitEl) suitEl.textContent = suitLabel;
 
@@ -666,11 +756,20 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   let playing = false;
   let speedIdx = 0;
   const SPEEDS = [1, 2, 3];
-  let freeRoam = false;
+  const freeRoam = true; // walking is always yours; the route is a guide line on the ground
   let userYaw = 0;
   let pitch = -0.12;
   let autoYaw = routeCoords.length > 1 ? routeHeading(0) : 0;
   const freePos = new THREE.Vector3(0, 0, 0);
+  // start at the beginning of the route, facing along it
+  if (routeCoords.length > 1) {
+    const p0 = routePoint(0);
+    freePos.set(p0.x, 0, p0.z);
+    userYaw = autoYaw;
+    autoYaw = 0;
+  }
+  const partnerPos = new THREE.Vector3(freePos.x, 0, freePos.z);
+  let partnerYaw = userYaw;
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
   let partnerS = PARTNER_AHEAD_M;
   const keys = new Set();
@@ -697,9 +796,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     const k = e.key.toLowerCase();
     keys.add(k);
     // walking keys take over from route playback
-    if (!freeRoam && ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
-      btnFreeRoam?.click();
-    }
+
     if (k === " ") {
       e.preventDefault();
       if (player.grounded) {
@@ -752,27 +849,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   }
   btnTex?.addEventListener("click", () => setTexMode((texMode + 1) % TEX.length));
 
-  btnFreeRoam?.addEventListener("click", () => {
-    freeRoam = !freeRoam;
-    btnFreeRoam.textContent = freeRoam ? "Free-roam: on" : "Free-roam: off";
-    if (freeRoam) {
+  // A new route from the planner (Begin EVA): stand at its start, facing along it.
+  onSetRoute(({ route: newRoute, along_m }) => {
+    rebuildRouteRibbon(newRoute);
+    alongM = along_m || 0;
+    autoYaw = 0;
+    if (routeCoords.length > 1) {
       const p = routePoint(alongM);
       freePos.set(p.x, 0, p.z);
-      userYaw += autoYaw;
-      autoYaw = 0;
-    } else {
-      userYaw = 0;
-      autoYaw = routeHeading(alongM);
+      userYaw = routeHeading(alongM);
+      partnerPos.set(p.x, 0, p.z);
+      player.init = false;
     }
-  });
-
-  onSetRoute(({ route: newRoute, along_m }) => {
-    alongM = along_m || 0;
-    userYaw = 0;
-    freeRoam = false;
-    if (btnFreeRoam) btnFreeRoam.textContent = "Free-roam: off";
-    rebuildRouteRibbon(newRoute);
-    autoYaw = routeCoords.length > 1 ? routeHeading(alongM) : 0;
   });
 
   const shouldEl = document.getElementById("hud-should-line");
@@ -869,13 +957,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     clockT += dt;
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
-    if (playing && !freeRoam) {
-      const pace = keys.has("shift") ? RUN_SPEED_MS : WALK_SPEED_MS * SPEEDS[speedIdx];
-      alongM += dt * pace;
-      if (alongM > totalDist) alongM = 0;
-      if (scrubber) scrubber.value = alongM.toFixed(1);
-    }
-
+    // progress along the route = the route point nearest to you (for the HUD only)
+    alongM = nearestAlongRoute(freePos.x, freePos.z, alongM);
     const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
     let px;
     let pz;
@@ -963,6 +1046,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
     self.update(dt, step, groundSpeed, !player.grounded);
+    self.group.updateMatrixWorld(true);
 
     // helmet camera at the visor, with only a few millimetres of walking sway
     const ph = self.phase ?? 0;
@@ -985,20 +1069,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     camera.rotation.x = pitch + micro(0.9, 0.0006);
     camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
 
-    // crew member walking ahead on the route
-    if (routeCoords.length > 1) {
-      const wantS = alongM + PARTNER_AHEAD_M;
-      const prevS = partnerS;
-      const maxStep = (keys.has("shift") && !freeRoam ? RUN_SPEED_MS : WALK_SPEED_MS * SPEEDS[speedIdx]) * 1.2 * dt;
-      partnerS += Math.max(-maxStep, Math.min(maxStep, wantS - partnerS));
-      if (Math.abs(wantS - partnerS) > 30) partnerS = wantS; // scrubber jump
-      if (!freeRoam && Math.abs(partnerS - alongM) < 1.5) partnerS = alongM + PARTNER_AHEAD_M;
-      const pa = routePoint(partnerS);
-      const pStep = Math.abs(partnerS - prevS);
-      partner.group.position.set(pa.x, pa.y, pa.z);
-      partner.group.rotation.y = routeHeading(partnerS);
-      partner.update(dt, pStep < 20 ? pStep : 0, dt > 0 && pStep < 20 ? pStep / dt : 0, false);
-    }
+    updateContactShadows();
 
     // sun and shadow box follow the walker
     const texel = (2 * SHADOW_HALF_M) / SHADOW_MAP_PX;

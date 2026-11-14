@@ -751,3 +751,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Merged `main` (`415e3b9`) into `orchestrator/map-replacement` combining `main`'s NASA Mark III rigged spacesuit, buddy EVA, Mars gravity/jump/Shift run, endless mirrored terrain + sun mask shadows, start menu (EN/TR), black UI, and `BUG-15`/`BUG-16` fixes with the map-branch's `MapLibreMarsAdapter` (`mars-eq://` Trek WMTS + `mars-dem://` HiRISE hillshade/3D tilt + click elevation/slope probe + offline demo shaded relief) and `MarsPbrTextures` close-range wind-rippled dust / fractured mudstone shader detail on the 3D terrain. Also enabled bundled `data/demo/ortho-preview.png` in `?demo=1` while keeping `demoSafe` 0-network isolation, unified `classifySlope()` `id`/`level` fields, and verified zero missing DOM IDs and 16/16 passing tests.
 - Commit: this commit
 - Next step: Visually verify `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctrl+Shift+R`), then decide whether to open a PR to `main`.
+
+### 2026-11-14 17:22 Europe/Istanbul — free-roam only, single astronaut, contact shadows
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, web/hud/astronaut-rig.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for shadows under the feet, then to remove route walking and the per-pixel ray tracing that was tried in between (not committed). Now: you always walk yourself (WASD, Shift run, Space jump) starting at the route start; Play, scrubber, speed and free-roam buttons are gone; the white route line stays as a guide; HUD progress uses the nearest route point within 80 m of the last progress (the route is a loop, so a global nearest search matched the end). The second astronaut (buddy) was then removed at Cagan's request; you are the only astronaut (HUD says CREW: 1). Each boot has a soft contact shadow on the local slope that fades as the foot lifts. Far terrain shadows stay the earlier CPU bake. Checked in the browser: no console errors, HUD starts at 0.0 m / 790.3 m / O2 100%.
+- Commit: this commit
+- Next step: push when Cagan asks.
