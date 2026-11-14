@@ -189,7 +189,7 @@ export class Fallback2DMap extends BaseMapAdapter {
       "wheel",
       (e) => {
         e.preventDefault();
-        this.zoom = Math.max(10, Math.min(19, this.zoom - Math.sign(e.deltaY) * 0.45));
+        this.zoom = Math.max(1.1, Math.min(19, this.zoom - Math.sign(e.deltaY) * 0.45));
         this._render();
         this.emit("viewchange", this.getView());
       },
@@ -362,22 +362,44 @@ export class Fallback2DMap extends BaseMapAdapter {
       ctx.restore();
     }
 
-    // Subtle lat/lon graticule
+    // Adaptive lat/lon graticule (supports both global Mars overview and Gale local zoom)
     ctx.strokeStyle = "rgba(255, 210, 170, 0.12)";
     ctx.lineWidth = 1;
-    for (let lon = 137.36; lon <= 137.42; lon += 0.01) {
-      const [px] = this.project([lon, this.center[1]]);
-      ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, h);
-      ctx.stroke();
-    }
-    for (let lat = -4.83; lat <= -4.77; lat += 0.01) {
-      const [, py] = this.project([this.center[0], lat]);
-      ctx.beginPath();
-      ctx.moveTo(0, py);
-      ctx.lineTo(w, py);
-      ctx.stroke();
+    const degStep = this.zoom < 5 ? 30 : this.zoom < 9 ? 5 : 0.01;
+    if (degStep >= 5) {
+      for (let lon = -180; lon <= 180; lon += degStep) {
+        const [px] = this.project([lon, this.center[1]]);
+        if (px >= -2 && px <= w + 2) {
+          ctx.beginPath();
+          ctx.moveTo(px, 0);
+          ctx.lineTo(px, h);
+          ctx.stroke();
+        }
+      }
+      for (let lat = -75; lat <= 75; lat += degStep) {
+        const [, py] = this.project([this.center[0], lat]);
+        if (py >= -2 && py <= h + 2) {
+          ctx.beginPath();
+          ctx.moveTo(0, py);
+          ctx.lineTo(w, py);
+          ctx.stroke();
+        }
+      }
+    } else {
+      for (let lon = 137.36; lon <= 137.42; lon += 0.01) {
+        const [px] = this.project([lon, this.center[1]]);
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, h);
+        ctx.stroke();
+      }
+      for (let lat = -4.83; lat <= -4.77; lat += 0.01) {
+        const [, py] = this.project([this.center[0], lat]);
+        ctx.beginPath();
+        ctx.moveTo(0, py);
+        ctx.lineTo(w, py);
+        ctx.stroke();
+      }
     }
 
     // GeoJSON vector overlays
@@ -403,7 +425,9 @@ export class Fallback2DMap extends BaseMapAdapter {
           ctx.fillStyle =
             id === "astronaut-pos"
               ? "#22d3ee"
-              : layer.style.color || (feat.properties?.kind === "bonus" ? "#fbbf24" : "#34d399");
+              : feat.properties?.color ||
+                layer.style.color ||
+                (feat.properties?.kind === "bonus" ? "#fbbf24" : "#34d399");
           ctx.fill();
           ctx.strokeStyle = "#0b0f17";
           ctx.lineWidth = 1.5;
