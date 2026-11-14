@@ -869,3 +869,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan saw a pale band where the terrain repeats (screenshot at about 4.8169 S, 137.4064 E, the tile's south-east corner). Since the performance change the mirrored copies use a quarter of the real tile's vertex density, so their shared edges no longer line up and thin cracks show the sky. Every terrain tile now has a 40 m skirt hanging from its edges (edge texture, both windings), which closes the cracks without changing the visible surface or the copies' low cost. Teleported near the east edge and looked around: no band seen; the exact corner was not re-checked because Cagan was using the same tab.
 - Commit: this commit
 - Next step: Cagan checks the corner; push when asked.
+
+### 2026-11-14 18:00 Europe/Istanbul — Taller start marker, M-key 3D Martian elevation map with click-to-teleport confirmation, and opposite-edge map wrap
+
+- Human: Cinar
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend implementer (`main`)
+- Task id: MUST-09 / MUST-10 follow-up
+- Files changed: web/hud/hud3d.js, web/index.html, web/styles.css, docs/coordination/AGENT_LOG.md
+- Why: Raised the start/habitat marker pole height from 2.4 m to 4.6 m with a glowing cap lamp; added a tactical 3D Mars elevation map modal (`M` key / `Map (M)` button) rendered 1:1 from `elevGrid` with Martian hypsometric ramp, `sunDir` hillshade, `sunMask` shadows, 20 m / 60 m contours, optional Slope Hazard overlay, click confirmation prompt ("Buraya ışınlanmak istiyor musun?" / "Do you want to teleport here?") showing lat/lon, MOLA elevation, slope, and distance, and exact `sampleElevSceneY` + `justTeleportedOrWrapped` ground snapping on teleport; added toroidal opposite-edge boundary wrapping (`wrapSceneCoord`) with HUD wrap notification toast when walking past any edge of the 3D terrain. Preserved `P` beacon, multiplayer drawer styles, and single Planner button on merge with `origin/main` (`e18cac2`). Verified `node --check`, DOM ID consistency, and all `web/tests/*.mjs` tests.
+- Commit: this commit
+- Next step: none.

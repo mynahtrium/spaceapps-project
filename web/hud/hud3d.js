@@ -743,17 +743,30 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   // ---------- stop markers: survey poles with a small lamp ----------
   const poleMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5, metalness: 0.2 });
   const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.5 });
+  const startLampMat = new THREE.MeshStandardMaterial({
+    color: 0xfef3c7,
+    emissive: 0xf59e0b,
+    emissiveIntensity: 3.0,
+  });
   if (stops?.features) {
-    stops.features.forEach((f) => {
+    stops.features.forEach((f, idx) => {
       const [lon, lat] = f.geometry.coordinates;
       const sx = lonToX(lon);
       const sz = latToZ(lat);
       const sy = sampleElevSceneY(sx, sz);
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.4, 8), poleMat);
-      pole.position.set(sx, sy + 1.2, sz);
+      const isStart = idx === 0 || f.properties?.kind === "habitat";
+      const poleH = isStart ? 4.6 : 2.4;
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(isStart ? 0.032 : 0.025, isStart ? 0.038 : 0.025, poleH, 8),
+        poleMat
+      );
+      pole.position.set(sx, sy + poleH * 0.5, sz);
       pole.castShadow = true;
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), lampMat);
-      lamp.position.set(sx, sy + 2.45, sz);
+      const lamp = new THREE.Mesh(
+        new THREE.SphereGeometry(isStart ? 0.1 : 0.07, 12, 8),
+        isStart ? startLampMat : lampMat
+      );
+      lamp.position.set(sx, sy + poleH + (isStart ? 0.07 : 0.05), sz);
       scene.add(pole, lamp);
     });
   }
@@ -1169,19 +1182,24 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let partnerYaw = userYaw;
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
   let partnerS = PARTNER_AHEAD_M;
+  let justTeleportedOrWrapped = false;
   const keys = new Set();
+
+  const mapOverlayEl = document.getElementById("hud-map-overlay");
+  const isMapOpen = () => Boolean(mapOverlayEl?.classList.contains("open"));
 
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
   renderer.domElement.addEventListener("pointerdown", (e) => {
+    if (isMapOpen()) return;
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
   });
   window.addEventListener("pointerup", () => (dragging = false));
   window.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
+    if (!dragging || isMapOpen()) return;
     userYaw -= (e.clientX - lastX) * 0.0035;
     pitch = Math.max(-1.35, Math.min(1.42, pitch - (e.clientY - lastY) * 0.003));
     lastX = e.clientX;
@@ -1198,23 +1216,6 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   };
 
   const hudView = document.getElementById("hud-view");
-  window.addEventListener("keydown", (e) => {
-    if (!hudView.classList.contains("active")) return;
-    const tag = e.target?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
-    const k = e.key.toLowerCase();
-    keys.add(k);
-    if (k === "p") {
-      dropLocalPing("EVA Waypoint");
-    }
-    if (k === " ") {
-      e.preventDefault();
-      if (player.grounded) {
-        player.vy = JUMP_SPEED_MS;
-        player.grounded = false;
-      }
-    }
-  });
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener("blur", () => keys.clear());
 
@@ -1226,12 +1227,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   const btnBack = document.getElementById("hud-back-planner");
   const btnPing = document.getElementById("hud-ping");
   const btnPov = document.getElementById("hud-pov-btn");
+  const btnMap = document.getElementById("hud-map-btn");
 
   btnPing?.addEventListener("click", () => dropLocalPing("EVA Waypoint"));
 
   btnBack?.addEventListener("click", () => {
     playing = false;
     if (btnPlay) btnPlay.textContent = "Play";
+    setMapOpen(false);
     onBackToPlanner();
   });
   btnPlay?.addEventListener("click", () => {
@@ -1262,6 +1265,38 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
   btnTex?.addEventListener("click", () => setTexMode((texMode + 1) % TEX.length));
 
+  // Wrap boundary helper: keeps coordinates inside the real 2x2 km tile by wrapping opposite edges
+  const wrapNoticeEl = document.getElementById("hud-wrap-notice");
+  let wrapNoticeTimer = 0;
+  function showWrapNotice(msg) {
+    if (!wrapNoticeEl) return;
+    wrapNoticeEl.textContent = msg;
+    wrapNoticeEl.classList.add("visible");
+    if (wrapNoticeTimer) clearTimeout(wrapNoticeTimer);
+    wrapNoticeTimer = setTimeout(() => {
+      wrapNoticeEl.classList.remove("visible");
+    }, 2800);
+  }
+
+  function wrapSceneCoord(val, span) {
+    const half = span * 0.5;
+    let wrapped = false;
+    let crossedNegToPos = false;
+    let crossedPosToNeg = false;
+    let out = val;
+    while (out > half) {
+      out -= span;
+      wrapped = true;
+      crossedPosToNeg = true;
+    }
+    while (out < -half) {
+      out += span;
+      wrapped = true;
+      crossedNegToPos = true;
+    }
+    return { val: out, wrapped, crossedPosToNeg, crossedNegToPos };
+  }
+
   // A new route from the planner (Begin EVA): stand at its start, facing along it.
   onSetRoute((detail) => {
     const newRoute = detail?.route;
@@ -1275,6 +1310,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       userYaw = routeHeading(alongM);
       partnerPos.set(p.x, 0, p.z);
       player.init = false;
+      justTeleportedOrWrapped = true;
     }
   });
 
@@ -1289,31 +1325,532 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     return Math.atan(grad) * (180 / Math.PI);
   }
 
-  onTeleport(({ lon, lat }) => {
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-    const tx = lonToX(lon);
-    const tz = latToZ(lat);
-    const ty = sampleElevSceneY(tx, tz);
+  function teleportToLocal(tx, tz, { keepYaw = false } = {}) {
+    const wx = wrapSceneCoord(tx, worldW).val;
+    const wz = wrapSceneCoord(tz, worldH).val;
+    const ty = sampleElevSceneY(wx, wz);
+    const lon = xToLon(wx);
+    const lat = zToLat(wz);
 
     const nearestGeomS = closestAlongM(routeCoords, cumDist, lon, lat);
     alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
 
-    freePos.set(tx, 0, tz);
-    player.x = freePos.x;
-    player.z = freePos.z;
+    freePos.set(wx, 0, wz);
+    player.x = wx;
+    player.z = wz;
     player.y = ty;
     player.vy = 0;
     player.grounded = true;
     player.init = true;
+    justTeleportedOrWrapped = true;
 
     autoYaw = 0;
-    if (routeCoords.length > 1) {
+    if (!keepYaw && routeCoords.length > 1) {
       const rp = routePoint(alongM);
-      const distToRoute = Math.hypot(rp.x - tx, rp.z - tz);
-      userYaw = distToRoute > 5 ? Math.atan2(-(rp.x - tx), -(rp.z - tz)) : routeHeading(alongM);
+      const distToRoute = Math.hypot(rp.x - wx, rp.z - wz);
+      userYaw = distToRoute > 5 ? Math.atan2(-(rp.x - wx), -(rp.z - wz)) : routeHeading(alongM);
     }
-    pitch = -0.04;
+    pitch = Math.max(-0.55, Math.min(0.25, keepYaw ? pitch : -0.06));
     followEndless({ x: player.x, y: player.y, z: player.z });
+  }
+
+  onTeleport(({ lon, lat }) => {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: false });
+  });
+
+  // ---------- Tactical Mars 3D Elevation Map (toggled via M key) ----------
+  const mapCanvasEl = document.getElementById("hud-map-canvas");
+  const mapCtx = mapCanvasEl?.getContext("2d") || null;
+  const mapHoverEl = document.getElementById("hud-map-hover");
+  const mapModeBtn = document.getElementById("hud-map-mode");
+  const mapCloseBtn = document.getElementById("hud-map-close");
+  const mapConfirmEl = document.getElementById("hud-map-confirm");
+  const mapConfirmQEl = document.getElementById("hud-map-confirm-q");
+  const mapConfirmMetaEl = document.getElementById("hud-map-confirm-meta");
+  const mapConfirmYesBtn = document.getElementById("hud-map-confirm-yes");
+  const mapConfirmNoBtn = document.getElementById("hud-map-confirm-no");
+
+  const isTrLang = () => {
+    try {
+      return localStorage.getItem("mm-lang") === "tr";
+    } catch {
+      return false;
+    }
+  };
+
+  let mapLayerMode = "elevation"; // "elevation" | "hazard"
+  let pendingTeleport = null; // { tx, tz, lon, lat, elevMola, slopeDeg, distM }
+  let hoverTarget = null;
+
+  // Build Martian-themed 3D elevation + slope base canvases directly from `elevGrid` (1:1 with 3D terrain)
+  const mapBases = (() => {
+    const w = elevGrid ? imgW : 256;
+    const h = elevGrid ? imgH : 256;
+    const elevCanvas = document.createElement("canvas");
+    elevCanvas.width = w;
+    elevCanvas.height = h;
+    const hazCanvas = document.createElement("canvas");
+    hazCanvas.width = w;
+    hazCanvas.height = h;
+    const eCtx = elevCanvas.getContext("2d");
+    const hCtx = hazCanvas.getContext("2d");
+    const eImg = eCtx.createImageData(w, h);
+    const hImg = hCtx.createImageData(w, h);
+
+    let minE = elevMin;
+    let maxE = elevMax;
+    if (elevGrid) {
+      minE = Infinity;
+      maxE = -Infinity;
+      for (let i = 0; i < elevGrid.length; i++) {
+        if (elevGrid[i] < minE) minE = elevGrid[i];
+        if (elevGrid[i] > maxE) maxE = elevGrid[i];
+      }
+    }
+    const spanE = Math.max(1, maxE - minE);
+
+    const elevMaxLabel = document.getElementById("hud-map-elev-max");
+    const elevMidLabel = document.getElementById("hud-map-elev-mid");
+    const elevMinLabel = document.getElementById("hud-map-elev-min");
+    if (elevMaxLabel) elevMaxLabel.textContent = `${Math.round(maxE)} m`;
+    if (elevMidLabel) elevMidLabel.textContent = `${Math.round((minE + maxE) * 0.5)} m`;
+    if (elevMinLabel) elevMinLabel.textContent = `${Math.round(minE)} m`;
+
+    // Gale Crater / Mount Sharp hypsometric palette matching the 3D scene's dust/rock colors
+    const stopsCol = [
+      [0.0, 59, 32, 22],
+      [0.25, 111, 59, 36],
+      [0.5, 168, 93, 56],
+      [0.75, 207, 134, 83],
+      [1.0, 237, 196, 152],
+    ];
+    const sampleMarsRamp = (t) => {
+      const c = Math.max(0, Math.min(1, t));
+      for (let s = 0; s < stopsCol.length - 1; s++) {
+        const a = stopsCol[s];
+        const b = stopsCol[s + 1];
+        if (c <= b[0]) {
+          const u = (c - a[0]) / (b[0] - a[0] || 1);
+          return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u];
+        }
+      }
+      const last = stopsCol[stopsCol.length - 1];
+      return [last[1], last[2], last[3]];
+    };
+
+    const sunMaskData = sunMask?.image?.data || null;
+    const sunMaskW = sunMask?.image?.width || 0;
+    const stepM = worldW / Math.max(1, w - 1);
+    const minorInterval = 20;
+    const majorInterval = 60;
+
+    for (let y = 0; y < h; y++) {
+      const ym = Math.max(0, y - 1);
+      const yp = Math.min(h - 1, y + 1);
+      for (let x = 0; x < w; x++) {
+        const xm = Math.max(0, x - 1);
+        const xp = Math.min(w - 1, x + 1);
+
+        const eC = elevGrid ? elevGrid[y * w + x] : minE + (1 - y / h) * spanE;
+        const eL = elevGrid ? elevGrid[y * w + xm] : eC;
+        const eR = elevGrid ? elevGrid[y * w + xp] : eC;
+        const eU = elevGrid ? elevGrid[ym * w + x] : eC;
+        const eD = elevGrid ? elevGrid[yp * w + x] : eC;
+
+        const gx = (eR - eL) / ((xp - xm || 1) * stepM);
+        const gz = (eD - eU) / ((yp - ym || 1) * stepM);
+        const nLen = Math.hypot(-gx, 1, -gz) || 1;
+        const nx = -gx / nLen;
+        const ny = 1 / nLen;
+        const nz = -gz / nLen;
+        const ndotl = Math.max(0, nx * sunDir.x + ny * sunDir.y + nz * sunDir.z);
+
+        let sunVis = 1.0;
+        if (sunMaskData && sunMaskW > 0) {
+          const smIdx = (y * sunMaskW + x) * 4;
+          sunVis = (sunMaskData[smIdx] ?? 255) / 255;
+        }
+
+        const shade = (0.44 + 0.78 * ndotl) * (0.76 + 0.24 * sunVis);
+        const baseRgb = sampleMarsRamp((eC - minE) / spanE);
+
+        let r = baseRgb[0] * shade;
+        let g = baseRgb[1] * shade;
+        let b = baseRgb[2] * shade;
+
+        // Elevation contour lines (20 m minor, 60 m major)
+        const minorBand = Math.floor((eC - minE) / minorInterval);
+        const majorBand = Math.floor((eC - minE) / majorInterval);
+        const minNeighborBand = Math.min(
+          Math.floor((eR - minE) / minorInterval),
+          Math.floor((eD - minE) / minorInterval)
+        );
+        const majNeighborBand = Math.min(
+          Math.floor((eR - minE) / majorInterval),
+          Math.floor((eD - minE) / majorInterval)
+        );
+        if (majorBand !== majNeighborBand) {
+          r = r * 0.52 + 245 * 0.48;
+          g = g * 0.52 + 206 * 0.48;
+          b = b * 0.52 + 166 * 0.48;
+        } else if (minorBand !== minNeighborBand) {
+          r *= 0.74;
+          g *= 0.74;
+          b *= 0.74;
+        }
+
+        const p = (y * w + x) * 4;
+        eImg.data[p] = Math.max(0, Math.min(255, Math.round(r)));
+        eImg.data[p + 1] = Math.max(0, Math.min(255, Math.round(g)));
+        eImg.data[p + 2] = Math.max(0, Math.min(255, Math.round(b)));
+        eImg.data[p + 3] = 255;
+
+        // Hazard overlay: blend slope class on top of Martian hillshade
+        const slopeDeg = Math.atan(Math.hypot(gx, gz)) * (180 / Math.PI);
+        let hr = 34;
+        let hg = 197;
+        let hb = 94;
+        let alpha = 0.28;
+        if (slopeDeg > 20) {
+          hr = 168;
+          hg = 85;
+          hb = 247;
+          alpha = 0.62;
+        } else if (slopeDeg > 15) {
+          hr = 239;
+          hg = 68;
+          hb = 68;
+          alpha = 0.5;
+        } else if (slopeDeg > 10) {
+          hr = 245;
+          hg = 158;
+          hb = 11;
+          alpha = 0.38;
+        }
+        hImg.data[p] = Math.round(r * (1 - alpha) + hr * alpha);
+        hImg.data[p + 1] = Math.round(g * (1 - alpha) + hg * alpha);
+        hImg.data[p + 2] = Math.round(b * (1 - alpha) + hb * alpha);
+        hImg.data[p + 3] = 255;
+      }
+    }
+
+    eCtx.putImageData(eImg, 0, 0);
+    hCtx.putImageData(hImg, 0, 0);
+    return { elevCanvas, hazCanvas, minE, maxE };
+  })();
+
+  function syncMapStaticText() {
+    const tr = isTrLang();
+    const tEl = document.getElementById("hud-map-title");
+    const sEl = document.getElementById("hud-map-sub");
+    const etEl = document.getElementById("hud-map-elev-title");
+    const cnEl = document.getElementById("hud-map-contour-note");
+    const ktEl = document.getElementById("hud-map-key-title");
+    if (tEl) {
+      tEl.textContent = tr
+        ? "GALE KRATERİ / MOUNT SHARP — 3B YÜKSELTİ HARİTASI"
+        : "GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP";
+    }
+    if (sEl) {
+      sEl.textContent = tr
+        ? "HiRISE 1 m DTM KABARTMA · IŞINLANMAK İÇİN HARİTAYA TIKLA · KENARLAR KARŞIYA BAĞLANIR"
+        : "HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP";
+    }
+    if (etEl) etEl.textContent = tr ? "MOLA 3B YÜKSELTİ (m)" : "MOLA 3D ELEVATION (m)";
+    if (cnEl) {
+      cnEl.textContent = tr
+        ? "20 m ara / 60 m ana eşyükselti eğrileri · canlı 3B arazi normalleri ve güneş açısı ile gölgelenmiş."
+        : "20 m minor / 60 m major contours · shaded by live 3D terrain normals & sun angle.";
+    }
+    if (ktEl) ktEl.textContent = tr ? "İŞARETLER VE SINIR" : "MARKERS & WRAP";
+    if (mapModeBtn) {
+      mapModeBtn.textContent =
+        mapLayerMode === "elevation"
+          ? tr
+            ? "Katman: Yükselti 3B"
+            : "Layer: Elevation 3D"
+          : tr
+            ? "Katman: Eğim Tehlikesi"
+            : "Layer: Slope Hazard";
+    }
+    if (mapCloseBtn) mapCloseBtn.textContent = tr ? "Kapat (M)" : "Close (M)";
+    if (mapConfirmQEl) {
+      mapConfirmQEl.textContent = tr ? "Buraya ışınlanmak istiyor musun?" : "Do you want to teleport here?";
+    }
+    if (mapConfirmYesBtn) mapConfirmYesBtn.textContent = tr ? "Evet, Işınlan" : "Yes, Teleport";
+    if (mapConfirmNoBtn) mapConfirmNoBtn.textContent = tr ? "İptal" : "Cancel";
+    if (btnMap) btnMap.textContent = isMapOpen() ? (tr ? "Harita: Açık" : "Map (M): ON") : tr ? "Harita (M)" : "Map (M)";
+  }
+
+  function formatPointMetrics(tx, tz) {
+    const wx = wrapSceneCoord(tx, worldW).val;
+    const wz = wrapSceneCoord(tz, worldH).val;
+    const lon = xToLon(wx);
+    const lat = zToLat(wz);
+    const elevMola = elevMin + sampleElevSceneY(wx, wz);
+    const slopeDeg = computeLocalSlopeDeg(wx, wz);
+    const distM = Math.hypot(wx - player.x, wz - player.z);
+    return { tx: wx, tz: wz, lon, lat, elevMola, slopeDeg, distM };
+  }
+
+  function updatePendingConfirmCard() {
+    if (!mapConfirmEl) return;
+    if (!pendingTeleport) {
+      mapConfirmEl.style.display = "none";
+      return;
+    }
+    const tr = isTrLang();
+    syncMapStaticText();
+    const { lon, lat, elevMola, slopeDeg, distM } = pendingTeleport;
+    const slopeWarn =
+      slopeDeg > 20
+        ? tr
+          ? " · UYARI: >20° DİK YAMAÇ!"
+          : " · WARNING: >20° STEEP CLIFF!"
+        : "";
+    if (mapConfirmMetaEl) {
+      mapConfirmMetaEl.innerHTML =
+        `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E<br/>` +
+        `<strong>${tr ? "3B Yükselti" : "3D Elevation"}:</strong> ${elevMola.toFixed(1)} m MOLA<br/>` +
+        `<strong>${tr ? "Eğim" : "Slope"}:</strong> ${slopeDeg.toFixed(1)}°${slopeWarn}<br/>` +
+        `<strong>${tr ? "Mesafe" : "Distance"}:</strong> ${distM.toFixed(0)} m`;
+    }
+    mapConfirmEl.style.display = "block";
+  }
+
+  function setMapOpen(open) {
+    if (!mapOverlayEl) return;
+    const next = Boolean(open);
+    mapOverlayEl.classList.toggle("open", next);
+    if (next) {
+      keys.clear();
+      dragging = false;
+      syncMapStaticText();
+      renderTacticalMap();
+    } else {
+      pendingTeleport = null;
+      hoverTarget = null;
+      if (mapConfirmEl) mapConfirmEl.style.display = "none";
+      syncMapStaticText();
+    }
+  }
+
+  btnMap?.addEventListener("click", () => setMapOpen(!isMapOpen()));
+  mapCloseBtn?.addEventListener("click", () => setMapOpen(false));
+  mapOverlayEl?.addEventListener("click", (e) => {
+    if (e.target === mapOverlayEl) setMapOpen(false);
+  });
+  mapModeBtn?.addEventListener("click", () => {
+    mapLayerMode = mapLayerMode === "elevation" ? "hazard" : "elevation";
+    syncMapStaticText();
+    renderTacticalMap();
+  });
+  mapConfirmYesBtn?.addEventListener("click", () => {
+    if (!pendingTeleport) return;
+    teleportToLocal(pendingTeleport.tx, pendingTeleport.tz, { keepYaw: true });
+    setMapOpen(false);
+  });
+  mapConfirmNoBtn?.addEventListener("click", () => {
+    pendingTeleport = null;
+    updatePendingConfirmCard();
+    renderTacticalMap();
+  });
+
+  if (mapCanvasEl) {
+    const pointerToLocal = (e) => {
+      const rect = mapCanvasEl.getBoundingClientRect();
+      const u = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+      const v = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+      return { tx: (u - 0.5) * worldW, tz: (v - 0.5) * worldH };
+    };
+    mapCanvasEl.addEventListener("mousemove", (e) => {
+      const { tx, tz } = pointerToLocal(e);
+      hoverTarget = formatPointMetrics(tx, tz);
+      if (mapHoverEl) {
+        const tr = isTrLang();
+        const { lat, lon, elevMola, slopeDeg, distM } = hoverTarget;
+        mapHoverEl.textContent =
+          `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E · ` +
+          `${tr ? "YÜKSELTİ" : "3D ELEV"}: ${elevMola.toFixed(1)} m · ` +
+          `${tr ? "EĞİM" : "SLOPE"}: ${slopeDeg.toFixed(1)}° · ${distM.toFixed(0)} m`;
+      }
+      renderTacticalMap();
+    });
+    mapCanvasEl.addEventListener("mouseleave", () => {
+      hoverTarget = null;
+      renderTacticalMap();
+    });
+    mapCanvasEl.addEventListener("click", (e) => {
+      const { tx, tz } = pointerToLocal(e);
+      pendingTeleport = formatPointMetrics(tx, tz);
+      updatePendingConfirmCard();
+      renderTacticalMap();
+    });
+  }
+
+  function renderTacticalMap() {
+    if (!mapCtx || !mapCanvasEl || !isMapOpen()) return;
+    const W = mapCanvasEl.width;
+    const H = mapCanvasEl.height;
+    const baseImg = mapLayerMode === "hazard" ? mapBases.hazCanvas : mapBases.elevCanvas;
+
+    mapCtx.clearRect(0, 0, W, H);
+    mapCtx.imageSmoothingEnabled = true;
+    mapCtx.drawImage(baseImg, 0, 0, W, H);
+
+    // Subtle Martian coordinate grid
+    mapCtx.strokeStyle = "rgba(255, 224, 194, 0.14)";
+    mapCtx.lineWidth = 1;
+    for (let k = 1; k < 4; k++) {
+      const p = (k / 4) * W;
+      mapCtx.beginPath();
+      mapCtx.moveTo(p, 0);
+      mapCtx.lineTo(p, H);
+      mapCtx.moveTo(0, p);
+      mapCtx.lineTo(W, p);
+      mapCtx.stroke();
+    }
+
+    // Wrap-around border frame cue
+    mapCtx.save();
+    mapCtx.setLineDash([6, 5]);
+    mapCtx.strokeStyle = "rgba(245, 198, 146, 0.45)";
+    mapCtx.lineWidth = 2;
+    mapCtx.strokeRect(3, 3, W - 6, H - 6);
+    mapCtx.restore();
+
+    const toCanvasXY = (x, z) => [
+      Math.max(0, Math.min(W, (x / worldW + 0.5) * W)),
+      Math.max(0, Math.min(H, (z / worldH + 0.5) * H)),
+    ];
+
+    // Science stops + start mast
+    if (stops?.features) {
+      stops.features.forEach((f, idx) => {
+        const [lon, lat] = f.geometry.coordinates;
+        const [cx, cy] = toCanvasXY(lonToX(lon), latToZ(lat));
+        const isStart = idx === 0 || f.properties?.kind === "habitat";
+        mapCtx.beginPath();
+        mapCtx.arc(cx, cy, isStart ? 6 : 5, 0, Math.PI * 2);
+        mapCtx.fillStyle = isStart ? "#4ade80" : "#ffffff";
+        mapCtx.fill();
+        mapCtx.lineWidth = 1.5;
+        mapCtx.strokeStyle = "#000000";
+        mapCtx.stroke();
+
+        const rawName = (f.properties?.name || f.properties?.id || "").split("(")[0].trim();
+        mapCtx.font = "600 10px monospace";
+        mapCtx.fillStyle = "rgba(0, 0, 0, 0.78)";
+        const tw = mapCtx.measureText(rawName).width;
+        const lx = Math.min(W - tw - 12, cx + 9);
+        const ly = Math.max(14, cy - 6);
+        mapCtx.fillRect(lx - 3, ly - 9, tw + 6, 13);
+        mapCtx.fillStyle = isStart ? "#bbf7d0" : "#f8fafc";
+        mapCtx.fillText(rawName, lx, ly + 1);
+      });
+    }
+
+    // Pending teleport crosshair
+    if (pendingTeleport) {
+      const [tx, ty] = toCanvasXY(pendingTeleport.tx, pendingTeleport.tz);
+      mapCtx.save();
+      mapCtx.strokeStyle = "#fbbf24";
+      mapCtx.lineWidth = 2;
+      mapCtx.beginPath();
+      mapCtx.arc(tx, ty, 10, 0, Math.PI * 2);
+      mapCtx.moveTo(tx - 15, ty);
+      mapCtx.lineTo(tx + 15, ty);
+      mapCtx.moveTo(tx, ty - 15);
+      mapCtx.lineTo(tx, ty + 15);
+      mapCtx.stroke();
+      mapCtx.restore();
+    } else if (hoverTarget) {
+      const [hx, hy] = toCanvasXY(hoverTarget.tx, hoverTarget.tz);
+      mapCtx.save();
+      mapCtx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+      mapCtx.lineWidth = 1;
+      mapCtx.beginPath();
+      mapCtx.arc(hx, hy, 7, 0, Math.PI * 2);
+      mapCtx.stroke();
+      mapCtx.restore();
+    }
+
+    // Astronaut live position + gaze cone (yaw=0 -> North -Z -> canvas UP)
+    const [ax, ay] = toCanvasXY(player.x, player.z);
+    const totalYaw = autoYaw + userYaw;
+    const dirX = -Math.sin(totalYaw);
+    const dirY = -Math.cos(totalYaw);
+    const coneAngle = Math.atan2(dirY, dirX);
+
+    mapCtx.save();
+    mapCtx.beginPath();
+    mapCtx.moveTo(ax, ay);
+    mapCtx.arc(ax, ay, 36, coneAngle - 0.55, coneAngle + 0.55);
+    mapCtx.closePath();
+    const grad = mapCtx.createRadialGradient(ax, ay, 2, ax, ay, 36);
+    grad.addColorStop(0, "rgba(56, 189, 248, 0.52)");
+    grad.addColorStop(1, "rgba(56, 189, 248, 0.0)");
+    mapCtx.fillStyle = grad;
+    mapCtx.fill();
+
+    mapCtx.beginPath();
+    mapCtx.arc(ax, ay, 6, 0, Math.PI * 2);
+    mapCtx.fillStyle = "#38bdf8";
+    mapCtx.fill();
+    mapCtx.lineWidth = 2;
+    mapCtx.strokeStyle = "#ffffff";
+    mapCtx.stroke();
+    mapCtx.restore();
+
+    // Scale bar & North indicator
+    const pxPer500m = (500 / worldW) * W;
+    mapCtx.fillStyle = "rgba(10, 6, 4, 0.75)";
+    mapCtx.fillRect(10, H - 30, pxPer500m + 18, 20);
+    mapCtx.strokeStyle = "#f7dec4";
+    mapCtx.lineWidth = 2;
+    mapCtx.beginPath();
+    mapCtx.moveTo(18, H - 15);
+    mapCtx.lineTo(18 + pxPer500m, H - 15);
+    mapCtx.stroke();
+    mapCtx.fillStyle = "#f7dec4";
+    mapCtx.font = "bold 10px monospace";
+    mapCtx.fillText("500 m", 18, H - 19);
+    mapCtx.fillText("N ↑", W - 32, 20);
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (!hudView.classList.contains("active")) return;
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+    const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
+    const menuOpen = !document.getElementById("start-screen")?.classList.contains("hidden");
+    if (modalOpen || menuOpen) return;
+
+    const k = e.key.toLowerCase();
+    if (k === "m" && !e.repeat) {
+      e.preventDefault();
+      setMapOpen(!isMapOpen());
+      return;
+    }
+    if (e.key === "Escape" && isMapOpen()) {
+      e.preventDefault();
+      setMapOpen(false);
+      return;
+    }
+    if (isMapOpen()) return;
+
+    keys.add(k);
+    if (k === "p") {
+      dropLocalPing("EVA Waypoint");
+    }
+    if (k === " ") {
+      e.preventDefault();
+      if (player.grounded) {
+        player.vy = JUMP_SPEED_MS;
+        player.grounded = false;
+      }
+    }
   });
 
   const shouldEl = document.getElementById("hud-should-line");
@@ -1460,24 +1997,48 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     let px;
     let pz;
     if (freeRoam) {
-      const run = keys.has("shift");
-      fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
-      right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
-      moveDir.set(0, 0, 0);
-      if (keys.has("w") || keys.has("arrowup")) moveDir.add(fwd);
-      if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
-      if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
-      if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
-      if (moveDir.lengthSq() > 0) {
-        moveDir.normalize();
-        // slow down on steep ground (uphill or downhill), like a suited walker would
-        const here = sampleElevSceneY(freePos.x, freePos.z);
-        const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
-        const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
-        const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
-        const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
-        freePos.addScaledVector(moveDir, v * dt);
+      if (!isMapOpen()) {
+        const run = keys.has("shift");
+        fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
+        right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
+        moveDir.set(0, 0, 0);
+        if (keys.has("w") || keys.has("arrowup")) moveDir.add(fwd);
+        if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
+        if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
+        if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
+        if (moveDir.lengthSq() > 0) {
+          moveDir.normalize();
+          // slow down on steep ground (uphill or downhill), like a suited walker would
+          const here = sampleElevSceneY(freePos.x, freePos.z);
+          const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
+          const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
+          const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
+          const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
+          freePos.addScaledVector(moveDir, v * dt);
+        }
       }
+      // Wrap around to the opposite edge when crossing the 3D map boundary (Mars globe-style loop)
+      const wx = wrapSceneCoord(freePos.x, worldW);
+      const wz = wrapSceneCoord(freePos.z, worldH);
+      if (wx.wrapped || wz.wrapped) {
+        freePos.x = wx.val;
+        freePos.z = wz.val;
+        justTeleportedOrWrapped = true;
+        const wLon = xToLon(freePos.x);
+        const wLat = zToLat(freePos.z);
+        const nearestGeomS = closestAlongM(routeCoords, cumDist, wLon, wLat);
+        alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+        const dirs = [];
+        if (wx.crossedPosToNeg) dirs.push(isTrLang() ? "DOĞU → BATI" : "EAST → WEST");
+        else if (wx.crossedNegToPos) dirs.push(isTrLang() ? "BATI → DOĞU" : "WEST → EAST");
+        if (wz.crossedPosToNeg) dirs.push(isTrLang() ? "GÜNEY → KUZEY" : "SOUTH → NORTH");
+        else if (wz.crossedNegToPos) dirs.push(isTrLang() ? "KUZEY → GÜNEY" : "NORTH → SOUTH");
+        showWrapNotice(
+          (isTrLang() ? "HARİTA SINIRI GEÇİLDİ · KARŞI KENAR: " : "MAP BOUNDARY WRAPPED: ") +
+            dirs.join(" · ")
+        );
+      }
+
       // Solid collision against visible NPC partner or live crewmates so free-roam cannot clip through them
       if (partner && partner.group.visible) {
         pushApart(partner.group.position);
@@ -1510,8 +2071,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const mvz = pz - player.z;
     player.x = px;
     player.z = pz;
-    if (movedXZ > 20) {
-      // scrubber or free-roam toggle moved us far: land on the new spot instead of falling to it
+    if (justTeleportedOrWrapped || movedXZ > 20) {
+      // Teleport, wrap-around, or route reset moved us to a new terrain height: land cleanly on ground
       player.y = ground;
       player.vy = 0;
       player.grounded = true;
@@ -1529,7 +2090,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       player.y = ground;
     }
     const yaw = autoYaw + userYaw;
-    const step = movedXZ < 20 ? movedXZ : 0; // ignore scrubber jumps
+    const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0; // ignore teleport/wrap jumps
+    justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
 
     // own body: rigged walk driven by distance actually covered
@@ -1630,6 +2192,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       }
     }
     followEndless(camera.position);
+    if (isMapOpen()) renderTacticalMap();
 
     adaptResolution(dt * 1000, now);
     lensMat.uniforms.uTime.value = clockT;
