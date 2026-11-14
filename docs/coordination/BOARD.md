@@ -55,7 +55,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-08 | Scaffold planner + 3D scene; load contract JSON | F1 | TBD | TBD | todo | hour 2 | `web/planner/`, `web/hud/` |
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
-| MUST-11 | MUST test plan + sign-off | T1 | Asil | Gemini | doing | hour 16 | Drafted in docs/testing/must-checklist.md |
+| MUST-11 | MUST test plan + sign-off | T1 | Asil | Gemini; Grok (Cursor) | review | hour 16 | Test plan `docs/testing/test-plan.md` and contract checklist `docs/testing/contract-checklist.md` on branch `tester/review`. Document review 14 Nov 12:59 of `d2c4695`: B1 files remain the only first-pass PASS. B2 route is an example Dijkstra on the contract cost grid. F1 app not built. Hour-16 sign-off not given. |
 | MUST-12 | Review early PRs; rough demo walk | T1, T2 | Eymen (T2), Asil (T1) | Gemini (Antigravity) | doing | hour 16 | Drafted demo docs in docs/demo/ and test checklist in docs/testing/; ready to review early PRs |
 
 ### SHOULD (hours 16–32)
@@ -94,5 +94,6 @@ Add a row when you need an answer. Cross it out or mark `answered` when done. Fi
 | Date | From (role) | To (role) | Question | Status |
 |---|---|---|---|---|
 | 2026-11-14 | B2 (Doruk) | Doruk / team (+ T1/T2 record) | PRE-07: Lock habitat + two lake-sediment mudstone stops (official names + lat/lon inside DTEEC_019698) and confirm boxwork bonus (Sol 4534 candidate cited). Also: allow example-contract routing scaffold until then? See [PRE07_LOCK_REQUEST.md](../../pipeline/routing/PRE07_LOCK_REQUEST.md). | open |
+| 2026-11-14 | T1 (Asil) | B2, B3, F1 | Document review on `d2c4695`: HUD JSON keeps required fields on `primary` / `samples` (example file is flat); dose still uses the 96 min example route while processed `route.json` totals say 71 min; weather JSON omits `sol_range_available_as_of_2026-11-11`. Please have F1 read `primary`, and have B3 refresh dose after PRE-07. Checklist: [contract-checklist.md](../testing/contract-checklist.md). | open |
 
 When a question is about a **contract field change**, also add a line to [docs/contracts/CHANGES.md](../contracts/CHANGES.md) and a [handoff](./HANDOFFS.md) for the owning role, Frontend 1, and both testers.
