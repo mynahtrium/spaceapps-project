@@ -341,16 +341,6 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
-=======
-### 2026-11-14 13:12 Europe/Istanbul — MUST-02 (example-stop cost map)
->>>>>>> origin/backend/costmap
-
-- Human: Cagan
-- Agent tool + model: Grok (Cursor)
-- Role: backend-1
 ### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
 
 - Human: Cagan
@@ -394,7 +384,6 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Audited `main` (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/contracts/`), verified all 24 Python files compile, checked for secrets/bulky files and `data/` size (3.23 MB), and documented 7 bugs/integration risks in `POSSIBLE_BUGS.md` (empty `web/`, `cost-map.json` vs `stops.json` bounds mismatch, `hud-telemetry.json` wrapper mismatch, `dose.json` stale duration, missing terrain/routing `data/demo/` fixtures, and `MUST-03` tilt wording update).
 - Commit: this commit
 - Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1–3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
-=======
 ### 2026-11-14 12:57 Europe/Istanbul — MUST-04/05/06 (B2 ship note + regenerate)
 
 - Human: Doruk
@@ -406,6 +395,28 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Re-run when Cagan re-crops cost map over stops; clear is_example only after PRE-07 lock.
 
+### 2026-11-14 13:02 Europe/Istanbul — SHOULD-01 (claim)
+
+- Human: CC
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: backend-3
+- Task id: SHOULD-01
+- Files changed: docs/comms/note-backend-3-science-leftovers.md (new), docs/comms/README.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Posted the Backend 3 note for this pass before editing science files. Claimed SHOULD-01. `NASA_API_KEY` is absent; live DONKI will be skipped; labelled example fixtures will be added without replacing the existing cache. No secrets.
+- Commit: this commit
+- Next step: Refresh dose from the example route, relabel POV JSON offline, write the labelled DONKI example, and tidy B3 board rows.
+
+### 2026-11-14 13:05 Europe/Istanbul — SHOULD-01 / SHOULD-02 / SHOULD-03 / PRE-04
+
+- Human: CC
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: backend-3
+- Task id: SHOULD-01, SHOULD-02, SHOULD-03, PRE-04
+- Files changed: pipeline/data/example_fixtures.py (new), pipeline/data/run_examples.py (new), pipeline/data/{common.py,fetch_donki.py,build_dose.py,build_pov.py,export_demo_fixtures.py,README.md}, data/processed/science/{dose.json,alerts.example.json,donki-cache.example.json,pov/*}, data/demo/ science copies of those files, docs/coordination/{BOARD.md,HANDOFFS.md,AGENT_LOG.md}, docs/comms/note-backend-3-science-leftovers.md, docs/AI_USE.md
+- Why: NASA_API_KEY is not on this machine. Skipped live DONKI and wrote labelled example fixtures (11 Nov 2026 planning-check arrival only). Left the real 13-impact cache in place. Refreshed dose from the example route (71 min placeholder, 0.0315 ± 0.0059 mSv, status example). Relabelled POV JSON from example stops and reused the four JPEGs. No .env. No contract field changes. Board rows for B3 only.
+- Commit: this commit
+- Next step: Tester review of backend/science. Re-run dose and POV after PRE-07 locks real stops. A personal NASA_API_KEY in a local gitignored .env is still needed before any live DONKI refresh.
+
 ### 2026-11-14 13:19 Europe/Istanbul — MUST-05 distance fix and cost-map re-run
 
 - Human: Doruk
@@ -416,4 +427,25 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Tester 2 reported the example route total (947.1 m) did not equal the four legs (790.3 m). Reported distance_m is now the sum of the stop-to-stop legs. Re-ran Dijkstra on Cagan's cost map backend/costmap @ 5e84db6 (crop covers the example stops; terrain file on this branch was not replaced). Routed stops are passable and were not moved. The contract example boxwork point at 137.393, -4.803 is blocked and was left in place. status stays example. No invented outcrop names. No secrets.
 - Commit: this commit
 - Next step: Clear is_example only after PRE-07 lock. Do not merge backend/routing or backend/stops to main until asked.
->>>>>>> origin/backend/routing
+
+### 2026-11-14 13:34 Europe/Istanbul — MUST-12 (static analysis & POSSIBLE_BUGS.md)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md (new), docs/coordination/AGENT_LOG.md
+- Why: Audited `main` (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/contracts/`), verified all 24 Python files compile, checked for secrets/bulky files and `data/` size (3.23 MB), and documented 7 bugs/integration risks in `POSSIBLE_BUGS.md` (empty `web/`, `cost-map.json` vs `stops.json` bounds mismatch, `hud-telemetry.json` wrapper mismatch, `dose.json` stale duration, missing terrain/routing `data/demo/` fixtures, and `MUST-03` tilt wording update).
+- Commit: this commit
+- Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1–3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
+
+### 2026-11-14 13:40 Europe/Istanbul — Merge all backend branches into main
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen XHigh)
+- Role: backend-3 (integration)
+- Task id: n/a
+- Files changed: docs/comms/README.md, docs/coordination/AGENT_LOG.md, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, data/processed/terrain/*, data/processed/routing/*, data/processed/science/*, data/demo/*, pipeline/*
+- Why: Pulled latest main (5b9fec6) and merged all five backend branches (backend/terrain, backend/costmap, backend/stops, backend/routing, backend/science) into main so Frontend 1 can start directly on the unified backend outputs.
+- Commit: this commit
+- Next step: Frontend 1 starts on main; tester branches (tester/review, tester/demo) can review/merge next.

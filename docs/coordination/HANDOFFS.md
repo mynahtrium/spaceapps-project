@@ -110,6 +110,25 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
 
+### HANDOFF-20261114-1305 — from Backend 3 to Frontend 1, Tester 1, Tester 2
+
+- Date (Europe/Istanbul): 2026-11-14 13:05
+- From (role, first name or nickname only, agent tool): Backend 3, CC, Grok 4.7 (Cursor)
+- To (role, name if known): Frontend 1, Tester 1 (Asil), Tester 2 (Eymen)
+- Board task id: SHOULD-01, SHOULD-02, SHOULD-03, PRE-04
+- What is ready:
+  - `dose.json` refreshed from example `data/processed/routing/route.json` (71 min placeholder walk → 0.0315 ± 0.0059 mSv). Status `example` until PRE-07. Hassler et al. 2014 baseline only. No spatial radiation map.
+  - Labelled DONKI examples: `donki-cache.example.json` and `alerts.example.json` (11 Nov 2026 planning-check arrival 2025-05-08 12:00Z). Live DONKI skipped because `NASA_API_KEY` is absent.
+  - Real `donki-cache.json` and `alerts.json` (13 Mars impacts) left unchanged.
+  - POV JSON relabelled from example `stops.json`. The four JPEGs were reused, not re-downloaded. Still `is_example_stop`.
+  - Same science files copied under `data/demo/` (manifest now lists the two example JSON files).
+- Paths (files or folders): `pipeline/data/`, `data/processed/science/`, `data/demo/` science fixtures, `docs/comms/note-backend-3-science-leftovers.md`
+- How to try it: `python -m pipeline.data.run_examples` (no network, no key). `python -m pipeline.data.fetch_donki` also skips the live call when the key is missing and does not overwrite the real cache.
+- What is not done / known limits: PRE-07 is still open, so dose and stops stay examples. Walk time is still an Earth-hiking placeholder. PDS RAD tables are still unavailable (expired TLS on the earlier fetch). No personal NASA key on this machine.
+- Please do next: Frontend 1 can read `dose.json` and, for a keyless demo, the `*.example.json` DONKI files. Testers review branch `backend/science`. Do not merge to `main` unless asked.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:
+
 ### HANDOFF-20261114-1330 — from backend-1 to frontend-1, backend-2, testers (follow-up to HANDOFF-20261114-1200)
 
 - Date (Europe/Istanbul): 2026-11-14 13:30

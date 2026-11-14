@@ -1,10 +1,12 @@
 {
-  "generated_at": "2026-11-14T09:19:13Z",
+  "generated_at": "2026-11-14T10:04:55Z",
   "owner": "backend-3",
   "purpose": "Frozen offline fixtures for DEMO_SAFE=1 / ?demo=1 (SHOULD-07)",
-  "file_count": 20,
+  "file_count": 22,
   "files": [
     "alerts.json",
+    "alerts.example.json",
+    "donki-cache.example.json",
     "dose.json",
     "weather.json",
     "layers-themis.json",
