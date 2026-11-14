@@ -858,3 +858,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Local main had the multiplayer commit and the Vercel config; origin/main had the single-astronaut HUD, map teleport, and performance work. Kept both: crew pins, radio, and remote avatars, plus teleport, contact shadows, and CREW: 1 with no AI buddy. `node --check` and 22/22 web tests passed.
 - Commit: this commit
 - Next step: Push main.
+
+### 2026-11-14 17:52 Europe/Istanbul — terrain seam cracks
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/hud at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan saw a pale band where the terrain repeats (screenshot at about 4.8169 S, 137.4064 E, the tile's south-east corner). Since the performance change the mirrored copies use a quarter of the real tile's vertex density, so their shared edges no longer line up and thin cracks show the sky. Every terrain tile now has a 40 m skirt hanging from its edges (edge texture, both windings), which closes the cracks without changing the visible surface or the copies' low cost. Teleported near the east edge and looked around: no band seen; the exact corner was not re-checked because Cagan was using the same tab.
+- Commit: this commit
+- Next step: Cagan checks the corner; push when asked.

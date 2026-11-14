@@ -493,7 +493,60 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) pos.setY(i, sampleElevSceneY(pos.getX(i), pos.getZ(i)));
     g.computeVertexNormals();
-    return g;
+    return addSkirt(g, seg, 40);
+  }
+
+  // Tiles of different vertex density meet with small height mismatches along their edges, which
+  // open thin cracks where the sky shows through. A skirt (a strip hanging 40 m down from every
+  // edge, textured like the edge) fills those cracks without changing the visible surface.
+  function addSkirt(g, seg, depth) {
+    const n = seg + 1;
+    const pos = g.attributes.position;
+    const uv = g.attributes.uv;
+    const nor = g.attributes.normal;
+    const ring = [];
+    for (let i = 0; i < n; i++) ring.push(i); // north edge
+    for (let j = 1; j < n; j++) ring.push(j * n + seg); // east edge
+    for (let i = seg - 1; i >= 0; i--) ring.push(seg * n + i); // south edge
+    for (let j = seg - 1; j >= 1; j--) ring.push(j * n); // west edge
+    const base = pos.count;
+    const m = ring.length;
+    const P = new Float32Array((pos.count + 2 * m) * 3);
+    const U = new Float32Array((pos.count + 2 * m) * 2);
+    const N = new Float32Array((pos.count + 2 * m) * 3);
+    P.set(pos.array);
+    U.set(uv.array);
+    N.set(nor.array);
+    ring.forEach((src, k) => {
+      for (const [o, dy] of [
+        [base + 2 * k, 0],
+        [base + 2 * k + 1, -depth],
+      ]) {
+        P[o * 3] = pos.getX(src);
+        P[o * 3 + 1] = pos.getY(src) + dy;
+        P[o * 3 + 2] = pos.getZ(src);
+        U[o * 2] = uv.getX(src);
+        U[o * 2 + 1] = uv.getY(src);
+        N[o * 3] = nor.getX(src);
+        N[o * 3 + 1] = nor.getY(src);
+        N[o * 3 + 2] = nor.getZ(src);
+      }
+    });
+    const idx = Array.from(g.index.array);
+    for (let k = 0; k < m; k++) {
+      const a = base + 2 * k;
+      const b = base + 2 * ((k + 1) % m);
+      // both windings, so the strip shows from either side (mirrored copies flip winding)
+      idx.push(a, a + 1, b, b, a + 1, b + 1, a, b, a + 1, b, b + 1, a + 1);
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute("position", new THREE.BufferAttribute(P, 3));
+    out.setAttribute("uv", new THREE.BufferAttribute(U, 2));
+    out.setAttribute("normal", new THREE.BufferAttribute(N, 3));
+    out.setIndex(idx);
+    out.computeBoundingSphere();
+    out.computeBoundingBox();
+    return out;
   }
 
   const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
