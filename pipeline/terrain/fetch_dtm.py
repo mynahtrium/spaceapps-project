@@ -29,7 +29,6 @@ DTM_URL = (
     "ESP_019698_1750_ESP_019988_1750/" + DTM_ID + ".IMG"
 )
 LOCAL = ROOT / "data/raw/terrain" / (DTM_ID + ".IMG")
-CHUNK = 4 * 1024 * 1024
 
 
 def get_range(start, end, tries=10):
@@ -49,7 +48,9 @@ def get_range(start, end, tries=10):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--margin-rows", type=int, default=64)
+    ap.add_argument("--chunk-kb", type=int, default=512, help="smaller chunks survive a flaky server better")
     a = ap.parse_args()
+    chunk = a.chunk_kb * 1024
 
     stops = load_example_stops(ROOT)
     cx, cy, half = crop_xy(stops, min_half_m=1000.0)
@@ -67,15 +68,15 @@ def main():
     LOCAL.parent.mkdir(parents=True, exist_ok=True)
     state_path = LOCAL.with_suffix(".progress.json")
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    if state.get("band") != list(band):
-        state = {"band": list(band), "done": []}
+    if state.get("band") != list(band) or state.get("chunk") != chunk:
+        state = {"band": list(band), "chunk": chunk, "done": [d for d in state.get("done", []) if d[0] == 0]}
     if not LOCAL.exists() or LOCAL.stat().st_size != total:
         with open(LOCAL, "wb") as f:
             f.truncate(total)
         state["done"] = []
 
     jobs = [(0, label_bytes - 1)] + [
-        (s, min(s + CHUNK - 1, band[1])) for s in range(band[0], band[1] + 1, CHUNK)
+        (s, min(s + chunk - 1, band[1])) for s in range(band[0], band[1] + 1, chunk)
     ]
     done = {tuple(j) for j in state["done"]}
     print(f"rows {r0}-{r1}, {(band[1] - band[0] + 1) / 1e6:.1f} MB in {len(jobs)} chunks, {len(done)} already done")

@@ -604,7 +604,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Divarci and Eymen re-check ?demo=1 with the network off; Divarci fixes BUG-12; Cetin to know his export script gained one line.
 
-### 2026-11-14 16:15 Europe/Istanbul — MUST-02 follow-up (relief, textures, STL)
+### 2026-11-14 15:45 Europe/Istanbul — MUST-02 follow-up (relief, textures, STL)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -614,3 +614,5 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan asked for a better map like a DEM relief model (reference: DEM -> triangulated surface -> STL). Added multi-directional hillshade, an ortho x hillshade texture with an illustrative Mars tint, a closed STL (checked: 0 non-manifold edges, consistent outward winding, positive volume) and an oblique 3D preview rendered without extra libraries. The HiRISE server gave about 5 KB/s, so the products were built offline from the 5 m height preview and the 1000 px ortho preview (same window as cost-map.json). fetch_dtm.py downloads the needed DTM rows in resumable chunks for a later full-resolution run. Fixed a fill bug found on the way: a mean fill of one no-data cell made a 250 m spike; now nearest-neighbour fill. Cost grid and route untouched.
 - Commit: this commit
 - Next step: When the network allows, run fetch_dtm.py then make_slope.py and make_relief.py (full mode) for 1 m height and 4096 px textures; Divarci wires texture-relief.jpg into the HUD.
+
+- Correction (same day): the entry above was first written with 16:15; the real time was about 15:45. fetch_dtm.py now takes --chunk-kb (default 512) because the server reset 4 MB range requests ten times in a row.
