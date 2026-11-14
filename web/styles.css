@@ -5,17 +5,17 @@
  */
 
 :root {
-  /* "Untitled" look: pure black and white (the cyan names are kept so the rest of the CSS needs no edits) */
+  /* "Untitled" look: black background, blue text */
   --bg: #000;
   --panel: rgba(0, 0, 0, 0.88);
-  --cyan: #fff;
-  --cyan-bright: #fff;
-  --cyan-accent: rgba(255, 255, 255, 0.85);
-  --line: rgba(255, 255, 255, 0.2);
-  --line-strong: rgba(255, 255, 255, 0.55);
-  --text: #fff;
-  --muted: rgba(255, 255, 255, 0.62);
-  --faint: rgba(255, 255, 255, 0.4);
+  --cyan: #4da6ff;
+  --cyan-bright: #8cc8ff;
+  --cyan-accent: #2f8cff;
+  --line: rgba(77, 166, 255, 0.22);
+  --line-strong: rgba(140, 200, 255, 0.56);
+  --text: #4da6ff;
+  --muted: rgba(140, 200, 255, 0.72);
+  --faint: rgba(140, 200, 255, 0.45);
   --rec: #ff2b2b;
   --mono: "IBM Plex Mono", "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
   --green: #4ade80;
@@ -134,7 +134,7 @@ body {
   line-height: 1.4;
   display: block;
   margin-bottom: 0.4em;
-  text-shadow: 0 0 18px rgba(255, 255, 255, 0.25);
+  text-shadow: 0 0 18px rgba(77, 166, 255, 0.25);
 }
 
 .caret {
@@ -264,7 +264,7 @@ body.in-hud .app-shell {
   height: 7px;
   border-radius: 50%;
   background: var(--cyan);
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.65);
+  box-shadow: 0 0 8px rgba(77, 166, 255, 0.65);
 }
 
 .brand-title {
@@ -376,7 +376,7 @@ body.in-hud .app-shell {
 .esc-label {
   font-size: 9.5px;
   letter-spacing: 0.18em;
-  color: rgba(255, 255, 255, 0.78);
+  color: rgba(140, 200, 255, 0.78);
 }
 
 .esc-grid {
@@ -389,19 +389,19 @@ body.in-hud .app-shell {
   text-align: left;
   padding: 9px 12px !important;
   color: var(--cyan) !important;
-  background: rgba(255, 255, 255, 0.05) !important;
-  border-color: rgba(255, 255, 255, 0.24) !important;
+  background: rgba(77, 166, 255, 0.05) !important;
+  border-color: rgba(77, 166, 255, 0.24) !important;
 }
 
 .esc-btn:hover {
-  background: rgba(255, 255, 255, 0.14) !important;
-  border-color: rgba(255, 255, 255, 0.62) !important;
+  background: rgba(77, 166, 255, 0.14) !important;
+  border-color: rgba(140, 200, 255, 0.62) !important;
   color: var(--cyan-bright) !important;
 }
 
 .esc-btn.active {
   border-color: var(--cyan) !important;
-  background: rgba(255, 255, 255, 0.18) !important;
+  background: rgba(77, 166, 255, 0.18) !important;
   color: var(--cyan-bright) !important;
 }
 
@@ -639,7 +639,7 @@ svg.profile-svg {
     to right,
     rgba(165, 243, 252, 0.96) 0 6px,
     transparent 6px 9px,
-    #fff 9px 11px,
+    #2f8cff 9px 11px,
     transparent 11px 14px,
     rgba(165, 243, 252, 0.96) 14px 20px
   );
@@ -671,11 +671,11 @@ svg.profile-svg {
   height: 2px;
   background: linear-gradient(
     to right,
-    rgba(255, 255, 255, 0.9) 0 6px,
+    rgba(140, 200, 255, 0.9) 0 6px,
     transparent 6px 9px,
-    #fff 9px 11px,
+    #2f8cff 9px 11px,
     transparent 11px 14px,
-    rgba(255, 255, 255, 0.9) 14px 20px
+    rgba(140, 200, 255, 0.9) 14px 20px
   );
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.85));
 }
@@ -685,19 +685,19 @@ svg.profile-svg {
   height: 20px;
   background: linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.9) 0 6px,
+    rgba(140, 200, 255, 0.9) 0 6px,
     transparent 6px 14px,
-    rgba(255, 255, 255, 0.9) 14px 20px
+    rgba(140, 200, 255, 0.9) 14px 20px
   );
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.85));
 }
 
 .visor-overlay {
-  --wg: #fff;
-  --wg-dim: rgba(255, 255, 255, 0.86);
-  --wg-line: rgba(255, 255, 255, 0.38);
-  --wg-accent: #fff;
-  --wg-sun: #fff;
+  --wg: #4da6ff;
+  --wg-dim: rgba(140, 200, 255, 0.86);
+  --wg-line: rgba(77, 166, 255, 0.38);
+  --wg-accent: #2f8cff;
+  --wg-sun: #4da6ff;
   position: absolute;
   inset: 0;
   z-index: 5;
@@ -712,10 +712,10 @@ svg.profile-svg {
 }
 
 .visor-overlay.gold-deployed {
-  --wg: #fff;
-  --wg-dim: rgba(255, 255, 255, 0.86);
-  --wg-line: rgba(255, 255, 255, 0.42);
-  --wg-accent: #fff;
+  --wg: #4da6ff;
+  --wg-dim: rgba(140, 200, 255, 0.86);
+  --wg-line: rgba(77, 166, 255, 0.42);
+  --wg-accent: #8cc8ff;
 }
 
 .visor-top {
@@ -760,7 +760,7 @@ svg.profile-svg {
 }
 
 .optics-head .opt-on {
-  color: #fff;
+  color: #8cc8ff;
 }
 
 .cam-stamp .dim {
@@ -908,7 +908,7 @@ svg.profile-svg {
 
 .telemetry .note {
   grid-column: 1 / -1;
-  color: rgba(255, 255, 255, 0.78);
+  color: rgba(140, 200, 255, 0.78);
   font-size: 8.5px;
   line-height: 1.18;
   letter-spacing: 0.04em;
@@ -975,7 +975,7 @@ svg.profile-svg {
 .visor-overlay .btn:hover,
 .visor-overlay .btn.is-active,
 .visor-overlay .btn.is-gold {
-  color: #fff;
+  color: #8cc8ff;
   background: none;
   border: 0;
   text-decoration: underline;
@@ -986,7 +986,7 @@ svg.profile-svg {
   appearance: none;
   width: 180px;
   height: 1px;
-  background: rgba(255, 255, 255, 0.38);
+  background: rgba(140, 200, 255, 0.38);
   outline: none;
   cursor: pointer;
 }
@@ -1121,7 +1121,7 @@ svg.profile-svg {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(77, 166, 255, 0.28);
 }
 
 /* High-res Mars map probe readout (map branch merge) */
@@ -1182,7 +1182,7 @@ svg.profile-svg {
 .zoom-ring {
   position: absolute;
   inset: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(140, 200, 255, 0.72);
   border-radius: 50%;
 }
 
@@ -1190,7 +1190,7 @@ svg.profile-svg {
 .zoom-ring::after {
   content: "";
   position: absolute;
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(140, 200, 255, 0.75);
 }
 
 .zoom-ring::before {
@@ -1240,7 +1240,7 @@ svg.profile-svg {
   gap: 18px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(77, 166, 255, 0.03);
   cursor: pointer;
 }
 
@@ -1385,7 +1385,7 @@ svg.profile-svg {
 .crew-chat-form input {
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(77, 166, 255, 0.05);
   border: 1px solid var(--line);
   color: var(--cyan-bright);
   padding: 5px 7px;
@@ -1427,7 +1427,7 @@ svg.profile-svg {
   gap: 8px;
   padding: 5px 7px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(77, 166, 255, 0.03);
   font-family: var(--mono);
   font-size: 10.5px;
 }
@@ -1449,7 +1449,7 @@ svg.profile-svg {
   flex-direction: column;
   gap: 4px;
   padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(77, 166, 255, 0.03);
   border: 1px solid var(--line);
   font-family: var(--mono);
   font-size: 10px;
@@ -1511,7 +1511,7 @@ svg.profile-svg {
 
 .fleet-item {
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(77, 166, 255, 0.03);
   padding: 9px 10px;
 }
 
@@ -1568,7 +1568,7 @@ svg.profile-svg {
 
 .hud-reticle.target-rover::before,
 .hud-reticle.target-rover::after {
-  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.95));
+  filter: drop-shadow(0 0 4px rgba(140, 200, 255, 0.95));
 }
 
 .hud-rover-target {
@@ -1619,12 +1619,12 @@ svg.profile-svg {
   gap: 8px;
   padding: 6px 8px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(77, 166, 255, 0.03);
 }
 
 .hud-fleet-row.current {
   border-color: var(--cyan-accent);
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(77, 166, 255, 0.12);
 }
 
 .rover-modal-hero {
@@ -1647,7 +1647,7 @@ svg.profile-svg {
 .rover-stat {
   border: 1px solid var(--line);
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(77, 166, 255, 0.03);
 }
 
 .rover-stat-k {
@@ -1688,7 +1688,7 @@ svg.profile-svg {
 .drive-pill {
   font-size: 9.5px;
   letter-spacing: 0.1em;
-  color: #fff;
+  color: #4da6ff;
   padding: 0;
   border: 0;
   background: none;
@@ -1698,17 +1698,17 @@ svg.profile-svg {
 }
 
 .drive-pill b {
-  color: #fff;
+  color: #2f8cff;
 }
 
 .drive-pill.drifting {
-  color: #fff;
+  color: #8cc8ff;
 }
 
 .drive-rpm-track {
   width: 44px;
   height: 5px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(140, 200, 255, 0.18);
   display: inline-block;
   vertical-align: middle;
   overflow: hidden;
@@ -1782,7 +1782,7 @@ svg.profile-svg {
 
 .orbit-label.you .dot {
   background: var(--cyan-bright);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 10px rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 2px rgba(77, 166, 255, 0.9), 0 0 10px rgba(77, 166, 255, 0.85);
 }
 
 .orbit-label.pick .dot {
@@ -1791,7 +1791,7 @@ svg.profile-svg {
   height: 14px;
   margin-left: -3px;
   border: 1.5px solid var(--cyan-accent);
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 8px rgba(77, 166, 255, 0.85);
 }
 
 .orbit-hud {
@@ -2047,7 +2047,7 @@ body.in-hud .arrival-flash {
 .ctx-item:hover:not(:disabled),
 .ctx-item:focus-visible,
 .ctx-item:focus {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(77, 166, 255, 0.14);
   color: var(--cyan-bright);
   outline: none;
 }
