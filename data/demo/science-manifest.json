@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-11-14T10:04:55Z",
+  "generated_at": "2026-11-14T10:52:57Z",
   "owner": "backend-3",
   "purpose": "Frozen offline fixtures for DEMO_SAFE=1 / ?demo=1 (SHOULD-07)",
-  "file_count": 22,
+  "file_count": 28,
   "files": [
     "alerts.json",
     "alerts.example.json",
@@ -25,6 +25,12 @@
     "tiles/themis/day/z8_r134_c451.png",
     "tiles/themis/night/z4_r8_c28.png",
     "tiles/themis/night/z6_r33_c112.png",
-    "tiles/themis/night/z8_r134_c451.png"
+    "tiles/themis/night/z8_r134_c451.png",
+    "cost-map.json",
+    "slope-preview.png",
+    "height-preview.png",
+    "stops.json",
+    "route.json",
+    "hud-telemetry.json"
   ]
 }

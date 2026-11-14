@@ -48,7 +48,7 @@
 - [ ] **Four honesty disclosures visible in UI & slides:**
   1. **Gale framing:** Gale / Mount Sharp is a Curiosity rover site, framed as *"if a crew visited where Curiosity studied Mount Sharp."*
   2. **Slope thresholds:** 15° and 20° limits are **lunar EVA stand-ins** (NASA Exploration EVA ConOps / LPSC 2023 #1413).
-  3. **DTM vs. rover tilt:** 14 Nov check of 176 waypoints (Sol 4400–5073) did **not** show a systematic under-read (about 5 m: median DTM 9.0°, median rover tilt 8.6°, weak correlation). The 11 Nov four-sol under-read note stays a planning note, not this result. Keep a safety margin. See `data/processed/terrain/tilt-check.json`.
+  3. **DTM vs. rover tilt:** 14 Nov check of 176 waypoints (Sol 4400–5073) did **not** show a systematic under-read (about 5 m: median DTM 9.0°, median rover tilt 8.6°, weak correlation). The 11 Nov four-sol under-read note stays a planning note, not this result. Keep a safety margin. See `data/processed/terrain/tilt-check.json`. DTM slope matches Curiosity waypoint tilt only weakly at ~5 m resolution (`tilt-check.json` medians 9.0° vs. 8.6°, no systematic under-read); keep a safety margin.
   4. **Placeholders & radiation:** Suit O₂ % and walking time are **illustrative placeholders**; radiation dose (`0.64 ± 0.12 mSv/day` × duration) is a **time/shielding budget**, not a spatial map of rocks.
 
 ---

@@ -63,6 +63,10 @@
   - **Slope thresholds (15° / 20°):** Lunar EVA stand-ins (NASA Exploration EVA ConOps; LPSC 2023 #1413). No Mars-specific suit limit was found.
   - **DTM vs rover tilt (14 Nov, 176 waypoints, Sol 4400–5073):** At about 5 m, median DTM slope 9.0° and median rover tilt 8.6° (difference −0.06°). Correlation is weak (r about 0.15). This does **not** confirm the 11 Nov note that the 1 m DTM under-read tilt at four boxwork sols. Rover tilt and DTM slope are related, not the same measurement. Keep a safety margin. First pass, not a validation (`tilt-check.json`).
   - **Suit O₂ and walk time:** Illustrative placeholders (linear O₂ drain; Earth-hiking speed).
+- **Transparent Scientific Caveats (Shown in UI & Docs):**
+  - **Slope thresholds (15° / 20°):** Stand-ins from NASA's *Lunar Exploration EVA Concept of Operations* and LPSC 2023 #1413 (no Mars-specific suit slope limit is published).
+  - **DTM vs. Rover Tilt:** MUST-03 compared the DTM against 176 Curiosity waypoints (Sol 4400–5073): median slopes agree closely at ~5 m (`9.0°` DTM vs. `8.6°` rover tilt), with weak correlation (`r = 0.11–0.15`) — so we keep a conservative safety margin rather than claiming a fixed offset.
+  - **Suit O₂ & Walk Speed:** Explicitly labelled as **illustrative placeholders** (linear O₂ drain / Earth hiking speed).
 
 ---
 

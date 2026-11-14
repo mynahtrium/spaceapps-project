@@ -13,7 +13,7 @@ globs: data/**,pipeline/**,web/**,skills/**,docs/contracts/**
 - Never commit `data/raw/`, `*.tif`, PDS `.IMG`, or JP2 files. Cache DONKI JSON and Trek tiles for an offline demo (size target under ~100 MB of static files).
 - NASA API key only via `NASA_API_KEY`. Do not use NASA's shared demo key for the build; it is rate-limited.
 - Do not rely on `api.nasa.gov/mars-photos` (404 as of 11 November 2026). Traverse and raw-image feeds are undocumented and may change.
-- Slope limits (15° / 20°) are illustrative lunar numbers, not a Mars-specific limit. Label them as stand-ins. The 1 m HiRISE DTM under-reads rover-reported tilt.
+- Slope limits (15° / 20°) are illustrative lunar numbers, not a Mars-specific limit. Label them as stand-ins. DTM slope matches rover-reported tilt only weakly (~5 m medians 9.0° vs 8.6°); keep a safety margin.
 - Do not invent a spatial "radiation map" of rocks. Use a time-based dose budget (RAD baseline × EVA duration) plus a DONKI WSA-Enlil banner for Mars arrivals.
 - Suit O₂ is an illustrative linear placeholder, not a validated Mars suit model. Label it.
 - Static JSON fallbacks are required (`data/processed/` then `docs/contracts/`). A live API is optional and must not be required on stage. By hour 32, **demo-safe mode** (`DEMO_SAFE=1` or `?demo=1`) loads only `data/demo/` and makes no network, NASA, or DONKI calls (spec only until 14 Nov).

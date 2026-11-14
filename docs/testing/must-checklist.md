@@ -28,7 +28,7 @@ Aşağıdaki 8 temel kriter sağlanmadan MUST aşaması tamamlanmış sayılamaz
 - [x] Kırpılmış Mount Sharp DTM ve ortofoto hazırlandı mı? (`pipeline/terrain/`, `data/processed/terrain/`) — *Doğrulandı: 2x2 km DTEEC_019698 kırpması ve ortofoto mevcut.*
 - [x] Eğim (slope) ve engebe (roughness) hesaplandı mı? — *Doğrulandı: TRI tabanlı roughness ve slope hesaplandı.*
 - [x] `cost-map.json` sözleşmeye (`docs/contracts/cost-map.json`) uygun mu? — *Doğrulandı: Şema uyumlu, 395x395 hücreli gerçek maliyet haritası üretildi.*
-- [x] Bilinen DTM eğim az okuma (under-read) uyarısı `cost-map.json` içinde belgelendi mi? — *Doğrulandı: `tilt_validation_note` mevcut.*
+- [x] DTM eğimi ve Curiosity eğim doğrulaması notu (`tilt_validation_note`) `cost-map.json` içinde belgelendi mi? — *Doğrulandı: `tilt_validation_note` mevcut (~5 m'de medyanlar 9.0° vs 8.6°, zayıf korelasyon nedeniyle güvenlik payı tutulur).*
 - [x] Önizleme yüksekliği (height preview) 3D bileşeni için üretildi mi? — *Doğrulandı: `height-preview.png` (16-bit) ve `height_preview_elevation_range_m` eklendi.*
 - [x] *Fallback:* Raster üretilemezse statik görsel/harita önizlemesi devrede mi? — *Doğrulandı: PNG önizlemeleri hazır.*
 

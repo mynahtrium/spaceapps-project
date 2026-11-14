@@ -1,7 +1,7 @@
 {
   "contract": "martian-mappers.route.v1",
   "status": "example",
-  "note": "Example route while PRE-07 is open. Not locked science stops. Routed on data/processed/terrain/cost-map.json. Slope limit illustrative lunar stand-in. Reported distance_m is the sum of the stop-to-stop legs. Cost map ref: backend/costmap@5e84db6. Climb and descent are summed on the cell-center path from data/processed/terrain/height-preview.png scaled by height_preview_elevation_range_m (16-bit preview). No routed example stop sits in a blocked cell. Stops were not moved. Blocked contract example points, left where they are: stop-boxwork-bonus (137.393, -4.803).",
+  "note": "Example route while PRE-07 is open. Not locked science stops. Routed on data/processed/terrain/cost-map.json. Slope limit illustrative lunar stand-in. Reported distance_m is the sum of the stop-to-stop legs. No routed example stop sits in a blocked cell. Stops were not moved. Blocked contract example points, left where they are: stop-boxwork-bonus (137.393, -4.803).",
   "blocked_stops": [],
   "blocked_contract_example_stops": [
     {
@@ -63,11 +63,11 @@
   "properties": {
     "id": "eva-example-pre07-scaffold-001",
     "distance_m": 790.3,
-    "climb_m": 38.4,
-    "descent_m": 38.4,
+    "climb_m": 38.3,
+    "descent_m": 38.3,
     "duration_min_placeholder": 59.3,
     "duration_note": "Placeholder duration using a slow Earth-hiking stand-in (13.33 m/min). Label it as such in the UI.",
-    "climb_note": "Sum of positive and negative elevation steps along the cell-center path, from the 16-bit height preview. Not a surveyed EVA profile."
+    "climb_note": "Sampled along route from height-preview.png."
   },
   "geometry": {
     "type": "LineString",
@@ -628,45 +628,49 @@
     {
       "s_m": 0.0,
       "elev_m": -3646.3,
-      "slope_deg": 0.6,
-      "note": "Elevation and slope from the 16-bit height preview along the cell-center path. s_m is a fraction of the leg-sum distance. Lunar slope classes are stand-ins."
+      "slope_deg": 2.3
     },
     {
-      "s_m": 158.1,
-      "elev_m": -3634.4,
-      "slope_deg": 4.7,
-      "note": "Elevation and slope from the 16-bit height preview along the cell-center path. s_m is a fraction of the leg-sum distance. Lunar slope classes are stand-ins."
+      "s_m": 112.9,
+      "elev_m": -3638.2,
+      "slope_deg": 4.6
     },
     {
-      "s_m": 316.1,
-      "elev_m": -3614.7,
-      "slope_deg": 3.3,
-      "note": "Elevation and slope from the 16-bit height preview along the cell-center path. s_m is a fraction of the leg-sum distance. Lunar slope classes are stand-ins."
+      "s_m": 225.8,
+      "elev_m": -3626.3,
+      "slope_deg": 7.1
     },
     {
-      "s_m": 474.2,
-      "elev_m": -3624.2,
-      "slope_deg": 5.2,
-      "note": "Elevation and slope from the 16-bit height preview along the cell-center path. s_m is a fraction of the leg-sum distance. Lunar slope classes are stand-ins."
+      "s_m": 338.7,
+      "elev_m": -3615.1,
+      "slope_deg": 8.4
     },
     {
-      "s_m": 632.2,
-      "elev_m": -3639.8,
-      "slope_deg": 2.7,
-      "note": "Elevation and slope from the 16-bit height preview along the cell-center path. s_m is a fraction of the leg-sum distance. Lunar slope classes are stand-ins."
+      "s_m": 451.6,
+      "elev_m": -3622.5,
+      "slope_deg": 6.9
+    },
+    {
+      "s_m": 564.5,
+      "elev_m": -3634.9,
+      "slope_deg": 8.3
+    },
+    {
+      "s_m": 677.4,
+      "elev_m": -3643.6,
+      "slope_deg": 6.5
     },
     {
       "s_m": 790.3,
       "elev_m": -3646.3,
-      "slope_deg": 3.8,
-      "note": "Elevation and slope from the 16-bit height preview along the cell-center path. s_m is a fraction of the leg-sum distance. Lunar slope classes are stand-ins."
+      "slope_deg": 2.3
     }
   ],
   "totals": {
     "distance_m": 790.3,
-    "climb_m": 38.4,
-    "descent_m": 38.4,
+    "climb_m": 38.3,
+    "descent_m": 38.3,
     "duration_min_placeholder": 59.3,
-    "dose_mSv_see": "docs/contracts/dose.json"
+    "dose_mSv_see": "data/processed/science/dose.json"
   }
 }

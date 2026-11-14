@@ -45,6 +45,7 @@
    - *(SHOULD-03)*: Click a stop to show the cached **Curiosity Rover POV still** (or honest empty state if no image is cached for that Sol).
 4. **Honesty callout (say out loud):**
    - *"The 15° and 20° slope limits are lunar EVA stand-ins. A 14 November check of 176 Curiosity waypoints did not show a systematic under-read: at about 5 m the median DTM slope is 9.0° and the median rover tilt is 8.6°, with weak correlation. We still keep a safety margin. These stops and this route are examples until the team locks them."*
+   - *"Our 15° and 20° slope limits are lunar EVA stand-ins from NASA's Exploration EVA Concept of Operations, and MUST-03 showed DTM slope matches rover tilt only weakly at ~5 m (medians 9.0° vs 8.6°) — so we build in a safety margin and state both caveats in the UI."*
 
 ---
 

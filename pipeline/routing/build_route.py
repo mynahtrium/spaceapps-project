@@ -32,7 +32,6 @@ from write_stops import build_stops
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "data/processed/routing"
 PROCESSED_COST = ROOT / "data/processed/terrain/cost-map.json"
-HEIGHT_PREVIEW = ROOT / "data/processed/terrain/height-preview.png"
 CONTRACT_COST = ROOT / "docs/contracts/cost-map.json"
 
 STOP_ORDER = [
@@ -232,177 +231,151 @@ def leg_distances(coords: dict[str, tuple[float, float]]) -> list[dict]:
     return legs
 
 
-def _paeth(left: int, up: int, up_left: int) -> int:
-    estimate = left + up - up_left
-    if abs(estimate - left) <= abs(estimate - up) and abs(estimate - left) <= abs(estimate - up_left):
-        return left
-    if abs(estimate - up) <= abs(estimate - up_left):
-        return up
-    return up_left
-
-
-def read_png_u16(path: Path) -> np.ndarray:
-    """Decode a non-interlaced 16-bit grayscale PNG. Stdlib only."""
-    data = path.read_bytes()
-    if data[:8] != b"\x89PNG\r\n\x1a\n":
-        raise ValueError(f"{path} is not a PNG")
+def load_height_grid(cm: dict) -> np.ndarray | None:
+    """Decode height-preview.png (8-bit RGB R*256+G or 16-bit grey) into elevation_m array."""
+    rel = cm.get("height_preview_png_relpath")
+    rng = cm.get("height_preview_elevation_range_m")
+    if not rel or not rng or len(rng) != 2:
+        return None
+    png_path = ROOT / rel
+    if not png_path.exists():
+        return None
+    raw = png_path.read_bytes()
+    if raw[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
     pos = 8
-    width = height = None
-    idat: list[bytes] = []
-    while pos + 8 <= len(data):
-        length = struct.unpack(">I", data[pos : pos + 4])[0]
-        ctype = data[pos + 4 : pos + 8]
-        chunk = data[pos + 8 : pos + 8 + length]
-        pos += 12 + length
+    idat = bytearray()
+    w = h = bd = ct = 0
+    while pos < len(raw):
+        ln = struct.unpack(">I", raw[pos : pos + 4])[0]
+        ctype = raw[pos + 4 : pos + 8]
+        data = raw[pos + 8 : pos + 8 + ln]
+        pos += 12 + ln
         if ctype == b"IHDR":
-            width, height, bit_depth, color = struct.unpack(">IIBB", chunk[:10])
-            if bit_depth != 16 or color != 0 or chunk[10] != 0:
-                raise ValueError("height preview must be 16-bit grayscale, non-interlaced")
+            w, h, bd, ct = struct.unpack(">IIBB", data[:10])
         elif ctype == b"IDAT":
-            idat.append(chunk)
-        elif ctype == b"IEND":
-            break
-    if width is None or height is None:
-        raise ValueError("PNG missing IHDR")
-    raw = zlib.decompress(b"".join(idat))
-    stride = width * 2
-    index = 0
-    prev = bytearray(stride)
-    rows: list[tuple[int, ...]] = []
-    for _ in range(height):
-        filt = raw[index]
-        index += 1
-        row = bytearray(raw[index : index + stride])
-        index += stride
-        if filt == 1:
-            for x in range(stride):
-                left = row[x - 2] if x >= 2 else 0
-                row[x] = (row[x] + left) & 255
-        elif filt == 2:
-            for x in range(stride):
-                row[x] = (row[x] + prev[x]) & 255
-        elif filt == 3:
-            for x in range(stride):
-                left = row[x - 2] if x >= 2 else 0
-                row[x] = (row[x] + ((left + prev[x]) // 2)) & 255
-        elif filt == 4:
-            for x in range(stride):
-                left = row[x - 2] if x >= 2 else 0
-                row[x] = (row[x] + _paeth(left, prev[x], prev[x - 2] if x >= 2 else 0)) & 255
-        elif filt != 0:
-            raise ValueError(f"unsupported PNG filter {filt}")
-        prev = row
-        rows.append(struct.unpack(">" + "H" * width, bytes(row)))
-    return np.asarray(rows, dtype=np.uint16)
-
-
-def elevation_grid(cm: dict, png_path: Path) -> np.ndarray | None:
-    """Metres from the 16-bit height preview. Blocked cells stored as 0 stay NaN."""
-    if "height_preview_elevation_range_m" not in cm or not png_path.is_file():
+            idat.extend(data)
+    bpp = 3 if (bd, ct) == (8, 2) else (2 if (bd, ct) == (16, 0) else 0)
+    if bpp == 0 or w <= 0 or h <= 0:
         return None
-    png = read_png_u16(png_path)
-    nrows = int(cm["grid"]["nrows"])
-    ncols = int(cm["grid"]["ncols"])
-    if png.shape != (nrows, ncols):
-        return None
-    zmin, zmax = cm["height_preview_elevation_range_m"]
-    elev = float(zmin) + png.astype(np.float64) * ((float(zmax) - float(zmin)) / 65535.0)
-    sent = float(cm.get("blocked_sentinel", BLOCKED))
-    cost = cost_array(cm)
-    blocked = ~np.isfinite(cost) | (cost >= sent)
-    elev[blocked & (png == 0)] = np.nan
-    return elev
+    decomp = zlib.decompress(bytes(idat))
+    row_bytes = 1 + w * bpp
+    prev = bytearray(w * bpp)
+    grid = np.full((h, w), np.nan, dtype=np.float64)
+    zmin, zmax = float(rng[0]), float(rng[1])
+    for y in range(h):
+        off = y * row_bytes
+        ftype = decomp[off]
+        scan = bytearray(decomp[off + 1 : off + 1 + w * bpp])
+        if ftype == 1:
+            for i in range(bpp, len(scan)):
+                scan[i] = (scan[i] + scan[i - bpp]) & 255
+        elif ftype == 2:
+            for i in range(len(scan)):
+                scan[i] = (scan[i] + prev[i]) & 255
+        elif ftype == 3:
+            for i in range(len(scan)):
+                a = scan[i - bpp] if i >= bpp else 0
+                scan[i] = (scan[i] + ((a + prev[i]) >> 1)) & 255
+        elif ftype == 4:
+            for i in range(len(scan)):
+                a = scan[i - bpp] if i >= bpp else 0
+                b = prev[i]
+                c = prev[i - bpp] if i >= bpp else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                scan[i] = (scan[i] + pr) & 255
+        prev = scan
+        for x in range(w):
+            val = (scan[x * bpp] << 8) | scan[x * bpp + 1]
+            if val > 0:
+                grid[y, x] = zmin + (val / 65535.0) * (zmax - zmin)
+    return grid
 
 
-def path_elevations(
-    line: list[list[float]], cm: dict, elev: np.ndarray | None
-) -> list[float | None]:
-    if elev is None:
-        return [None] * len(line)
-    out: list[float | None] = []
-    for lon, lat in line:
-        if not in_bounds(lon, lat, cm["bounds"]):
-            out.append(None)
-            continue
-        r, c = lonlat_to_rowcol(lon, lat, cm)
-        z = float(elev[r, c])
-        out.append(z if math.isfinite(z) else None)
-    return out
+def sample_elev_and_slope(
+    lon: float,
+    lat: float,
+    cm: dict | None,
+    elev_grid: np.ndarray | None,
+) -> tuple[float | None, float | None]:
+    """Sample elevation (m) and local slope (deg) at lon/lat from height grid."""
+    if cm is None or elev_grid is None or not in_bounds(lon, lat, cm["bounds"]):
+        return None, None
+    r, c = lonlat_to_rowcol(lon, lat, cm)
+    h, w = elev_grid.shape
+    if not (0 <= r < h and 0 <= c < w):
+        return None, None
+    z = elev_grid[r, c]
+    if not math.isfinite(z):
+        return None, None
+    cell_m = float(cm.get("cell_size_m") or 5.0)
+    r0, r1 = max(0, r - 1), min(h - 1, r + 1)
+    c0, c1 = max(0, c - 1), min(w - 1, c + 1)
+    zx0, zx1 = elev_grid[r, c0], elev_grid[r, c1]
+    zy0, zy1 = elev_grid[r0, c], elev_grid[r1, c]
+    dx = (c1 - c0) * cell_m
+    dy = (r1 - r0) * cell_m
+    dzdx = (zx1 - zx0) / dx if (dx > 0 and math.isfinite(zx0) and math.isfinite(zx1)) else 0.0
+    dzdy = (zy1 - zy0) / dy if (dy > 0 and math.isfinite(zy0) and math.isfinite(zy1)) else 0.0
+    slope = math.degrees(math.atan(math.hypot(dzdx, dzdy)))
+    return round(float(z), 1), round(float(slope), 1)
 
 
-def climb_descent(elev_at: list[float | None]) -> tuple[float | None, float | None]:
-    if len(elev_at) < 2 or any(z is None for z in elev_at):
+def compute_climb_descent(
+    line: list[list[float]], cm: dict | None, elev_grid: np.ndarray | None
+) -> tuple[float | None, float | None]:
+    if cm is None or elev_grid is None or len(line) < 2:
+        return None, None
+    elevs = [sample_elev_and_slope(pt[0], pt[1], cm, elev_grid)[0] for pt in line]
+    valid = [e for e in elevs if e is not None]
+    if len(valid) < 2:
         return None, None
     climb = 0.0
     descent = 0.0
-    for a, b in zip(elev_at, elev_at[1:]):
-        assert a is not None and b is not None
-        delta = b - a
-        if delta > 0:
-            climb += delta
-        elif delta < 0:
-            descent += -delta
+    for a, b in zip(valid, valid[1:]):
+        diff = b - a
+        if diff > 0:
+            climb += diff
+        elif diff < 0:
+            descent += -diff
     return round(climb, 1), round(descent, 1)
-
-
-def arc_lengths(line: list[list[float]]) -> list[float]:
-    lengths = [0.0]
-    for i in range(1, len(line)):
-        lengths.append(
-            lengths[-1] + haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1])
-        )
-    return lengths
-
-
-def sample_elev_slope(
-    arc: float, poly: list[float], elev_at: list[float | None] | None
-) -> tuple[float | None, float | None]:
-    if not elev_at or len(poly) < 2:
-        return None, None
-    j = 0
-    while j + 1 < len(poly) and poly[j + 1] < arc - 1e-9:
-        j += 1
-    if j + 1 >= len(elev_at):
-        z_end = elev_at[-1]
-        return (round(z_end, 1) if z_end is not None else None), None
-    z0, z1 = elev_at[j], elev_at[j + 1]
-    if z0 is None or z1 is None:
-        return None, None
-    span = poly[j + 1] - poly[j]
-    t = 0.0 if span == 0 else (arc - poly[j]) / span
-    t = min(1.0, max(0.0, t))
-    z = z0 + (z1 - z0) * t
-    slope = math.degrees(math.atan(abs(z1 - z0) / span)) if span > 0 else 0.0
-    return round(z, 1), round(slope, 1)
 
 
 def build_profile(
     total_m: float,
     line: list[list[float]],
-    elev_at: list[float | None] | None,
-    n: int = 6,
+    cm: dict | None,
+    elev_grid: np.ndarray | None,
+    n: int = 8,
 ) -> list[dict]:
-    """Distance samples of the reported total (the sum of the legs)."""
-    poly = arc_lengths(line)
+    """Distance samples of the reported total with sampled elevation and slope."""
+    poly = [0.0]
+    for i in range(1, len(line)):
+        poly.append(poly[-1] + haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]))
     poly_total = poly[-1]
-    has_elev = bool(elev_at) and elev_at is not None and all(z is not None for z in elev_at)
-    note = (
-        "Elevation and slope from the 16-bit height preview along the cell-center path. "
-        "s_m is a fraction of the leg-sum distance. Lunar slope classes are stand-ins."
-        if has_elev
-        else "Elevation/slope not sampled. s_m is a fraction of the leg-sum distance."
-    )
     profile = []
     for i in range(n):
-        fraction = i / (n - 1) if n > 1 else 0.0
-        target = total_m * fraction
-        z, slope = sample_elev_slope(poly_total * fraction, poly, elev_at if has_elev else None)
+        frac = i / (n - 1) if n > 1 else 0.0
+        target = total_m * frac
+        arc = poly_total * frac
+        j = 0
+        while j + 1 < len(poly) and poly[j + 1] < arc:
+            j += 1
+        if j + 1 >= len(line):
+            lon, lat = line[-1]
+        else:
+            span = poly[j + 1] - poly[j]
+            t = 0.0 if span == 0 else (arc - poly[j]) / span
+            lon = line[j][0] + (line[j + 1][0] - line[j][0]) * t
+            lat = line[j][1] + (line[j + 1][1] - line[j][1]) * t
+        elev_m, slope = sample_elev_and_slope(lon, lat, cm, elev_grid)
         profile.append(
             {
                 "s_m": round(target, 1),
-                "elev_m": z,
+                "elev_m": elev_m,
                 "slope_deg": slope,
-                "note": note,
             }
         )
     return profile
@@ -427,11 +400,14 @@ def build_hud(
     reported_total_m: float,
     legs: list[dict],
     planned_min: float,
-    elev_at: list[float | None] | None = None,
+    cm: dict | None = None,
+    elev_grid: np.ndarray | None = None,
     n_samples: int = 8,
 ) -> dict:
     # Drawn path is for the marker. Reported meters follow the leg sum.
-    poly = arc_lengths(line)
+    poly = [0.0]
+    for i in range(1, len(line)):
+        poly.append(poly[-1] + haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]))
     poly_total = poly[-1]
 
     stop_s: dict[str, float] = {}
@@ -467,8 +443,8 @@ def build_hud(
         dist_to_next = max(0.0, stop_s.get(next_id, total) - target)
         elapsed = fraction * planned_min if planned_min > 0 else 0.0
         o2 = max(0.0, 100.0 * (1.0 - elapsed / planned_min)) if planned_min > 0 else 0.0
-        elev_m, slope_deg = sample_elev_slope(arc, poly, elev_at)
 
+        elev_m, slope = sample_elev_and_slope(lon, lat, cm, elev_grid)
         samples.append(
             {
                 "contract": "martian-mappers.hud-telemetry.v1",
@@ -481,8 +457,8 @@ def build_hud(
                 "distance_travelled_m": round(target, 1),
                 "distance_to_next_stop_m": round(dist_to_next, 1),
                 "distance_remaining_m": round(max(0.0, total - target), 1),
-                "slope_deg": slope_deg,
-                "slope_class": slope_class(slope_deg),
+                "slope_deg": slope,
+                "slope_class": slope_class(slope),
                 "next_stop_id": next_id,
                 "next_stop_name": names.get(next_id, next_id),
                 "elapsed_min_placeholder": round(elapsed, 1),
@@ -496,20 +472,16 @@ def build_hud(
             }
         )
 
-    # Contract allows a single sample; ship array + a primary "mid" sample for simple loaders.
+    # Contract expects top-level HUD fields; also include primary & samples[] for richer UIs.
     mid = samples[len(samples) // 2]
-    return {
-        "contract": "martian-mappers.hud-telemetry.v1",
-        "status": "example",
-        "note": (
-            "Array of example HUD samples along the example route, plus `primary` for loaders "
-            "that expect one object. Elevation and slope, when present, come from the 16-bit "
-            "height preview along the path. Suit O2 stays a labelled placeholder."
-        ),
-        "route_id": route_id,
-        "primary": mid,
-        "samples": samples,
-    }
+    out = dict(mid)
+    out["note"] = (
+        "Top-level contract HUD fields from mid-route sample, plus `primary` and `samples[]` array. "
+        "Not real-time suit telemetry."
+    )
+    out["primary"] = mid
+    out["samples"] = samples
+    return out
 
 
 def dijkstra_line(
@@ -592,17 +564,10 @@ def main() -> None:
         )
     cost_ref = os.environ.get("ROUTE_COST_MAP_REF", "").strip()
     ref_sentence = f" Cost map ref: {cost_ref}." if cost_ref else ""
-    elev_grid = elevation_grid(cm, HEIGHT_PREVIEW) if cm is not None else None
-    elev_at = path_elevations(line, cm, elev_grid) if cm is not None else [None] * len(line)
-    climb_m, descent_m = climb_descent(elev_at)
-    if climb_m is not None:
-        height_sentence = (
-            " Climb and descent are summed on the cell-center path from "
-            "data/processed/terrain/height-preview.png scaled by "
-            "height_preview_elevation_range_m (16-bit preview)."
-        )
-    else:
-        height_sentence = " Climb and descent are null until a matching height preview is present."
+
+    elev_grid = load_height_grid(cm) if cm is not None else None
+    climb_m, descent_m = compute_climb_descent(line, cm, elev_grid)
+    profile = build_profile(total_m, line, cm, elev_grid)
 
     route = {
         "contract": "martian-mappers.route.v1",
@@ -612,7 +577,6 @@ def main() -> None:
             + method_note
             + " Reported distance_m is the sum of the stop-to-stop legs."
             + ref_sentence
-            + height_sentence
             + " "
             + block_sentence
         ),
@@ -639,25 +603,24 @@ def main() -> None:
                 f"({WALK_SPEED_M_PER_MIN:.2f} m/min). Label it as such in the UI."
             ),
             "climb_note": (
-                "Sum of positive and negative elevation steps along the cell-center path, "
-                "from the 16-bit height preview. Not a surveyed EVA profile."
+                "Sampled along route from height-preview.png."
                 if climb_m is not None
-                else "Climb/descent null until a matching height preview is present."
+                else "Climb/descent null until the path sits on a covering DTM/cost crop."
             ),
         },
         "geometry": {"type": "LineString", "coordinates": line},
         "legs": legs,
-        "profile": build_profile(total_m, line, elev_at),
+        "profile": profile,
         "totals": {
             "distance_m": round(total_m, 1),
             "climb_m": climb_m,
             "descent_m": descent_m,
             "duration_min_placeholder": round(planned_min, 1),
-            "dose_mSv_see": "docs/contracts/dose.json",
+            "dose_mSv_see": "data/processed/science/dose.json",
         },
     }
 
-    hud = build_hud(route_id, line, names, total_m, legs, planned_min, elev_at)
+    hud = build_hud(route_id, line, names, total_m, legs, planned_min, cm=cm, elev_grid=elev_grid)
 
     leg_sum = round(sum(leg["distance_m"] for leg in route["legs"]), 1)
     if route["properties"]["distance_m"] != leg_sum or route["totals"]["distance_m"] != leg_sum:
@@ -671,18 +634,7 @@ def main() -> None:
     (OUT_DIR / "hud-telemetry.json").write_text(json.dumps(hud, indent=2) + "\n")
     print("method", method, "cost", cm_label)
     print("blocked_stops", blocked_ids)
-    print(
-        "distance_m",
-        round(total_m, 1),
-        "leg_sum",
-        leg_sum,
-        "climb_m",
-        climb_m,
-        "descent_m",
-        descent_m,
-        "duration_min_placeholder",
-        round(planned_min, 1),
-    )
+    print("distance_m", round(total_m, 1), "leg_sum", leg_sum, "duration_min_placeholder", round(planned_min, 1))
     print("wrote", (OUT_DIR / "route.json").relative_to(ROOT))
     print("wrote", (OUT_DIR / "hud-telemetry.json").relative_to(ROOT))
 

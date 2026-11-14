@@ -20,7 +20,7 @@ This file is the **single source of truth** for coding agents and teammates (dat
 - **Framing caveat:** Gale is a rover site, not a human landing candidate. Frame the product as "if a crew visited where Curiosity studied Mount Sharp."
 - **Backup:** Jezero crater / Perseverance only if the locked Mount Sharp stops cannot be placed inside the DTM footprint (unlikely given DTEEC_019698). Concept C (Protonilus Mensae) remains a poor fit (no rover ground truth).
 
-Indicative (not validated) terrain notes from the 11 November 2026 planning check: in a 1 km × 7.4 km strip of DTEEC_019698 (about 4.79–4.81°S), 32% of valid 1 m pixels were steeper than 20° and 46% steeper than 15° (median 14°). The 1 m DTM under-reads local slope versus rover-reported tilts (4–10° under the rover vs 9–17° reported at four boxwork Sols — a steady offset, so relative slopes are still usable, but add a safety margin and say so). About a quarter of that sampled strip had no-data pixels (shares above are on valid pixels only). The 1 m DTM barely resolves 5 m ridges — use the 25 cm orthophoto to see them.
+Indicative (not validated) terrain notes from the 11 November 2026 planning check: in a 1 km × 7.4 km strip of DTEEC_019698 (about 4.79–4.81°S), 32% of valid 1 m pixels were steeper than 20° and 46% steeper than 15° (median 14°). The 1 m DTM under-reads local slope versus rover-reported tilts (4–10° under the rover vs 9–17° reported at four boxwork Sols — a steady offset, so relative slopes are still usable, but add a safety margin and say so). *(14 Nov MUST-03 follow-up: over 176 Curiosity waypoints at ~5 m resolution in `tilt-check.json`, DTM slope matched rover tilt only weakly — medians 9.0° vs 8.6°, no systematic under-read — so keep a safety margin and state weak correlation rather than an under-read.)* About a quarter of that sampled strip had no-data pixels (shares above are on valid pixels only). The 1 m DTM barely resolves 5 m ridges — use the 25 cm orthophoto to see them.
 
 ## Data layers
 
@@ -131,7 +131,7 @@ skills/                       # includes hud-3d
 - Cite every data source and the date it was fetched. Keep a source list in the product and the submission.
 - Prefer small derived products over committing raw rasters (`*.tif`, PDS `.IMG`, JP2, and `data/raw/` are gitignored).
 - Use a Mars radius for distances; keep coordinates as Mars lat/lon consistent with Trek / WMTS tiles.
-- Be honest in the UI and on slides: lunar slope limit used as a stand-in; the DTM under-reads rover tilt; radiation is mostly a time problem; list data sources and dates.
+- Be honest in the UI and on slides: lunar slope limit used as a stand-in; DTM slope matches rover tilt only weakly (~5 m medians 9.0° vs 8.6°), so keep a safety margin; radiation is mostly a time problem; list data sources and dates.
 - The challenge text suggests "at least three kinds of data" and space weather; those are suggestions, not hard rules. Aim for 3+ data types from 3+ missions anyway (for example HiRISE image + DTM slope [MRO]; THEMIS thermal [Odyssey]; CRISM spectral [MRO]; Curiosity REMS/RAD [MSL]; DONKI space weather).
 - Time frame may be a past period, a predicted future period, or none (stable topography/geology).
 - Rover point-of-view images are encouraged so the explorer knows what to expect.
@@ -215,7 +215,7 @@ The detailed hour-by-hour plan, dependencies, contracts, definitions of done, an
 - **Hours 32–40 STRETCH:** WebXR, paired rover mode. **Nothing new after hour 40.**
 - **Hours 40–44:** freeze, planned 30-second video (official length **UNVERIFIED**), slides. **Hours 44–48:** submit early on the Team page's Project tab. Official window, from the [2026 landing page](https://www.spaceappschallenge.org/2026/): opens Saturday 14 November 09:00 and closes Sunday 15 November 23:59 **local event time**. Keep a backup recording.
 
-**Presentation reminders:** planned 30-second video with no under-18 faces or voices (screen recording + captions + music); official video length remains **UNVERIFIED**. Be honest on slides (lunar slope stand-in, DTM under-reads tilt, radiation is a time problem, O₂ and walk time are placeholders). Past-year judging categories (impact, creativity, validity, relevance, presentation) are still **UNVERIFIED** for 2026 — the 13 November guide could not be read.
+**Presentation reminders:** planned 30-second video with no under-18 faces or voices (screen recording + captions + music); official video length remains **UNVERIFIED**. Be honest on slides (lunar slope stand-in, DTM slope matches rover tilt only weakly — keep a safety margin, radiation is a time problem, O₂ and walk time are placeholders). Past-year judging categories (impact, creativity, validity, relevance, presentation) are still **UNVERIFIED** for 2026 — the 13 November guide could not be read.
 
 ## Open questions for the team
 

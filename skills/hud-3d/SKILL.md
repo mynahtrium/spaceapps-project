@@ -36,7 +36,7 @@ Load `data/processed/routing/` and `data/processed/terrain/` first; fall back to
 ## Honesty and safety
 
 - Frame: "if a crew visited where Curiosity studied Mount Sharp." Gale is not a human landing site.
-- Slope limits are lunar stand-ins. The 1 m DTM under-reads rover tilt.
+- Slope limits are lunar stand-ins. DTM slope matches rover tilt only weakly (~5 m medians 9.0° vs 8.6°); keep a safety margin.
 - Do not draw a fake spatial radiation map.
 - No photos, voices, or likenesses of under-18s in any capture, including WebXR recordings.
 
