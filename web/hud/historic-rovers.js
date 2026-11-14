@@ -785,6 +785,33 @@ function buildCuriosityMesh(THREE, tex) {
   return root;
 }
 
+// One download per GLB url for the whole session (rescatter / site switches reuse it).
+const gltfCache = new Map();
+function loadGltfCached(loader, url) {
+  if (!gltfCache.has(url)) {
+    const p = loader.loadAsync(url);
+    p.catch(() => gltfCache.delete(url));
+    gltfCache.set(url, p);
+  }
+  return gltfCache.get(url);
+}
+
+/** Dispose per-instance GPU resources of a rover group, keeping shared textures and cached GLB data. */
+function disposeRoverGroup(group, sharedTexSet) {
+  group.traverse((o) => {
+    if (o.userData?.sharedAsset) return;
+    if (!o.isSprite) o.geometry?.dispose?.(); // sprites share one global quad geometry
+    const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of mats) {
+      for (const key of ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "alphaMap"]) {
+        const t = m[key];
+        if (t && !sharedTexSet.has(t)) t.dispose?.();
+      }
+      m.dispose?.();
+    }
+  });
+}
+
 function normalizePerseveranceGltf(THREE, gltfScene, roverId) {
   gltfScene.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(gltfScene);
@@ -867,11 +894,13 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
 
   if (roverSpec.modelKind === "perseverance-glb" && roverSpec.glbUrl && gltfLoader) {
     body.userData.isStandIn = true;
-    gltfLoader
-      .loadAsync(roverSpec.glbUrl)
+    loadGltfCached(gltfLoader, roverSpec.glbUrl)
       .then((gltf) => {
         if (!gltf?.scene || !outer.parent) return;
-        const real = normalizePerseveranceGltf(THREE, gltf.scene, roverSpec.id);
+        // Clone shares geometry/materials with the cached asset; mark them so disposal skips them.
+        const inst = gltf.scene.clone(true);
+        inst.traverse((o) => (o.userData.sharedAsset = true));
+        const real = normalizePerseveranceGltf(THREE, inst, roverSpec.id);
         outer.remove(body);
         outer.add(real);
         outer.traverse((obj) => {
@@ -889,12 +918,14 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
  */
 export function createHistoricRoverManager(THREE, gltfLoader, scene) {
   const sharedTex = makeSharedTextures(THREE);
+  const sharedTexSet = new Set(Object.values(sharedTex).filter((t) => t?.isTexture));
   const roster = new Map();
   let focusedId = "curiosity";
 
   function clearAll() {
     for (const entry of roster.values()) {
       if (entry.group && scene) scene.remove(entry.group);
+      if (entry.group) disposeRoverGroup(entry.group, sharedTexSet);
     }
     roster.clear();
   }

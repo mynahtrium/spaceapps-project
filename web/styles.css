@@ -1690,3 +1690,264 @@ svg.profile-svg {
   background: linear-gradient(90deg, #4ade80, #f59e0b, #ef4444);
   transition: width 60ms linear;
 }
+
+/* ---------- orbit view (Mars globe) ---------- */
+
+#orbit-view {
+  background: #000;
+  overflow: hidden;
+}
+
+.orbit-canvas-wrap {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.orbit-canvas-wrap.dragging {
+  cursor: grabbing;
+}
+
+.orbit-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.orbit-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.orbit-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.82);
+  text-transform: uppercase;
+  text-shadow: 0 0 3px #000, 0 0 6px #000;
+  will-change: transform;
+}
+
+.orbit-label .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: -1px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
+}
+
+.orbit-label.moon {
+  color: #e5e0d8;
+}
+
+.orbit-label.you .dot {
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.9), 0 0 10px rgba(56, 189, 248, 0.8);
+}
+
+.orbit-label.pick .dot {
+  background: transparent;
+  width: 14px;
+  height: 14px;
+  margin-left: -3px;
+  border: 1.5px solid var(--amber);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.8);
+}
+
+.orbit-hud {
+  position: absolute;
+  z-index: 4;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-shadow: 0 0 4px #000;
+  pointer-events: none;
+}
+
+.orbit-hud .btn,
+.orbit-hud button {
+  pointer-events: auto;
+}
+
+.orbit-hud-tl {
+  top: 14px;
+  left: 16px;
+  max-width: min(460px, calc(100% - 32px));
+}
+
+.orbit-title {
+  color: #fff;
+  letter-spacing: 0.3em;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.orbit-line {
+  line-height: 1.6;
+}
+
+.orbit-line.dim {
+  color: var(--faint);
+}
+
+.orbit-hud-tr {
+  top: 10px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.orbit-btn-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.orbit-k {
+  color: var(--faint);
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+}
+
+.orbit-hover {
+  left: 16px;
+  bottom: 14px;
+  right: 16px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.orbit-confirm {
+  position: absolute;
+  z-index: 6;
+  right: 16px;
+  bottom: 44px;
+  width: min(340px, calc(100% - 32px));
+  background: rgba(0, 0, 0, 0.86);
+  border: 1px solid var(--line-strong);
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.orbit-confirm-title {
+  color: #fff;
+  letter-spacing: 0.22em;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.orbit-confirm-meta {
+  color: var(--muted);
+}
+
+.orbit-confirm-sun {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.orbit-confirm-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* GTA-style stepped descent overlay */
+.orbit-descent {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.orbit-descent.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.orbit-descent-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 38%, rgba(0, 0, 0, 0.78) 100%);
+  opacity: 0.55;
+  transition: opacity 0.18s;
+}
+
+.orbit-descent.whoosh .orbit-descent-vignette {
+  opacity: 1;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 22%, rgba(20, 8, 2, 0.9) 100%);
+}
+
+.orbit-descent-alt {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 12px;
+  letter-spacing: 0.32em;
+  text-shadow: 0 0 6px #000;
+}
+
+.orbit-descent-flash {
+  position: absolute;
+  inset: 0;
+  background: #f3d9bd;
+  opacity: 0;
+  transition: opacity 0.3s ease-in;
+}
+
+.orbit-descent.flash .orbit-descent-flash {
+  opacity: 1;
+}
+
+/* fades out over the Bodycam after a landing */
+.arrival-flash {
+  position: fixed;
+  inset: 44px 0 0 0;
+  z-index: 50;
+  background: #f3d9bd;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.9s ease-out;
+}
+
+.arrival-flash.out {
+  opacity: 0;
+}
+
+@media (max-width: 780px) {
+  .orbit-hud-tr {
+    top: auto;
+    bottom: 34px;
+    right: 12px;
+  }
+  .orbit-hud-tl {
+    left: 12px;
+    font-size: 9.5px;
+  }
+  .orbit-confirm {
+    bottom: auto;
+    top: 120px;
+    right: 12px;
+  }
+}
