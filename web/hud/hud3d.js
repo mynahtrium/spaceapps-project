@@ -27,6 +27,7 @@ import {
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
+import { gamepad } from "../shared/gamepad.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 
@@ -1248,10 +1249,24 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     if (k === " ") {
       e.preventDefault();
-      if (player.grounded) {
-        player.vy = JUMP_SPEED_MS;
-        player.grounded = false;
-      }
+      doJump();
+    }
+  });
+  function doJump() {
+    if (player.grounded) {
+      player.vy = JUMP_SPEED_MS;
+      player.grounded = false;
+    }
+  }
+  // Controller buttons (bindings live in shared/gamepad.js and the setup screen)
+  gamepad.onPress(({ actions }) => {
+    if (!hudView.classList.contains("active")) return;
+    if (document.getElementById("pad-setup")?.classList.contains("open")) return;
+    for (const a of actions) {
+      if (a === "jump") doJump();
+      else if (a === "pin") dropLocalPing("EVA Waypoint");
+      else if (a === "texture") document.getElementById("hud-tex")?.click();
+      else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
     }
   });
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
@@ -1493,13 +1508,23 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     clockT += dt;
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
+    // controller look (right stick): about 150 deg/s across, 110 deg/s up/down at full tilt
+    const padOpen = document.getElementById("pad-setup")?.classList.contains("open");
+    const lk = padOpen ? { x: 0, y: 0 } : gamepad.look();
+    if (lk.x || lk.y) {
+      userYaw -= lk.x * 2.6 * dt;
+      pitch = Math.max(-1.35, Math.min(1.42, pitch + lk.y * 1.9 * dt));
+    }
+
     // progress along the route = the route point nearest to you (for the HUD only)
     alongM = nearestAlongRoute(freePos.x, freePos.z, alongM);
     const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
     let px;
     let pz;
     if (freeRoam) {
-      const run = keys.has("shift");
+      const run = keys.has("shift") || (!padOpen && gamepad.isDown("run"));
+      const stick = padOpen ? { x: 0, y: 0 } : gamepad.move();
+      const stickMag = Math.min(1, Math.hypot(stick.x, stick.y));
       fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
       right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
       moveDir.set(0, 0, 0);
@@ -1507,6 +1532,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
       if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
       if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
+      // analog stick: walk slower when the stick is only partly pushed
+      let pace = 1;
+      if (moveDir.lengthSq() === 0 && stickMag > 0) {
+        moveDir.addScaledVector(fwd, stick.y).addScaledVector(right, stick.x);
+        pace = stickMag;
+      }
       if (moveDir.lengthSq() > 0) {
         moveDir.normalize();
         // slow down on steep ground (uphill or downhill), like a suited walker would
@@ -1514,7 +1545,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
         const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
         const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
-        const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
+        const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * pace * slowdown * (player.grounded ? 1 : 0.6);
         freePos.addScaledVector(moveDir, v * dt);
       }
       // Solid collision against visible NPC partner or live crewmates so free-roam cannot clip through them

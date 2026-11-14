@@ -10,6 +10,8 @@ import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
 import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
+import { gamepad } from "./shared/gamepad.js";
+import { initGamepadSetup } from "./shared/gamepad-ui.js";
 
 const I18N = {
   en: {
@@ -164,6 +166,30 @@ async function boot() {
     onCredits: () => ready.then((a) => a.credits()),
   });
   document.getElementById("btn-menu").onclick = () => start.show();
+
+  // Controller: setup screen, menu navigation, and the menu / setup actions anywhere in the app.
+  const padSetup = initGamepadSetup();
+  document.getElementById("btn-pad").onclick = () => padSetup.open();
+  const pressKey = (key) => window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  gamepad.onPress(({ button, actions }) => {
+    if (padSetup.isOpen) {
+      if (button === 1) padSetup.close(); // B backs out of the setup screen
+      return;
+    }
+    const modal = document.getElementById("modal-backdrop");
+    if (modal?.classList.contains("open")) {
+      if (button === 0 || button === 1) modal.classList.remove("open"); // A or B closes a dialog
+      return;
+    }
+    if (!document.getElementById("start-screen").classList.contains("hidden")) {
+      if (button === 12) pressKey("ArrowUp");
+      else if (button === 13) pressKey("ArrowDown");
+      else if (button === 0 || button === 9) pressKey("Enter");
+      return;
+    }
+    if (actions.includes("menu")) start.show();
+    if (actions.includes("setup")) padSetup.open();
+  });
 
   const data = await loadAllProjectData();
   // High-res Mars map stack: HiRISE DEM sampler + tile registry (demo-safe = zero network).

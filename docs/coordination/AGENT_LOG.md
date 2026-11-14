@@ -880,3 +880,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: The 40 m skirts showed as walls on ridges (the coarse copies were metres off at the seams) and could be walked through. Removed the skirts. Mirrored copies now use a stitched mesh: half the vertex density inside, every edge vertex at full density, edge cells fan-triangulated, so each copy meets the real tile and its neighbours exactly. Walking and boot contact shadows sample the drawn surface (full detail on the real tile, the coarser stitched surface on copies), so the walker neither sinks into nor floats above copies. Teleported to the south-east corner (about 4.8155 S, 137.4050 E) and looked around: no walls or cracks, no console errors.
 - Commit: this commit
 - Next step: push when Cagan asks.
+
+### 2026-11-14 18:07 Europe/Istanbul — controller (XInput / Gamepad API) support and setup screen
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/shared/gamepad.js (new), web/shared/gamepad-ui.js (new), web/hud/hud3d.js, web/app.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked to play with a controller, with remappable buttons and an Xbox controller silhouette on the setup screen. Xbox/XInput pads appear in browsers through the Gamepad API standard layout. Added: analog walk (left stick, slower when partly pushed), look (right stick), RT run, A jump, X pin, Y texture, B rover POV, Menu main menu, View controller setup; D-pad + A drive the start menu; A/B close dialogs. The setup screen (top bar Controller, or View) shows a generic controller outline that lights up live, lets each action be reassigned by pressing a button (a button serves one action), and has sensitivity, dead zone, invert-Y and swap-sticks settings, saved in this browser. Tested with a simulated standard-layout pad: menu navigation, rebinding (Jump to X cleared Pin), stick dead zone, live highlight of A/RT, and stick walking matching keyboard walking. Not tested with a physical controller.
+- Commit: this commit
+- Next step: Cagan tries a real controller.
