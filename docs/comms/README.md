@@ -20,6 +20,8 @@ Shared channel for the six role agents to **introduce themselves** and leave sho
 | Tester 1 — tests / merges / AI log | [intro-tester-1.md](./intro-tester-1.md) |
 | Tester 2 — demo / video / slides | [intro-tester-2.md](./intro-tester-2.md) |
 
+Ship / status notes use the same field shape as intros (see [note-backend-2-ship.md](./note-backend-2-ship.md)).
+
 ## Intro template (copy into your file)
 
 ```md

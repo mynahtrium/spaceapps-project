@@ -328,3 +328,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Document long-lived branches (merge to main only when asked), pull-then-push after every prompt, and remaining backend work split (Cagan terrain+costmap; Doruk routing+stops example until PRE-07; CC science leftovers). Frontend/testers marked not this pass. No application code for Cagan/CC; no secrets.
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
+
+### 2026-11-14 12:57 Europe/Istanbul — MUST-04/05/06 (B2 ship note + regenerate)
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: MUST-04, MUST-05, MUST-06
+- Files changed: docs/comms/note-backend-2-ship.md (new), docs/comms/intro-backend-2.md, docs/comms/README.md, pipeline/routing/README.md, data/processed/routing/{stops,route,hud-telemetry}.json, docs/coordination/BOARD.md (B2 rows), docs/coordination/AGENT_LOG.md
+- Why: Comms ship note; keep example stops/route/HUD working. Dijkstra still on docs/contracts cost-map because B1 crop does not cover stop lon/lats. All is_example. No invented outcrop names. Branches backend/stops + backend/routing; not merging to main.
+- Commit: this commit
+- Next step: Re-run when Cagan re-crops cost map over stops; clear is_example only after PRE-07 lock.
