@@ -46,6 +46,21 @@ def export_demo_fixtures() -> dict[str, Any]:
                 if p.is_file():
                     copied.append(str(p.relative_to(DEMO_DIR)).replace("\\", "/"))
 
+    # Also copy frozen terrain and routing fixtures so ?demo=1 works 100% offline (BUG-06).
+    extra_sources = [
+        REPO_ROOT / "data" / "processed" / "terrain" / "cost-map.json",
+        REPO_ROOT / "data" / "processed" / "terrain" / "slope-preview.png",
+        REPO_ROOT / "data" / "processed" / "terrain" / "height-preview.png",
+        REPO_ROOT / "data" / "processed" / "routing" / "stops.json",
+        REPO_ROOT / "data" / "processed" / "routing" / "route.json",
+        REPO_ROOT / "data" / "processed" / "routing" / "hud-telemetry.json",
+    ]
+    for src in extra_sources:
+        if src.exists():
+            dst = DEMO_DIR / src.name
+            shutil.copy2(src, dst)
+            copied.append(src.name)
+
     manifest = {
         "generated_at": utc_now_iso(),
         "owner": "backend-3",

@@ -460,3 +460,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Pulled `5542207` after the 5-branch backend merge (`terrain`, `costmap`, `stops`, `routing`, `science`) and re-ran static checks: 28/28 Python files compile cleanly, 4/4 stops now sit inside `cost-map.json` bounds, and `data/` is 3.23 MB. Updated `POSSIBLE_BUGS.md` with current open issues (empty `web/`, `route.json` null elevation/climb & stale `dose_mSv_see`, `hud-telemetry.json` wrapper mismatch, `dose.json` stale 71.0 min duration vs 59.3 min route, missing terrain/routing `data/demo/` fixtures, duplicate `crop_window.py`, and open `PRE-07`).
 - Commit: this commit
 - Next step: Monitor Frontend 1 PRs (`web/`) and re-check after `PRE-07` stop lock + `build_dose.py` re-run.
+
+### 2026-11-14 13:55 Europe/Istanbul — Non-frontend bug & integration fixes (BUG-02..BUG-08)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini)
+- Role: backend-3 (integration cleanup)
+- Task id: MUST-02, MUST-05, MUST-06, SHOULD-01, SHOULD-07, MUST-12
+- Files changed: data/processed/terrain/height-preview.png, data/processed/terrain/cost-map.json, pipeline/routing/build_route.py, data/processed/routing/route.json, data/processed/routing/hud-telemetry.json, data/processed/science/dose.json, pipeline/data/export_demo_fixtures.py, data/demo/*, pipeline/costmap/crop_window.py, POSSIBLE_BUGS.md, docs/demo/script.md, docs/demo/slides-outline.md, docs/demo/submission-checklist.md, docs/testing/must-checklist.md, docs/roles/tester-2.md, docs/JUDGING_CHECKLIST.md, .cursor/rules/data-and-map.mdc, skills/hud-3d/SKILL.md, skills/map-ui/SKILL.md, AGENTS.md, ROADMAP.md, docs/contracts/CHANGES.md, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Fixed all non-frontend issues reported in `POSSIBLE_BUGS.md` and `HANDOFF-20261114-1330`: converted `height-preview.png` on `main` to lossless 8-bit RGB (`R*256+G`), populated real `elev_m`/`slope_deg`/`climb_m`/`descent_m` and `dose_mSv_see` in `route.json` (`BUG-02`), exposed flat top-level contract keys alongside `primary`/`samples[]` in `hud-telemetry.json` (`BUG-03`), rebuilt `dose.json` against the 59.3 min route (`0.0263 +/- 0.0049 mSv`, `BUG-05`), exported terrain + routing offline fixtures into `data/demo/` (28 files, `BUG-06`), softened `MUST-03` tilt wording across non-frontend docs (`BUG-07`), and deduplicated `pipeline/costmap/crop_window.py` to re-export `pipeline/terrain/crop_window.py` (`BUG-08`).
+- Commit: this commit
+- Next step: Frontend 1 implements `web/` (`BUG-01`, `MUST-08`..`MUST-10`, `SHOULD-05`); team locks real stops for `PRE-07` (`BUG-09`).

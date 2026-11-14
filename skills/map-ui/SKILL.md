@@ -43,7 +43,7 @@ Pre-download and **cache the tiles needed for the demo bbox** so the map works o
 ## Coordinate and honesty rules
 
 - Mars web maps use Mars lat/lon on the same tile scheme as Earth. GeoJSON is **lon, lat**. Distances must use a Mars radius (3,389.5 km mean, or 3,396.19 km equatorial in the DTM labels). [ATS Mars Atlas notes](https://labs.allthingsspatial.io/about/mars-atlas/).
-- Label slope limits as **illustrative lunar stand-ins**. Note that the 1 m DTM under-reads rover-reported tilt.
+- Label slope limits as **illustrative lunar stand-ins**. Note that DTM slope matches rover-reported tilt only weakly (~5 m medians 9.0° vs 8.6°); keep a safety margin.
 - Do not draw a fake spatial "radiation map" of rocks. Walking time is a placeholder if it uses an Earth hiking formula.
 - No photos, video, voices, or likenesses of under-18s in the demo or any screen recording.
 

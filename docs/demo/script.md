@@ -42,7 +42,7 @@
    - Click the **Start / Habitat** point → **Primary lake-sediment / mudstone stops** → **Boxwork bonus stop** (ridges ~5 m wide rich in phyllosilicates, hollows 10–20 m across with siderite).
    - *(SHOULD-03)*: Click a stop to show the cached **Curiosity Rover POV still** (or honest empty state if no image is cached for that Sol).
 4. **Honesty callout (say out loud):**
-   - *"Our 15° and 20° slope limits are lunar EVA stand-ins from NASA's Exploration EVA Concept of Operations, and the 1 m HiRISE DTM under-reads local rover tilt by roughly 5–7° compared to Curiosity waypoint tilts — so we build in a safety margin and state both caveats in the UI."*
+   - *"Our 15° and 20° slope limits are lunar EVA stand-ins from NASA's Exploration EVA Concept of Operations, and MUST-03 showed DTM slope matches rover tilt only weakly at ~5 m (medians 9.0° vs 8.6°) — so we build in a safety margin and state both caveats in the UI."*
 
 ---
 

@@ -61,7 +61,7 @@
   - `EVA Dose = RAD Baseline (0.64 ± 0.12 mSv/day) × EVA Duration`, paired with a **DONKI WSA-Enlil** banner alerting the crew to predicted CME/SEP arrivals at Mars.
 - **Transparent Scientific Caveats (Shown in UI & Docs):**
   - **Slope thresholds (15° / 20°):** Stand-ins from NASA's *Lunar Exploration EVA Concept of Operations* and LPSC 2023 #1413 (no Mars-specific suit slope limit is published).
-  - **DTM vs. Rover Tilt:** The 1 m HiRISE DTM under-reads local slope vs. Curiosity's onboard tilt sensors (4–10° DTM vs. 9–17° rover tilt at four boxwork Sols) — we apply a conservative margin and report the offset.
+  - **DTM vs. Rover Tilt:** MUST-03 compared the DTM against 176 Curiosity waypoints (Sol 4400–5073): median slopes agree closely at ~5 m (`9.0°` DTM vs. `8.6°` rover tilt), with weak correlation (`r = 0.11–0.15`) — so we keep a conservative safety margin rather than claiming a fixed offset.
   - **Suit O₂ & Walk Speed:** Explicitly labelled as **illustrative placeholders** (linear O₂ drain / Earth hiking speed).
 
 ---

@@ -141,4 +141,23 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: The MUST-03 result does **not** confirm "DTM under-reads rover tilt" (medians 9.0 vs 8.6 deg at 5 m; weak correlation). I fixed that wording in B1-owned files only. Still using the old wording: AGENTS.md, ROADMAP.md, `.cursor/rules/data-and-map.mdc`, `skills/hud-3d`, `skills/map-ui`, `docs/JUDGING_CHECKLIST.md`, `docs/demo/*`, `docs/testing/must-checklist.md`, `docs/roles/tester-2.md`. Owners, please soften it, e.g. "DTM slope matches rover tilt only weakly; we keep a safety margin".
 - Please do next: Frontend 1 reads the RGB height PNG; testers and Doruk update the wording in their files; whoever owns AGENTS.md / ROADMAP.md edits those (shared files, ask first).
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive (see CHANGES.md)
+- Received: 2026-11-14 13:54 (CC / Backend 3 integration) — Wording updated across docs/demo, docs/testing, docs/roles, docs/JUDGING_CHECKLIST, skills/, AGENTS.md, ROADMAP.md; height-preview.png updated on main to 8-bit RGB + synced to data/demo/.
+
+### HANDOFF-20261114-1355 — from Backend 3 (integration) to Frontend 1, Backend 1, Backend 2, Testers
+
+- Date (Europe/Istanbul): 2026-11-14 13:55
+- From (role, first name or nickname only, agent tool): Backend 3 (integration cleanup), CC, Antigravity (Gemini)
+- To (role, name if known): Frontend 1, Tester 2 (Eymen), Tester 1 (Asil), Backend 1 (Cagan), Backend 2 (Doruk)
+- Board task id: MUST-02, MUST-05, MUST-06, SHOULD-01, SHOULD-07 (resolving `POSSIBLE_BUGS.md` BUG-02..BUG-08)
+- What is ready:
+  - `data/processed/terrain/height-preview.png` converted losslessly to 8-bit RGB (`R*256 + G`, `B=0`, `395x395`) and `height_preview_encoding` added to `cost-map.json` (BUG-01 terrain compatibility for browsers).
+  - `pipeline/routing/build_route.py` updated to decode `height-preview.png`, compute real `elev_m`, `slope_deg`, `climb_m` (`38.3 m`), `descent_m` (`38.3 m`), fix `dose_mSv_see` (`data/processed/science/dose.json`), and expose flat top-level contract fields alongside `primary` and `samples[]` in `hud-telemetry.json` (BUG-02, BUG-03).
+  - `data/processed/science/dose.json` rebuilt against `route.json` (`59.3 min` / `0.988 h` → `0.0263 ± 0.0049 mSv`, BUG-05).
+  - `pipeline/data/export_demo_fixtures.py` updated to also export terrain and routing fixtures (`28` files total in `data/demo/`, listed in `data/demo/science-manifest.json`, BUG-06).
+  - `MUST-03` tilt validation wording softened across non-frontend docs/skills/checklists/rules (BUG-07), and `pipeline/costmap/crop_window.py` turned into a re-export wrapper over `pipeline/terrain/crop_window.py` (BUG-08).
+- Paths (files or folders): `data/processed/terrain/`, `data/processed/routing/`, `data/processed/science/dose.json`, `data/demo/`, `pipeline/routing/build_route.py`, `pipeline/data/export_demo_fixtures.py`, `pipeline/costmap/crop_window.py`, `POSSIBLE_BUGS.md`
+- How to try it: Run `python pipeline/routing/build_route.py`, `python -m pipeline.data.build_dose`, and `python -m pipeline.data.export_demo_fixtures`.
+- What is not done / known limits: `web/` (`BUG-01`) belongs to Frontend 1 and is untouched; `PRE-07` (`BUG-09`) still requires team stop lock so `stops.json`, `route.json`, and `dose.json` keep `is_example` / `status: example`.
+- Please do next: Frontend 1 can build `web/` directly against `data/processed/` and `?demo=1` offline `data/demo/` fixtures; Testers verify BUG-02..BUG-08 fixes; team locks `PRE-07` stops when ready.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive compatibility alignment documented in docs/contracts/CHANGES.md
 - Received:
