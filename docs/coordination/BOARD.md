@@ -47,9 +47,9 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Claude Code | review | hour 6 | `pipeline/terrain/`, `data/processed/terrain/`. First pass done 14 Nov with a placeholder crop centre; re-crop after PRE-07. |
 | MUST-02 | Cost / hazard map + `cost-map.json` + height preview for 3D | B1 | Cagan | Claude Code | review | hour 10 | Contract: `docs/contracts/cost-map.json` |
 | MUST-03 | Tilt check vs Curiosity waypoints; freeze MUST raster | B1 | Cagan | Claude Code | doing | hour 16 | Tilt check done (first pass): no systematic under-read over 176 waypoints, weak correlation; see `data/processed/terrain/tilt-check.json`. Raster freeze waits for PRE-07. |
-| MUST-04 | Write locked `stops.json` | B2 | TBD | TBD | todo | hour 2 | Clear `is_example` on real stops |
-| MUST-05 | A\* / Dijkstra route (or labelled hand-drawn fallback) + `route.json` | B2 | TBD | TBD | todo | hour 10 | Static fallback required |
-| MUST-06 | `hud-telemetry.json` samples (distance, slope, next stop, placeholder O₂) | B2 | TBD | TBD | todo | hour 16 | |
+| MUST-04 | Write locked `stops.json` | B2 | Doruk | Grok (Cursor) | doing | hour 2 | Example scaffold on branch `backend-2/routing-must-scaffold` (cited Sol 4527/4534 + contract mudstones). Still `is_example`; clear only after PRE-07 lock. |
+| MUST-05 | A\* / Dijkstra route (or labelled hand-drawn fallback) + `route.json` | B2 | Doruk | Grok (Cursor) | doing | hour 10 | Example Dijkstra on contract cost grid (B1 crop does not cover stops yet). Static `data/processed/routing/route.json`. |
+| MUST-06 | `hud-telemetry.json` samples (distance, slope, next stop, placeholder O₂) | B2 | Doruk | Grok (Cursor) | doing | hour 16 | Example samples + `primary`; slope/elev null until covering DTM. |
 | MUST-07 | Background caches only (REMS, RAD, DONKI, images) — do not block MUST | B3 | TBD | TBD | todo | hour 16 | SHOULD products come later |
 | MUST-08 | Scaffold planner + 3D scene; load contract JSON | F1 | TBD | TBD | todo | hour 2 | `web/planner/`, `web/hud/` |
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |

@@ -251,6 +251,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Wait for team decision on PRE-07 stop locking; review upcoming MUST-04 and routing PRs.
 
+### 2026-11-14 12:05 Europe/Istanbul — MUST-04/05/06 (example scaffold)
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: MUST-04, MUST-05, MUST-06
+- Files changed: pipeline/routing/{write_stops.py,build_route.py,dijkstra_grid.py,mars_geo.py,requirements.txt,README.md}, data/processed/routing/{stops.json,route.json,hud-telemetry.json,README.md}, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: End-to-end Backend 2 example scaffold while PRE-07 is open. Habitat/boxwork use cited Sol 4527/4534 waypoints; mudstones use contract example points; all is_example. 8-neighbour Dijkstra with geodesic fallback; HUD samples with labelled O2 placeholder. No official outcrop names or mineral IDs invented. No secrets.
+- Commit: this commit
+- Next step: Stay on backend-2/routing-must-scaffold (long-lived; merge only at end). Re-run after PRE-07 lock and B1 re-crop; then clear is_example.
+
 ### 2026-11-14 12:20 Europe/Istanbul — MUST-03 (tilt check, first pass)
 
 - Human: Cagan

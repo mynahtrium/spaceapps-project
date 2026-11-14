@@ -1,0 +1,129 @@
+{
+  "contract": "martian-mappers.route.v1",
+  "status": "example",
+  "note": "Example route while PRE-07 is open. Not locked science stops. Routed on docs/contracts/cost-map.json. Slope limit illustrative lunar stand-in.",
+  "crs": "mars-geographic-planetocentric",
+  "mars_radius_km": 3389.5,
+  "slope_limit_deg": 20,
+  "slope_limit_note": "Illustrative lunar stand-in. Not a Mars-specific limit.",
+  "route_id": "eva-example-pre07-scaffold-001",
+  "route_method": "dijkstra_8_neighbour",
+  "cost_map_used": "docs/contracts/cost-map.json",
+  "stop_order": [
+    "stop-habitat",
+    "stop-mudstone-a",
+    "stop-mudstone-b",
+    "stop-boxwork-bonus",
+    "stop-habitat"
+  ],
+  "type": "Feature",
+  "properties": {
+    "id": "eva-example-pre07-scaffold-001",
+    "distance_m": 947.1,
+    "climb_m": null,
+    "descent_m": null,
+    "duration_min_placeholder": 71.0,
+    "duration_note": "Placeholder duration using a slow Earth-hiking stand-in (13.33 m/min). Label it as such in the UI.",
+    "climb_note": "Climb/descent null until the path sits on a covering DTM/cost crop."
+  },
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [
+        137.388,
+        -4.797125
+      ],
+      [
+        137.39,
+        -4.799375
+      ],
+      [
+        137.392,
+        -4.801625
+      ],
+      [
+        137.39,
+        -4.799375
+      ],
+      [
+        137.388,
+        -4.797125
+      ],
+      [
+        137.386,
+        -4.797125
+      ],
+      [
+        137.388,
+        -4.797125
+      ]
+    ]
+  },
+  "legs": [
+    {
+      "from": "stop-habitat",
+      "to": "stop-mudstone-a",
+      "distance_m": 220.9
+    },
+    {
+      "from": "stop-mudstone-a",
+      "to": "stop-mudstone-b",
+      "distance_m": 125.3
+    },
+    {
+      "from": "stop-mudstone-b",
+      "to": "stop-boxwork-bonus",
+      "distance_m": 376.6
+    },
+    {
+      "from": "stop-boxwork-bonus",
+      "to": "stop-habitat",
+      "distance_m": 67.5
+    }
+  ],
+  "profile": [
+    {
+      "s_m": 0.0,
+      "elev_m": null,
+      "slope_deg": null,
+      "note": "Elevation/slope null until route sits on a covering HiRISE cost/DTM crop."
+    },
+    {
+      "s_m": 189.4,
+      "elev_m": null,
+      "slope_deg": null,
+      "note": "Elevation/slope null until route sits on a covering HiRISE cost/DTM crop."
+    },
+    {
+      "s_m": 378.8,
+      "elev_m": null,
+      "slope_deg": null,
+      "note": "Elevation/slope null until route sits on a covering HiRISE cost/DTM crop."
+    },
+    {
+      "s_m": 568.2,
+      "elev_m": null,
+      "slope_deg": null,
+      "note": "Elevation/slope null until route sits on a covering HiRISE cost/DTM crop."
+    },
+    {
+      "s_m": 757.6,
+      "elev_m": null,
+      "slope_deg": null,
+      "note": "Elevation/slope null until route sits on a covering HiRISE cost/DTM crop."
+    },
+    {
+      "s_m": 947.1,
+      "elev_m": null,
+      "slope_deg": null,
+      "note": "Elevation/slope null until route sits on a covering HiRISE cost/DTM crop."
+    }
+  ],
+  "totals": {
+    "distance_m": 947.1,
+    "climb_m": null,
+    "descent_m": null,
+    "duration_min_placeholder": 71.0,
+    "dose_mSv_see": "docs/contracts/dose.json"
+  }
+}
