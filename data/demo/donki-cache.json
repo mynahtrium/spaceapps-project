@@ -1,0 +1,136 @@
+{
+  "contract_hint": "martian-mappers.donki-cache.v1",
+  "fetched_at": "2026-11-14T12:05:35Z",
+  "window": {
+    "startDate": "2026-10-15",
+    "endDate": "2026-11-14",
+    "days_back": 30
+  },
+  "source": "NASA CCMC DONKI API (api.nasa.gov/DONKI)",
+  "counts": {
+    "WSAEnlilSimulations": 57,
+    "CME": 86,
+    "SEP": 0,
+    "GST": 1
+  },
+  "mars_impact_count": 13,
+  "mars_impacts": [
+    {
+      "simulationID": "WSA-ENLIL/49216/1",
+      "modelCompletionTime": "2026-10-23T12:09Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-10-27T12:00Z",
+      "isGlancingBlow": false,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49216/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49248/1",
+      "modelCompletionTime": "2026-10-25T21:45Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-11-01T01:00Z",
+      "isGlancingBlow": false,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49248/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49251/1",
+      "modelCompletionTime": "2026-10-26T12:37Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-10-30T18:00Z",
+      "isGlancingBlow": true,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49251/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49252/1",
+      "modelCompletionTime": "2026-10-26T13:10Z",
+      "au": 5.5,
+      "location": "Mars",
+      "arrivalTime": "2026-10-30T18:00Z",
+      "isGlancingBlow": true,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49252/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49257/1",
+      "modelCompletionTime": "2026-10-26T15:40Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-10-31T00:00Z",
+      "isGlancingBlow": true,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49257/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49259/1",
+      "modelCompletionTime": "2026-10-26T15:56Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-10-30T18:00Z",
+      "isGlancingBlow": false,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49259/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49274/1",
+      "modelCompletionTime": "2026-10-26T20:04Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-11-01T02:00Z",
+      "isGlancingBlow": false,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49274/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49279/1",
+      "modelCompletionTime": "2026-10-26T22:40Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-10-31T11:00Z",
+      "isGlancingBlow": false,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49279/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49280/1",
+      "modelCompletionTime": "2026-10-26T23:09Z",
+      "au": 5.5,
+      "location": "Mars",
+      "arrivalTime": "2026-10-31T11:00Z",
+      "isGlancingBlow": false,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49280/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49326/1",
+      "modelCompletionTime": "2026-10-30T13:36Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-11-04T08:00Z",
+      "isGlancingBlow": false,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49326/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49360/1",
+      "modelCompletionTime": "2026-11-01T21:43Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-11-07T06:00Z",
+      "isGlancingBlow": true,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49360/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49472/1",
+      "modelCompletionTime": "2026-11-09T19:32Z",
+      "au": 2.0,
+      "location": "Mars",
+      "arrivalTime": "2026-11-13T12:00Z",
+      "isGlancingBlow": true,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49472/-1"
+    },
+    {
+      "simulationID": "WSA-ENLIL/49473/1",
+      "modelCompletionTime": "2026-11-09T19:59Z",
+      "au": 5.5,
+      "location": "Mars",
+      "arrivalTime": "2026-11-13T12:00Z",
+      "isGlancingBlow": true,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49473/-1"
+    }
+  ]
+}

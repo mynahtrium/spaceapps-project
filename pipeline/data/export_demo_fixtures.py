@@ -6,6 +6,8 @@ into data/demo/ (never raw data, never secrets, no network calls).
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -13,10 +15,12 @@ from typing import Any
 from .common import DATA_SCIENCE, REPO_ROOT, utc_now_iso, write_json
 
 DEMO_DIR = REPO_ROOT / "data" / "demo"
+_PROCESSED_PREFIX_RE = re.compile(r"data/processed/(?:terrain|routing|science)/")
 
 SCIENCE_JSON_FILES = (
     "alerts.json",
     "alerts.example.json",
+    "donki-cache.json",
     "donki-cache.example.json",
     "dose.json",
     "weather.json",
@@ -25,8 +29,33 @@ SCIENCE_JSON_FILES = (
 )
 
 
+def _rewrite_demo_paths(obj: Any) -> Any:
+    """Rewrite data/processed/<domain>/ paths to data/demo/ for offline demo fixtures."""
+    if isinstance(obj, dict):
+        return {k: _rewrite_demo_paths(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rewrite_demo_paths(item) for item in obj]
+    if isinstance(obj, str):
+        return _PROCESSED_PREFIX_RE.sub("data/demo/", obj)
+    return obj
+
+
+def _copy_or_rewrite_json(src: Path, dst: Path) -> None:
+    """Copy asset to data/demo/, rewriting processed paths to data/demo/ inside JSON files."""
+    if src.suffix.lower() != ".json":
+        shutil.copy2(src, dst)
+        return
+    raw_bytes = src.stat().st_size
+    data = json.loads(src.read_text(encoding="utf-8"))
+    rewritten = _rewrite_demo_paths(data)
+    if raw_bytes > 100_000:
+        dst.write_text(json.dumps(rewritten, separators=(",", ":")), encoding="utf-8")
+    else:
+        write_json(dst, rewritten)
+
+
 def export_demo_fixtures() -> dict[str, Any]:
-    """Copy Backend 3 frozen outputs to data/demo/."""
+    """Copy Backend 3 frozen outputs (plus terrain/routing previews) to data/demo/."""
     DEMO_DIR.mkdir(parents=True, exist_ok=True)
     copied: list[str] = []
 
@@ -34,17 +63,21 @@ def export_demo_fixtures() -> dict[str, Any]:
         src = DATA_SCIENCE / fname
         if src.exists():
             dst = DEMO_DIR / fname
-            shutil.copy2(src, dst)
+            _copy_or_rewrite_json(src, dst)
             copied.append(fname)
 
     for folder_name in ("pov", "tiles"):
         src_dir = DATA_SCIENCE / folder_name
         if src_dir.exists():
             dst_dir = DEMO_DIR / folder_name
-            shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
-            for p in sorted(dst_dir.rglob("*")):
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            for p in sorted(src_dir.rglob("*")):
                 if p.is_file():
-                    copied.append(str(p.relative_to(DEMO_DIR)).replace("\\", "/"))
+                    rel = p.relative_to(src_dir)
+                    dst = dst_dir / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    _copy_or_rewrite_json(p, dst)
+                    copied.append(str(dst.relative_to(DEMO_DIR)).replace("\\", "/"))
 
     # Also copy frozen terrain and routing fixtures so ?demo=1 works 100% offline (BUG-06).
     extra_sources = [
@@ -58,7 +91,7 @@ def export_demo_fixtures() -> dict[str, Any]:
     for src in extra_sources:
         if src.exists():
             dst = DEMO_DIR / src.name
-            shutil.copy2(src, dst)
+            _copy_or_rewrite_json(src, dst)
             copied.append(src.name)
 
     manifest = {

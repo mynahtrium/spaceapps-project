@@ -570,3 +570,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Wrote one instruction file per nickname for the astronaut-visor pass (Cagan first in Claude, Cetin beside him, Divarci on the visor, Eymen reviewing, Doruk compiling). Each file starts with a nickname grill. Science and terrain numbers must come from cached NASA and PDS products. Live DONKI uses `NASA_API_KEY` from the gitignored `.env` (present on this machine; the value is not in git). CC's profile nickname for this pack is Cetin.
 - Commit: this commit
 - Next step: Paste `docs/roles/prompts/cagan.md` into Claude Code. Cetin then runs a live DONKI fetch. Divarci waits until Cagan's four processed JSON files are confirmed.
+
+### 2026-11-14 15:06 Europe/Istanbul — MUST-07 / SHOULD-02 / SHOULD-07 live DONKI refresh & BUG-10 demo path rewrite
+
+- Human: Cetin (CC)
+- Agent tool + model: Antigravity (Gemini)
+- Role: Backend 3 (data collection and APIs)
+- Task id: MUST-07, SHOULD-02, SHOULD-07
+- Files changed: pipeline/data/export_demo_fixtures.py, data/processed/science/alerts.json, data/processed/science/donki-cache.json, data/demo/*, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Executed `docs/roles/prompts/cetin.md` on branch `backend/science`: refreshed live NASA DONKI cache (`alerts.json` + `donki-cache.json`, `2026-11-14T12:05:35Z`, `13` Mars impacts) via `NASA_API_KEY`, updated `export_demo_fixtures.py` to rewrite `data/processed/(terrain|routing|science)/` paths to `data/demo/` inside `data/demo/*.json` (`BUG-10`, `0` remaining processed refs, `29` exported files totaling `1.94 MB`), and handed off to Divarci and Eymen.
+- Commit: this commit
+- Next step: Open PR from `backend/science` for Eymen review; wait for Doruk to merge to `main`.

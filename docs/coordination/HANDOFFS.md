@@ -197,3 +197,20 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Verify `MUST-08`..`MUST-10` and `SHOULD-05`..`SHOULD-07` in the browser and sign off on `BOARD.md`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
+
+### HANDOFF-20261114-1506 — from Backend 3 (Cetin / CC) to Divarci (Frontend 1) and Eymen (Tester 2)
+
+- Date (Europe/Istanbul): 2026-11-14 15:06
+- From (role, first name or nickname only, agent tool): Backend 3 (data collection and APIs), Cetin (CC), Antigravity (Gemini)
+- To (role, name if known): Divarci (Frontend 1), Eymen (Tester 2)
+- Board task id: MUST-07, SHOULD-02, SHOULD-07 (`BUG-10`)
+- What is ready:
+  - Re-ran live DONKI fetch (`fetch_donki.py` + `build_alerts.py`) using `.env` personal `NASA_API_KEY`: `alerts.json` and `donki-cache.json` updated at `2026-11-14T12:05:35Z` (`57` WSA-Enlil runs, `86` CME, `1` GST, `13` Mars impacts).
+  - Updated `pipeline/data/export_demo_fixtures.py` so every JSON copied into `data/demo/` rewrites internal `data/processed/(terrain|routing|science)/` paths to `data/demo/`, and added `donki-cache.json` (`4,359` bytes) to `data/demo/` (`29` files listed in `data/demo/science-manifest.json`, total `1.94 MB`). Verified `0` `data/processed/` paths remain in `data/demo/*.json`.
+- Paths (files or folders): `pipeline/data/export_demo_fixtures.py`, `data/processed/science/alerts.json`, `data/processed/science/donki-cache.json`, `data/demo/`
+- How to try it: Run `python -m pipeline.data.fetch_donki`, `python -m pipeline.data.build_alerts`, and `python -m pipeline.data.export_demo_fixtures`. Note: work pushed on branch `backend/science` (not merged to `main` per workflow; waiting on Eymen review + Doruk merge).
+- What is not done / known limits: `PRE-07` stops still keep `is_example: true`; `BUG-11` (`ROSTER.md` GitHub usernames) waits on teammates; PDS RAD archive (`atmos`/`pds-ppi`) endpoints had expired/reset TLS on earlier check and stay marked honestly in `dose.json`/`weather.json`.
+- Please do next: Eymen: review PR from `backend/science` (incl. `BUG-10` fix) before Doruk merges to `main`. Divarci: `?demo=1` fixtures under `data/demo/` are now completely self-contained for all rewritten JSON paths.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:

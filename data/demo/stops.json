@@ -1,7 +1,7 @@
 {
   "contract": "martian-mappers.stops.v1",
   "status": "example",
-  "note": "PRE-07 still open. Habitat uses cited Sol 4527 waypoint; boxwork bonus uses cited Sol 4534 waypoint (MSL waypoints.json via STOP_COORDINATE_CHECK.md). Mudstone stops are docs/contracts example points only \u2014 not official outcrop names. All is_example true. Do not treat as locked. Inside DTEEC_019698 footprint check is required at lock.",
+  "note": "PRE-07 still open. Habitat uses cited Sol 4527 waypoint; boxwork bonus uses cited Sol 4534 waypoint (MSL waypoints.json via STOP_COORDINATE_CHECK.md). Mudstone stops are docs/contracts example points only — not official outcrop names. All is_example true. Do not treat as locked. Inside DTEEC_019698 footprint check is required at lock.",
   "crs": "mars-geographic-planetocentric",
   "type": "FeatureCollection",
   "features": [
@@ -9,7 +9,7 @@
       "type": "Feature",
       "properties": {
         "id": "stop-habitat",
-        "name": "Habitat / EVA start (example \u2014 Sol 4527 candidate)",
+        "name": "Habitat / EVA start (example — Sol 4527 candidate)",
         "kind": "habitat",
         "science_summary": "Illustrative EVA start at the cited Curiosity Sol 4527 waypoint (near boxwork entry). Not a human landing-site claim. Gale is a rover site. PRE-07 not locked.",
         "sol_hint": 4527,
@@ -66,7 +66,7 @@
       "type": "Feature",
       "properties": {
         "id": "stop-boxwork-bonus",
-        "name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+        "name": "Boxwork bonus (example — Sol 4534 candidate)",
         "kind": "boxwork_bonus",
         "science_summary": "Bonus stop candidate at the cited Curiosity Sol 4534 boxwork-entry waypoint (Altadena member context). Primary goal remains lake sediments / habitability. PRE-07 not locked.",
         "sol_hint": 4534,
