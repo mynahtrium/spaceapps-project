@@ -638,3 +638,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Vendored `maplibre-gl@4.7.1` and `three@0.170.0` (`2.18 MB` total) into `web/vendor/` and updated `web/index.html` to load them locally instead of `unpkg.com` CDN. Verified `web/index.html` now has 0 external URLs so `?demo=1` runs 100% offline.
 - Commit: this commit
 - Next step: Run live browser verification at `http://localhost:8000/web/?demo=1` with DevTools Offline mode enabled.
+
+### 2026-11-14 16:05 Europe/Istanbul — MUST-09 follow-up (endless mirrored terrain)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in Divarci's web/ tree at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for the map to repeat with no visible border. A raw DEM tile does not tile (about 480 m of relief, with different north and south edges), so the HUD now surrounds the real tile with mirrored copies that share edges exactly, keeps the ring centred on the camera, and mirror-wraps height sampling for free-roam. The mirror maths was checked numerically (edge u = 1 from both sides). Page loads in ?demo=1 with no console errors; the edge crossing itself was not observed by the agent.
+- Commit: this commit
+- Next step: Divarci reviews; Eymen walks past the edge once.

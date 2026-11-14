@@ -111,10 +111,16 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     // Fallback: flat terrain if height preview fails
   }
 
+  // Mirror-wrap a tile coordinate (period 2) so heights match the mirrored copies.
+  function mirrorWrap(t) {
+    const m = ((t % 2) + 2) % 2;
+    return m > 1 ? 2 - m : m;
+  }
+
   function sampleElevSceneY(x, z) {
     if (!elevGrid) return 0;
-    const u = Math.max(0, Math.min(1, x / worldW + 0.5));
-    const v = Math.max(0, Math.min(1, z / worldH + 0.5));
+    const u = mirrorWrap(x / worldW + 0.5);
+    const v = mirrorWrap(z / worldH + 0.5);
     const fx = u * (imgW - 1);
     const fy = v * (imgH - 1);
     const x0 = Math.floor(fx);
@@ -145,6 +151,37 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   });
   const terrainMesh = new THREE.Mesh(geom, terrainMat);
   scene.add(terrainMesh);
+
+  // Endless terrain: surround the real tile with mirrored copies. A neighbour that
+  // is the mirror image of the tile meets it with identical heights and texture at
+  // the shared edge, so there is no seam. The ring of copies follows the camera in
+  // steps of one mirror period (2 tiles), so the edge is never reached; fog hides
+  // the far ring. Only the centre tile (0, 0) is real data; the copies are visual.
+  const TILE_RING = 3; // copies out to 3 tiles in every direction
+  const endless = new THREE.Group();
+  for (let i = -TILE_RING; i <= TILE_RING; i++) {
+    for (let j = -TILE_RING; j <= TILE_RING; j++) {
+      const copy = new THREE.Mesh(geom, terrainMat);
+      copy.position.set(i * worldW, 0, j * worldH);
+      copy.scale.set(i % 2 === 0 ? 1 : -1, 1, j % 2 === 0 ? 1 : -1);
+      copy.userData.mirrorCopy = true;
+      if (i === 0 && j === 0) {
+        copy.visible = false; // the real tile already sits here until the ring moves
+        endless.userData.centre = copy;
+      }
+      endless.add(copy);
+    }
+  }
+  scene.add(endless);
+  const period = { x: 2 * worldW, z: 2 * worldH };
+  function followEndless(pos) {
+    endless.position.set(
+      Math.round(pos.x / period.x) * period.x,
+      0,
+      Math.round(pos.z / period.z) * period.z
+    );
+    endless.userData.centre.visible = endless.position.x !== 0 || endless.position.z !== 0;
+  }
 
   // Stop beacons
   if (stops?.features) {
@@ -399,6 +436,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     }
 
     updateHudReadouts(sample.sM, sample.lon, sample.lat);
+    followEndless(camera.position);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(animate);

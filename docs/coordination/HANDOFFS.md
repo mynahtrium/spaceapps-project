@@ -225,3 +225,17 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Divarci tries `texture-relief.jpg` in the HUD; Eymen checks the files and the STL in any 3D viewer.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (new files with their own manifest; existing contracts untouched)
 - Received:
+
+### HANDOFF-20261114-1605 — from backend (Cagan) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 16:05
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (owner of web/hud/hud3d.js), Eymen (review)
+- Board task id: MUST-09 follow-up
+- What is ready: endless terrain in the 3D HUD. The real tile is surrounded by mirrored copies (7 x 7 ring, same geometry and material), so neighbouring edges meet with identical heights and texture. The ring follows the camera in steps of one mirror period (2 tiles); `sampleElevSceneY` mirror-wraps coordinates so free-roam walking height matches the copies. Only the centre tile is real data; stops and the route stay on it.
+- Paths (files or folders): `web/hud/hud3d.js` (edited at Cagan's request; Divarci owns this file)
+- How to try it: `python -m http.server 8000`, open `http://localhost:8000/web/?demo=1`, 3D Helmet HUD, Free-Roam ON, hold W for about 35 s to cross the tile edge.
+- What is not done / known limits: `node --check` passes and the page loads with no console errors; crossing the edge was not watched by the agent (Cagan was testing in the same tab). The copies are mirror images, not real terrain; say so if they appear in the video. GPU cost is 48 extra draws of the same geometry.
+- Please do next: Divarci reviews the change; Eymen walks past the edge once in `?demo=1`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:
