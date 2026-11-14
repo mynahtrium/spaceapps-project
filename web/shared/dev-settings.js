@@ -13,6 +13,8 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   superGraphics: false,
   fov: 78,
   cleanHud: false,
+  dustTau: 0.5,
+  dustDevil: false,
 });
 
 function clampNum(v, min, max, fallback) {
@@ -29,6 +31,8 @@ export function normalizeDevSettings(raw = {}) {
     superGraphics: raw.superGraphics !== undefined ? Boolean(raw.superGraphics) : DEFAULT_DEV_SETTINGS.superGraphics,
     fov: clampNum(raw.fov, 60, 110, DEFAULT_DEV_SETTINGS.fov),
     cleanHud: raw.cleanHud !== undefined ? Boolean(raw.cleanHud) : DEFAULT_DEV_SETTINGS.cleanHud,
+    dustTau: clampNum(raw.dustTau, 0.35, 3, DEFAULT_DEV_SETTINGS.dustTau),
+    dustDevil: raw.dustDevil !== undefined ? Boolean(raw.dustDevil) : DEFAULT_DEV_SETTINGS.dustDevil,
   };
 }
 

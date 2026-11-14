@@ -225,7 +225,8 @@ async function boot() {
         <p><strong>Honesty &amp; Placeholders:</strong></p>
         <ul>
           <li><strong>Slope limits (20° / 15°):</strong> Illustrative lunar stand-ins (NASA Exploration EVA ConOps / LPSC 2023 #1413). DTM slope matches Curiosity rover tilt only weakly (5 m medians 9.0° vs 8.6° over 176 waypoints); keep a safety margin.</li>
-          <li><strong>Suit O₂ &amp; Walking Time:</strong> Illustrative linear / Earth-hiking placeholders, not validated Mars suit models.</li>
+          <li><strong>Suit O₂ &amp; Walking Time:</strong> Illustrative linear / Earth-hiking placeholders, not validated Mars suit models. The visor also shows a Pandolf metabolic stand-in (watts and L/min). It does not replace the O₂ percentage.</li>
+          <li><strong>Walker physics:</strong> Suited mass is 180 kg; weight uses Gale crater gravity anchored at 3.717 m/s² (Lewis et al., Science 2019). Boot traction, facies friction, and sky-view shielding are illustrative stand-ins, not mapped geology or a radiation map.</li>
           <li><strong>Radiation Dose:</strong> Hassler et al. (Science 2014) Curiosity RAD baseline (0.64 ± 0.12 mSv/day) × EVA duration. No spatial rock radiation map.</li>
         </ul>
         <p><strong>Missions &amp; Datasets (fetched 2026-11-14):</strong></p>
@@ -235,7 +236,7 @@ async function boot() {
           <li><strong>MRO CRISM:</strong> 9 MTRDR product records via PDS Geosciences ODE REST</li>
           <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
-          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head, shoulders) and drives a walk / run cycle from distance walked; the model's forward-reaching arms are lowered at the shoulders and swing opposite to the legs. Mars gravity (3.71 m/s²) is used for jumps and falls; walking pace (1.4 m/s) and a light run with Shift (2.5 m/s) are placeholders.</li><li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
+          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head, shoulders) and drives a walk / run cycle from distance walked; the model's forward-reaching arms are lowered at the shoulders and swing opposite to the legs. Jumps and falls use Gale gravity (about 3.717 m/s²). Walking pace (1.4 m/s) and a light run with Shift (2.5 m/s) are placeholders. Horizontal speed has inertia: boots cannot steer in the air, and slopes steeper than the 20° (or strict 15°) lunar stand-in slip downhill.</li><li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
         <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
         <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
@@ -255,18 +256,18 @@ async function boot() {
         <div class="dev-note">
           ${
             tr
-              ? "Değişiklikler anlık olarak 3D Bodycam görünümüne uygulanır ve tarayıcıda saklanır."
-              : "Changes apply live to the 3D Bodycam view and persist locally in your browser."
+              ? "Değişiklikler anlık olarak kask görünümüne uygulanır ve tarayıcıda saklanır."
+              : "Changes apply live to the helmet view and persist locally in your browser."
           }
         </div>
 
         <label class="dev-row">
           <div>
-            <div class="dev-label">${tr ? "Ekrandaki Çerçeve & Lens Efekti" : "Bodycam Frame & Lens Effect"}</div>
+            <div class="dev-label">${tr ? "Vizör lensi" : "Visor lens"}</div>
             <div class="dev-sub">${
               tr
-                ? "Kavisli kask vizörü siyah çerçevesi, kenar karartması, kromatik sapma ve film greni."
-                : "Curved visor bezel frame, edge vignette, barrel distortion, chromatic aberration & grain."
+                ? "Polikarbonat eğrilik, kenar kararması ve hafif renk sapması. Altın vizör G, büyütme Z."
+                : "Polycarbonate curvature, helmet-rim darkening, and a little chromatic aberration. Gold visor is G, magnifier is Z."
             }</div>
           </div>
           <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
@@ -320,6 +321,26 @@ async function boot() {
 
         <label class="dev-row">
           <div>
+            <div class="dev-label">${tr ? "Toz optik derinliği τ" : "Dust optical depth τ"}</div>
+            <div class="dev-sub"><span id="dev-tau-val">${s.dustTau.toFixed(2)}</span> · ${
+              tr ? "açık gün 0.5, fırtına 2.8" : "clear day 0.5, storm 2.8"
+            }</div>
+          </div>
+          <input class="dev-range" type="range" id="dev-tau" min="0.35" max="3" step="0.05" value="${s.dustTau}" />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Toz şeytanı" : "Dust devil"}</div>
+            <div class="dev-sub">${
+              tr ? "Tek bir görsel sütun. REMS girdabı değil." : "One visual column. Not a REMS vortex replay."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-devil" ${s.dustDevil ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
             <div class="dev-label">${tr ? "Sade Kamera (HUD Metinlerini Gizle)" : "Clean Camera (Hide HUD Telemetry)"}</div>
             <div class="dev-sub">${
               tr ? "3D ekrandaki telemetri yazılarını temiz ekran görüntüsü için gizler." : "Hides telemetry text overlays in 3D view for clean capture."
@@ -343,6 +364,9 @@ async function boot() {
     const fovRange = document.getElementById("dev-fov");
     const fovVal = document.getElementById("dev-fov-val");
     const cleanToggle = document.getElementById("dev-clean-hud");
+    const tauRange = document.getElementById("dev-tau");
+    const tauVal = document.getElementById("dev-tau-val");
+    const devilToggle = document.getElementById("dev-devil");
     const resetBtn = document.getElementById("dev-reset");
 
     const syncUi = (cfg) => {
@@ -358,6 +382,9 @@ async function boot() {
       if (fovRange) fovRange.value = String(cfg.fov);
       if (fovVal) fovVal.textContent = `${Math.round(cfg.fov)}°`;
       if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
+      if (tauRange) tauRange.value = String(cfg.dustTau);
+      if (tauVal) tauVal.textContent = cfg.dustTau.toFixed(2);
+      if (devilToggle) devilToggle.checked = cfg.dustDevil;
     };
 
     syncUi(s);
@@ -370,6 +397,8 @@ async function boot() {
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
     fovRange?.addEventListener("input", () => syncUi(saveDevSettings({ fov: parseFloat(fovRange.value) })));
     cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
+    tauRange?.addEventListener("input", () => syncUi(saveDevSettings({ dustTau: parseFloat(tauRange.value) })));
+    devilToggle?.addEventListener("change", () => syncUi(saveDevSettings({ dustDevil: devilToggle.checked })));
     resetBtn?.addEventListener("click", () => syncUi(resetDevSettings()));
 
     modalBackdrop.classList.add("open");
@@ -577,6 +606,7 @@ async function boot() {
   });
 
   function switchToHud() {
+    document.body.classList.add("eva-live");
     plannerView.classList.remove("active");
     hudView.classList.add("active");
     btnTabPlanner.classList.remove("active");
@@ -586,6 +616,7 @@ async function boot() {
   }
 
   function switchToPlanner() {
+    document.body.classList.remove("eva-live");
     hudView.classList.remove("active");
     plannerView.classList.add("active");
     btnTabHud.classList.remove("active");
@@ -593,6 +624,28 @@ async function boot() {
     mp.setRole("planner");
     requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
   }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+    if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
+    const modal = document.getElementById("modal-backdrop");
+    if (modal?.classList.contains("open")) {
+      e.preventDefault();
+      modal.classList.remove("open");
+      return;
+    }
+    if (crewDrawer?.classList.contains("open")) {
+      e.preventDefault();
+      crewDrawer.classList.remove("open");
+      return;
+    }
+    if (document.getElementById("hud-map-overlay")?.classList.contains("open")) return;
+    e.preventDefault();
+    if (hudView.classList.contains("active")) switchToPlanner();
+    else switchToHud();
+  });
 
   btnTabPlanner.onclick = switchToPlanner;
   btnTabHud.onclick = switchToHud;
@@ -640,6 +693,13 @@ async function boot() {
     onBackToPlanner: switchToPlanner,
     onOpenPov: openPovModal,
   });
+  const missionTex = document.getElementById("mission-tex");
+  const missionPov = document.getElementById("mission-pov");
+  missionTex?.addEventListener("click", () => {
+    const label = hudApi?.cycleTex?.();
+    if (label && missionTex) missionTex.textContent = `Ground: ${label}`;
+  });
+  missionPov?.addEventListener("click", () => hudApi?.openRoverPov?.());
 }
 
 boot();
