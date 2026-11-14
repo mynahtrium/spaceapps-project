@@ -327,3 +327,17 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Please do next: Divarci / Doruk / Cagan review cross-folder `web/` changes.
 - Received:
+
+### HANDOFF-20261114-2210 — from Backend 1 (Cagan) to Doruk / Cinar D. / Divarci
+
+- Date (Europe/Istanbul): 2026-11-14 22:10
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Doruk (visor), Cinar D. (demo-1 globe), Divarci (owner of `web/`)
+- Board task id: MUST-09 / MAP-01 follow-up
+- What is ready: At Cagan's request a Mars globe is back on main. This overrides the 21:16 "no globe on main" decision. It is a new self-contained module (`web/hud/visor-globe.js`), not the demo-1 sphere walk; the walk stays first person on the Gale HiRISE strip. The globe is the default scope of the M / View map overlay; "Scope: Local" is the old 2D HiRISE map. The HUD is back in the black-and-white Untitled style. The start survey pole (the white line through the view) is gone. Mark III is the suit again (ACES is the fallback), boot and wind dust are added, and the sun-shadow bake runs in the background.
+- Paths (files or folders): `web/hud/visor-globe.js`, `web/hud/wind-dust.js`, `web/hud/dust-fx.js`, `web/hud/hud3d.js`, `web/hud/astronaut-rig.js`, `web/app.js`, `web/index.html`, `web/styles.css`, `data/demo/mars-*.png/jpg/json`
+- How to try it: `start.bat` or `python -m http.server 8000`, open `http://localhost:8000/web/?demo=1`, begin the EVA, press M (or View on a controller).
+- What is not done / known limits: The globe data is ~9 MB and loads the first time the map opens (about a second). Only the Gale strip is walkable; elsewhere on the globe you can only inspect. Wind dust is a visual effect only.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Please do next: Doruk / Cinar D.: if you want the globe off main again, talk to Cagan first rather than reverting.
+- Received:

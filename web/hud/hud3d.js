@@ -33,12 +33,15 @@ import {
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
 import { gamepad } from "../shared/gamepad.js";
+import { createVisorGlobe } from "./visor-globe.js";
 import { createFootsteps } from "./footsteps.js";
 import { galeSunState, PHOBOS_SKY_RATE_RAD_S, DEIMOS_SKY_RATE_RAD_S } from "./MarsEphemeris.js";
 import { createCelestialSky } from "./MarsCelestialSky.js";
 import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
 import { createDustDevil } from "./DustDevil.js";
+import { createMarsDustSystem } from "./dust-fx.js";
+import { createWindDust } from "./wind-dust.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
@@ -61,12 +64,14 @@ const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
 // NASA 3D Resources models, tried in order (first one that loads wins). The Z2 suit
 // (16.9 MB, NASA's Mars-oriented prototype) can be added in front of this list once downloaded
 // to ./assets/nasa-3d/z2-spacesuit.glb.
+// The rig (arm rest pose, elbow and shoulder measurements) is tuned on the Mark III planetary suit;
+// the ACES launch/entry suit holds its arms differently and looks wrong with it, so it is only a fallback.
 const SUIT_MODELS = [
+  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III · PROCEDURAL GAIT" },
   {
     url: "./assets/nasa-3d/advanced-crew-escape-suit.glb",
     label: "NASA ACES · LAUNCH/ENTRY MESH · PROCEDURAL GAIT",
   },
-  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III · PROCEDURAL GAIT" },
 ];
 
 function loadImage(url) {
@@ -256,6 +261,7 @@ const LENS_FRAG = /* glsl */ `
   uniform float uOptZoom;
   uniform float uGlint;
   uniform float uRay;
+  uniform float uDust;
   varying vec2 vUv;
 
   float hash(vec2 p) {
@@ -290,6 +296,16 @@ const LENS_FRAG = /* glsl */ `
     col += vec3(0.42, 0.32, 0.24) * helm * helm * 0.16 * (1.0 - 0.45 * uGold);
     float scratch = uGlint * pow(max(0.0, 1.0 - abs(c.y) * 3.0), 2.0) * (0.5 + 0.5 * sin(c.x * 140.0 + c.y * 40.0));
     col += vec3(1.0, 0.95, 0.85) * scratch * 0.08;
+
+    // dust on the outside of the visor: fixed specks that catch the light (more when you face the
+    // Sun) and a faint film low on the glass; both build up as you walk (uDust 0.2 .. 1)
+    vec2 gs = vUv * vec2(aspect, 1.0) * 70.0;
+    vec2 cid = floor(gs);
+    vec2 off = vec2(hash(cid + 3.1), hash(cid + 7.7)) - 0.5;
+    float speck = step(1.0 - 0.09 * uDust, hash(cid)) * smoothstep(0.2, 0.0, length(fract(gs) - 0.5 - off * 0.5));
+    col += vec3(0.95, 0.8, 0.62) * speck * (0.05 + 0.22 * uGlint);
+    float film = uDust * smoothstep(0.42, 0.0, vUv.y) * 0.35;
+    col = mix(col, col * vec3(1.02, 0.94, 0.86) + vec3(0.035, 0.024, 0.014), film);
 
     float ray = 0.0;
     float tbin = floor(uTime * 12.0);
@@ -508,6 +524,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   scene.add(galeVista);
   const dustDevil = createDustDevil(THREE);
   scene.add(dustDevil.points);
+  // boot dust (footsteps, take-off, landing) and the wind-blown dust around you
+  const dustFx = createMarsDustSystem({ THREE, scene, horizonColor: HORIZON, sunDir });
+  const windDust = createWindDust({ THREE, scene, groundY: (x, z) => sampleElevSceneY(x, z), sunDir });
+  const _dustPos = new THREE.Vector3();
+  const _dustNrm = new THREE.Vector3();
+  const _dustMove = new THREE.Vector3();
+  let fxWasGrounded = true;
 
   // Image-based light from the same sky, so suits and rocks pick up the dusty sky and ground bounce.
   {
@@ -658,32 +681,52 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   // terrain cell towards the sun through the height grid and store how much of the sun is visible.
   // The mirrored terrain repeats every 2 tiles in world space, so one mask over that period, sampled
   // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
-  function bakeSunMask() {
+  // Start-up cost: the old full-resolution bake took ~5 s before anything showed. Now it runs at
+  // half resolution (one texel per 2 x 2 DTM cells, ~10 m: the shadow edge is soft anyway), stops a
+  // ray as soon as it rises above the highest point of the terrain, and runs in small slices after
+  // the world is on screen. Until it finishes, the mask is all lit (no terrain shadows yet).
+  function createSunMaskBaker() {
     const n = elevGrid ? imgW : 0;
     if (!n) return null;
-    const N = 2 * n; // cells across one mirror period
+    const N = 2 * n; // DTM cells across one mirror period
+    const M = Math.ceil(N / 2); // mask texels across the period
     const cell = worldW / n;
     const H = new Float32Array(N * N);
+    let hMax = -Infinity;
     for (let r = 0; r < N; r++) {
       const sr = r < n ? r : 2 * n - 1 - r;
       for (let c = 0; c < N; c++) {
         const sc = c < n ? c : 2 * n - 1 - c;
-        H[r * N + c] = elevGrid[sr * imgW + sc];
+        const h = elevGrid[sr * imgW + sc];
+        H[r * N + c] = h;
+        if (h > hMax) hMax = h;
       }
     }
-    const horiz = Math.hypot(sunDir.x, sunDir.z);
+    const horiz = Math.hypot(sunDir.x, sunDir.z) || 1e-6;
     const tanSun = sunDir.y / horiz;
-    const dx = sunDir.x / horiz; // cells per step towards the sun (x = columns, east)
-    const dz = sunDir.z / horiz; // z = rows, south
-    const maxSteps = Math.ceil(700 / cell);
+    const STEP = 2; // DTM cells per ray step
+    const dx = (sunDir.x / horiz) * STEP; // towards the sun (x = columns, east)
+    const dz = (sunDir.z / horiz) * STEP; // z = rows, south
+    const stepM = STEP * cell;
+    const maxSteps = Math.ceil(700 / stepM);
     const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
-    const out = new Uint8Array(N * N * 4);
+    const out = new Uint8Array(M * M * 4).fill(255);
     const wrap = (v) => ((v % N) + N) % N;
-    for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) {
+    const tex = new THREE.DataTexture(out, M, M, THREE.RGBAFormat);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    let row = 0;
+    let shade = 0;
+    function bakeRow(mr) {
+      const r = Math.min(N - 1, mr * 2);
+      for (let mc = 0; mc < M; mc++) {
+        const c = Math.min(N - 1, mc * 2);
         const h0 = H[r * N + c];
         let worst = -1e9;
         for (let k = 1; k <= maxSteps; k++) {
+          if (h0 + (tanSun + SOFT) * k * stepM > hMax) break; // the ray is above every hill now
           const fx = c + dx * k;
           const fz = r + dz * k;
           const x0 = Math.floor(fx);
@@ -696,7 +739,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           const rb = wrap(z0 + 1) * N;
           const h =
             (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
-          const t = (h - h0) / (k * cell);
+          const t = (h - h0) / (k * stepM);
           if (t > worst) {
             worst = t;
             if (worst > tanSun + SOFT) break; // fully in shadow
@@ -704,25 +747,41 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         }
         const lit = Math.min(1, Math.max(0, (tanSun - worst) / (2 * SOFT) + 0.5));
         // texture row 0 = smallest world z (north), matching the shader's lookup
-        const o = (r * N + c) * 4;
+        const o = (mr * M + mc) * 4;
         out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
-        out[o + 3] = 255;
+        if (lit < 0.5) shade++;
       }
     }
-    const tex = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.magFilter = THREE.LinearFilter;
-    tex.minFilter = THREE.LinearFilter;
-    tex.needsUpdate = true;
-    return tex;
+    return {
+      tex,
+      /** Bake rows for up to `budgetMs`; true once the whole mask is done. */
+      step(budgetMs) {
+        const t0 = performance.now();
+        while (row < M && performance.now() - t0 < budgetMs) bakeRow(row++);
+        if (row >= M) {
+          tex.needsUpdate = true;
+          return true;
+        }
+        return false;
+      },
+      get shadeShare() {
+        return shade / (M * M);
+      },
+    };
   }
-  const bakeT0 = performance.now();
-  const sunMask = bakeSunMask();
-  if (sunMask) {
-    const d = sunMask.image.data;
-    let shade = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i] < 128) shade++;
-    console.info(`sun mask baked in ${Math.round(performance.now() - bakeT0)} ms, ${((100 * shade) / (d.length / 4)).toFixed(1)}% of ground in terrain shadow`);
+  const sunBaker = createSunMaskBaker();
+  const sunMask = sunBaker?.tex || null;
+  if (sunBaker) {
+    const bakeT0 = performance.now();
+    const slice = () => {
+      if (sunBaker.step(10)) {
+        console.info(
+          `sun mask baked in the background in ${Math.round(performance.now() - bakeT0)} ms, ` +
+            `${(100 * sunBaker.shadeShare).toFixed(1)}% of ground in terrain shadow`
+        );
+      } else setTimeout(slice, 0);
+    };
+    setTimeout(slice, 300); // after the first frames are on screen
   }
 
   // ---------- terrain material ----------
@@ -874,18 +933,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const sz = latToZ(lat);
       const sy = sampleElevSceneY(sx, sz);
       const isStart = idx === 0 || f.properties?.kind === "habitat";
-      const poleH = isStart ? 4.6 : 2.4;
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(isStart ? 0.032 : 0.025, isStart ? 0.038 : 0.025, poleH, 8),
-        poleMat
-      );
+      // You spawn on the start stop, so it gets no marker; the others are knee-high survey stakes
+      // (the old 2.4-4.6 m poles stood as a white line through the middle of the view).
+      if (isStart) return;
+      const poleH = isStart ? 0.55 : 0.45;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, poleH, 8), poleMat);
       pole.position.set(sx, sy + poleH * 0.5, sz);
       pole.castShadow = true;
       const lamp = new THREE.Mesh(
-        new THREE.SphereGeometry(isStart ? 0.1 : 0.07, 12, 8),
+        new THREE.SphereGeometry(isStart ? 0.05 : 0.04, 12, 8),
         isStart ? startLampMat : lampMat
       );
-      lamp.position.set(sx, sy + poleH + (isStart ? 0.07 : 0.05), sz);
+      lamp.position.set(sx, sy + poleH + 0.03, sz);
       scene.add(pole, lamp);
     });
   }
@@ -1280,6 +1339,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       uVignette: { value: 1.05 },
       uExposure: { value: 1.0 },
       uGold: { value: 0 },
+      uDust: { value: 0.2 },
       uOptZoom: { value: 1 },
       uGlint: { value: 0 },
       uRay: { value: 0.00035 },
@@ -1537,6 +1597,126 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let pendingTeleport = null; // { tx, tz, lon, lat, elevMola, slopeDeg, distM }
   let hoverTarget = null;
 
+  // ---- Whole-Mars globe (default map scope). The local scope is the HiRISE strip you walk on. ----
+  let mapScope = "globe"; // "globe" | "local"
+  let globePick = null;
+  let globeFocused = false;
+  const globeHost = document.getElementById("hud-globe-host");
+  const mapScopeBtn = document.getElementById("hud-map-scope");
+  const globeLayerBtn = document.getElementById("hud-globe-layer");
+  const globeSunBtn = document.getElementById("hud-globe-sun");
+  const globeInfoEl = document.getElementById("hud-globe-info");
+  const globeInfoTitleEl = document.getElementById("hud-globe-info-title");
+  const globeInfoMetaEl = document.getElementById("hud-globe-info-meta");
+  const globeLocalBtn = document.getElementById("hud-globe-local");
+  const globeInfoCloseBtn = document.getElementById("hud-globe-info-close");
+  const walkSite = {
+    lon: (bounds.west_lon_deg + bounds.east_lon_deg) / 2,
+    lat: (bounds.south_lat_deg + bounds.north_lat_deg) / 2,
+  };
+  const LOCAL_REACH_KM = 90; // inside Gale crater: offer the local (walkable) map
+  const fmtLonLat = (lon, lat, d = 2) =>
+    `${Math.abs(lat).toFixed(d)}°${lat < 0 ? "S" : "N"} ${Math.abs(lon).toFixed(d)}°${lon < 0 ? "W" : "E"}`;
+  const globeReadout = (hit) => {
+    const tr = isTrLang();
+    const where = hit.feature ? ` · ${hit.feature.name.toUpperCase()}` : "";
+    const km = hit.walkKm < 10 ? hit.walkKm.toFixed(1) : Math.round(hit.walkKm).toLocaleString("en-US");
+    return (
+      `${fmtLonLat(hit.lon, hit.lat)} · MOLA ${Math.round(hit.elevM).toLocaleString("en-US")} m${where} · ` +
+      `${km} km ${tr ? "SENDEN" : "FROM YOU"}`
+    );
+  };
+  const globeHoverHint = () =>
+    isTrLang()
+      ? "SÜRÜKLE: DÖNDÜR · TEKER: YAKINLAŞ · TIKLA: İNCELE · GALE İÇİNDE: YEREL HARİTA"
+      : "DRAG: SPIN · WHEEL: ZOOM · CLICK: INSPECT · INSIDE GALE: LOCAL MAP";
+  function showGlobeInfo(hit) {
+    if (!globeInfoEl) return;
+    globePick = hit;
+    if (!hit) {
+      globeInfoEl.style.display = "none";
+      globe?.setTarget(null);
+      return;
+    }
+    const tr = isTrLang();
+    const f = hit.feature;
+    const kindTr = { crater: "krater", basin: "havza", mons: "volkan", region: "bölge", site: "iniş yeri" };
+    if (globeInfoTitleEl) {
+      let title = tr ? "Adsız arazi" : "Unnamed terrain";
+      if (f) {
+        const kind = tr ? kindTr[f.kind] || f.kind : f.kind === "site" ? "landing site" : f.kind;
+        title = f.dKm ? `${f.name} · ${kind} ${Math.round(f.dKm)} km` : `${f.name} · ${kind}`;
+      }
+      globeInfoTitleEl.textContent = title;
+    }
+    const near = hit.walkKm < LOCAL_REACH_KM;
+    if (globeInfoMetaEl) {
+      let note;
+      if (near) {
+        note = tr
+          ? "Gale içinde: yerel 1 m HiRISE haritasında ışınlanabilirsin."
+          : "Inside Gale: you can teleport on the local 1 m HiRISE map.";
+      } else {
+        note = tr
+          ? "Yürünebilir arazi yalnızca Gale'deki HiRISE şeridi; burası sadece incelenebilir."
+          : "Only the Gale HiRISE strip is walkable; this point is for looking at.";
+      }
+      globeInfoMetaEl.innerHTML =
+        `${fmtLonLat(hit.lon, hit.lat, 3)}<br/>` +
+        `<strong>MOLA:</strong> ${Math.round(hit.elevM).toLocaleString("en-US")} m ${tr ? "(areoide göre)" : "(vs the areoid)"}<br/>` +
+        `<strong>${tr ? "Senden" : "From you"}:</strong> ${Math.round(hit.walkKm).toLocaleString("en-US")} km<br/>` +
+        note;
+    }
+    if (globeLocalBtn) {
+      globeLocalBtn.style.display = near ? "" : "none";
+      globeLocalBtn.textContent = tr ? "Yerel haritayı aç" : "Open local map";
+    }
+    if (globeInfoCloseBtn) globeInfoCloseBtn.textContent = tr ? "Kapat" : "Close";
+    globeInfoEl.style.display = "block";
+    globe?.setTarget(hit);
+  }
+  const globe = globeHost
+    ? createVisorGlobe({
+        host: globeHost,
+        dataBase: new URL("../data/demo/", window.location.href).href,
+        walkSite,
+        onPick: (hit) => showGlobeInfo(hit),
+        onHover: (hit) => {
+          if (mapHoverEl && mapScope === "globe") mapHoverEl.textContent = hit ? globeReadout(hit) : globeHoverHint();
+        },
+      })
+    : null;
+  let localHoverText = mapHoverEl?.textContent || "";
+  function setMapScope(next) {
+    const wasGlobe = mapScope === "globe";
+    mapScope = next === "local" ? "local" : "globe";
+    const isGlobe = mapScope === "globe";
+    mapOverlayEl?.classList.toggle("scope-globe", isGlobe);
+    mapOverlayEl?.classList.toggle("scope-local", !isGlobe);
+    pendingTeleport = null;
+    if (mapConfirmEl) mapConfirmEl.style.display = "none";
+    if (!isGlobe) showGlobeInfo(null);
+    if (isGlobe && isMapOpen()) globe?.open().catch(() => {});
+    else globe?.close();
+    syncMapStaticText();
+    if (mapHoverEl) {
+      if (!wasGlobe && isGlobe) localHoverText = mapHoverEl.textContent;
+      mapHoverEl.textContent = isGlobe ? globeHoverHint() : localHoverText;
+    }
+    renderTacticalMap();
+  }
+  mapScopeBtn?.addEventListener("click", () => setMapScope(mapScope === "globe" ? "local" : "globe"));
+  globeLayerBtn?.addEventListener("click", () => {
+    globe?.cycleLayer();
+    syncMapStaticText();
+  });
+  globeSunBtn?.addEventListener("click", () => {
+    globe?.toggleSun();
+    syncMapStaticText();
+  });
+  globeLocalBtn?.addEventListener("click", () => setMapScope("local"));
+  globeInfoCloseBtn?.addEventListener("click", () => showGlobeInfo(null));
+
   // Build Martian-themed 3D elevation + slope base canvases directly from `elevGrid` (1:1 with 3D terrain)
   const mapBases = (() => {
     const w = elevGrid ? imgW : 256;
@@ -1622,7 +1802,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
         let sunVis = 1.0;
         if (sunMaskData && sunMaskW > 0) {
-          const smIdx = (y * sunMaskW + x) * 4;
+          // the mask has one texel per 2 x 2 DTM cells (and may still be baking: then all lit)
+          const smIdx = ((y >> 1) * sunMaskW + (x >> 1)) * 4;
           sunVis = (sunMaskData[smIdx] ?? 255) / 255;
         }
 
@@ -1735,6 +1916,47 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (mapConfirmYesBtn) mapConfirmYesBtn.textContent = tr ? "Evet, Işınlan" : "Yes, Teleport";
     if (mapConfirmNoBtn) mapConfirmNoBtn.textContent = tr ? "İptal" : "Cancel";
     if (btnMap) btnMap.textContent = isMapOpen() ? (tr ? "Harita: Açık" : "Map (M): ON") : tr ? "Harita (M)" : "Map (M)";
+    syncGlobeText(tr, tEl, sEl, etEl, cnEl);
+  }
+
+  // legend values of the local strip, kept so the globe scope can swap them and back
+  const legendEls = ["hud-map-elev-max", "hud-map-elev-mid", "hud-map-elev-min"].map((id) => document.getElementById(id));
+  let localLegend = null;
+  function syncGlobeText(tr, tEl, sEl, etEl, cnEl) {
+    const isGlobe = mapScope === "globe";
+    if (mapScopeBtn) {
+      if (isGlobe) mapScopeBtn.textContent = tr ? "Görünüm: Küre" : "Scope: Globe";
+      else mapScopeBtn.textContent = tr ? "Görünüm: Yerel" : "Scope: Local";
+    }
+    if (globeLayerBtn) {
+      const L = globe?.layer || "mono";
+      const names = tr
+        ? { mono: "Katman: Siyah-beyaz", viking: "Katman: Viking renk", mola: "Katman: MOLA kabartma" }
+        : { mono: "Layer: B/W", viking: "Layer: Viking colour", mola: "Layer: MOLA relief" };
+      globeLayerBtn.textContent = names[L];
+    }
+    if (globeSunBtn) {
+      const sun = globe ? globe.sunLit : true;
+      if (sun) globeSunBtn.textContent = tr ? "Işık: Güneş" : "Light: Sun";
+      else globeSunBtn.textContent = tr ? "Işık: Kask lambası" : "Light: Visor lamp";
+    }
+    if (!localLegend) localLegend = legendEls.map((el) => el?.textContent || "");
+    legendEls.forEach((el, i) => {
+      if (el) el.textContent = isGlobe ? ["+21,229 m", "+6,500 m", "-8,200 m"][i] : localLegend[i];
+    });
+    if (!isGlobe) return;
+    if (tEl) tEl.textContent = tr ? "MARS — KÜRESEL 3B HARİTA" : "MARS — GLOBAL 3D MAP";
+    if (sEl) {
+      sEl.textContent = tr
+        ? "MOLA YÜKSELTİ ×9 · VIKING MOZAİĞİ · GALE'DE 15:00 GÜNEŞİ · SÜRÜKLE · TEKER · TIKLA"
+        : "MOLA RELIEF ×9 · VIKING MOSAIC · SUN AT 15:00 GALE TIME · DRAG · WHEEL · CLICK";
+    }
+    if (etEl) etEl.textContent = tr ? "MOLA KÜRESEL YÜKSELTİ (m)" : "MOLA GLOBAL ELEVATION (m)";
+    if (cnEl) {
+      cnEl.textContent = tr
+        ? "NASA MGS MOLA MEGDR (8 px/derece), yarıçap ×9 abartılı; gece/gündüz sınırı Mars mevsimine göre gerçek güneş konumundan."
+        : "NASA MGS MOLA MEGDR (8 px/deg), radius exaggerated ×9; the day/night line comes from the real Sun position for the Mars season.";
+    }
   }
 
   function formatPointMetrics(tx, tz) {
@@ -1780,12 +2002,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (next) {
       keys.clear();
       dragging = false;
-      syncMapStaticText();
-      renderTacticalMap();
+      if (globe) {
+        const here = { lon: xToLon(player.x), lat: zToLat(player.z) };
+        globe.setPlayer(here.lon, here.lat);
+        if (!globeFocused) {
+          globe.focus(here.lon, here.lat + 4, 1);
+          globeFocused = true;
+        }
+      }
+      setMapScope(mapScope);
     } else {
       pendingTeleport = null;
       hoverTarget = null;
       if (mapConfirmEl) mapConfirmEl.style.display = "none";
+      showGlobeInfo(null);
+      globe?.close();
       syncMapStaticText();
     }
   }
@@ -1857,7 +2088,23 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       padLast = now;
       const live = isMapOpen() && gamepad.connected && !document.getElementById("pad-setup")?.classList.contains("open");
       padCross.classList.toggle("on", live && !pendingTeleport);
-      if (live) {
+      if (live && mapScope === "globe" && globe) {
+        // left stick: crosshair + readout; right stick: spin; LT / RT: zoom
+        const mv = gamepad.move();
+        if (mv.x || mv.y) {
+          padCx = Math.max(0.02, Math.min(0.98, padCx + mv.x * 0.5 * dt));
+          padCy = Math.max(0.02, Math.min(0.98, padCy - mv.y * 0.5 * dt));
+          const hit = globe.pickNormalized(padCx, padCy);
+          if (mapHoverEl) mapHoverEl.textContent = hit ? `${globeReadout(hit)} · A` : globeHoverHint();
+        }
+        const lk = gamepad.look();
+        if (lk.x || lk.y) globe.spin((lk.x * 70 * dt) / globe.zoom, (lk.y * 70 * dt) / globe.zoom);
+        const zIn = gamepad.buttons[7] || 0;
+        const zOut = gamepad.buttons[6] || 0;
+        if (zIn > 0.05 || zOut > 0.05) globe.zoomBy(Math.exp((zIn - zOut) * 1.4 * dt));
+        padCross.style.left = `${padCx * 100}%`;
+        padCross.style.top = `${padCy * 100}%`;
+      } else if (live) {
         const mv = gamepad.move();
         if (mv.x || mv.y) {
           padCx = Math.max(0.02, Math.min(0.98, padCx + mv.x * 0.5 * dt));
@@ -1880,10 +2127,25 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     };
     requestAnimationFrame(padFrame);
 
-    gamepad.onPress(({ button }) => {
+    gamepad.onPress(({ button, actions }) => {
       if (!isMapOpen()) return;
       if (document.getElementById("pad-setup")?.classList.contains("open")) return;
       if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
+      if (actions.includes("map")) return; // View closes the map in app.js
+      if (actions.includes("pin")) return setMapScope(mapScope === "globe" ? "local" : "globe");
+      if (mapScope === "globe") {
+        if (actions.includes("texture")) {
+          globe?.cycleLayer();
+          syncMapStaticText();
+        } else if (button === 0) {
+          if (globePick && globePick.walkKm < LOCAL_REACH_KM) setMapScope("local");
+          else showGlobeInfo(globe?.pickNormalized(padCx, padCy) || null);
+        } else if (button === 1) {
+          if (globePick) showGlobeInfo(null);
+          else setMapOpen(false);
+        }
+        return;
+      }
       if (button === 0) {
         if (pendingTeleport) mapConfirmYesBtn?.click();
         else {
@@ -1899,7 +2161,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   function renderTacticalMap() {
-    if (!mapCtx || !mapCanvasEl || !isMapOpen()) return;
+    if (!mapCtx || !mapCanvasEl || !isMapOpen() || mapScope === "globe") return;
     const W = mapCanvasEl.width;
     const H = mapCanvasEl.height;
     const baseImg = mapLayerMode === "hazard" ? mapBases.hazCanvas : mapBases.elevCanvas;
@@ -2428,6 +2690,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
 
+    // boot dust: kicked up on take-off, a burst on landing (scaled by impact speed)
+    if (movedXZ >= 20) dustFx.clear(); // teleport / wrap: old puffs would hang in the wrong place
+    if (movedXZ > 1e-5 && movedXZ < 20) _dustMove.set(mvx, 0, mvz).normalize();
+    else _dustMove.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    if (fxWasGrounded !== player.grounded && movedXZ < 20) {
+      const gy = sampleElevSceneY(px, pz);
+      const n = sampleNormal(px, pz);
+      _dustPos.set(px, gy, pz);
+      _dustNrm.set(n.x, n.y, n.z);
+      if (!player.grounded) dustFx.emitTakeoff(_dustPos, _dustNrm, _dustMove);
+      else dustFx.emitLanding(_dustPos, _dustNrm, Math.max(1.6, phys.impactSpeed || 2.4), _dustMove);
+    }
+    fxWasGrounded = player.grounded;
+    lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
+
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
     let gaitDir = null;
@@ -2465,6 +2742,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const n = sampleNormal(footPos.x, footPos.z);
       footsteps.play(side, phys.faciesId);
       footsteps.stamp(footPos.x, gy, footPos.z, n, yaw, phys.faciesId);
+      _dustPos.set(footPos.x, gy, footPos.z);
+      _dustNrm.set(n.x, n.y, n.z);
+      dustFx.emitFootstep(_dustPos, _dustNrm, _dustMove, Math.min(1.6, 0.45 + groundSpeed / 1.6));
     }
 
     // helmet camera at the visor, with only a few millimetres of walking sway
@@ -2549,6 +2829,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     footsteps.update(dt, phys.g || surfaceG);
     rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
+    dustFx.update(dt, camera, sunTransit);
+    windDust.setPixelScale(renderer.domElement.height);
+    windDust.update(dt, camera, devCfg.windDust === false ? 0 : 1);
     const tauDim = Math.exp(-0.28 * ((devCfg.dustTau ?? 0.5) - 0.5));
     sun.intensity = (devCfg.superGraphics ? 3.95 : 3.6) * (sunState.fluxWm2 / 590) * tauDim * sunTransit;
 

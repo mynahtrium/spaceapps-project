@@ -298,8 +298,8 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     const up = a.elbow.clone().sub(a.shoulder).normalize();
     const fore = a.hand.clone().sub(a.elbow).normalize();
     // pressurised suits hold the upper arms a little forward and out, hands in front of the hips
-    const upTarget = new THREE.Vector3(sign * 0.24, -1, -0.34).normalize();
-    const foreTarget = new THREE.Vector3(sign * 0.04, -0.62, -0.78).normalize();
+    const upTarget = new THREE.Vector3(sign * 0.2, -1, -0.24).normalize();
+    const foreTarget = new THREE.Vector3(sign * 0.02, -0.74, -0.67).normalize();
     const qS = new THREE.Quaternion().setFromUnitVectors(up, upTarget);
     const foreInUpper = foreTarget.clone().applyQuaternion(qS.clone().invert());
     const qE = new THREE.Quaternion().setFromUnitVectors(fore, foreInUpper);

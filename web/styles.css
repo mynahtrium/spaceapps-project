@@ -560,64 +560,100 @@ svg.profile-svg {
   display: none;
 }
 
+/* Helmet HUD in the black-and-white "Untitled" style: flat white typewriter text on thin black
+   bands, no tint, no tilt. Same element ids as before, so hud3d.js fills it unchanged. */
 .visor-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  color: #e7f6c8;
-  text-shadow: 0 0 8px rgba(160, 200, 90, 0.28);
+  color: #fff;
+  font-family: var(--mono);
+  text-shadow: 0 0 2px #000, 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+
+.visor-overlay::before {
+  /* REC stamp, top right, like a helmet camera */
+  content: "● REC  EVA-CAM 02";
+  position: absolute;
+  top: 16px;
+  right: 22px;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  color: #fff;
+  animation: blink 1.6s steps(1) infinite;
 }
 
 .helmet-status {
   position: absolute;
-  top: 16px;
-  left: 22px;
+  top: 14px;
+  left: 18px;
   max-width: min(460px, 46vw);
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.42);
+  border-left: 1px solid rgba(255, 255, 255, 0.55);
   font-size: 10.5px;
-  line-height: 1.55;
+  line-height: 1.6;
   letter-spacing: 0.12em;
-  opacity: 0.82;
+  text-transform: uppercase;
+}
+
+.helmet-status > div:not(:first-child) {
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.helmet-status #hud-clock {
+  color: #fff;
+  font-size: 12px;
 }
 
 .helmet-glass {
   position: absolute;
-  left: 5vw;
-  right: 5vw;
-  bottom: 5vh;
+  left: 18px;
+  right: 18px;
+  bottom: 34px;
   display: flex;
   justify-content: space-between;
+  align-items: flex-end;
   gap: 24px;
-  transform: perspective(820px) rotateX(16deg);
-  transform-origin: center bottom;
 }
 
 .helmet-readout {
-  min-width: 200px;
-  font-size: 13px;
+  min-width: 220px;
+  padding: 6px 12px 8px;
+  background: rgba(0, 0, 0, 0.42);
+  border-left: 1px solid rgba(255, 255, 255, 0.55);
+  font-size: 12px;
   letter-spacing: 0.14em;
   line-height: 1.35;
 }
 
 .helmet-readout-right {
   text-align: right;
+  border-left: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.55);
 }
 
 .helmet-k {
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 9px;
-  letter-spacing: 0.22em;
-  opacity: 0.62;
+  letter-spacing: 0.26em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.helmet-k:first-child {
+  margin-top: 0;
 }
 
 .helmet-v {
-  font-size: 18px;
+  font-size: 17px;
   letter-spacing: 0.08em;
+  color: #fff;
 }
 
 .helmet-note {
   font-size: 9px;
   letter-spacing: 0.05em;
-  opacity: 0.55;
+  color: rgba(255, 255, 255, 0.42);
   max-width: 280px;
 }
 
@@ -625,10 +661,15 @@ svg.profile-svg {
   margin-left: auto;
 }
 
+.helmet-readout .o2-bar {
+  width: 160px;
+  margin: 3px 0 3px auto;
+}
+
 .zoom-reticle {
   position: absolute;
   left: 50%;
-  top: 46%;
+  top: 50%;
   width: 140px;
   height: 140px;
   transform: translate(-50%, -50%);
@@ -637,7 +678,7 @@ svg.profile-svg {
 .zoom-ring {
   position: absolute;
   inset: 18px;
-  border: 1px solid rgba(231, 246, 200, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 50%;
 }
 
@@ -645,7 +686,7 @@ svg.profile-svg {
 .zoom-ring::after {
   content: "";
   position: absolute;
-  background: rgba(231, 246, 200, 0.75);
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .zoom-ring::before {
@@ -818,7 +859,7 @@ svg.profile-svg {
   max-width: min(720px, 70vw);
   font-size: 9.5px;
   letter-spacing: 0.12em;
-  color: rgba(231, 246, 200, 0.55);
+  color: rgba(255, 255, 255, 0.45);
   text-align: left;
   animation: hint-fade 1.4s ease 8s forwards;
 }
@@ -1200,7 +1241,7 @@ svg.profile-svg {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
   letter-spacing: 0.08em;
-  color: #d7e7ff;
+  color: #fff;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
 
@@ -1213,9 +1254,9 @@ svg.profile-svg {
   transform: translateX(-50%);
   z-index: 20;
   padding: 6px 14px;
-  background: rgba(16, 10, 8, 0.9);
-  border: 1px solid #d4895a;
-  color: #f6d5b8;
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  color: #fff;
   font-size: 10.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -1234,7 +1275,7 @@ svg.profile-svg {
   position: absolute;
   inset: 0;
   z-index: 30;
-  background: rgba(6, 4, 3, 0.84);
+  background: rgba(0, 0, 0, 0.86);
   backdrop-filter: blur(4px);
   display: none;
   align-items: center;
@@ -1250,8 +1291,8 @@ svg.profile-svg {
   width: min(860px, 100%);
   max-height: 92vh;
   overflow-y: auto;
-  background: #0c0806;
-  border: 1px solid rgba(212, 137, 90, 0.55);
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.4);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
   padding: 18px 20px;
 }
@@ -1262,12 +1303,12 @@ svg.profile-svg {
   align-items: flex-start;
   gap: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(212, 137, 90, 0.28);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
   margin-bottom: 14px;
 }
 
 .hud-map-title {
-  color: #f7dec4;
+  color: #fff;
   font-size: 12px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -1277,7 +1318,7 @@ svg.profile-svg {
   margin-top: 4px;
   font-size: 10px;
   letter-spacing: 0.12em;
-  color: rgba(235, 196, 162, 0.65);
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .hud-map-header-actions {
@@ -1312,8 +1353,8 @@ svg.profile-svg {
   width: 100%;
   aspect-ratio: 1 / 1;
   max-height: min(560px, 66vh);
-  border: 1px solid rgba(212, 137, 90, 0.45);
-  background: #1a100c;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: #000;
   overflow: hidden;
 }
 
@@ -1327,9 +1368,9 @@ svg.profile-svg {
 .hud-map-hover {
   font-size: 10.5px;
   letter-spacing: 0.08em;
-  color: #f1cfb0;
-  background: rgba(24, 14, 10, 0.9);
-  border: 1px solid rgba(212, 137, 90, 0.28);
+  color: rgba(255, 255, 255, 0.85);
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   padding: 7px 10px;
 }
 
@@ -1348,15 +1389,15 @@ svg.profile-svg {
 }
 
 .hud-map-panel {
-  border: 1px solid rgba(212, 137, 90, 0.28);
-  background: rgba(18, 11, 8, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.9);
   padding: 12px;
 }
 
 .hud-map-panel-title {
   font-size: 9.5px;
   letter-spacing: 0.18em;
-  color: #f6d5b8;
+  color: rgba(255, 255, 255, 0.75);
   margin-bottom: 10px;
   text-transform: uppercase;
 }
@@ -1386,14 +1427,14 @@ svg.profile-svg {
   flex-direction: column;
   justify-content: space-between;
   font-size: 10.5px;
-  color: #f3d6bc;
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .hud-map-legend-note {
   margin-top: 10px;
   font-size: 10px;
   line-height: 1.5;
-  color: rgba(235, 196, 162, 0.7);
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .hud-map-key-row {
@@ -1401,7 +1442,7 @@ svg.profile-svg {
   align-items: center;
   gap: 8px;
   font-size: 10.5px;
-  color: rgba(243, 214, 188, 0.85);
+  color: rgba(255, 255, 255, 0.8);
   margin-bottom: 6px;
 }
 
@@ -1441,13 +1482,13 @@ svg.profile-svg {
 }
 
 .hud-map-confirm {
-  border: 1px solid #fbbf24;
-  background: rgba(34, 19, 10, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.96);
   padding: 12px;
 }
 
 .hud-map-confirm-q {
-  color: #fde68a;
+  color: #fff;
   font-size: 11.5px;
   letter-spacing: 0.08em;
   font-weight: 600;
@@ -1457,7 +1498,7 @@ svg.profile-svg {
 .hud-map-confirm-meta {
   font-size: 10px;
   line-height: 1.55;
-  color: #f3d6bc;
+  color: rgba(255, 255, 255, 0.82);
   margin-bottom: 10px;
 }
 
@@ -1465,4 +1506,225 @@ svg.profile-svg {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* ---------- Whole-Mars globe in the map overlay (web/hud/visor-globe.js) ---------- */
+
+.hud-map-canvas-frame {
+  position: relative;
+}
+
+.hud-globe-host {
+  position: absolute;
+  inset: 0;
+  display: none;
+  overflow: hidden;
+  background: #000;
+  cursor: grab;
+}
+
+.hud-globe-host:active {
+  cursor: grabbing;
+}
+
+.hud-map-overlay.scope-globe .hud-globe-host {
+  display: block;
+}
+
+.hud-map-overlay.scope-globe #hud-map-canvas {
+  visibility: hidden;
+}
+
+.hud-map-overlay.scope-globe #hud-map-mode,
+.hud-map-overlay.scope-globe .hud-map-local-only,
+.hud-map-overlay.scope-local #hud-globe-layer,
+.hud-map-overlay.scope-local #hud-globe-sun,
+.hud-map-overlay.scope-local .hud-map-globe-only,
+.hud-map-overlay.scope-local .hud-globe-info {
+  display: none !important;
+}
+
+.hud-map-overlay .pad-crosshair {
+  z-index: 3;
+}
+
+.globe-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.globe-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.globe-status {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  pointer-events: none;
+  animation: blink 1.6s steps(1) infinite;
+}
+
+.globe-status:empty {
+  display: none;
+}
+
+.globe-label,
+.globe-you,
+.globe-target {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 0 3px #000, 0 0 2px #000;
+  will-change: transform;
+}
+
+.globe-label i,
+.globe-you i,
+.globe-target i {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+}
+
+.globe-label span,
+.globe-you span {
+  position: absolute;
+  left: 7px;
+  top: -6px;
+}
+
+.globe-crater i,
+.globe-basin i {
+  background: transparent;
+}
+
+.globe-mons i {
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+
+.globe-region span {
+  left: -40px;
+  top: -5px;
+  width: 80px;
+  text-align: center;
+  white-space: normal;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.24em;
+}
+
+.globe-region i {
+  display: none;
+}
+
+.globe-site {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 8.5px;
+}
+
+.globe-site i {
+  width: 4px;
+  height: 4px;
+  left: -2px;
+  top: -2px;
+  background: #fff;
+}
+
+.globe-you {
+  color: #fff;
+  font-weight: 600;
+}
+
+.globe-you i {
+  left: -6px;
+  top: -6px;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid #fff;
+  background: rgba(255, 255, 255, 0.25);
+  transition: transform 0.6s ease;
+}
+
+.globe-you.pulse i {
+  transform: scale(1.7);
+  opacity: 0.6;
+}
+
+.globe-target i {
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  border-radius: 0;
+  border: 1px solid #fff;
+}
+
+.globe-target i::before,
+.globe-target i::after {
+  content: "";
+  position: absolute;
+  background: #fff;
+}
+
+.globe-target i::before {
+  left: 8px;
+  top: -6px;
+  width: 1px;
+  height: 28px;
+}
+
+.globe-target i::after {
+  top: 8px;
+  left: -6px;
+  height: 1px;
+  width: 28px;
+}
+
+.hud-map-overlay.scope-globe .hud-map-legend-bar {
+  background: linear-gradient(to bottom, #fff 0%, #9a9a9a 35%, #4a4a4a 70%, #111 100%);
+}
+
+/* globe legend: the same white marks as on the globe */
+.hud-map-globe-only .dot-you {
+  background: rgba(255, 255, 255, 0.25);
+  border: 1.5px solid #fff;
+}
+.hud-map-globe-only .dot-stop {
+  background: transparent;
+  border: 1px solid #fff;
+}
+.hud-map-globe-only .dot-start {
+  background: transparent;
+  border: 1px solid #fff;
+  border-radius: 0;
+  transform: rotate(45deg) scale(0.8);
+}
+.hud-map-globe-only .dot-target {
+  background: #fff;
+  border: 0;
+  width: 5px;
+  height: 5px;
+  margin: 0 2px;
 }

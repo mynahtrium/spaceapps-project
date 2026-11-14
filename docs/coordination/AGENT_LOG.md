@@ -935,3 +935,22 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Main changed while I was pushing (mynahtrium put the helmet visor and a physics world on main and took the spherical Mars globe off main; the globe lives on the demo-1 branch). Cagan said the 3D map must stay demo-1 only, so the controller work is split: this commit adds the controller to main without the globe, and the globe version is published separately as branch demo1-controller (merge of Cinar D.'s demo-1 work plus the controller). Layout: left stick move, right stick camera, Menu = Esc menu, View = map, A confirm (jump in game), B back, X landmark, Y theme, RT run; D-pad or left stick move through menus; rebinding and a controller silhouette on the setup screen. Walking and running go through the physics world (stick pushes scale speed; checked: full stick 1.38 m/s, half 0.57 m/s, RT 2.48 m/s). The visor's map overlay (View / M) and the planner map both have a crosshair (left stick), A to pick then A to teleport, B to cancel then close; the planner also turns with the right stick and zooms with LT/RT. Tested with a simulated pad in demo and normal mode; all web tests pass.
 - Commit: this commit
 - Next step: Cagan tries a real controller; Cinar D. may merge demo1-controller into demo-1.
+
+### 2026-11-14 22:10 Europe/Istanbul — Untitled HUD back, globe map on main, dust FX, faster start
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 / MAP-01 follow-up
+- Files changed: web/hud/visor-globe.js (new), web/hud/wind-dust.js (new), web/hud/dust-fx.js + web/tests/dust-fx.test.mjs + web/assets/dust/mars-dust-atlas.png (from demo-1), data/demo/mars-mola-dem.png + mars-viking-global.jpg + mars-mola-shaded.jpg + mars-global-sources.json (from demo-1), web/hud/hud3d.js, web/hud/astronaut-rig.js, web/app.js, web/index.html, web/styles.css, docs/DATA_SOURCES.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked to put the HUD back in the black-and-white "Untitled" style, remove the white line in the middle of the view, fix the arms, make the start faster, turn the map into a globe that shows craters, and add dust effects. He chose to do this on main, which overrides the 21:16 decision to keep the globe off main (handoff below). What changed:
+  - HUD: white typewriter text on thin black bands, no green tint and no tilt, REC stamp; the M map overlay is black and white too.
+  - The white line was the 4.6 m survey pole at the start stop, right in front of the spawn point. The start stop has no marker now; the other stops are knee-high stakes.
+  - Arms: the orange ACES launch suit holds its arms differently from the Mark III suit the rig was tuned on, so the arms bent outward. Mark III is first again (ACES is the fallback); hands rest a little closer to the body.
+  - Map: the M / View overlay opens on a whole-Mars globe. The sphere is pushed out by MOLA relief (x9) and shaded per pixel from the MOLA normals. Light comes from the real Sun (subsolar point for 15:00 at Gale), with a visor-lamp option. Layers are black and white, Viking colour and MOLA relief. Craters, basins, volcanoes and landing sites are labelled. Drag spins the globe, the wheel zooms toward the cursor (up to 6x), and a click inspects a point. Inside Gale the local HiRISE map opens for teleporting. Controller: left stick crosshair, right stick spin, LT/RT zoom, A inspect (again inside Gale: local map), B back, X globe/local, Y layer, View close. The globe data loads only when the map first opens.
+  - FX: boot dust (footsteps, take-off, landing) from demo-1's dust-fx, plus new wind dust: hopping sand grains near the boots, sunlit motes in the air, and dust sheets drifting in gusts. Dust also builds up on the visor glass while you walk.
+  - Start: the sun-shadow bake took about 5 s before anything showed. It now runs at half resolution in the background after the world is up (app ready about 7.2 s → 2.6 s). The intro types faster and a key or click skips it.
+  - Crew / multiplayer is unchanged (Cagan: keep it).
+- Tests: all 6 web test files pass. Checked in the browser (demo mode): HUD, globe pick, zoom, local switch, and every controller path with a simulated pad.
+- Commit: this commit
+- Next step: Doruk / Cinar D. look at the globe on main; Cagan tries it with a real controller.

@@ -62,6 +62,7 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
   const items = [...menu.querySelectorAll(".menu-item")];
   let lang = readLang();
   let typingToken = 0;
+  let typingSkip = false; // a key or click during the intro finishes it at once
   let focusIdx = 0;
 
   function applyLang() {
@@ -84,23 +85,30 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
     linesEl.appendChild(title);
     const caret = document.createElement("span");
     caret.className = "caret";
+    typingSkip = false;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const sleep = (ms) => new Promise((r) => setTimeout(r, reduce ? 0 : ms));
+    const sleep = (ms) => (reduce || typingSkip ? Promise.resolve() : new Promise((r) => setTimeout(r, ms)));
     const type = async (el, text, ms) => {
-      for (const ch of text) {
+      for (let i = 0; i < text.length; i++) {
         if (token !== typingToken) return false;
-        el.textContent += ch;
+        if (typingSkip) {
+          el.textContent += text.slice(i);
+          break;
+        }
+        el.textContent += text[i];
         el.after(caret);
         await sleep(ms);
       }
+      el.after(caret);
       return true;
     };
-    if (!(await type(title, t.title, 55))) return;
+    // quicker than before (55 / 16 / 180 ms): the menu is up in about 1.5 s
+    if (!(await type(title, t.title, 24))) return;
     for (const line of t.lines) {
       const row = document.createElement("div");
       linesEl.appendChild(row);
-      await sleep(180);
-      if (!(await type(row, line, 16))) return;
+      await sleep(60);
+      if (!(await type(row, line, 6))) return;
     }
     if (token === typingToken) menu.classList.add("shown");
   }
@@ -130,8 +138,12 @@ function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
     });
   });
 
+  screen.addEventListener("pointerdown", () => {
+    typingSkip = true;
+  });
   window.addEventListener("keydown", (e) => {
     if (screen.classList.contains("hidden")) return;
+    if (!menu.classList.contains("shown")) typingSkip = true;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
     if (e.key === "ArrowDown") setFocus(focusIdx + 1);
@@ -232,8 +244,8 @@ async function boot() {
     }
     if (actions.includes("menu")) return start.show();
     if (actions.includes("setup")) return padSetup.open();
+    if (actions.includes("map")) return toggleMap(); // opens and closes the map
     if (window.__MM_APP__?.hudApi?.isMapOpen?.()) return; // the map overlay has its own A / B
-    if (actions.includes("map")) return toggleMap();
     if (isOn("planner-view", "active")) {
       if (button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
       else if (button === CONFIRM_BUTTON) window.__MM_APP__?.plannerApi?.padConfirm?.();

@@ -172,6 +172,9 @@
               <div class="hud-map-sub" id="hud-map-sub">HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP</div>
             </div>
             <div class="hud-map-header-actions">
+              <button id="hud-map-scope" class="btn" type="button">Scope: Globe</button>
+              <button id="hud-globe-layer" class="btn" type="button">Layer: B/W</button>
+              <button id="hud-globe-sun" class="btn" type="button">Light: Sun</button>
               <button id="hud-map-mode" class="btn" type="button">Layer: Elevation 3D</button>
               <button id="hud-map-close" class="btn" type="button">Close (M)</button>
             </div>
@@ -181,6 +184,7 @@
             <div class="hud-map-canvas-col">
               <div class="hud-map-canvas-frame">
                 <canvas id="hud-map-canvas" width="540" height="540"></canvas>
+                <div id="hud-globe-host" class="hud-globe-host"></div>
               </div>
               <div id="hud-map-hover" class="hud-map-hover">
                 HOVER OR CLICK ON MAP FOR 3D ELEVATION (m MOLA) &amp; SLOPE (°)
@@ -203,7 +207,24 @@
                 </div>
               </div>
 
-              <div class="hud-map-panel">
+              <div class="hud-map-panel hud-map-globe-only">
+                <div class="hud-map-panel-title">ON THE GLOBE</div>
+                <div class="hud-map-key-row"><span class="dot-you"></span> You (the HiRISE walk strip)</div>
+                <div class="hud-map-key-row"><span class="dot-stop"></span> Craters &amp; basins</div>
+                <div class="hud-map-key-row"><span class="dot-start"></span> Volcanoes</div>
+                <div class="hud-map-key-row"><span class="dot-target"></span> Landing sites (zoom in)</div>
+              </div>
+
+              <div id="hud-globe-info" class="hud-map-confirm hud-globe-info" style="display:none;">
+                <div class="hud-map-confirm-q" id="hud-globe-info-title">—</div>
+                <div class="hud-map-confirm-meta" id="hud-globe-info-meta">—</div>
+                <div class="hud-map-confirm-actions">
+                  <button id="hud-globe-local" class="btn primary" type="button">Open local map</button>
+                  <button id="hud-globe-info-close" class="btn" type="button">Close</button>
+                </div>
+              </div>
+
+              <div class="hud-map-panel hud-map-local-only">
                 <div class="hud-map-panel-title" id="hud-map-key-title">MARKERS &amp; WRAP</div>
                 <div class="hud-map-key-row"><span class="dot-you"></span> You + gaze cone</div>
                 <div class="hud-map-key-row"><span class="dot-start"></span> Habitat / Start mast</div>
