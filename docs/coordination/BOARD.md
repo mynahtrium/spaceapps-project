@@ -62,7 +62,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
-| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | CC | Antigravity (Gemini) | review | hour 22 | No spatial radiation map; re-run when B2 locks `route.json` |
+| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | CC | Grok (Cursor) | doing | hour 22 | Claimed 2026-11-14 13:02 to refresh from example `route.json`. No NASA key on this machine; no spatial radiation map. |
 | SHOULD-02 | Cached DONKI / WSA-Enlil `alerts.json` + banner copy | B3 | CC | Antigravity (Gemini) | review | hour 22 | Cache only; personal key |
 | SHOULD-03 | POV stills for each stop, or honest empty state | B3 | CC | Antigravity (Gemini) | review | hour 28 | 4 JPEGs + JSONs in `data/processed/science/pov/`; re-run when `stops.json` locks |
 | SHOULD-04 | REMS weather window + THEMIS (CRISM if ready) layer metadata | B3 | CC | Antigravity (Gemini) | review | hour 32 | CAB/NASA REMS feed (4,745 sols) + THEMIS tiles + 9 CRISM MTRDR records |

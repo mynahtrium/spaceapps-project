@@ -328,3 +328,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Document long-lived branches (merge to main only when asked), pull-then-push after every prompt, and remaining backend work split (Cagan terrain+costmap; Doruk routing+stops example until PRE-07; CC science leftovers). Frontend/testers marked not this pass. No application code for Cagan/CC; no secrets.
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
+
+### 2026-11-14 13:02 Europe/Istanbul — SHOULD-01 (claim)
+
+- Human: CC
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: backend-3
+- Task id: SHOULD-01
+- Files changed: docs/comms/note-backend-3-science-leftovers.md (new), docs/comms/README.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Posted the Backend 3 note for this pass before editing science files. Claimed SHOULD-01. `NASA_API_KEY` is absent; live DONKI will be skipped; labelled example fixtures will be added without replacing the existing cache. No secrets.
+- Commit: this commit
+- Next step: Refresh dose from the example route, relabel POV JSON offline, write the labelled DONKI example, and tidy B3 board rows.
