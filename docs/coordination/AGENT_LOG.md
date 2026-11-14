@@ -272,3 +272,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Built Phase 2 science outputs from cached/live NASA & PDS sources: alerts.json (13 WSA-Enlil Mars impacts), dose.json (0.0427 +/- 0.008 mSv using Hassler et al. 2014 baseline and placeholder 96 min route duration), layers-themis.json + 6 cached Gale sample PNG tiles (Day/Night IR z4/z6/z8), and layers-crism.json (9 CRISM MTRDR products over Gale via ODE REST). Marked MUST-07 review on BOARD.md and logged handoff to F1/Testers/B1.
 - Commit: this commit
 - Next step: Once PRE-07/MUST-04 locks stops and Backend 2 produces route.json, re-run build_dose.py, build per-stop POV stills (SHOULD-03), resolve weather.json (SHOULD-04), and copy frozen fixtures into data/demo/ (SHOULD-07).
+
+### 2026-11-14 12:20 Europe/Istanbul — SHOULD-03, SHOULD-04, SHOULD-07 (B3 complete)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: backend-3
+- Task id: SHOULD-03, SHOULD-04, SHOULD-07
+- Files changed: docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, docs/AI_USE.md, pipeline/data/build_weather.py, pipeline/data/build_pov.py, pipeline/data/export_demo_fixtures.py, pipeline/data/run_phase3.py, data/processed/science/weather.json, data/processed/science/pov/*, data/demo/*
+- Why: Completed Backend 3 Phase 3 outputs: weather.json from official CAB/NASA REMS daily summary feed (4,745 sols through Sol 4995, no invented hourly curve), 4 cached Curiosity POV JPEGs + per-stop JSONs (marked example stops until PRE-07 locks), and exported 22 frozen science fixtures (789.7 KB) to data/demo/ for demo-safe mode. Marked SHOULD-01..04 review on BOARD.md, logged AI use in docs/AI_USE.md, and added final handoff in HANDOFFS.md.
+- Commit: this commit
+- Next step: Open PR for backend-3/must-07-data-cache; re-run build_dose, build_pov, and export_demo_fixtures once Backend 2 lands locked stops.json and route.json.

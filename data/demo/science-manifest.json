@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-11-14T09:19:13Z",
+  "owner": "backend-3",
+  "purpose": "Frozen offline fixtures for DEMO_SAFE=1 / ?demo=1 (SHOULD-07)",
+  "file_count": 20,
+  "files": [
+    "alerts.json",
+    "dose.json",
+    "weather.json",
+    "layers-themis.json",
+    "layers-crism.json",
+    "pov/index.json",
+    "pov/stop-boxwork-bonus.jpg",
+    "pov/stop-boxwork-bonus.json",
+    "pov/stop-habitat.jpg",
+    "pov/stop-habitat.json",
+    "pov/stop-mudstone-a.jpg",
+    "pov/stop-mudstone-a.json",
+    "pov/stop-mudstone-b.jpg",
+    "pov/stop-mudstone-b.json",
+    "tiles/themis/day/z4_r8_c28.png",
+    "tiles/themis/day/z6_r33_c112.png",
+    "tiles/themis/day/z8_r134_c451.png",
+    "tiles/themis/night/z4_r8_c28.png",
+    "tiles/themis/night/z6_r33_c112.png",
+    "tiles/themis/night/z8_r134_c451.png"
+  ]
+}

@@ -87,3 +87,25 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
   - Testers: review PR / verify offline JSON contracts.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (kept contract field names; additive metadata fields only)
 - Received:
+
+### HANDOFF-20261114-1220 — from Backend 3 to Frontend 1, Tester 1, Tester 2, Backend 2
+
+- Date (Europe/Istanbul): 2026-11-14 12:20
+- From (role, first name or nickname only, agent tool): Backend 3, CC, Antigravity (Gemini)
+- To (role, name if known): Frontend 1, Tester 1 (Asil), Tester 2 (Eymen), Backend 2 (Doruk)
+- Board task id: SHOULD-03, SHOULD-04, SHOULD-07 (B3 complete)
+- What is ready:
+  - `data/processed/science/weather.json` (4,745 sols from CAB/NASA MSL REMS outreach feed through Sol 4995; early-morning EVA window `06:46`–`09:30` LTST)
+  - `data/processed/science/pov/` (`index.json` + 4 per-stop JSONs and 4 cached Curiosity JPEGs: Sol 5073 Navcams + Sol 4698 boxwork Mastcam, ~91–115 KB each)
+  - `data/demo/` frozen science fixtures exported (`22` files, `789.7 KB` total, listed in `data/demo/science-manifest.json`) for offline `DEMO_SAFE=1` / `?demo=1`
+- Paths (files or folders): `pipeline/data/`, `data/processed/science/`, `data/demo/`
+- How to try it: Run `python -m pipeline.data.run_phase3` (after `run_must07` and `run_phase2`). All `data/processed/science/` assets total `838.3 KB` (well under the 100 MB budget).
+- What is not done / known limits:
+  - `dose.json` and `pov/*.json` currently use `docs/contracts/route.json` (`96 min`) and `docs/contracts/stops.json` (`is_example_stop: true`). Once Backend 2 writes locked `data/processed/routing/stops.json` and `route.json`, re-run `python -m pipeline.data.run_phase2` and `python -m pipeline.data.run_phase3` (or `build_dose`, `build_pov`, `export_demo_fixtures`) to refresh them automatically.
+  - REMS sub-hourly diurnal curves are not in the CAB daily summary feed (only daily min/max air/ground temperatures are reported; no hourly curve invented).
+- Please do next:
+  - Testers: review `backend-3/must-07-data-cache` PR and sign off `MUST-07`, `SHOULD-01`–`SHOULD-04` (and B3's `SHOULD-07` fixtures).
+  - Frontend 1: wire `data/processed/science/` (and `data/demo/` for `?demo=1`).
+  - Backend 2: ping Backend 3 once `stops.json` and `route.json` are locked so we refresh `dose.json` + `pov/`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:

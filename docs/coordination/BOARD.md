@@ -61,13 +61,13 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
-| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | CC | Antigravity (Gemini) | doing | hour 22 | No spatial radiation map |
-| SHOULD-02 | Cached DONKI / WSA-Enlil `alerts.json` + banner copy | B3 | CC | Antigravity (Gemini) | doing | hour 22 | Cache only; personal key |
-| SHOULD-03 | POV stills for each stop, or honest empty state | B3 | TBD | TBD | todo | hour 28 | |
-| SHOULD-04 | REMS weather window + THEMIS (CRISM if ready) layer metadata | B3 | CC | Antigravity (Gemini) | doing | hour 32 | THEMIS/CRISM first pass; REMS unavailable |
+| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | CC | Antigravity (Gemini) | review | hour 22 | No spatial radiation map; re-run when B2 locks `route.json` |
+| SHOULD-02 | Cached DONKI / WSA-Enlil `alerts.json` + banner copy | B3 | CC | Antigravity (Gemini) | review | hour 22 | Cache only; personal key |
+| SHOULD-03 | POV stills for each stop, or honest empty state | B3 | CC | Antigravity (Gemini) | review | hour 28 | 4 JPEGs + JSONs in `data/processed/science/pov/`; re-run when `stops.json` locks |
+| SHOULD-04 | REMS weather window + THEMIS (CRISM if ready) layer metadata | B3 | CC | Antigravity (Gemini) | review | hour 32 | CAB/NASA REMS feed (4,745 sols) + THEMIS tiles + 9 CRISM MTRDR records |
 | SHOULD-05 | HUD / planner: dose card, DONKI banner, POV, weather/thermal toggles | F1 | TBD | TBD | todo | hour 32 | |
 | SHOULD-06 | Optional 15° / 20° mask and route toggle | B1, B2, F1 | TBD | TBD | todo | hour 32 | Nice, not required to pass SHOULD |
-| SHOULD-07 | **Demo-safe mode** (must-have): `DEMO_SAFE=1` or `?demo=1` loads only `data/demo/` fixtures; no network, NASA, or DONKI calls | F1 (implement); B1–B3 (fixtures); T1 (verify) | TBD | TBD | todo | hour 32 | Spec: [ROADMAP.md](../../ROADMAP.md) § Demo-safe and [docs/contracts/README.md](../contracts/README.md). Implementation after 14 Nov. |
+| SHOULD-07 | **Demo-safe mode** (must-have): `DEMO_SAFE=1` or `?demo=1` loads only `data/demo/` fixtures; no network, NASA, or DONKI calls | F1 (implement); B1–B3 (fixtures); T1 (verify) | TBD | TBD | todo | hour 32 | B3 science fixtures copied to `data/demo/` (`science-manifest.json`). Spec: [ROADMAP.md](../../ROADMAP.md) § Demo-safe and [docs/contracts/README.md](../contracts/README.md). |
 | SHOULD-08 | SHOULD sign-off | T1, T2 | TBD | TBD | todo | hour 32 | Include the demo-safe tester check |
 
 ### STRETCH (hours 32–40) and submit
