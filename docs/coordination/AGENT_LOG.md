@@ -891,3 +891,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan asked to play with a controller, with remappable buttons and an Xbox controller silhouette on the setup screen. Xbox/XInput pads appear in browsers through the Gamepad API standard layout. Added: analog walk (left stick, slower when partly pushed), look (right stick), RT run, A jump, X pin, Y texture, B rover POV, Menu main menu, View controller setup; D-pad + A drive the start menu; A/B close dialogs. The setup screen (top bar Controller, or View) shows a generic controller outline that lights up live, lets each action be reassigned by pressing a button (a button serves one action), and has sensitivity, dead zone, invert-Y and swap-sticks settings, saved in this browser. Tested with a simulated standard-layout pad: menu navigation, rebinding (Jump to X cleared Pin), stick dead zone, live highlight of A/RT, and stick walking matching keyboard walking. Not tested with a physical controller.
 - Commit: this commit
 - Next step: Cagan tries a real controller.
+
+### 2026-11-14 21:15 Europe/Istanbul — team controller layout and map control
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 / MAP-01 follow-up
+- Files changed: web/shared/gamepad.js, web/shared/gamepad-ui.js, web/planner/map-gamepad.js (new), web/planner/planner.js, web/hud/hud3d.js, web/app.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Cagan set the controller layout: left stick move, right stick camera, Menu (three lines) Esc menu, View (two squares) map, A select/confirm, B back, X landmark, Y theme. A also jumps while walking; RT still runs. A/B are fixed menu buttons; the in-game actions stay rebindable (saved layout key bumped to v2 because the defaults changed). On the map a controller crosshair picks the teleport point (left stick, pans at the edge), the right stick turns the view and tilts it in 3D or zooms in 2D, LT/RT zoom, A teleports, B returns to the 3D view; the map opens centred on the walker. D-pad or left stick move through menus and the controller setup panel. The 3D terrain map is now demo-mode only (?demo=1): in normal mode the planner opens 2D and the 3D toggle is hidden; controller map control works in both. Tested with a simulated standard pad in both modes (map open/close, turn, tilt/zoom, crosshair readout, teleport landing on the target, Esc menu open/close with B). Normal mode still logs Mars Trek CTX CORS errors, unrelated to this change.
+- Commit: this commit
+- Next step: Cagan tries a real controller.

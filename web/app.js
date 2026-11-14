@@ -10,7 +10,7 @@ import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
 import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
-import { gamepad } from "./shared/gamepad.js";
+import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "./shared/gamepad.js";
 import { initGamepadSetup } from "./shared/gamepad-ui.js";
 
 const I18N = {
@@ -167,28 +167,74 @@ async function boot() {
   });
   document.getElementById("btn-menu").onclick = () => start.show();
 
-  // Controller: setup screen, menu navigation, and the menu / setup actions anywhere in the app.
+  // Controller routing (layout in shared/gamepad.js): Menu = Esc menu, View = map, A confirm,
+  // B back; D-pad or left stick move through menus. In-game actions are handled in hud3d.js.
   const padSetup = initGamepadSetup();
   document.getElementById("btn-pad").onclick = () => padSetup.open();
   const pressKey = (key) => window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  const isOn = (id, cls) => document.getElementById(id)?.classList.contains(cls);
+  const appReady = () => Boolean(window.__MM_APP__);
+
+  function toggleMap() {
+    if (isOn("hud-view", "active")) {
+      const pos = window.__MM_APP__?.hudApi?.getLonLat?.();
+      document.getElementById("btn-tab-planner")?.click();
+      // centre the map crosshair on where the walker stands
+      if (pos) setTimeout(() => window.__MM_APP__?.plannerApi?.padFocus?.(pos.lon, pos.lat), 60);
+    } else {
+      document.getElementById("btn-tab-hud")?.click();
+    }
+  }
+
+  // move keyboard focus through the controls of an open panel (controller setup)
+  function moveFocus(rootEl, dir) {
+    const items = [...rootEl.querySelectorAll("button, input")].filter((e) => !e.disabled && e.offsetParent !== null);
+    if (!items.length) return;
+    const cur = items.indexOf(document.activeElement);
+    const el = document.activeElement;
+    if ((dir === "left" || dir === "right") && el?.type === "range" && cur >= 0) {
+      const step = Number(el.step) || 0.1;
+      el.value = String(Number(el.value) + (dir === "right" ? step : -step));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+    const next = cur < 0 ? 0 : (cur + (dir === "up" || dir === "left" ? -1 : 1) + items.length) % items.length;
+    items[next].focus();
+  }
+
+  gamepad.onNav(({ dir }) => {
+    if (padSetup.isOpen) return moveFocus(document.getElementById("pad-setup"), dir);
+    if (!isOn("start-screen", "hidden")) {
+      if (dir === "up") pressKey("ArrowUp");
+      else if (dir === "down") pressKey("ArrowDown");
+    }
+  });
+
   gamepad.onPress(({ button, actions }) => {
     if (padSetup.isOpen) {
-      if (button === 1) padSetup.close(); // B backs out of the setup screen
+      if (button === BACK_BUTTON) padSetup.close();
+      else if (button === CONFIRM_BUTTON && document.getElementById("pad-setup").contains(document.activeElement)) {
+        document.activeElement.click();
+      }
       return;
     }
-    const modal = document.getElementById("modal-backdrop");
-    if (modal?.classList.contains("open")) {
-      if (button === 0 || button === 1) modal.classList.remove("open"); // A or B closes a dialog
+    if (isOn("modal-backdrop", "open")) {
+      if (button === CONFIRM_BUTTON || button === BACK_BUTTON) document.getElementById("modal-backdrop").classList.remove("open");
       return;
     }
-    if (!document.getElementById("start-screen").classList.contains("hidden")) {
-      if (button === 12) pressKey("ArrowUp");
-      else if (button === 13) pressKey("ArrowDown");
-      else if (button === 0 || button === 9) pressKey("Enter");
+    if (!isOn("start-screen", "hidden")) {
+      if (button === CONFIRM_BUTTON) pressKey("Enter");
+      // B or Menu closes the Esc menu and returns to where you were (once the app has loaded)
+      else if ((button === BACK_BUTTON || actions.includes("menu")) && appReady()) start.hide();
       return;
     }
-    if (actions.includes("menu")) start.show();
-    if (actions.includes("setup")) padSetup.open();
+    if (actions.includes("menu")) return start.show();
+    if (actions.includes("setup")) return padSetup.open();
+    if (actions.includes("map")) return toggleMap();
+    if (isOn("planner-view", "active")) {
+      if (button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
+      else if (button === CONFIRM_BUTTON) window.__MM_APP__?.plannerApi?.padConfirm?.();
+    }
   });
 
   const data = await loadAllProjectData();

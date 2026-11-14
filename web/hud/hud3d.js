@@ -1264,7 +1264,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (document.getElementById("pad-setup")?.classList.contains("open")) return;
     for (const a of actions) {
       if (a === "jump") doJump();
-      else if (a === "pin") dropLocalPing("EVA Waypoint");
+      else if (a === "pin") dropLocalPing("Landmark");
       else if (a === "texture") document.getElementById("hud-tex")?.click();
       else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
     }
@@ -1717,6 +1717,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       onResize();
     },
     dropLocalPing,
+    /** Where the walker stands, for centring the map when it opens. */
+    getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z) }),
     syncAlongM: (s) => {
       alongM = Math.max(0, Math.min(totalDist, Number(s) || 0));
       if (freeRoam && btnFreeRoam) btnFreeRoam.click();

@@ -10,7 +10,12 @@
  * this browser only (localStorage), so each player keeps their own layout.
  */
 
-const STORAGE_KEY = "mm-gamepad-v1";
+// v2: team layout (View = map, Menu = Esc menu, A confirm / B back in menus); v1 saves are not reused
+const STORAGE_KEY = "mm-gamepad-v2";
+
+/** Fixed menu buttons (not rebindable): A selects / confirms, B goes back. */
+export const CONFIRM_BUTTON = 0;
+export const BACK_BUTTON = 1;
 
 export const BUTTON_NAMES = [
   "A",
@@ -32,15 +37,16 @@ export const BUTTON_NAMES = [
   "Guide",
 ];
 
-/** Rebindable actions with their default buttons. */
+/** Rebindable in-game actions with their default buttons (A and B also confirm / go back in menus). */
 export const ACTIONS = [
-  { id: "jump", label: "Jump", button: 0 },
+  { id: "jump", label: "Jump (A also confirms in menus)", button: 0 },
   { id: "run", label: "Run (hold)", button: 7 },
-  { id: "pin", label: "Drop pin", button: 2 },
-  { id: "texture", label: "Change ground texture", button: 3 },
-  { id: "pov", label: "Rover POV photo", button: 1 },
-  { id: "menu", label: "Main menu", button: 9 },
-  { id: "setup", label: "Controller setup", button: 8 },
+  { id: "pin", label: "Drop landmark", button: 2 },
+  { id: "texture", label: "Change theme (ground look)", button: 3 },
+  { id: "map", label: "Open / close map", button: 8 },
+  { id: "menu", label: "Esc menu", button: 9 },
+  { id: "pov", label: "Rover POV photo", button: 4 },
+  { id: "setup", label: "Controller setup", button: 11 },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -56,11 +62,12 @@ function loadSettings() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULT_SETTINGS);
     const s = JSON.parse(raw);
-    return {
+    const out = {
       ...structuredClone(DEFAULT_SETTINGS),
       ...s,
       bindings: { ...DEFAULT_SETTINGS.bindings, ...(s.bindings || {}) },
     };
+    return out;
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
   }
@@ -89,6 +96,8 @@ class GamepadInput {
     this.prev = new Array(17).fill(false);
     this.axes = [0, 0, 0, 0];
     this.pressListeners = new Set();
+    this.navListeners = new Set();
+    this.stickDir = null;
     this.connListeners = new Set();
     this.captureCb = null;
     this.connectedId = null;
@@ -129,6 +138,25 @@ class GamepadInput {
       if (down && !this.prev[i]) this.emitPress(i);
       this.prev[i] = down;
     }
+    // left stick as menu arrows: one step when it crosses 0.6, re-armed when it returns under 0.35
+    const lx = this.axes[0];
+    const ly = this.axes[1];
+    const m = Math.max(Math.abs(lx), Math.abs(ly));
+    if (this.stickDir && m < 0.35) this.stickDir = null;
+    else if (!this.stickDir && m > 0.6) {
+      this.stickDir = Math.abs(lx) > Math.abs(ly) ? (lx > 0 ? "right" : "left") : ly > 0 ? "down" : "up";
+      this.emitNav(this.stickDir, "stick");
+    }
+  }
+
+  emitNav(dir, source) {
+    for (const fn of this.navListeners) fn({ dir, source });
+  }
+
+  /** Menu arrows from the D-pad or the left stick: fn({ dir: "up"|"down"|"left"|"right", source }). */
+  onNav(fn) {
+    this.navListeners.add(fn);
+    return () => this.navListeners.delete(fn);
   }
 
   emitPress(button) {
@@ -138,6 +166,8 @@ class GamepadInput {
       cb(button);
       return; // a press used for assigning does not also trigger its action
     }
+    const dpad = { 12: "up", 13: "down", 14: "left", 15: "right" }[button];
+    if (dpad) this.emitNav(dpad, "dpad");
     const actions = ACTIONS.filter((a) => this.settings.bindings[a.id] === button).map((a) => a.id);
     for (const fn of this.pressListeners) fn({ button, actions });
   }

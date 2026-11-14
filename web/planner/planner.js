@@ -8,6 +8,7 @@ import { shouldUseHighResMap } from "../map/IMapAdapter.js";
 import { LegacyMapAdapter } from "../map/LegacyMapAdapter.js";
 import { MapLibreMarsAdapter } from "../map/MapLibreMarsAdapter.js";
 import { dispatchSetRoute, dispatchTeleport } from "../shared/route-bridge.js";
+import { initMapGamepad } from "./map-gamepad.js";
 
 /**
  * Build an RGBA data URL from costMap.cost_row_major for the 15° strict vs 20° mask toggle.
@@ -80,6 +81,13 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
   const probeTextEl = document.getElementById("map-probe-text") || probeEl;
   const teleportBtn = document.getElementById("map-teleport-btn");
   const toggle3d = document.getElementById("toggle-3d-map");
+  // The 3D terrain map is a demo-mode feature (?demo=1); the normal app keeps the 2D map.
+  if (!demoSafe && toggle3d) {
+    toggle3d.checked = false;
+    toggle3d.disabled = true;
+    const label = toggle3d.closest("label");
+    if (label) label.style.display = "none";
+  }
   let selectedTarget = null;
   let activePopup = null;
   let lastProbePoint = {
@@ -158,7 +166,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
 
   const ready = (async () => {
     if (!container) return;
-    const terrain3dDefault = toggle3d ? toggle3d.checked : true;
+    const terrain3dDefault = Boolean(demoSafe) && (toggle3d ? toggle3d.checked : true);
     await adapter.mount(container, {
       center,
       zoom: 14.3,
@@ -314,9 +322,22 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
   bindToggle("layer-ctx", "onmars-ctx");
   bindToggle("layer-mola", "mola-color");
 
-  if (toggle3d) {
+  if (toggle3d && demoSafe) {
     toggle3d.addEventListener("change", () => adapter.setTerrain3D?.(toggle3d.checked));
   }
+
+  // Controller on the map: crosshair target, turn / tilt / zoom, A teleports (B back is in app.js)
+  const plannerView = document.getElementById("planner-view");
+  const padMap = container
+    ? initMapGamepad({
+        adapter,
+        container,
+        isActive: () => plannerView?.classList.contains("active") && document.getElementById("start-screen")?.classList.contains("hidden"),
+        is3d: () => Boolean(demoSafe) && Boolean(toggle3d?.checked),
+        onTeleport: (lon, lat) => triggerTeleport(lon, lat),
+        probeTextEl,
+      })
+    : null;
 
   // Strict 15° toggle
   const strictToggle = document.getElementById("toggle-strict-15");
@@ -407,6 +428,8 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     adapter,
     ready,
     getLastProbePoint: () => ({ ...lastProbePoint }),
+    padConfirm: () => padMap?.confirm() ?? false,
+    padFocus: (lon, lat) => padMap?.focus(lon, lat),
     updateCrewOverlay: (selfPose) => {
       crewFc = buildCrewFc(selfPose);
       adapter.updateGeoJsonLayer("eva-crew", crewFc);
