@@ -347,18 +347,18 @@ async function boot() {
         <div class="dev-note">
           ${
             tr
-              ? "Değişiklikler anlık olarak 3D Bodycam görünümüne uygulanır ve tarayıcıda saklanır."
-              : "Changes apply live to the 3D Bodycam view and persist locally in your browser."
+              ? "Değişiklikler anlık olarak 3D EVA görünümüne uygulanır ve tarayıcıda saklanır."
+              : "Changes apply live to the 3D EVA view and persist locally in your browser."
           }
         </div>
 
         <label class="dev-row">
           <div>
-            <div class="dev-label">${tr ? "Ekrandaki Çerçeve & Lens Efekti" : "Bodycam Frame & Lens Effect"}</div>
+            <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
             <div class="dev-sub">${
               tr
-                ? "Kavisli kask vizörü çerçevesi, kenar karartması, kromatik sapma ve film greni. Altın vizör G, büyütme Z."
-                : "Curved visor bezel frame, edge vignette, barrel distortion, chromatic aberration & grain. Gold visor is G, magnifier is Z."
+                ? "Altın vizör filtresi (G), kask farı (L) ve optik büyütme (Z) ayarları."
+                : "Gold sun filter (G), EVA lamp (L), optical zoom (Z), and subtle grain."
             }</div>
           </div>
           <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
@@ -819,6 +819,7 @@ async function boot() {
   });
 
   function switchToHud() {
+    document.body.classList.add("in-hud");
     plannerView.classList.remove("active");
     hudView.classList.add("active");
     btnTabPlanner.classList.remove("active");
@@ -828,6 +829,7 @@ async function boot() {
   }
 
   function switchToPlanner() {
+    document.body.classList.remove("in-hud");
     hudView.classList.remove("active");
     plannerView.classList.add("active");
     btnTabHud.classList.remove("active");

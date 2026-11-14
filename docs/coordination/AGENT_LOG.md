@@ -958,4 +958,16 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Verify visually in browser (`Ctrl+Shift+R`).
 
+### 2026-11-15 00:08 Europe/Istanbul — Flat cyan 20%-border EVA HUD, hide topbar in 3D, ESC to Planner
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend-1 (`main`)
+- Task id: HUD UX cleanup
+- Files changed: `web/index.html`, `web/styles.css`, `web/app.js`, `web/hud/hud3d.js`, `docs/coordination/AGENT_LOG.md`
+- Why: Removed dark edge vignette/bezel and background fills behind `#visor-overlay` readouts (`rgba` cards/borders/gradiants -> transparent flat cyan typography inside outer <=20% perimeter margins with a 3-column `.visor-top` grid for `.hud-optics-block`, top compass `#hud-compass-wrap`, and `.hud-telemetry-block`). Hid `.topbar` when `body.in-hud` is active so 3D EVA runs full-screen while keeping interactive control buttons (`Gold (G)`, `Lamp (L)`, `Rovers (5)`, `Map (M)`, `Tex`, `Pin (P)`, `Rover POV`). Wired single-key `Escape` (both unlocked and pointer-lock release) in `web/hud/hud3d.js` directly to `onBackToPlanner()` so Planner opens immediately. Verified strict JS scope parse (`web/hud/hud3d.js`, `web/app.js`) and `node --test web/tests/*.test.mjs` (`37/37` pass).
+- Commit: this commit
+- Next step: Push `main` and pull `main`.
+
+
 
