@@ -107,3 +107,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Locked the 13 Nov demo/AI decision after Doruk's confirmation ("Yes, lock the demo and AI decision"), relayed via Lumi and Ari at 13 Nov 2026, 17:46 Europe/Istanbul. Replaced pending-confirmation wording in the DECISIONS row with locked status. Role sheets, docs/demo/README.md, and docs/AI_USE.md had no pending-Doruk wording, so they were left unchanged. Kept the provisionally official source label (confirm with a cert-valid fetch on 14 Nov 08:00).
 - Commit: this commit
 - Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00. PRE-05 / PRE-06 stay open until then.
+
+### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: PRE-02, MUST-12 (plus PRE-05/PRE-06 TLS re-check)
+- Files changed: docs/team/profiles/eymen.md (new), docs/demo/README.md, docs/demo/script.md (new), docs/demo/video-beats.md (new), docs/demo/slides-outline.md (new), docs/demo/submission-checklist.md (new), docs/coordination/BOARD.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
+- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2–3 min live demo script, ≤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40–48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
+- Commit: this commit
+- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0–16) and run the hour-16 rough demo walk.
