@@ -1086,6 +1086,7 @@ export function createExperimentalRover(THREE) {
       return nasaModelRoot;
     },
     getActiveSpec,
+    getActiveRig,
     attachRealModel,
     spawnBeside,
     resolveCollision,

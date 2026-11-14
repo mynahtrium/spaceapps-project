@@ -60,6 +60,9 @@ import {
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "./experimental-rover.js";
+import { createRoverDynamics } from "./rover-dynamics.js";
+import { attachSuspensionRig } from "./rover-rig.js";
+import { createRoverDash } from "./rover-dash.js";
 import { createMarsFxSystem } from "./mars-fx.js";
 import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
 import {
@@ -1403,6 +1406,11 @@ export async function initHud3D(
   const rover = createExperimentalRover(THREE);
   rover.group.visible = false;
   scene.add(rover.group);
+  // rigid-body chassis + six spring-damper struts (rover-dynamics.js), visible running gear
+  // (rover-rig.js) and the digital instrument cluster shown while you drive (rover-dash.js)
+  const roverSim = createRoverDynamics(THREE);
+  const roverRig = attachSuspensionRig(THREE, rover, roverSim);
+  const roverDash = createRoverDash(document.getElementById("visor-overlay") || document.querySelector(".visor-overlay") || hudView);
   patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
   rover.attachRealModel(sharedGltfLoader).then((ok) => {
     if (ok) patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
@@ -2792,6 +2800,7 @@ export async function initHud3D(
         if (dist <= 5.4) {
           drivingRover = true;
           resetRoverMotionState();
+          roverSim.reset(rover.group.position.x, rover.group.position.z, rover.group.rotation.y, sampleElevSceneY);
           prevFirstPersonPitch = pitch;
           pitch = -0.25;
           autoYaw = 0;
@@ -3265,207 +3274,125 @@ export async function initHud3D(
       let steerJerk = 0;
 
       let dyn = null;
-      if (!isMapOpen()) {
-        const run = keys.has("shift");
-        const handbrake = keys.has(" ");
-        const throttle =
+      {
+        // inputs: keyboard, or controller (RT / LT or left stick for the pedals, left stick to steer)
+        const padOk = !padBlocked();
+        const st = padOk ? gamepad.move() : { x: 0, y: 0 };
+        const rt = padOk ? gamepad.buttons[7] || 0 : 0;
+        const lt = padOk ? gamepad.buttons[6] || 0 : 0;
+        const keyThrottle =
           (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
-        const steerIn =
+        const keySteer =
           (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
+        const mapBlocked = isMapOpen();
+        const throttle = mapBlocked ? 0 : keyThrottle || (rt - lt) || (Math.abs(st.y) > 0.2 ? st.y : 0);
+        const steerIn = mapBlocked ? 0 : keySteer || -st.x;
+        const handbrake = !mapBlocked && (keys.has(" ") || (padOk && gamepad.isDown("jump")));
+        const boost = keys.has("shift") || (padOk && gamepad.isDown("pin"));
         prevRoverSteer = roverSteer;
         roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
 
-        const gHere = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
-        const gAheadSlope = sampleElevSceneY(rover.group.position.x + fx0 * 1.4, rover.group.position.z + fz0 * 1.4);
-        const gBehindSlope = sampleElevSceneY(rover.group.position.x - fx0 * 1.4, rover.group.position.z - fz0 * 1.4);
-        const gRightSlope = sampleElevSceneY(rover.group.position.x + rx0 * 1.3, rover.group.position.z + rz0 * 1.3);
-        const gLeftSlope = sampleElevSceneY(rover.group.position.x - rx0 * 1.3, rover.group.position.z - rz0 * 1.3);
-        const slopePitch = Math.atan2(gAheadSlope - gBehindSlope, 2.8);
-        const slopeRoll = Math.atan2(gRightSlope - gLeftSlope, 2.6);
+        const prevYaw = roverSim.attitude().yaw;
+        roverSim.step(dt, { throttle, steer: roverSteer, boost, handbrake }, {
+          sampleY: sampleElevSceneY,
+          sampleNormal,
+        });
+        const rs = roverSim.state;
 
-        roverDynState.yaw = rYaw0;
-        dyn = stepAdvancedRoverPhysics(roverDynState, {
-          vehicleType: rover.vehicleType,
-          throttle,
-          steer: roverSteer,
-          boost: run,
+        // bumping into crewmates and the historic rovers: push the rover back out and bleed speed
+        roverRig.sync();
+        const pushOut = (x, z, radius, y) => {
+          const hit = rover.resolveCollision(x, z, radius, y);
+          if (!hit.hit) return;
+          roverSim.setPosition(rs.pos.x - hit.nx * hit.pen, rs.pos.z - hit.nz * hit.pen);
+          roverSim.scaleVelocity(0.25);
+          roverRig.sync();
+        };
+        if (partner && partner.group.visible) pushOut(partner.group.position.x, partner.group.position.z, PARTNER_COLLISION_R + 0.08, partner.group.position.y);
+        for (const remote of remoteAvatars.values()) {
+          pushOut(remote.group.position.x, remote.group.position.z, PARTNER_COLLISION_R + 0.08, remote.group.position.y);
+        }
+        for (const histEntry of historicRovers.getAllEntries()) {
+          const hPos = histEntry.group?.position;
+          const hSpec = histEntry.spec;
+          if (!hPos || !hSpec) continue;
+          pushOut(hPos.x, hPos.z, Math.max(hSpec.halfW || 1.2, hSpec.halfL || 1.3) * 0.72, hPos.y);
+        }
+
+        // endless terrain: the wrap moves rover.group; carry the simulation with it
+        applySeamlessWorldWrap(rover.group.position.x, rover.group.position.z);
+        if (rover.group.position.x !== rs.pos.x || rover.group.position.z !== rs.pos.z) {
+          roverSim.setPosition(rover.group.position.x, rover.group.position.z);
+          roverRig.sync();
+        }
+
+        const att = roverSim.attitude();
+        let dYaw = att.yaw - prevYaw;
+        dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
+        userYaw += dYaw; // the chase camera turns with the rover
+
+        // values the rest of the frame (camera, dust, crew sync) reads
+        roverVelX = rs.vel.x;
+        roverVelZ = rs.vel.z;
+        roverThrottleVel = rs.vLong;
+        roverLateralSpeed = rs.vLat;
+        roverAirState.airborne = rs.airborne;
+        roverAirState.posY = rs.pos.y;
+        roverAirState.velY = rs.vel.y;
+        roverLandingImpact = rs.landingImpact;
+        let slipMax = 0;
+        for (const wh of roverSim.wheels) if (wh.contact) slipMax = Math.max(slipMax, wh.slip);
+        const drifting = Math.abs(rs.vLat) > 1.2 && Math.abs(rs.vLong) > 2;
+        dyn = {
+          drifting,
+          braking: rs.brake > 0.1 || handbrake,
+          slipRatio: slipMax,
+          gear: rs.gear,
+          rpmNorm: Math.min(1, rs.motorRpm / 4000),
+          spec: rover.getActiveSpec(),
+        };
+
+        // dust when a wheel lands hard or the rover touches down after a crest
+        if (rs.landingImpact > 1.0 && devCfg.realisticDust) {
+          const rYawL = att.yaw;
+          marsFx.emitJumpBurst(rs.pos.x, sampleElevSceneY(rs.pos.x, rs.pos.z), rs.pos.z, {
+            mode: "land",
+            impactSpeed: Math.max(1.2, rs.landingImpact * 1.15),
+            rightX: Math.cos(rYawL),
+            rightZ: -Math.sin(rYawL),
+            fwdX: -Math.sin(rYawL),
+            fwdZ: -Math.cos(rYawL),
+            vx: rs.vel.x,
+            vz: rs.vel.z,
+          });
+        }
+
+        // instrument cluster
+        const P = roverSim.params;
+        const strutOrder = [0, 1, 2, 3, 4, 5]; // FL FR ML MR RL RR (dynamics order)
+        roverDash.update({
+          speedKmh: rs.vLong * 3.6,
+          rpm: rs.motorRpm,
+          gear: rs.gear,
+          powerKw: rs.powerW / 1000,
+          torquePct: rs.torquePct,
+          batteryPct: (100 * rs.batteryKWh) / P.batteryKWh,
+          accel: rs.accel,
+          pitchDeg: (att.pitch * 180) / Math.PI,
+          rollDeg: (att.roll * 180) / Math.PI,
+          headingDeg: (-att.yaw * 180) / Math.PI,
+          odoKm: rs.odometerM / 1000,
+          struts: strutOrder.map((i) => roverSim.wheels[i].comp / P.maxComp),
+          slipPct: slipMax * 100,
+          airborne: rs.airborne,
+          wheelspin: rs.tractionLimited && Math.abs(rs.pedal) > 0.3,
           handbrake,
-          speedMultiplier: devCfg.roverSpeedMultiplier || 1,
-          slopePitch,
-          slopeRoll,
-          airborne: roverAirState.airborne,
-          realisticPhysics: Boolean(devCfg.realisticPhysics),
-          dt,
+          boost,
         });
-
-        // Sheer vertical wall guard (> 55 deg cliff crest)
-        const moveSign = Math.sign(roverDynState.forwardSpeed || throttle || 1);
-        const probeAhead = sampleElevSceneY(
-          rover.group.position.x + moveSign * fx0 * 2.2,
-          rover.group.position.z + moveSign * fz0 * 2.2
-        );
-        const slopeAheadDeg = Math.abs(Math.atan2(probeAhead - gHere, 2.2)) * (180 / Math.PI);
-        if (!roverAirState.airborne && devCfg.realisticPhysics && slopeAheadDeg > 55 && probeAhead > gHere) {
-          roverDynState.velX *= Math.exp(-dt * 8);
-          roverDynState.velZ *= Math.exp(-dt * 8);
-          roverDynState.forwardSpeed *= Math.exp(-dt * 8);
-        }
-
-        const deltaYaw = roverDynState.yaw - rYaw0;
-        rover.group.rotation.y = roverDynState.yaw;
-        userYaw += deltaYaw;
-        roverVelX = roverDynState.velX;
-        roverVelZ = roverDynState.velZ;
-        roverThrottleVel = roverDynState.forwardSpeed;
-        roverLateralSpeed = roverDynState.lateralSpeed;
-      } else {
-        roverVelX *= Math.exp(-dt * 4);
-        roverVelZ *= Math.exp(-dt * 4);
-        roverThrottleVel *= Math.exp(-dt * 4);
-        roverDynState.velX = roverVelX;
-        roverDynState.velZ = roverVelZ;
-        roverDynState.forwardSpeed = roverThrottleVel;
-      }
-
-      if (roverAirState.airborne) {
-        roverDynState.airPitchOffset = Math.max(-0.32, Math.min(0.32, roverDynState.airPitchOffset + roverDynState.airPitchVel * dt));
-        roverDynState.airRollOffset = Math.max(-0.28, Math.min(0.28, roverDynState.airRollOffset + roverDynState.airRollVel * dt));
-      } else {
-        roverDynState.airPitchOffset *= Math.exp(-dt * 12);
-        roverDynState.airRollOffset *= Math.exp(-dt * 12);
-      }
-
-      rover.group.position.x += roverVelX * dt;
-      rover.group.position.z += roverVelZ * dt;
-
-      const resolveDrivingActor = (actorPos) => {
-        if (!actorPos) return;
-        const hit = rover.resolveCollision(actorPos.x, actorPos.z, PARTNER_COLLISION_R + 0.08, actorPos.y);
-        if (hit.hit) {
-          rover.group.position.x -= hit.nx * hit.pen;
-          rover.group.position.z -= hit.nz * hit.pen;
-          roverVelX *= 0.25;
-          roverVelZ *= 0.25;
-          roverThrottleVel *= 0.25;
-          roverDynState.velX = roverVelX;
-          roverDynState.velZ = roverVelZ;
-        }
-      };
-      if (partner && partner.group.visible) resolveDrivingActor(partner.group.position);
-      for (const remote of remoteAvatars.values()) resolveDrivingActor(remote.group.position);
-      for (const histEntry of historicRovers.getAllEntries()) {
-        const hPos = histEntry.group?.position;
-        const hSpec = histEntry.spec;
-        if (!hPos || !hSpec) continue;
-        const hitHist = rover.resolveCollision(
-          hPos.x,
-          hPos.z,
-          Math.max(hSpec.halfW || 1.2, hSpec.halfL || 1.3) * 0.72,
-          hPos.y
-        );
-        if (hitHist.hit) {
-          rover.group.position.x -= hitHist.nx * hitHist.pen;
-          rover.group.position.z -= hitHist.nz * hitHist.pen;
-          roverVelX *= 0.25;
-          roverVelZ *= 0.25;
-          roverThrottleVel *= 0.25;
-          roverDynState.velX = roverVelX;
-          roverDynState.velZ = roverVelZ;
-        }
-      }
-
-      applySeamlessWorldWrap(rover.group.position.x, rover.group.position.z);
-
-      const horizSpeed = Math.hypot(roverVelX, roverVelZ);
-      const vehSpec = dyn?.spec || rover.getActiveSpec();
-      const supportGroundY = rover.sampleSupportGroundY(sampleElevSceneY);
-      let slopeClimbVy = 0;
-      let bumpImpulseVy = 0;
-      if (horizSpeed > 0.8 && !roverAirState.airborne) {
-        const dirX = roverVelX / horizSpeed;
-        const dirZ = roverVelZ / horizSpeed;
-        const hBackVel = sampleElevSceneY(rover.group.position.x - dirX * 1.15, rover.group.position.z - dirZ * 1.15);
-        const hNow = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
-        slopeClimbVy = Math.max(0, (hNow - hBackVel) / 1.15) * horizSpeed;
-        const hLeft = sampleElevSceneY(
-          rover.group.position.x + Math.cos(rover.group.rotation.y) * 1.34,
-          rover.group.position.z - Math.sin(rover.group.rotation.y) * 1.34
-        );
-        const hRight = sampleElevSceneY(
-          rover.group.position.x - Math.cos(rover.group.rotation.y) * 1.34,
-          rover.group.position.z + Math.sin(rover.group.rotation.y) * 1.34
-        );
-        const crossBump = Math.abs(hLeft - hRight);
-        if ((steerJerk > 2.6 || Math.abs(roverLateralSpeed) > 5.0) && horizSpeed > 11.5 && (crossBump > 0.24 || slopeClimbVy > 2.2)) {
-          bumpImpulseVy = Math.min(2.8, steerJerk * 0.28 + crossBump * 2.2 + Math.abs(roverLateralSpeed) * 0.22);
-        }
-      }
-      const airStep = stepRoverBallisticPhysics(roverAirState, {
-        groundY: supportGroundY,
-        slopeClimbVy,
-        bumpImpulseVy,
-        horizSpeed,
-        jumpBias: vehSpec.jumpBias || 1.0,
-        dt,
-        marsG: ROVER_FLIGHT_G,
-      });
-      if (airStep.launched && devCfg.realisticDust) {
-        for (const sideSign of [-1, 1]) {
-          const emit = rover.getWheelDustEmitPoint(sideSign);
-          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 5, 1.35, -roverVelX * 0.2, -roverVelZ * 0.2);
-        }
-      }
-      roverLandingImpact = airStep.landed ? airStep.impactSpeed : 0;
-      if (airStep.landed && devCfg.realisticDust && airStep.impactSpeed > 1.0) {
-        const rYawL = rover.group.rotation.y;
-        marsFx.emitJumpBurst(rover.group.position.x, supportGroundY, rover.group.position.z, {
-          mode: "land",
-          impactSpeed: Math.max(1.2, airStep.impactSpeed * 1.15),
-          rightX: Math.cos(rYawL),
-          rightZ: -Math.sin(rYawL),
-          fwdX: -Math.sin(rYawL),
-          fwdZ: -Math.cos(rYawL),
-          vx: roverVelX,
-          vz: roverVelZ,
-        });
-        for (const sideSign of [-1, 1]) {
-          const emit = rover.getWheelDustEmitPoint(sideSign);
-          marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 6, 1.75, -roverVelX * 0.28, -roverVelZ * 0.28);
-        }
-      }
-
-      rover.update(dt, {
-        sampleElevY: sampleElevSceneY,
-        speed: roverThrottleVel,
-        steer: roverSteer,
-        clockT,
-        driving: true,
-        physicsEnabled: Boolean(devCfg.realisticPhysics),
-        airborne: roverAirState.airborne,
-        worldY: roverAirState.posY,
-        velY: roverAirState.velY,
-        lateralSpeed: roverLateralSpeed,
-        landingImpact: roverLandingImpact,
-        braking: Boolean(dyn?.braking),
-        handbrake: Boolean(!isMapOpen() && keys.has(" ")),
-        drifting: Boolean(dyn?.drifting),
-        airPitchOffset: roverDynState.airPitchOffset,
-        airRollOffset: roverDynState.airRollOffset,
-      });
-
-      if (drvSpdEl) drvSpdEl.textContent = String(Math.round(horizSpeed * 3.6));
-      if (drvGearEl) drvGearEl.textContent = String(dyn?.gear || 1);
-      if (drvRpmEl) drvRpmEl.style.width = `${Math.round((dyn?.rpmNorm || 0) * 100)}%`;
-      if (drvSlipEl) {
-        const slipPct = Math.round((dyn?.slipRatio || 0) * 100);
-        const isDrifting = Boolean(dyn?.drifting);
-        drvSlipEl.classList.toggle("drifting", isDrifting);
-        drvSlipEl.textContent = roverAirState.airborne
-          ? "AIRBORNE"
-          : isDrifting
-            ? `DRIFT ${slipPct}%`
-            : `GRIP ${Math.max(0, 100 - slipPct)}%`;
+        if (drvSpdEl) drvSpdEl.textContent = String(Math.round(Math.abs(rs.vLong) * 3.6));
+        if (drvGearEl) drvGearEl.textContent = rs.gear;
+        if (drvRpmEl) drvRpmEl.style.width = `${Math.round(Math.min(1, rs.motorRpm / 4000) * 100)}%`;
       }
 
       if (devCfg.realisticDust && !roverAirState.airborne && (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)) {
@@ -3609,14 +3536,14 @@ export async function initHud3D(
             phys.vz -= col.nz * vn;
           }
         }
-        rover.update(dt, {
-          sampleElevY: sampleElevSceneY,
-          speed: 0,
-          steer: 0,
-          clockT,
-          driving: false,
-          physicsEnabled: Boolean(devCfg.realisticPhysics),
-        });
+        // parked: the same suspension model holds it on its springs; if it was (re)spawned
+        // somewhere else, start the simulation from there
+        const rsP = roverSim.state;
+        if (Math.hypot(rsP.pos.x - rover.group.position.x, rsP.pos.z - rover.group.position.z) > 0.5) {
+          roverSim.reset(rover.group.position.x, rover.group.position.z, rover.group.rotation.y, sampleElevSceneY);
+        }
+        roverSim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
+        roverRig.sync();
         const distR = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
         if (distR <= 4.6 && !nearRoverPrompted) {
           nearRoverPrompted = true;
