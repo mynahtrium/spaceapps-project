@@ -104,7 +104,7 @@ function mirrorWrap(t) {
 }
 
 // Small tileable value-noise texture for close-range ground detail (visual only).
-function makeDetailTexture(size = 256) {
+function makeDetailTexture(size = 512) {
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const ctx = c.getContext("2d");
@@ -115,10 +115,11 @@ function makeDetailTexture(size = 256) {
     return g;
   };
   const octaves = [
-    { n: 8, w: 0.45 },
-    { n: 16, w: 0.25 },
-    { n: 32, w: 0.17 },
+    { n: 8, w: 0.36 },
+    { n: 16, w: 0.24 },
+    { n: 32, w: 0.18 },
     { n: 64, w: 0.13 },
+    { n: 128, w: 0.09 },
   ].map((o) => ({ ...o, g: grid(o.n) }));
   const smooth = (t) => t * t * (3 - 2 * t);
   for (let y = 0; y < size; y++) {
@@ -800,13 +801,94 @@ export async function initHud3D(
     t.anisotropy = maxAniso;
     return t;
   };
-  const orthoTex = prepTex(texLoader.load(assets.orthoPreviewUrl));
-  const slopeTex = prepTex(texLoader.load(assets.slopePreviewUrl));
+  const maxTexDim = Math.min(4096, renderer?.capabilities?.maxTextureSize || 4096);
+  function upscaleWithFillers(tex) {
+    const img = tex?.image;
+    const sw = img?.naturalWidth || img?.width || 0;
+    const sh = img?.naturalHeight || img?.height || 0;
+    if (!sw || !sh || Math.max(sw, sh) >= maxTexDim) return tex;
+    const maxScale = Math.floor(maxTexDim / Math.max(sw, sh));
+    if (maxScale < 2) return tex;
+    const dw = sw * maxScale;
+    const dh = sh * maxScale;
+
+    // Progressive 2x steps preserve smooth diagonal contours & structure without single-pass blur/ringing.
+    let curSrc = img;
+    let cw = sw;
+    let ch = sh;
+    while (cw * 2 < dw && ch * 2 < dh) {
+      cw *= 2;
+      ch *= 2;
+      const stepCanvas = document.createElement("canvas");
+      stepCanvas.width = cw;
+      stepCanvas.height = ch;
+      const sctx = stepCanvas.getContext("2d");
+      if (!sctx) break;
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = "high";
+      sctx.drawImage(curSrc, 0, 0, cw, ch);
+      curSrc = stepCanvas;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = dw;
+    canvas.height = dh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return tex;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(curSrc, 0, 0, dw, dh);
+
+    // Multi-scale (1 px + upscale-radius) luminance-only unsharp sharpening + zero-mean micro filler pixels.
+    // Produces visibly crisp ridges & features while keeping RGB color balance, shapes, and smoothness exact.
+    const imgData = ctx.getImageData(0, 0, dw, dh);
+    const px = imgData.data;
+    const src = new Uint8ClampedArray(px);
+    const row = dw * 4;
+    const rad = Math.max(2, Math.round(maxScale * 0.45));
+    const radOff = rad * 4;
+    const radRow = rad * row;
+    for (let y = rad; y < dh - rad; y++) {
+      const yOff = y * row;
+      for (let x = rad; x < dw - rad; x++) {
+        const i = yOff + x * 4;
+        const lc = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
+        const ll = (src[i - 4] * 77 + src[i - 3] * 150 + src[i - 2] * 29) >> 8;
+        const lr = (src[i + 4] * 77 + src[i + 5] * 150 + src[i + 6] * 29) >> 8;
+        const lu = (src[i - row] * 77 + src[i - row + 1] * 150 + src[i - row + 2] * 29) >> 8;
+        const ld = (src[i + row] * 77 + src[i + row + 1] * 150 + src[i + row + 2] * 29) >> 8;
+        const wl = (src[i - radOff] * 77 + src[i - radOff + 1] * 150 + src[i - radOff + 2] * 29) >> 8;
+        const wr = (src[i + radOff] * 77 + src[i + radOff + 1] * 150 + src[i + radOff + 2] * 29) >> 8;
+        const wu = (src[i - radRow] * 77 + src[i - radRow + 1] * 150 + src[i - radRow + 2] * 29) >> 8;
+        const wd = (src[i + radRow] * 77 + src[i + radRow + 1] * 150 + src[i + radRow + 2] * 29) >> 8;
+        const grad = Math.abs(lr - ll) + Math.abs(ld - lu) + ((Math.abs(wr - wl) + Math.abs(wd - wu)) >> 1);
+        const lap1 = 4 * lc - ll - lr - lu - ld;
+        const lapWide = 4 * lc - wl - wr - wu - wd;
+        const sharp = Math.max(-24, Math.min(24, lap1 * 0.55 + lapWide * 0.38));
+        let micro = 0;
+        if (grad >= 6) {
+          const n = (((x * 73856093) ^ (y * 19349663)) & 255) / 255 - 0.5;
+          micro = n * Math.min(7, grad * 0.12);
+        }
+        const delta = Math.round(sharp + micro);
+        if (!delta) continue;
+        px[i] = Math.max(0, Math.min(255, src[i] + delta));
+        px[i + 1] = Math.max(0, Math.min(255, src[i + 1] + delta));
+        px[i + 2] = Math.max(0, Math.min(255, src[i + 2] + delta));
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    tex.image = canvas;
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const orthoTex = prepTex(texLoader.load(assets.orthoPreviewUrl, upscaleWithFillers));
+  const slopeTex = prepTex(texLoader.load(assets.slopePreviewUrl, upscaleWithFillers));
   const reliefUrl = assets.reliefTextureUrl || assets.heightPreviewUrl.replace(/height-preview\.png$/, "texture-relief.jpg");
   let reliefOk = true;
   let texMode = 0; // 0 relief, 1 ortho, 2 slope
   const reliefTex = prepTex(
-    texLoader.load(reliefUrl, undefined, undefined, () => {
+    texLoader.load(reliefUrl, upscaleWithFillers, undefined, () => {
       reliefOk = false;
       if (texMode === 0) {
         texMode = 1;
@@ -819,20 +901,20 @@ export async function initHud3D(
   );
   const detailTex = makeDetailTexture();
   // Offline procedural Mars ground (map branch): wind-rippled regolith + fractured mudstone slabs.
-  const pbr = createMartianPbrTextureSets(THREE, 256);
+  const pbr = createMartianPbrTextureSets(THREE, 512);
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
-  pbr.dustNormalTex.repeat.set(640, 640);
+  pbr.dustNormalTex.repeat.set(960, 960);
   let pbrHigh = null;
   let terrainShaderRef = null;
   let suitWeaveTex = null;
 
   function ensureHighResPbr() {
     if (pbrHigh) return pbrHigh;
-    pbrHigh = createMartianPbrTextureSets(THREE, 512);
+    pbrHigh = createMartianPbrTextureSets(THREE, 1024);
     for (const t of [pbrHigh.dustAlbedoTex, pbrHigh.rockAlbedoTex, pbrHigh.dustNormalTex, pbrHigh.rockNormalTex]) {
       t.anisotropy = maxAniso;
     }
-    pbrHigh.dustNormalTex.repeat.set(640, 640);
+    pbrHigh.dustNormalTex.repeat.set(960, 960);
     return pbrHigh;
   }
 
@@ -899,11 +981,11 @@ export async function initHud3D(
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
       )
       .replace(
         "#include <project_vertex>",
-        "vec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
+        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
       );
     const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
       "getDirectionalLightInfo( directionalLight, directLight );",
@@ -912,7 +994,7 @@ export async function initHud3D(
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
       )
       .replace(
         "#include <lights_fragment_begin>",
@@ -929,17 +1011,24 @@ export async function initHud3D(
         #ifdef USE_MAP
           float dA = texture2D(detailMap, vMapUv * 173.0).r;
           float dB = texture2D(detailMap, vMapUv * 911.0).r;
-          float detailGain = mix(0.40, 0.56, max(uSuperDetail, uRealisticTex * 0.85));
+          float mmSlopeMix = smoothstep(0.03, 0.30, vMmSlope);
+          vec2 mmElevWarp = (vec2(dA - 0.5, dB - 0.5) * 0.0020 + vec2(sin(vMmElev * 0.42), cos(vMmElev * 0.42)) * 0.0010) * mmSlopeMix;
+          vec3 mmAltTex = texture2D(map, vMapUv + mmElevWarp).rgb;
+          diffuseColor.rgb = mix(diffuseColor.rgb, mmAltTex, 0.45 * mmSlopeMix);
+          float detailGain = mix(0.46, 0.62, max(uSuperDetail, uRealisticTex * 0.90));
           diffuseColor.rgb *= (1.0 - detailGain * 0.65) + detailGain * dA * 0.6 + detailGain * dB * 0.4;
-          // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
-          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(640.0, 960.0, max(uSuperDetail, uRealisticTex))).rgb;
-          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(290.0, 460.0, max(uSuperDetail, uRealisticTex)) + 0.37).rgb;
-          float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
+          // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches + fine sub-meter grit.
+          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(720.0, 1080.0, max(uSuperDetail, uRealisticTex))).rgb;
+          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(320.0, 520.0, max(uSuperDetail, uRealisticTex)) + 0.37).rgb;
+          vec3 mmMicro = texture2D(pbrDust, vMapUv * mix(2200.0, 3200.0, max(uSuperDetail, uRealisticTex)) + 0.19).rgb;
+          float mmRockMask = clamp(max(smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r), mmSlopeMix * 0.62), 0.0, 1.0);
           vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
           float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
+          float mmMicroLum = dot(mmMicro, vec3(0.299, 0.587, 0.114)) / 0.40;
           float mmRichLum = mix(mmLum, pow(clamp(mmLum, 0.18, 2.1), 1.38), uRealisticTex);
           float mmMineralGlint = uRealisticTex * smoothstep(0.92, 0.995, dB) * 0.18;
-          diffuseColor.rgb *= mix(1.0, clamp(mmRichLum, 0.22, 1.95), mix(0.7, 0.96, max(uSuperDetail, uRealisticTex)));
+          diffuseColor.rgb *= mix(1.0, clamp(mmRichLum, 0.22, 1.95), mix(0.82, 0.98, max(uSuperDetail, uRealisticTex)));
+          diffuseColor.rgb *= mix(1.0, clamp(mmMicroLum, 0.62, 1.42), 0.42);
           diffuseColor.rgb += vec3(mmMineralGlint, mmMineralGlint * 0.72, mmMineralGlint * 0.48);
         #endif`
       );
