@@ -3,7 +3,7 @@
 Run make_slope.py first (it writes data/raw/terrain/dtm_crop_1m.tif).
 
 Usage (from repo root):
-    .venv/Scripts/python pipeline/terrain/make_cost_map.py
+    python3 pipeline/costmap/make_cost_map.py
 
 Outputs (data/processed/terrain/):
     cost-map.json       contract: docs/contracts/cost-map.json (cost is a multiplier; 9e99 = blocked)
@@ -18,7 +18,8 @@ import numpy as np
 import rasterio
 from skimage.io import imsave
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_TERRAIN = Path(__file__).resolve().parents[1] / "terrain"
+sys.path.insert(0, str(_TERRAIN))
 from make_slope import CELL_M, LON0, MARS_R_M, block_mean, slope_deg  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]

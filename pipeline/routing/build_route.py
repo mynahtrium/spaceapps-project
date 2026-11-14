@@ -16,8 +16,11 @@ from pathlib import Path
 import numpy as np
 
 _HERE = Path(__file__).resolve().parent
+_STOPS = _HERE.parent / "stops"
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+if str(_STOPS) not in sys.path:
+    sys.path.insert(0, str(_STOPS))
 
 from dijkstra_grid import route_through_stops
 from mars_geo import MARS_RADIUS_M, bearing_deg, haversine_m, interpolate_lonlat

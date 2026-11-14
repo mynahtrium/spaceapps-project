@@ -1,9 +1,13 @@
 # pipeline/
 
-Python + GDAL (and later data-service) code will live in the owned subfolders **after 14 November 2026**.
+Backend Python lives in **five** folder-scoped long-lived branches (merged into the full project only in a later pass):
 
-- `terrain/` — Backend 1
-- `routing/` — Backend 2
-- `data/` — Backend 3
+| Folder | Branch | Role |
+|---|---|---|
+| `terrain/` | `backend/terrain` | Backend 1 — DTM crop, slope, ortho, tilt check |
+| `costmap/` | `backend/costmap` | Backend 1 — cost / hazard map + height preview |
+| `stops/` | `backend/stops` | Backend 2 — science stops (`stops.json`) |
+| `routing/` | `backend/routing` | Backend 2 — Dijkstra / route + HUD telemetry |
+| `data/` | `backend/science` | Backend 3 — REMS/RAD/DONKI/POV/weather/layers |
 
-No application code in this folder yet. Starting the build early may disqualify the team. See [ROADMAP.md](../ROADMAP.md) and [docs/roles/](../docs/roles/).
+See [ROADMAP.md](../ROADMAP.md) and [docs/roles/](../docs/roles/).

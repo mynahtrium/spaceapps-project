@@ -306,3 +306,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Completed Backend 3 Phase 3 outputs: weather.json from official CAB/NASA REMS daily summary feed (4,745 sols through Sol 4995, no invented hourly curve), 4 cached Curiosity POV JPEGs + per-stop JSONs (marked example stops until PRE-07 locks), and exported 22 frozen science fixtures (789.7 KB) to data/demo/ for demo-safe mode. Marked SHOULD-01..04 review on BOARD.md, logged AI use in docs/AI_USE.md, and added final handoff in HANDOFFS.md.
 - Commit: this commit
 - Next step: Open PR for backend-3/must-07-data-cache; re-run build_dose, build_pov, and export_demo_fixtures once Backend 2 lands locked stops.json and route.json.
+
+### 2026-11-14 12:45 Europe/Istanbul — backend folder split
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2 (repo integration pass)
+- Task id: n/a (merge-all + split)
+- Files changed: pipeline/README.md, pipeline/costmap/*, pipeline/stops/*, pipeline/routing/build_route.py, pipeline/terrain/README.md, docs/coordination/AGENT_LOG.md
+- Why: Merged all existing role branches into main; split backend pipeline into five folder-scoped long-lived branches (terrain, costmap, stops, routing, science). Did not merge those five back together. No secrets.
+- Commit: this commit
+- Next step: Later pass merges the five backend branches into the full project.
