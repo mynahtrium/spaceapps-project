@@ -543,6 +543,16 @@ export function initPlanner(data, { onOpenPov, onStartEva, onOpenRoverInfo, onVi
     adapter,
     ready,
     getLastProbePoint: () => ({ ...lastProbePoint }),
+    /** Mars lon/lat under a viewport point, or null when off the map. */
+    lonLatAt: (clientX, clientY) => {
+      if (!container) return null;
+      const r = container.getBoundingClientRect();
+      if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+      const ll = adapter.unproject?.([clientX - r.left, clientY - r.top]);
+      return ll && Number.isFinite(ll[0]) && Number.isFinite(ll[1]) ? { lon: ll[0], lat: ll[1] } : null;
+    },
+    teleportTo: (lon, lat) => triggerTeleport(lon, lat),
+    fitEva: () => fitBtn?.click(),
     flyToRover: (roverId) => {
       const r = getHistoricRoverById(roverId);
       if (!r) return;

@@ -980,6 +980,28 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Hard-reload browser (`Ctrl+Shift+R`) to inspect ground sharpness.
 
+### 2026-11-15 00:08 Europe/Istanbul — Flat cyan 20%-border EVA HUD, hide topbar in 3D, ESC to Planner
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend-1 (`main`)
+- Task id: HUD UX cleanup
+- Files changed: `web/index.html`, `web/styles.css`, `web/app.js`, `web/hud/hud3d.js`, `docs/coordination/AGENT_LOG.md`
+- Why: Removed dark edge vignette/bezel and background fills behind `#visor-overlay` readouts (`rgba` cards/borders/gradiants -> transparent flat cyan typography inside outer <=20% perimeter margins with a 3-column `.visor-top` grid for `.hud-optics-block`, top compass `#hud-compass-wrap`, and `.hud-telemetry-block`). Hid `.topbar` when `body.in-hud` is active so 3D EVA runs full-screen while keeping interactive control buttons (`Gold (G)`, `Lamp (L)`, `Rovers (5)`, `Map (M)`, `Tex`, `Pin (P)`, `Rover POV`). Wired single-key `Escape` (both unlocked and pointer-lock release) in `web/hud/hud3d.js` directly to `onBackToPlanner()` so Planner opens immediately. Verified strict JS scope parse (`web/hud/hud3d.js`, `web/app.js`) and `node --test web/tests/*.test.mjs` (`37/37` pass).
+- Commit: this commit
+- Next step: Merge `origin/main` (orbit view + high-res terrain upscale), verify tests, push `main`, and pull `main`.
+
+### 2026-11-15 00:22 Europe/Istanbul — Custom right-click menu
+
+- Human: Doruk
+- Agent tool + model: Claude Code / Claude Opus 5.5
+- Role: frontend (requested by Doruk)
+- Task id: UI follow-up
+- Files changed: `web/shared/context-menu.js` (new), `web/app.js`, `web/planner/planner.js`, `web/styles.css`, `web/tests/context-menu.test.mjs` (new), `docs/coordination/AGENT_LOG.md`
+- Why: Replaced the browser right-click menu with a mission-styled one that changes with the view. Planner map: coordinates, elevation and slope heading, teleport here, drop crew pin, copy coordinates, fit EVA. Bodycam: pin, map, orbit, sun, texture, rovers, POV, copy my coordinates. Orbit: find me, layer, live time. Every view also has view switching, crew, sources, dev settings and main menu. Text fields, selected text and Shift + right-click keep the native menu. A right-drag (map rotate) does not open it, and it stays closed while the mouse is locked. Keyboard: arrows, Enter, Esc. Planner exposes `lonLatAt`, `teleportTo`, `fitEva`. Verified `node --check` and `node --test web/tests/*.test.mjs` (46/46 pass). Not tested in a browser (Doruk asked to skip).
+- Commit: this commit
+- Next step: Eymen checks it in the browser (Linux and Windows right-click timing differ).
+
 ### 2026-11-15 00:25 Europe/Istanbul — Hybrid WebGL2 GPU Ray Tracing & untitled UI restore
 
 - Human: Doruk
@@ -987,6 +1009,6 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Role: frontend graphics (branch main)
 - Task id: RT-01
 - Files changed: `web/hud/ray-tracer.js`, `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/app.js`, `web/shared/dev-settings.js`, `web/index.html`, `web/tests/fallback.test.mjs`, `docs/coordination/AGENT_LOG.md`
-- Why: Added toggleable WebGL2 GPU hybrid ray tracing (`R` key and Developer Settings `#dev-ray-tracing`): 16-bit mirrored heightfield texture (`buildHeightfieldRtTexture`), per-pixel penumbra soft sun shadows (`rtTraceShadow`), 6-direction hemisphere bounce GI/AO (`rtTraceGI`), object reflection rays (`rtTraceReflectionRay` on MMSEV, historic rovers, astronaut suit/visor, rocks), and depth-buffer screen-space ray marching (`SSR`, `RTAO/SSGI`, `FXAA` in `LENS_FRAG`). Restored `untitled` HUD layout/styles and merged `origin/main` (`feat/orbit-view`). Verified `node --check` and `node --test web/tests/*.test.mjs` (32/32 pass).
+- Why: Added toggleable WebGL2 GPU hybrid ray tracing (`R` key and Developer Settings `#dev-ray-tracing`): 16-bit mirrored heightfield texture (`buildHeightfieldRtTexture`), per-pixel penumbra soft sun shadows (`rtTraceShadow`), 6-direction hemisphere bounce GI/AO (`rtTraceGI`), object reflection rays (`rtTraceReflectionRay` on MMSEV, historic rovers, astronaut suit/visor, rocks), and depth-buffer screen-space ray marching (`SSR`, `RTAO/SSGI`, `FXAA` in `LENS_FRAG`). Restored `untitled` HUD layout/styles and merged `origin/main` (`feat/orbit-view` & `2401223`). Verified `node --check` and `node --test web/tests/*.test.mjs`.
 - Commit: this commit
-- Next step: Run `git pull` to merge `2401223` (`frontend/context-menu`) cleanly.
+- Next step: Hard-reload browser (`Ctrl+Shift+R`) to inspect.

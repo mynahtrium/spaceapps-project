@@ -27,6 +27,7 @@ import {
   classifySlope,
   closestAlongM,
   dispatchOpenRoverInfo,
+  marsBearingDeg,
   onSetRoute,
   onTeleport,
   onVisitRoverSite,
@@ -276,7 +277,7 @@ const LENS_VERT = /* glsl */ `
   }
 `;
 
-// Eyes through clear polycarbonate. Gold tint, magnifier, and rare cosmic-ray ticks are uniforms.
+// Clean optical pass: gold filter tint (G), optical magnifier (Z), subtle sun streak & cosmic-ray ticks.
 const LENS_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform vec2 uResolution;
@@ -288,6 +289,7 @@ const LENS_FRAG = /* glsl */ `
   uniform float uVignette;
   uniform float uExposure;
   uniform float uGold;
+  uniform float uGoldSlide;
   uniform float uOptZoom;
   uniform float uGlint;
   uniform float uRay;
@@ -302,45 +304,40 @@ const LENS_FRAG = /* glsl */ `
   }
 
   void main() {
-    float aspect = uResolution.x / uResolution.y;
+    float aspect = uResolution.x / max(1.0, uResolution.y);
     vec2 c = vUv - 0.5;
     c.x *= aspect;
-    float r2 = dot(c, c);
-    vec2 d = c * (1.0 + uDistort * r2 + 0.35 * uDistort * r2 * r2);
-    d *= uFrameZoom / max(1.0, uOptZoom);
+    vec2 d = c / max(1.0, uOptZoom);
     d.x /= aspect;
     vec2 uv = d + 0.5;
-    vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
-    float ca = uAberration * r2;
     vec3 col;
     if (uRtEnabled > 0.5) {
       vec3 rtBase = rtFxaaSample(tDiffuse, uv, uResolution);
       float rtJ = hash(gl_FragCoord.xy + fract(uTime * 13.7) * 97.0);
-      vec3 rtCol = rtScreenSpacePass(tDiffuse, rtBase, uv, uResolution, rtJ);
-      col.r = mix(rtCol.r, texture2D(tDiffuse, uv + dir * ca).r, 0.35);
-      col.g = rtCol.g;
-      col.b = mix(rtCol.b, texture2D(tDiffuse, uv - dir * ca).b, 0.35);
+      col = rtScreenSpacePass(tDiffuse, rtBase, uv, uResolution, rtJ);
     } else {
-      col.r = texture2D(tDiffuse, uv + dir * ca).r;
-      col.g = texture2D(tDiffuse, uv).g;
-      col.b = texture2D(tDiffuse, uv - dir * ca).b;
+      col = texture2D(tDiffuse, uv).rgb;
     }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
 
     col *= uExposure;
-    vec3 gold = col * vec3(1.15, 0.78, 0.38);
-    gold = mix(gold, gold * vec3(0.72, 0.62, 0.4), 0.35);
-    col = mix(col, gold, uGold);
-    float helm = smoothstep(0.45, 1.25, length(c));
-    col *= mix(1.0, 0.12, helm * uVignette);
-    col += vec3(0.42, 0.32, 0.24) * helm * helm * 0.16 * (1.0 - 0.45 * uGold);
+
+    float goldAmt = clamp(max(uGoldSlide, uGold * 0.001), 0.0, 1.0);
+    if (goldAmt > 0.002) {
+      vec3 goldCol = (col / (1.0 + col * 0.14)) * vec3(1.16, 0.80, 0.36);
+      goldCol = mix(goldCol, goldCol * vec3(0.76, 0.65, 0.42), 0.3);
+      col = mix(col, goldCol, goldAmt);
+    }
+
     float glint = pow(max(0.0, uGlint), 3.5);
-    float fadeR = exp(-length(c) * 3.4);
-    float streakH = 0.45 * exp(-abs(c.y) * 28.0) * exp(-abs(c.x) * 2.4);
-    float streakD1 = 0.25 * exp(-abs(c.y - c.x * 0.36) * 52.0);
-    float streakD2 = 0.25 * exp(-abs(c.y + c.x * 0.36) * 52.0);
-    float sunRays = glint * (streakH + (streakD1 + streakD2) * fadeR);
-    col += vec3(1.0, 0.95, 0.85) * sunRays * 0.022;
+    if (glint > 0.002) {
+      float fadeR = exp(-length(c) * 3.4);
+      float streakH = 0.45 * exp(-abs(c.y) * 28.0) * exp(-abs(c.x) * 2.4);
+      float streakD1 = 0.25 * exp(-abs(c.y - c.x * 0.36) * 52.0);
+      float streakD2 = 0.25 * exp(-abs(c.y + c.x * 0.36) * 52.0);
+      float sunRays = glint * (streakH + (streakD1 + streakD2) * fadeR);
+      col += vec3(1.0, 0.95, 0.85) * sunRays * 0.018;
+    }
 
     float ray = 0.0;
     float tbin = floor(uTime * 12.0);
@@ -1627,7 +1624,13 @@ export async function initHud3D(
     updateCrewHudSummary();
   }
 
-  // ---------- bodycam lens pass ----------
+  // ---------- EVA floodlamp & optical visor pass (zero 3D helmet frame) ----------
+  const evaLamp = new THREE.SpotLight(0xfff5e4, 0, 52, Math.PI * 0.25, 0.52, 1.25);
+  evaLamp.castShadow = false;
+  scene.add(evaLamp, evaLamp.target);
+  let evaLampOn = false;
+  let goldSlide = 0;
+
   const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
   dummyDepthTex.needsUpdate = true;
   let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
@@ -1647,13 +1650,14 @@ export async function initHud3D(
       uRtInvProj: { value: new THREE.Matrix4() },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
-      uDistort: { value: 0.26 },
-      uFrameZoom: { value: 0.88 },
-      uAberration: { value: 0.006 },
-      uGrain: { value: 0.07 },
-      uVignette: { value: 1.05 },
+      uDistort: { value: 0.0 },
+      uFrameZoom: { value: 1.0 },
+      uAberration: { value: 0.0 },
+      uGrain: { value: 0.008 },
+      uVignette: { value: 0.0 },
       uExposure: { value: 1.0 },
       uGold: { value: 0 },
+      uGoldSlide: { value: 0 },
       uOptZoom: { value: 1 },
       uGlint: { value: 0 },
       uRay: { value: 0.00035 },
@@ -1664,6 +1668,95 @@ export async function initHud3D(
   const lensQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), lensMat);
   lensQuad.frustumCulled = false;
   lensScene.add(lensQuad);
+
+  // Collimated top-frame compass tape & elevation/pitch readouts
+  const compassDegEl = document.getElementById("hud-compass-deg");
+  const compassTapeEl = document.getElementById("hud-compass-tape");
+  const compassStopEl = document.getElementById("hud-compass-stop");
+  const compassSunEl = document.getElementById("hud-compass-sun");
+  const pitchDegEl = document.getElementById("hud-pitch-deg");
+  const elevMolaEl = document.getElementById("hud-elev-mola");
+  const COMPASS_PX_PER_DEG = 4.0;
+  const COMPASS_LABELS = new Map([
+    [0, "N"],
+    [45, "NE"],
+    [90, "E"],
+    [135, "SE"],
+    [180, "S"],
+    [225, "SW"],
+    [270, "W"],
+    [315, "NW"],
+  ]);
+
+  if (compassTapeEl) {
+    compassTapeEl.innerHTML = "";
+    for (let d = -90; d <= 450; d += 5) {
+      const norm = ((d % 360) + 360) % 360;
+      const major = norm % 15 === 0;
+      const cardinal = COMPASS_LABELS.has(norm);
+      const tick = document.createElement("div");
+      tick.className = `c-tick${major ? " major" : ""}${cardinal ? " cardinal" : ""}`;
+      tick.style.left = `${(d * COMPASS_PX_PER_DEG).toFixed(1)}px`;
+      const bar = document.createElement("i");
+      tick.appendChild(bar);
+      if (major) {
+        const lbl = document.createElement("span");
+        lbl.textContent = cardinal ? COMPASS_LABELS.get(norm) : String(norm).padStart(3, "0");
+        tick.appendChild(lbl);
+      }
+      compassTapeEl.appendChild(tick);
+    }
+  }
+
+  function compassCardinalName(deg) {
+    const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+  }
+
+  let lastCompassTxt = "";
+  let lastPitchTxt = "";
+  let lastMolaTxt = "";
+  function updateWaveguideOptics(headingDeg, pitchDeg, elevMolaM, stopBearingDeg, sunBearingDeg) {
+    const h = ((headingDeg % 360) + 360) % 360;
+    if (compassTapeEl) {
+      compassTapeEl.style.transform = `translate3d(${(-h * COMPASS_PX_PER_DEG).toFixed(1)}px, 0, 0)`;
+    }
+    const cTxt = `${String(Math.round(h) % 360).padStart(3, "0")}° ${compassCardinalName(h)}`;
+    if (compassDegEl && cTxt !== lastCompassTxt) {
+      lastCompassTxt = cTxt;
+      compassDegEl.textContent = cTxt;
+    }
+
+    const placeMarker = (el, targetBearing) => {
+      if (!el) return;
+      if (!Number.isFinite(targetBearing)) {
+        el.hidden = true;
+        return;
+      }
+      el.hidden = false;
+      const diff = ((targetBearing - h + 540) % 360) - 180;
+      const clamped = Math.abs(diff) > 33;
+      const px = Math.max(-33, Math.min(33, diff)) * COMPASS_PX_PER_DEG;
+      el.style.transform = `translate3d(calc(-50% + ${px.toFixed(1)}px), 0, 0)`;
+      el.classList.toggle("clamped", clamped);
+    };
+    placeMarker(compassStopEl, stopBearingDeg);
+    placeMarker(compassSunEl, sunBearingDeg);
+
+    const pRound = Math.round(pitchDeg);
+    const pTxt = `${pRound > 0 ? "+" : ""}${pRound}°`;
+    if (pitchDegEl && pTxt !== lastPitchTxt) {
+      lastPitchTxt = pTxt;
+      pitchDegEl.textContent = pTxt;
+    }
+    if (elevMolaEl && Number.isFinite(elevMolaM)) {
+      const mTxt = `${Math.round(elevMolaM)} m MOLA`;
+      if (mTxt !== lastMolaTxt) {
+        lastMolaTxt = mTxt;
+        elevMolaEl.textContent = mTxt;
+      }
+    }
+  }
 
   // ---------- state & controls ----------
   let playing = false;
@@ -1837,8 +1930,13 @@ export async function initHud3D(
     return null;
   }
 
+  let manualUnlockPending = false;
   function releasePointerLock() {
     if (document.pointerLockElement) {
+      manualUnlockPending = true;
+      setTimeout(() => {
+        manualUnlockPending = false;
+      }, 140);
       try {
         document.exitPointerLock?.();
       } catch {}
@@ -1888,6 +1986,23 @@ export async function initHud3D(
     reticleEl?.classList.toggle("locked", locked);
     if (locked && (isMapOpen() || !isHudActive() || hasOpenModalOverlay())) {
       releasePointerLock();
+      return;
+    }
+    // Pressing ESC while pointer-locked releases lock; directly return to Planner when HUD was active.
+    if (!locked && !manualUnlockPending && isHudActive() && !isMapOpen() && !hasOpenModalOverlay()) {
+      setTimeout(() => {
+        if (
+          !manualUnlockPending &&
+          !isPointerLocked() &&
+          isHudActive() &&
+          !isMapOpen() &&
+          !hasOpenModalOverlay() &&
+          document.hasFocus() &&
+          !document.hidden
+        ) {
+          onBackToPlanner?.();
+        }
+      }, 25);
     }
   });
   if (hudView && typeof MutationObserver !== "undefined") {
@@ -1949,6 +2064,11 @@ export async function initHud3D(
   const btnPing = document.getElementById("hud-ping");
   const btnPov = document.getElementById("hud-pov-btn");
   const btnMap = document.getElementById("hud-map-btn");
+  const btnGold = document.getElementById("hud-gold-btn");
+  const btnLamp = document.getElementById("hud-lamp-btn");
+  const optGoldPill = document.getElementById("hud-opt-gold");
+  const optLampPill = document.getElementById("hud-opt-lamp");
+  const optZoomPill = document.getElementById("hud-opt-zoom");
 
   btnPing?.addEventListener("click", () => dropLocalPing("EVA Waypoint"));
   const openNextPov = () => {
@@ -2922,13 +3042,72 @@ export async function initHud3D(
   let arrival = null; // { t0, reduced } while the orbit arrival drop plays
   let nextPovStop = null;
 
+  function syncOpticsOverlayUi() {
+    const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
+    const goldOn = goldVisor > 0.5;
+    if (visorOverlay) {
+      visorOverlay.classList.toggle("gold-deployed", goldOn);
+      visorOverlay.classList.toggle("zoom-active", optZoom > 1);
+    }
+    if (btnGold) {
+      btnGold.textContent = goldOn ? "Gold: ON (G)" : "Gold (G)";
+      btnGold.classList.toggle("is-gold", goldOn);
+    }
+    if (btnLamp) {
+      btnLamp.textContent = evaLampOn ? "Lamp: ON (L)" : "Lamp (L)";
+      btnLamp.classList.toggle("is-active", evaLampOn);
+    }
+    if (optGoldPill) {
+      optGoldPill.textContent = goldOn ? "VISOR: GOLD" : "VISOR: CLR";
+      optGoldPill.classList.toggle("gold", goldOn);
+    }
+    if (optLampPill) {
+      optLampPill.textContent = evaLampOn ? "LAMP: ON" : "LAMP: OFF";
+      optLampPill.classList.toggle("active", evaLampOn);
+    }
+    if (optZoomPill) {
+      optZoomPill.textContent = `MAG: ${optZoom}×`;
+      optZoomPill.classList.toggle("active", optZoom > 1);
+    }
+  }
+
+  function toggleGoldVisor() {
+    goldVisor = goldVisor > 0.5 ? 0 : 1;
+    syncOpticsOverlayUi();
+  }
+
+  function toggleHelmetLamp() {
+    evaLampOn = !evaLampOn;
+    syncOpticsOverlayUi();
+  }
+
+  function cycleOpticalZoom() {
+    optZoom = optZoom === 1 ? 3 : optZoom === 3 ? 8 : 1;
+    const reticle = document.getElementById("hud-zoom-reticle");
+    const readout = document.getElementById("hud-zoom-readout");
+    if (reticle) reticle.hidden = optZoom === 1;
+    if (readout) readout.textContent = `${optZoom}×`;
+    syncOpticsOverlayUi();
+  }
+
+  btnGold?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    toggleGoldVisor();
+  });
+  btnLamp?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    toggleHelmetLamp();
+  });
+  syncOpticsOverlayUi();
+
   window.addEventListener("keydown", (e) => {
     if (!hudView.classList.contains("active")) return;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
     const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
+    const crewOpen = document.getElementById("crew-drawer")?.classList.contains("open");
     const menuOpen = !document.getElementById("start-screen")?.classList.contains("hidden");
-    if (modalOpen || menuOpen) return;
+    if (modalOpen || crewOpen || menuOpen) return;
 
     const k = e.key.toLowerCase();
     if (k === "m" && !e.repeat) {
@@ -2943,29 +3122,25 @@ export async function initHud3D(
       return;
     }
     if (e.key === "Escape") {
-      if (isPointerLocked()) {
-        releasePointerLock();
-        return;
-      }
-      if (isMapOpen()) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        setMapOpen(false);
-        return;
-      }
+      e.preventDefault();
+      e.stopImmediatePropagation?.();
+      if (isMapOpen()) setMapOpen(false);
+      releasePointerLock();
+      onBackToPlanner?.();
+      return;
     }
     if (isMapOpen()) return;
 
     if (k === "g" && !e.repeat) {
-      goldVisor = goldVisor > 0.5 ? 0 : 1;
+      toggleGoldVisor();
+      return;
+    }
+    if (k === "l" && !e.repeat) {
+      toggleHelmetLamp();
       return;
     }
     if (k === "z" && !e.repeat) {
-      optZoom = optZoom === 1 ? 3 : optZoom === 3 ? 8 : 1;
-      const reticle = document.getElementById("hud-zoom-reticle");
-      const readout = document.getElementById("hud-zoom-readout");
-      if (reticle) reticle.hidden = optZoom === 1;
-      if (readout) readout.textContent = `${optZoom}×`;
+      cycleOpticalZoom();
       return;
     }
     if (k === "r" && !e.repeat) {
@@ -3139,7 +3314,8 @@ export async function initHud3D(
 
   const onResize = () => {
     const w = wrap.clientWidth || window.innerWidth;
-    const h = wrap.clientHeight || window.innerHeight - 44;
+    const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
+    const h = wrap.clientHeight || window.innerHeight - topOff;
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
@@ -3153,18 +3329,10 @@ export async function initHud3D(
     if (visorOverlay) {
       visorOverlay.classList.toggle("driving-3p", Boolean(isDriving3p));
     }
-    if (isDriving3p) {
-      lensMat.uniforms.uFrameZoom.value = 1.0;
-      lensMat.uniforms.uDistort.value = 0.0;
-      lensMat.uniforms.uAberration.value = 0.0012;
-      lensMat.uniforms.uVignette.value = 0.25;
-    } else {
-      const strength = devCfg.frameEffect ? devCfg.frameStrength : 0.35;
-      lensMat.uniforms.uFrameZoom.value = 1.0 - 0.04 * Math.min(1, strength);
-      lensMat.uniforms.uDistort.value = 0.09 * strength;
-      lensMat.uniforms.uAberration.value = 0.0035 * strength;
-      lensMat.uniforms.uVignette.value = 0.85 * Math.max(0.45, strength);
-    }
+    lensMat.uniforms.uFrameZoom.value = 1.0;
+    lensMat.uniforms.uDistort.value = 0.0;
+    lensMat.uniforms.uAberration.value = 0.0;
+    lensMat.uniforms.uVignette.value = 0.0;
   }
 
   function applyDevSettings(cfg) {
@@ -4120,16 +4288,35 @@ export async function initHud3D(
     followEndless(camera.position);
     if (isMapOpen()) renderTacticalMap();
 
+    goldSlide += (goldVisor - goldSlide) * Math.min(1, dt * 6.0);
+    if (Math.abs(goldVisor - goldSlide) < 0.002) goldSlide = goldVisor;
+
+    camera.getWorldDirection(lookDir);
+    if (evaLampOn && !drivingRover) {
+      const autoBoost = sunState.elevationRad < 0.25 ? 1.55 : 1.0;
+      evaLamp.intensity = 28.0 * autoBoost;
+      evaLamp.position.copy(camera.position).add(new THREE.Vector3(0, 0.14, 0));
+      evaLamp.target.position.copy(camera.position).addScaledVector(lookDir, 12);
+      evaLamp.target.updateMatrixWorld();
+    } else {
+      evaLamp.intensity = 0;
+    }
+
+    const headingDeg = (((-yaw * 180) / Math.PI) % 360 + 360) % 360;
+    const pitchDeg = (pitch * 180) / Math.PI;
+    const stopCoord = nextPovStop?.geometry?.coordinates;
+    const stopBearingDeg =
+      Array.isArray(stopCoord) && stopCoord.length >= 2 ? marsBearingDeg([curLon, curLat], stopCoord) : NaN;
+    const sunBearingDeg = (((Math.atan2(sunDir.x, -sunDir.z) * 180) / Math.PI) % 360 + 360) % 360;
+    updateWaveguideOptics(headingDeg, pitchDeg, heightEnv.molaElevM(px, pz), stopBearingDeg, sunBearingDeg);
+
     adaptResolution(dt * 1000, now);
     lensMat.uniforms.uTime.value = clockT;
     lensMat.uniforms.uGold.value = goldVisor;
+    lensMat.uniforms.uGoldSlide.value = goldSlide;
     lensMat.uniforms.uOptZoom.value = optZoom;
-    camera.getWorldDirection(lookDir);
     lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir)) * sunUpNow;
-    const flicker = devCfg.frameEffect
-      ? 1.0 + Math.sin(clockT * 0.7) * 0.015 * devCfg.frameStrength + Math.sin(clockT * 13.0) * 0.006 * devCfg.frameStrength
-      : 1.0;
-    lensMat.uniforms.uExposure.value = flicker;
+    lensMat.uniforms.uExposure.value = 1.0;
     rtUniforms.uRtTime.value = clockT;
     rtUniforms.uRtSunDir.value.copy(sunDir);
     if (devCfg.rayTracing) {

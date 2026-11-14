@@ -13,6 +13,7 @@ import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
 import { initOrbitView } from "./orbit/orbit-view.js";
 import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import { initContextMenu } from "./shared/context-menu.js";
 
 const I18N = {
   en: {
@@ -354,18 +355,18 @@ async function boot() {
         <div class="dev-note">
           ${
             tr
-              ? "Değişiklikler anlık olarak 3D Bodycam görünümüne uygulanır ve tarayıcıda saklanır."
-              : "Changes apply live to the 3D Bodycam view and persist locally in your browser."
+              ? "Değişiklikler anlık olarak 3D EVA görünümüne uygulanır ve tarayıcıda saklanır."
+              : "Changes apply live to the 3D EVA view and persist locally in your browser."
           }
         </div>
 
         <label class="dev-row">
           <div>
-            <div class="dev-label">${tr ? "Ekrandaki Çerçeve & Lens Efekti" : "Bodycam Frame & Lens Effect"}</div>
+            <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
             <div class="dev-sub">${
               tr
-                ? "Kavisli kask vizörü çerçevesi, kenar karartması, kromatik sapma ve film greni. Altın vizör G, büyütme Z."
-                : "Curved visor bezel frame, edge vignette, barrel distortion, chromatic aberration & grain. Gold visor is G, magnifier is Z."
+                ? "Altın vizör filtresi (G), kask farı (L) ve optik büyütme (Z) ayarları."
+                : "Gold sun filter (G), EVA lamp (L), optical zoom (Z), and subtle grain."
             }</div>
           </div>
           <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
@@ -857,6 +858,7 @@ async function boot() {
 
   /** Show exactly one of the three views ("planner" | "orbit" | "hud"). */
   function switchView(name, opts = {}) {
+    document.body.classList.toggle("in-hud", name === "hud");
     const views = { planner: plannerView, orbit: orbitView, hud: hudView };
     const tabs = { planner: btnTabPlanner, orbit: btnTabOrbit, hud: btnTabHud };
     for (const [k, el] of Object.entries(views)) el?.classList.toggle("active", k === name);
@@ -932,6 +934,129 @@ async function boot() {
     }
   });
 
+  // ---------- Custom right-click menu ----------
+  function initAppContextMenu() {
+    const t = (en, trText) => (readLang() === "tr" ? trText : en);
+    const clickId = (id) => () => document.getElementById(id)?.click();
+    const activeView = () =>
+      hudView.classList.contains("active") ? "hud" : orbitView?.classList.contains("active") ? "orbit" : "planner";
+    const probeTextEl = document.getElementById("map-probe-text");
+
+    async function copyCoords(lon, lat, where) {
+      const text = formatMarsLonLat(lon, lat, 5);
+      let ok = true;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        ok = false;
+        window.prompt(t("Copy coordinates:", "Koordinatları kopyala:"), text);
+      }
+      if (!ok) return;
+      const msg = `${t("COPIED", "KOPYALANDI")} · ${text}`;
+      if (where === "planner" && probeTextEl) probeTextEl.textContent = msg;
+      else showToast(msg);
+    }
+
+    function mapItems(ctx) {
+      const ll = plannerApi?.lonLatAt?.(ctx.x, ctx.y);
+      if (!ll) return [];
+      const info = demSampler?.sampleSlopeAndNormal?.([ll.lon, ll.lat]);
+      const elev = Number.isFinite(info?.elevM) ? ` · ${Math.round(info.elevM)} m` : "";
+      const slope = Number.isFinite(info?.slopeDeg) ? ` · ${info.slopeDeg.toFixed(1)}°` : "";
+      return [
+        { heading: `${formatMarsLonLat(ll.lon, ll.lat, 4)}${elev}${slope}` },
+        { label: t("Teleport here", "Buraya ışınlan"), hint: t("dbl-click", "çift tık"), action: () => plannerApi.teleportTo(ll.lon, ll.lat) },
+        {
+          label: t("Drop crew pin here", "Buraya ekip işareti bırak"),
+          action: () => mp.dropPing({ lon: ll.lon, lat: ll.lat, elevM: info?.elevM ?? null, label: "Planner Pin" }),
+        },
+        { label: t("Copy coordinates", "Koordinatları kopyala"), action: () => copyCoords(ll.lon, ll.lat, "planner") },
+        { label: t("Fit EVA route", "EVA rotasına sığdır"), action: () => plannerApi.fitEva() },
+        { separator: true },
+      ];
+    }
+
+    function hudItems() {
+      const pos = hudApi?.getLonLat?.();
+      const btnLabel = (id, fallback) => document.getElementById(id)?.textContent?.trim() || fallback;
+      return [
+        { heading: t("BODYCAM", "VÜCUT KAMERASI") },
+        { label: t("Drop waypoint pin", "Yol işareti bırak"), hint: "P", action: clickId("hud-ping") },
+        { label: t("Elevation map", "Yükselti haritası"), hint: "M", action: clickId("hud-map-btn") },
+        { label: t("Orbit view", "Yörünge görünümü"), hint: "O", action: clickId("hud-orbit-btn") },
+        { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
+        { label: btnLabel("hud-tex", "Texture"), action: clickId("hud-tex") },
+        { label: btnLabel("hud-fleet-btn", "Rovers"), action: clickId("hud-fleet-btn") },
+        { label: t("Rover POV photo", "Gezgin POV fotoğrafı"), action: clickId("hud-pov-btn") },
+        {
+          label: t("Copy my coordinates", "Konumumu kopyala"),
+          hidden: !Number.isFinite(pos?.lon) || !Number.isFinite(pos?.lat),
+          action: () => copyCoords(pos.lon, pos.lat, "hud"),
+        },
+        { separator: true },
+      ];
+    }
+
+    function orbitItems() {
+      return [
+        { heading: t("ORBIT", "YÖRÜNGE") },
+        { label: t("Find me", "Beni bul"), action: clickId("orbit-home") },
+        { label: btnLabel("orbit-layer", t("Change layer", "Katmanı değiştir")), action: clickId("orbit-layer") },
+        { label: t("Live time", "Canlı zaman"), action: () => document.querySelector('.orbit-warp[data-warp="1"]')?.click() },
+        { separator: true },
+      ];
+      function btnLabel(id, fallback) {
+        return document.getElementById(id)?.textContent?.trim() || fallback;
+      }
+    }
+
+    function globalItems() {
+      const view = activeView();
+      return [
+        { heading: t("GO TO", "GİT") },
+        { label: t("Route planner", "Rota planlayıcı"), disabled: view === "planner", action: switchToPlanner },
+        { label: t("Orbit view", "Yörünge görünümü"), disabled: view === "orbit", action: switchToOrbit },
+        { label: t("Bodycam EVA", "Vücut kamerası EVA"), disabled: view === "hud", action: switchToHud },
+        { separator: true },
+        { label: btnCrew?.textContent?.trim() || "Crew", action: () => btnCrew?.click() },
+        { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
+        { label: t("Developer settings", "Geliştirici ayarları"), action: openDevSettingsModal },
+        { label: t("Main menu", "Ana menü"), action: () => start.show() },
+      ];
+    }
+
+    initContextMenu({
+      getItems(ctx) {
+        const el = ctx.target?.closest ? ctx.target : ctx.target?.parentElement;
+        const startScreen = document.getElementById("start-screen");
+        if (startScreen && !startScreen.classList.contains("hidden")) {
+          return [...startScreen.querySelectorAll(".menu-item")].map((b) => ({
+            label: b.textContent.trim(),
+            action: () => b.click(),
+          }));
+        }
+        if (modalBackdrop.classList.contains("open")) {
+          return [{ label: t("Close window", "Pencereyi kapat"), hint: "Esc", action: () => modalBackdrop.classList.remove("open") }];
+        }
+        if (el?.closest?.("#crew-drawer")) {
+          return [{ label: t("Close crew panel", "Ekip panelini kapat"), hint: "Esc", action: () => crewDrawer?.classList.remove("open") }];
+        }
+        // The in-HUD elevation map has its own click-to-teleport flow; keep it to global items.
+        const inHudMap = el?.closest?.("#hud-map-overlay.open");
+        const view = activeView();
+        const local =
+          view === "planner" && el?.closest?.("#map")
+            ? mapItems(ctx)
+            : view === "hud" && !inHudMap
+              ? hudItems()
+              : view === "orbit"
+                ? orbitItems()
+                : [];
+        return [...local, ...globalItems()];
+      },
+    });
+  }
+
   resolveReady({
     eva: startEva,
     orbit: switchToOrbit,
@@ -949,6 +1074,8 @@ async function boot() {
     onVisitRoverSite: (id) => dispatchVisitRoverSite(id),
     onStartEva: switchToHud,
   });
+
+  initAppContextMenu();
 
   await mp.connect();
   renderCrewUi();

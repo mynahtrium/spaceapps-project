@@ -49,7 +49,7 @@
     <div class="topbar-actions">
       <button id="btn-tab-planner" class="btn active">Planner</button>
       <button id="btn-tab-orbit" class="btn">Orbit</button>
-      <button id="btn-tab-hud" class="btn">Bodycam</button>
+      <button id="btn-tab-hud" class="btn">EVA HUD</button>
       <button id="btn-crew" class="btn">Crew (1)</button>
       <button id="btn-credits" class="btn">Sources</button>
       <button id="btn-menu" class="btn">Menu</button>
@@ -275,8 +275,13 @@
         </div>
 
         <div class="visor-top">
-          <div class="cam-stamp">
-            <div><span class="rec">●</span> REC &nbsp;EVA-CAM 02 &nbsp;<span class="dim">// HELMET MOUNT</span></div>
+          <div class="cam-stamp hud-optics-block">
+            <div class="optics-head">
+              <span>EVA-01 // GALE CRATER</span>
+              <span class="dim" id="hud-opt-gold">VISOR: CLR</span>
+              <span class="dim" id="hud-opt-lamp">LAMP: OFF</span>
+              <span class="dim" id="hud-opt-zoom">MAG: 1×</span>
+            </div>
             <div id="hud-clock">T+00:00:00</div>
             <div class="dim" id="hud-crew">AST-1 · 1.80 M · <span id="hud-suit">SUIT —</span></div>
             <div class="dim" id="hud-crew-summary">MARS g 3.717 M/S² · CREW: 1</div>
@@ -284,7 +289,23 @@
             <div class="dim" id="hud-view-label">GALE CRATER · MOUNT SHARP · 4.80°S 137.39°E</div>
           </div>
 
-          <div class="telemetry">
+          <div id="hud-compass-wrap" class="hud-compass-wrap" aria-hidden="true">
+            <div class="hud-compass-head">
+              <span id="hud-compass-deg">000° N</span>
+              <span class="hud-sep">·</span>
+              <span id="hud-elev-mola">— m MOLA</span>
+              <span class="hud-sep">·</span>
+              <span id="hud-pitch-deg">+0°</span>
+            </div>
+            <div class="hud-compass-track">
+              <div class="hud-compass-lubber"></div>
+              <div id="hud-compass-tape" class="hud-compass-tape"></div>
+              <div id="hud-compass-stop" class="hud-compass-marker stop" title="Next Stop Bearing" hidden>◆</div>
+              <div id="hud-compass-sun" class="hud-compass-marker sun" title="Sun Bearing">☼</div>
+            </div>
+          </div>
+
+          <div class="telemetry hud-telemetry-block">
             <span class="k">DIST</span>
             <span class="v"><span class="hud-value" id="hud-dist">0.0 m</span></span>
             <span class="note hud-sub" id="hud-dist-sub">remaining — · next stop —</span>
@@ -315,14 +336,17 @@
             </div>
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
-            <div class="hud-hint" style="text-align:left;margin-top:6px;">
-              CLICK TO LOCK MOUSE (ESC UNLOCK) · WASD MOVE · SHIFT BOOST · SPACE JUMP/DRIFT · F ROVER · G GOLD VISOR · Z ZOOM · R RAY TRACING · M MAP · O ORBIT
+            <div class="hud-hint" style="text-align:left;margin-top:4px;">
+              WASD MOVE · SHIFT BOOST · SPACE JUMP · F ROVER · G GOLD VISOR · L LAMP · Z ZOOM · R RAY TRACING · M MAP · O ORBIT · ESC PLANNER
+            </div>
             </div>
           </div>
 
           <div class="hud-controls">
             <button id="hud-orbit-btn" class="btn">Orbit (O)</button>
             <button id="hud-sun-btn" class="btn">Sun: day</button>
+            <button id="hud-gold-btn" class="btn">Gold (G)</button>
+            <button id="hud-lamp-btn" class="btn">Lamp (L)</button>
             <button id="hud-fleet-btn" class="btn">Rovers (5)</button>
             <button id="hud-map-btn" class="btn">Map (M)</button>
             <button id="hud-tex" class="btn">Tex: relief</button>
