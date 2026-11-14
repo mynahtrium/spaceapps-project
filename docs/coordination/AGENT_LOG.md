@@ -328,3 +328,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Document long-lived branches (merge to main only when asked), pull-then-push after every prompt, and remaining backend work split (Cagan terrain+costmap; Doruk routing+stops example until PRE-07; CC science leftovers). Frontend/testers marked not this pass. No application code for Cagan/CC; no secrets.
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
+
+### 2026-11-14 13:34 Europe/Istanbul — MUST-12 (static analysis & POSSIBLE_BUGS.md)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md (new), docs/coordination/AGENT_LOG.md
+- Why: Audited `main` (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/contracts/`), verified all 24 Python files compile, checked for secrets/bulky files and `data/` size (3.23 MB), and documented 7 bugs/integration risks in `POSSIBLE_BUGS.md` (empty `web/`, `cost-map.json` vs `stops.json` bounds mismatch, `hud-telemetry.json` wrapper mismatch, `dose.json` stale duration, missing terrain/routing `data/demo/` fixtures, and `MUST-03` tilt wording update).
+- Commit: this commit
+- Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1–3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
