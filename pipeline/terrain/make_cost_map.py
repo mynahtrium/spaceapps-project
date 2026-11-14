@@ -106,7 +106,7 @@ def main():
         "cost_formula": "1 + (slope_deg / 10)^2 + k_rough * roughness_m; multiply by step length when routing; blocked if slope > limit or no-data",
         "k_rough_example": K_ROUGH,
         "roughness_note": "roughness = TRI (mean absolute elevation difference to 8 neighbours, metres) on the ~5 m grid",
-        "tilt_validation_note": "A 1 m HiRISE DTM under-read rover-reported tilt in the 11 Nov 2026 planning check (about 4-10 deg under the rover vs 9-17 deg reported). Add a margin and say so. Not yet checked against waypoints in this product (MUST-03).",
+        "tilt_validation_note": "MUST-03 (14 Nov 2026, 176 Curiosity waypoints, Sol 4400-5073, see tilt-check.json): median DTM slope 9.0 deg at 5 m vs median rover tilt 8.6 deg, so no systematic under-read at this scale, but correlation is weak (r about 0.15) and rovers pick gentle ground. The 11 Nov planning check had found the 1 m DTM under-reading tilt at four boxwork Sols (4-10 deg vs 9-17 deg). Keep a safety margin and say so; do not call the cost map validated.",
         "preview_png_relpath": "data/processed/terrain/slope-preview.png",
         "height_preview_png_relpath": "data/processed/terrain/height-preview.png",
         "height_preview_elevation_range_m": [round(zmin, 1), round(zmax, 1)],

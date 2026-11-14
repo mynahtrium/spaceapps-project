@@ -250,3 +250,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Pulled latest team updates; verified and tested Backend 1 MUST-01 and MUST-02 outputs (crop, slope, TRI roughness, cost-map.json, height preview) against must-checklist.md; signed off section 2.1 as PASS (first pass); acknowledged handoffs from B1 and B2.
 - Commit: this commit
 - Next step: Wait for team decision on PRE-07 stop locking; review upcoming MUST-04 and routing PRs.
+
+### 2026-11-14 12:20 Europe/Istanbul — MUST-03 (tilt check, first pass)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend-1
+- Task id: MUST-03
+- Files changed: pipeline/terrain/tilt_check.py (new), pipeline/terrain/make_cost_map.py (note text only), data/processed/terrain/tilt-check.json (new), data/processed/terrain/cost-map.json (note text only; grid unchanged), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Sampled DTM slope at 176 Curiosity waypoints (Sol 4400-5073, inside DTEEC_019698) and compared it with the rover-reported tilt. At ~5 m scale the medians agree (DTM 9.0 deg, rover 8.6 deg; difference -0.06 deg) and at 1 m the DTM is slightly higher (9.6 deg); correlation is weak (r 0.11-0.15). This does not reproduce the 11 Nov planning note that the DTM under-reads tilt at four boxwork Sols, so that claim is not confirmed over a larger sample. Limits: rover tilt is body tilt over ~3 m, no co-registration of waypoints to the DTM, and rovers drive on gentle ground. The cost-map note was reworded to say this; the safety-margin advice stays. The MUST raster is not frozen yet because the crop centre is still a placeholder (PRE-07).
+- Commit: this commit
+- Next step: Re-run make_slope.py, make_cost_map.py and tilt_check.py once the stops are locked, then freeze the MUST raster. Tell testers and the slides owner that the "DTM under-reads tilt" wording needs softening.
+- Previous commit: 3078ef5
