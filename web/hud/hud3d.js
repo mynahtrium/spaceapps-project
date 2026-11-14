@@ -306,8 +306,13 @@ const LENS_FRAG = /* glsl */ `
     float helm = smoothstep(0.45, 1.25, length(c));
     col *= mix(1.0, 0.12, helm * uVignette);
     col += vec3(0.42, 0.32, 0.24) * helm * helm * 0.16 * (1.0 - 0.45 * uGold);
-    float scratch = uGlint * pow(max(0.0, 1.0 - abs(c.y) * 3.0), 2.0) * (0.5 + 0.5 * sin(c.x * 140.0 + c.y * 40.0));
-    col += vec3(1.0, 0.95, 0.85) * scratch * 0.08;
+    float glint = pow(max(0.0, uGlint), 3.5);
+    float fadeR = exp(-length(c) * 3.4);
+    float streakH = 0.45 * exp(-abs(c.y) * 28.0) * exp(-abs(c.x) * 2.4);
+    float streakD1 = 0.25 * exp(-abs(c.y - c.x * 0.36) * 52.0);
+    float streakD2 = 0.25 * exp(-abs(c.y + c.x * 0.36) * 52.0);
+    float sunRays = glint * (streakH + (streakD1 + streakD2) * fadeR);
+    col += vec3(1.0, 0.95, 0.85) * sunRays * 0.022;
 
     float ray = 0.0;
     float tbin = floor(uTime * 12.0);
