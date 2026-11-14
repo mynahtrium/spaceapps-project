@@ -9,7 +9,7 @@ import { dispatchSetRoute } from "../shared/route-bridge.js";
 function buildRasterStyle(demoSafe) {
   const sources = {};
   const layers = [
-    { id: "bg", type: "background", paint: { "background-color": "#1a1412" } },
+    { id: "bg", type: "background", paint: { "background-color": "#000000" } },
   ];
 
   if (!demoSafe) {
@@ -215,13 +215,13 @@ export function initPlanner(data, { onOpenPov, onStartEva }) {
           id: "eva-route-glow",
           type: "line",
           source: "eva-route",
-          paint: { "line-color": "#38bdf8", "line-width": 7, "line-opacity": 0.35 },
+          paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.18 },
         });
         map.addLayer({
           id: "eva-route-line",
           type: "line",
           source: "eva-route",
-          paint: { "line-color": "#38bdf8", "line-width": 3 },
+          paint: { "line-color": "#ffffff", "line-width": 2 },
         });
       }
 
@@ -237,12 +237,12 @@ export function initPlanner(data, { onOpenPov, onStartEva }) {
             "circle-color": [
               "match",
               ["get", "kind"],
-              "habitat", "#22c55e",
-              "boxwork_bonus", "#f59e0b",
-              "#38bdf8",
+              "habitat", "#ffffff",
+              "boxwork_bonus", "#d4d4d4",
+              "#ffffff",
             ],
             "circle-stroke-width": 2,
-            "circle-stroke-color": "#0b0e14",
+            "circle-stroke-color": "#000000",
           },
         });
 
@@ -390,9 +390,9 @@ function renderProfileSvg(profile, onSelectDist) {
 
   svg.innerHTML = `
     <polygon points="${area}" fill="rgba(56,189,248,0.18)" />
-    <polyline points="${poly}" fill="none" stroke="#38bdf8" stroke-width="2" />
-    <text x="${pad}" y="11" fill="#8fa3bf" font-size="9" font-family="monospace">${maxE.toFixed(1)} m</text>
-    <text x="${pad}" y="${H - 3}" fill="#8fa3bf" font-size="9" font-family="monospace">${minE.toFixed(1)} m · 0 m → ${maxS.toFixed(0)} m</text>
+    <polyline points="${poly}" fill="none" stroke="#ffffff" stroke-width="1.5" />
+    <text x="${pad}" y="11" fill="rgba(255,255,255,0.55)" font-size="9" font-family="monospace">${maxE.toFixed(1)} m</text>
+    <text x="${pad}" y="${H - 3}" fill="rgba(255,255,255,0.55)" font-size="9" font-family="monospace">${minE.toFixed(1)} m · 0 m → ${maxS.toFixed(0)} m</text>
   `;
 
   svg.style.cursor = "pointer";

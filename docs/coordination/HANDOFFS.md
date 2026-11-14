@@ -239,3 +239,17 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Divarci reviews the change; Eymen walks past the edge once in `?demo=1`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
+### HANDOFF-20261114-1623 — from Cagan (Claude Code) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 16:23
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (owner of web/), Eymen (review)
+- Board task id: MUST-09 / MUST-10 / SHOULD-05 follow-up (visual overhaul, branch backend/simulation)
+- What is ready: on branch backend/simulation: (1) NASA 3D Resources Mark III spacesuit glTF scaled to a 1.80 m astronaut and rigged in code (web/hud/astronaut-rig.js: hips, knees, ankles, spine, head, shoulders; distance-driven walk and jog cycle); a crew member walks 6 m ahead on the route. (2) Helmet camera at eye level (1.64 m) in front of the suit's chest, own helmet hidden, so looking down shows your legs and gloves; only millimetres of walking sway; lens pass with barrel distortion, chromatic aberration, vignette, grain. Mars gravity 3.71 m/s², Space to jump, falls off drops, slower on steep ground; walk 1.4 m/s, Shift jog 2.2 m/s. No third-person camera. (3) Mars sky dome, sun shadows (PCF soft), ACES tone mapping, relief texture with close-range detail noise, survey poles at stops. Walking pace is 1.4 m/s (1x/4x/10x/30x). (4) New black UI: typed start screen with white text-as-buttons (EN/TR), white-on-black planner and bodycam HUD. All MUST HUD fields and honesty labels kept; element ids unchanged.
+- Paths (files or folders): web/index.html, web/styles.css, web/app.js, web/hud/hud3d.js, web/planner/planner.js (colours only), web/shared/data-loader.js (reliefTextureUrl), web/vendor/addons/ (GLTFLoader, DRACOLoader, BufferGeometryUtils, Draco decoder, three r170), web/assets/nasa-3d/, pipeline/data/export_demo_fixtures.py (+ texture-relief.jpg), data/demo/texture-relief.jpg
+- How to try it: python -m http.server 8000, open http://localhost:8000/web/?demo=1, choose BEGIN EVA, press Play; V for third person. Hard-reload once (Ctrl+Shift+R) if an old module is cached.
+- What is not done / known limits: not ray tracing (WebGL rasterisation with PBR, image-based sky light and shadow maps). The rig is procedural, so deformation at hips and shoulders is approximate and feet can slide slightly. Ground detail noise and the Mars tint are visual, not data. Terrain beyond the real tile is mirrored. Checked in the in-app browser with no console errors (only favicon before it was added); not tested on a low-end GPU.
+- Please do next: Divarci reviews the web/ changes before any merge to main; Eymen checks ?demo=1 offline (all new assets are local).
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:

@@ -139,6 +139,7 @@ export async function loadAllProjectData() {
       heightPreviewUrl: `${baseTerrainDir}/height-preview.png`,
       slopePreviewUrl: `${baseTerrainDir}/slope-preview.png`,
       orthoPreviewUrl: `${baseTerrainDir}/ortho-preview.png`,
+      reliefTextureUrl: `${baseTerrainDir}/texture-relief.jpg`,
       povBaseUrl: `${baseScienceDir}/pov`,
       themisTileBaseUrl: `${baseScienceDir}/tiles/themis`,
     },

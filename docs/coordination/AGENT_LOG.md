@@ -660,3 +660,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Added one-click/one-command local launcher scripts (`start.bat` for Windows, `scripts/start-app.sh` for bash/macOS/Linux) that start `http.server` on port 8000 and open `http://localhost:8000/web/?demo=1`. Also verified the live app in `?demo=1` mode via browser preview (2D MapLibre planner + 3D three.js helmet HUD + playback, 0 console errors).
 - Commit: this commit
 - Next step: Team can double-click `start.bat` to launch the demo locally.
+
+### 2026-11-14 16:23 Europe/Istanbul — bodycam simulation and black UI (branch backend/simulation)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in Divarci's web/ tree at Cagan's request)
+- Task id: MUST-09 / MUST-10 / SHOULD-05 follow-up
+- Files changed: web/index.html, web/styles.css, web/app.js, web/hud/hud3d.js, web/hud/astronaut-rig.js (new), web/planner/planner.js, web/shared/data-loader.js, web/vendor/addons/** (new), web/assets/nasa-3d/** (new), pipeline/data/export_demo_fixtures.py, data/demo/texture-relief.jpg, data/demo/science-manifest.json, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, docs/AI_USE.md
+- Why: Cagan asked for a 1.80 m astronaut with a NASA model, photorealistic bodycam-style graphics and a completely new black UI with white text buttons. Used NASA 3D Resources (Mark III spacesuit; Z2 download did not finish). Added PBR lighting, an image-based sky light, shadows, sky, tone mapping and a camera lens pass; true ray tracing is not possible in real time in WebGL, and the UI and credits say so. Follow-up the same session: the NASA model has no skeleton, so a procedural rig was written (joint heights for a 1.80 m body, skin weights from vertex position, distance-driven walk / jog, arms lowered from the model's forward-reaching pose); helmet camera moved in front of the deep chest so the legs show when looking down; camera sway cut to millimetres; third-person camera removed; Mars gravity, jumping and slower jog (2.2 m/s) added. Checked in the browser with side and front renders of the rig and in the live view; no console errors. Cagan pasted a NASA API key in chat: it was not used (NASA 3D Resources need no key) and was not written to any file; Cagan was advised to rotate it.
+- Commit: this commit
+- Next step: Divarci reviews; push the branch and open a PR only when Cagan asks.

@@ -9,7 +9,158 @@ import { dispatchSetRoute } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
 
+const I18N = {
+  en: {
+    title: "MARTIAN MAPPERS",
+    lines: [
+      "GALE CRATER / MOUNT SHARP — MARS",
+      "EVA RECORD 01 · CURIOSITY TRAVERSE CONTEXT",
+      "IF A CREW VISITED WHERE CURIOSITY STUDIED MOUNT SHARP.",
+      "TERRAIN: HiRISE DTEEC_019698 · ROUTE: EXAMPLE, STOPS NOT LOCKED",
+    ],
+    menu_eva: "BEGIN EVA",
+    menu_planner: "ROUTE PLANNER",
+    menu_credits: "SOURCES & HONESTY",
+    foot_sources:
+      "DATA: NASA / MRO HiRISE (UArizona), MSL CURIOSITY, MARS TREK, DONKI · ASTRONAUT MODEL: NASA 3D RESOURCES · EXAMPLE ROUTE, STOPS NOT LOCKED (PRE-07)",
+  },
+  tr: {
+    title: "MARTIAN MAPPERS",
+    lines: [
+      "GALE KRATERİ / MOUNT SHARP — MARS",
+      "EVA KAYDI 01 · CURIOSITY GÜZERGÂHI",
+      "BİR EKİP CURIOSITY'NİN MOUNT SHARP'I İNCELEDİĞİ YERE GİTSEYDİ.",
+      "ARAZİ: HiRISE DTEEC_019698 · ROTA: ÖRNEK, DURAKLAR KİLİTLİ DEĞİL",
+    ],
+    menu_eva: "EVA'YA BAŞLA",
+    menu_planner: "ROTA PLANLAYICI",
+    menu_credits: "KAYNAKLAR VE DÜRÜSTLÜK",
+    foot_sources:
+      "VERİ: NASA / MRO HiRISE (UArizona), MSL CURIOSITY, MARS TREK, DONKI · ASTRONOT MODELİ: NASA 3D RESOURCES · ÖRNEK ROTA, DURAKLAR KİLİTLİ DEĞİL (PRE-07)",
+  },
+};
+
+function readLang() {
+  try {
+    return localStorage.getItem("mm-lang") === "tr" ? "tr" : "en";
+  } catch {
+    return "en";
+  }
+}
+
+function initStartScreen({ onEva, onPlanner, onCredits }) {
+  const screen = document.getElementById("start-screen");
+  const linesEl = document.getElementById("start-lines");
+  const menu = document.getElementById("start-menu");
+  const items = [...menu.querySelectorAll(".menu-item")];
+  let lang = readLang();
+  let typingToken = 0;
+  let focusIdx = 0;
+
+  function applyLang() {
+    const t = I18N[lang];
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      const key = el.dataset.i18n;
+      if (t[key]) el.textContent = t[key];
+    });
+    document.getElementById("lang-en").style.color = lang === "en" ? "#fff" : "";
+    document.getElementById("lang-tr").style.color = lang === "tr" ? "#fff" : "";
+  }
+
+  async function typeIntro() {
+    const token = ++typingToken;
+    const t = I18N[lang];
+    menu.classList.remove("shown");
+    linesEl.innerHTML = "";
+    const title = document.createElement("span");
+    title.className = "title";
+    linesEl.appendChild(title);
+    const caret = document.createElement("span");
+    caret.className = "caret";
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, reduce ? 0 : ms));
+    const type = async (el, text, ms) => {
+      for (const ch of text) {
+        if (token !== typingToken) return false;
+        el.textContent += ch;
+        el.after(caret);
+        await sleep(ms);
+      }
+      return true;
+    };
+    if (!(await type(title, t.title, 55))) return;
+    for (const line of t.lines) {
+      const row = document.createElement("div");
+      linesEl.appendChild(row);
+      await sleep(180);
+      if (!(await type(row, line, 16))) return;
+    }
+    if (token === typingToken) menu.classList.add("shown");
+  }
+
+  function setFocus(i) {
+    focusIdx = (i + items.length) % items.length;
+    items.forEach((el, k) => el.classList.toggle("focus", k === focusIdx));
+  }
+
+  function hide() {
+    screen.classList.add("hidden");
+  }
+
+  function show() {
+    screen.classList.remove("hidden");
+    typeIntro();
+    setFocus(0);
+  }
+
+  const actions = { eva: onEva, planner: onPlanner, credits: onCredits };
+  items.forEach((el, k) => {
+    el.addEventListener("mouseenter", () => setFocus(k));
+    el.addEventListener("click", () => {
+      const act = el.dataset.action;
+      if (act !== "credits") hide();
+      actions[act]?.();
+    });
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (screen.classList.contains("hidden")) return;
+    if (e.key === "ArrowDown") setFocus(focusIdx + 1);
+    else if (e.key === "ArrowUp") setFocus(focusIdx - 1);
+    else if (e.key === "Enter") items[focusIdx].click();
+    else return;
+    e.preventDefault();
+  });
+
+  const setLang = (l) => {
+    lang = l;
+    try {
+      localStorage.setItem("mm-lang", l);
+    } catch {
+      /* storage blocked: keep the in-memory choice */
+    }
+    applyLang();
+    typeIntro();
+  };
+  document.getElementById("lang-en").onclick = () => setLang("en");
+  document.getElementById("lang-tr").onclick = () => setLang("tr");
+
+  applyLang();
+  show();
+  return { show, hide };
+}
+
 async function boot() {
+  // Show the start screen at once; its actions wait until the data and views are ready.
+  let resolveReady;
+  const ready = new Promise((r) => (resolveReady = r));
+  const start = initStartScreen({
+    onEva: () => ready.then((a) => a.eva()),
+    onPlanner: () => ready.then((a) => a.planner()),
+    onCredits: () => ready.then((a) => a.credits()),
+  });
+  document.getElementById("btn-menu").onclick = () => start.show();
+
   const data = await loadAllProjectData();
 
   if (data.demoSafe) {
@@ -67,7 +218,9 @@ async function boot() {
           <li><strong>MRO CRISM:</strong> 9 MTRDR product records via PDS Geosciences ODE REST</li>
           <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
+          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head) and drives a walk / jog cycle from distance walked; the arms of this model ride on the chest. Mars gravity (3.71 m/s²) is used for jumps and falls; walking pace (1.4 m/s) and jog (2.2 m/s) are placeholders.</li>
         </ul>
+        <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data.</p>
       </div>
     `;
     modalBackdrop.classList.add("open");
@@ -97,6 +250,8 @@ async function boot() {
     if (data.route) dispatchSetRoute(data.route, 0);
     switchToHud();
   };
+
+  resolveReady({ eva: () => btnStartEva.onclick(), planner: switchToPlanner, credits: openCreditsModal });
 
   initPlanner(data, {
     onOpenPov: openPovModal,
