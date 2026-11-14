@@ -49,7 +49,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Mudstone outcrop names and final coordinates are not chosen. Resources tab still may be UNVERIFIED. HiView confirmation still needed for any pick.
 - Please do next: Lock the four stops (or reject candidates and supply alternates inside DTEEC_019698). Testers copy the locked ids into `docs/testing/`. Then Backend 2 runs MUST-04.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
  2026-11-14 12:02 (Asil / Tester 1) — Alındı; durak kilitleme kararı bekleniyor.
 
 ### HANDOFF-20261114-1200 — from backend-1 to backend-2, frontend-1, testers
@@ -112,7 +112,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
   - Frontend 1: wire `data/processed/science/` (and `data/demo/` for `?demo=1`).
   - Backend 2: ping Backend 3 once `stops.json` and `route.json` are locked so we refresh `dose.json` + `pov/`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 ### HANDOFF-20261114-1303 — from Tester 2 to Frontend 1, Backend 2, Backend 3, Tester 1
@@ -127,7 +127,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Web HUD is not built. Stops are examples. Route total 947.1 m does not match the leg sum 790.3 m. Dose card is still 96 min / 0.0427 mSv. Slides no longer say the DTM systematically under-reads tilt; the 14 Nov 176-waypoint check did not show that.
 - Please do next: Tester 1 reviews this branch (do not merge unless asked). Backend 2 answers the board question on 947.1 vs 790.3. Backend 3 refreshes dose only when the duration to show is chosen. Frontend 1 tells Tester 2 when a real `mm:set-route` click exists.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 ### HANDOFF-20261114-1305 — from Backend 3 to Frontend 1, Tester 1, Tester 2
@@ -147,7 +147,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: PRE-07 is still open, so dose and stops stay examples. Walk time is still an Earth-hiking placeholder. PDS RAD tables are still unavailable (expired TLS on the earlier fetch). No personal NASA key on this machine.
 - Please do next: Frontend 1 can read `dose.json` and, for a keyless demo, the `*.example.json` DONKI files. Testers review branch `backend/science`. Do not merge to `main` unless asked.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 
 ### HANDOFF-20261114-1330 — from backend-1 to frontend-1, backend-2, testers (follow-up to HANDOFF-20261114-1200)
@@ -196,7 +196,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: MapLibre GL JS & Three.js load from CDN (`unpkg.com`); `data/` and `docs/` load locally. `ortho-preview.png` is read from `data/processed/terrain/` even in `?demo=1` because `data/demo/` does not bundle `ortho-preview.png`. Stops/route remain `example` until `PRE-07` locks.
 - Please do next: Verify `MUST-08`..`MUST-10` and `SHOULD-05`..`SHOULD-07` in the browser and sign off on `BOARD.md`.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received:
+- Received: 2026-11-14 15:33 (Eymen / Tester 2) — Verified JS syntax, DOM IDs, and `?demo=1` tile guards; vendored `maplibre-gl@4.7.1` and `three@0.170.0` into `web/vendor/` so `?demo=1` is 100% offline (`BUG-12` fixed).
 
 ### HANDOFF-20261114-1520 — from backend (Cagan) to Divarci, Eymen, Cetin
 

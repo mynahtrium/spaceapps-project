@@ -616,3 +616,25 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Next step: When the network allows, run fetch_dtm.py then make_slope.py and make_relief.py (full mode) for 1 m height and 4096 px textures; Divarci wires texture-relief.jpg into the HUD.
 
 - Correction (same day): the entry above was first written with 16:15; the real time was about 15:45. fetch_dtm.py now takes --chunk-kb (default 512) because the server reset 4 MB range requests ten times in a row.
+
+### 2026-11-14 15:32 Europe/Istanbul — MUST-12 / SHOULD-07 (deep web JS & demo sync verification)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12, SHOULD-07
+- Files changed: POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/AGENT_LOG.md
+- Why: Pulled `20fc36f` and ran deep verification: `node --check` passed on all 5 JS files in `web/`, `0` missing DOM IDs against `web/index.html`, verified `BUG-13` and `BUG-14` are fixed (`data/demo/` matches `data/processed/` 1:1 and `ortho-preview.png` is bundled), and verified `web/planner/planner.js` already guards `trek.nasa.gov` CTX/THEMIS tiles behind `if (!demoSafe)`. Narrowed `BUG-12` strictly to `web/index.html` CDN links (`unpkg.com` for `maplibre-gl` and `three.js`).
+- Commit: this commit
+- Next step: Frontend 1 (Dıvarcı) optionally vendors `maplibre-gl` and `three.js` locally (`BUG-12`); team locks `PRE-07` stops (`BUG-09`).
+
+### 2026-11-14 15:34 Europe/Istanbul — SHOULD-07 (fix BUG-12 offline vendoring)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2 (requested offline fix in `web/`)
+- Task id: SHOULD-07 (BUG-12)
+- Files changed: web/vendor/maplibre-gl.css (new), web/vendor/maplibre-gl.js (new), web/vendor/three.module.js (new), web/index.html, POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Vendored `maplibre-gl@4.7.1` and `three@0.170.0` (`2.18 MB` total) into `web/vendor/` and updated `web/index.html` to load them locally instead of `unpkg.com` CDN. Verified `web/index.html` now has 0 external URLs so `?demo=1` runs 100% offline.
+- Commit: this commit
+- Next step: Run live browser verification at `http://localhost:8000/web/?demo=1` with DevTools Offline mode enabled.
