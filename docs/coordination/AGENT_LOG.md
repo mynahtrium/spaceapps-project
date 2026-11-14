@@ -902,3 +902,69 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan set the controller layout: left stick move, right stick camera, Menu (three lines) Esc menu, View (two squares) map, A select/confirm, B back, X landmark, Y theme. A also jumps while walking; RT still runs. A/B are fixed menu buttons; the in-game actions stay rebindable (saved layout key bumped to v2 because the defaults changed). On the map a controller crosshair picks the teleport point (left stick, pans at the edge), the right stick turns the view and tilts it in 3D or zooms in 2D, LT/RT zoom, A teleports, B returns to the 3D view; the map opens centred on the walker. D-pad or left stick move through menus and the controller setup panel. The 3D terrain map is now demo-mode only (?demo=1): in normal mode the planner opens 2D and the 3D toggle is hidden; controller map control works in both. Tested with a simulated standard pad in both modes (map open/close, turn, tilt/zoom, crosshair readout, teleport landing on the target, Esc menu open/close with B). Normal mode still logs Mars Trek CTX CORS errors, unrelated to this change.
 - Commit: this commit
 - Next step: Cagan tries a real controller.
+
+### 2026-11-14 18:00 Europe/Istanbul — Taller start marker, M-key 3D Martian elevation map with click-to-teleport confirmation, and opposite-edge map wrap
+
+- Human: Cinar
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend implementer (`main`)
+- Task id: MUST-09 / MUST-10 follow-up
+- Files changed: web/hud/hud3d.js, web/index.html, web/styles.css, docs/coordination/AGENT_LOG.md
+- Why: Raised the start/habitat marker pole height from 2.4 m to 4.6 m with a glowing cap lamp; added a tactical 3D Mars elevation map modal (`M` key / `Map (M)` button) rendered 1:1 from `elevGrid` with Martian hypsometric ramp, `sunDir` hillshade, `sunMask` shadows, 20 m / 60 m contours, optional Slope Hazard overlay, click confirmation prompt ("Buraya ışınlanmak istiyor musun?" / "Do you want to teleport here?") showing lat/lon, MOLA elevation, slope, and distance, and exact `sampleElevSceneY` + `justTeleportedOrWrapped` ground snapping on teleport; added toroidal opposite-edge boundary wrapping (`wrapSceneCoord`) with HUD wrap notification toast when walking past any edge of the 3D terrain. Preserved `P` beacon, multiplayer drawer styles, and single Planner button on merge with `origin/main` (`e18cac2`). Verified `node --check`, DOM ID consistency, and all `web/tests/*.mjs` tests.
+- Commit: this commit
+- Next step: none.
+
+### 2026-11-14 18:43 Europe/Istanbul — MAP-01 / MUST-09 / MUST-12 (Planner border artifact fix + subtle Dev Settings menu)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: tester-2
+- Task id: MAP-01, MUST-09, MUST-12
+- Files changed: `web/shared/dev-settings.js`, `web/map/MarsDemSampler.js`, `web/map/MapLibreMarsAdapter.js`, `web/planner/planner.js`, `web/hud/hud3d.js`, `web/app.js`, `web/index.html`, `web/styles.css`, `web/tests/fallback.test.mjs`, `docs/coordination/HANDOFFS.md`, `docs/coordination/AGENT_LOG.md`
+- Why: Eymen reported extruded N/S/E/W border cross-lines and tile cutoffs around the HiRISE box on the Planner map, and asked for a low-profile theme-matched Developer Settings button in the menu with frame effect, speed, and experimental super graphics toggles. Added a `smoothstep` 0.0085° outer DEM taper toward `borderMeanElevM` in `MarsDemSampler.js`, `Promise.allSettled` + procedural regional dust context + toned CTX + `minZoom: 11.2` in `MapLibreMarsAdapter.js`, `zoom: 14.7` + dashed HiRISE corridor + zoom-scaled markers + `[ FIT EVA ]` in `planner.js`, and a persistent `dev-settings.js` modal (`#btn-dev-settings` in `.start-foot`) wired live to `hud3d.js` (bodycam frame/lens toggle & strength, speed multiplier, 4096px soft-shadow/4x MSAA/1.25x supersampled Experimental Super Graphics, FOV, clean HUD). Verified live in browser (`0` console/WebGL errors on `?demo=1`), syntax check (`27` files), and `24/24` Node unit tests.
+- Commit: this commit
+- Next step: Divarci / Doruk / Cagan review cross-folder `web/` changes; Eymen tests via live server on port 8000 (`Ctrl+Shift+R`).
+
+### 2026-11-14 18:57 Europe/Istanbul — Demo spherical Mars globe, locked orbital landing UI, and real NASA MOLA/Viking planetary terrain
+
+- Human: Cinar
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend implementer (`demo-1`)
+- Task id: MUST-09 / MUST-10 demo polish
+- Files changed: web/hud/mars-globe.js, web/hud/hud3d.js, web/app.js, web/index.html, web/styles.css, web/shared/data-loader.js, web/tests/mars-globe.test.mjs, data/demo/mars-mola-dem.png, data/demo/mars-viking-global.jpg, data/demo/mars-global-sources.json, docs/coordination/AGENT_LOG.md
+- Why: Strictly scoped to `?demo=1` (`demoSafe`) mode: replaced edge teleportation with true spherical Mars geodesic stepping (`R = 3,389.5 km`, `mars-globe.js`, curved ground patch + local sphere-tangent gravity/horizon), launched initial demo state inside a mandatory orbital 3D globe landing selector (`landing-hero` modern UI overlay that cannot be closed before choosing a landing spot), and integrated offline real NASA MGS MOLA MEGDR 4ppd topography (`MEGT90N000CB.IMG`, -8,068 m to +21,134 m) and NASA/USGS Mars Viking MDIM 2.1 color mosaic (`mars-viking-global.jpg`) blended seamlessly with the 1 m HiRISE Gale DTM and documented in `mars-global-sources.json` and the Sources modal. Verified `node --check` across edited JS files and 28/28 `web/tests/*.mjs` tests.
+- Commit: this commit
+- Next step: Push to `demo-1`.
+
+### 2026-11-14 20:40 Europe/Istanbul — Real NASA terrain layers on walkable maps, 1/3g Mars gait, and footstep dust FX (`demo-1`)
+
+- Human: Cinar
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend implementer (`demo-1`)
+- Task id: MUST-09 / MUST-10 demo polish
+- Files changed: `web/hud/mars-terrain-colors.js`, `web/hud/mars-globe.js`, `web/hud/mars-gait.js`, `web/hud/astronaut-rig.js`, `web/hud/dust-fx.js`, `web/hud/hud3d.js`, `web/app.js`, `web/index.html`, `web/shared/data-loader.js`, `web/assets/dust/mars-dust-atlas.png`, `data/demo/mars-mola-dem.png`, `data/demo/mars-viking-global.jpg`, `data/demo/mars-mola-shaded.jpg`, `data/demo/mars-global-sources.json`, `web/tests/dust-fx.test.mjs`, `web/tests/mars-gait.test.mjs`, `web/tests/mars-terrain-colors.test.mjs`, `docs/coordination/AGENT_LOG.md`
+- Why: Upgraded offline NASA MGS MOLA DEM (`16ppd`), Viking MDIM 2.1, MOLA Shaded Relief & Sources metadata; added Martian footstep/takeoff/landing sprite+grain dust system (`dust-fx.js`, walking dust ~60% lighter than running intensity `1.55`); updated `1/3g` inverted-pendulum Mars walking kinematics (`mars-gait.js`, `astronaut-rig.js`); and brought MOLA hypsometric elevation colors, rock/cliff strata shading, surface normals, `T` / `#hud-tex` layer cycling (`relief`/`mola`/`ortho`/`slope`), and MOLA relief mode in the `M` tactical map onto both `/web/` and `?demo=1` walkable maps. Verified `node --check` on edited HUD modules and `41/41` `web/tests/*.mjs` unit tests.
+- Commit: this commit
+- Next step: Merge `demo-1` with `origin/main` and push `main`.
+
+### 2026-11-14 20:42 Europe/Istanbul — Merge `demo-1` into `main` (NASA Mars 3D terrain layers, gait & dust FX + Dev Settings)
+
+- Human: Cinar
+- Agent tool + model: Gemini (Antigravity)
+- Role: frontend implementer (`main`)
+- Task id: MUST-09 / MUST-10 integration
+- Files changed: `web/app.js`, `web/hud/hud3d.js`, `web/index.html`, `web/styles.css`, `web/hud/astronaut-rig.js`, `web/hud/dust-fx.js`, `web/hud/mars-gait.js`, `web/hud/mars-globe.js`, `web/hud/mars-terrain-colors.js`, `web/shared/data-loader.js`, `web/assets/dust/mars-dust-atlas.png`, `data/demo/mars-*`, `web/tests/*.mjs`, `docs/coordination/AGENT_LOG.md`
+- Why: Merged `demo-1` (`c981e4b`) into `main` on top of `origin/main` (`c8a42e2`), preserving both Eymen's planner border DEM apron fix + `dev-settings.js` modal (`uSuperDetail`, `frameEffect`, `speedMultiplier`, `fov`, `cleanHud`) and all `demo-1` features (spherical Mars `?demo=1`, `landing-hero`, MOLA/Viking/Shaded Relief datasets, walkable MOLA/rock/slope terrain layers + `T` shortcut, `M` MOLA tactical map, `1/3g` Mars gait, and footstep dust FX). Verified `node --check` across all web JS modules and all `web/tests/*.mjs` unit tests before pushing to `origin/main`.
+- Commit: this commit
+- Next step: none.
+
+### 2026-11-14 21:25 Europe/Istanbul — merge of main (Mars globe map, MOLA, 1/3 g gait) with the controller work
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (merge in web/ at Cagan's request)
+- Task id: MUST-09 / MAP-01 follow-up
+- Files changed: web/hud/hud3d.js, web/app.js, web/index.html, web/shared/gamepad-ui.js, docs/coordination/AGENT_LOG.md (conflict files); rest came from main
+- Why: Cagan asked to pull before pushing. Main gained Cinar D.'s demo-mode Mars globe map (M key), MOLA terrain, a 1/3 g gait and dust effects; hud3d.js conflicted in five places. Resolution: kept main's version of every conflicting block, then re-applied the controller work on top: A/X/Y/B actions through the existing jump (with dust takeoff) and texture/landmark functions, analog walking and RT run on both the sphere path (demo) and the flat path, right-stick look disabled while a menu or map is open, and a controller layer for the Mars globe map (left stick crosshair, right stick spins the globe, LT/RT zoom, A picks and A again teleports, B cancels the card then closes the map). View opens the globe map in demo mode and the planner map in normal mode. My earlier stitched tile copies, drawn-surface ground height, contact shadows and adaptive resolution survived the merge. Tested with a simulated pad in both modes; all web tests pass (8 files).
+- Commit: this commit
+- Next step: Cagan tries a real controller; Cinar D. may want to review the controller layer in hud3d.js.

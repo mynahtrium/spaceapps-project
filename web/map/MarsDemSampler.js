@@ -136,6 +136,31 @@ export class MarsDemSampler {
     this.maxElevM = maxElevM;
     this.lonSpanDeg = bounds.east_lon_deg - bounds.west_lon_deg;
     this.latSpanDeg = bounds.north_lat_deg - bounds.south_lat_deg;
+    this.borderMeanElevM = this._computeBorderMeanElev();
+  }
+
+  _computeBorderMeanElev() {
+    if (!this.elevations?.length || this.ncols < 1 || this.nrows < 1) {
+      return Number.isFinite(this.minElevM) && Number.isFinite(this.maxElevM)
+        ? (this.minElevM + this.maxElevM) * 0.5
+        : 0;
+    }
+    let sum = 0;
+    let count = 0;
+    for (let c = 0; c < this.ncols; c++) {
+      const top = this.elevations[c];
+      const bot = this.elevations[(this.nrows - 1) * this.ncols + c];
+      if (Number.isFinite(top)) { sum += top; count++; }
+      if (Number.isFinite(bot)) { sum += bot; count++; }
+    }
+    for (let r = 1; r < this.nrows - 1; r++) {
+      const left = this.elevations[r * this.ncols];
+      const right = this.elevations[r * this.ncols + (this.ncols - 1)];
+      if (Number.isFinite(left)) { sum += left; count++; }
+      if (Number.isFinite(right)) { sum += right; count++; }
+    }
+    if (count > 0) return sum / count;
+    return Number.isFinite(this.minElevM) ? this.minElevM : 0;
   }
 
   /**
@@ -266,17 +291,32 @@ export class MarsDemSampler {
     const ty0 = y / n;
     const txSpan = 1 / n;
 
+    const { west_lon_deg: w, south_lat_deg: s, east_lon_deg: e, north_lat_deg: nBounds } = this.bounds;
+    const fadeDeg = 0.0085; // ~500 m smooth transition outside HiRISE bounds to prevent extruded border creases
+    const midLat = (s + nBounds) * 0.5;
+    const midLon = (w + e) * 0.5;
+    const regionalBase = (this.borderMeanElevM ?? 0) + areoidOffsetM(midLat, midLon);
+
     for (let py = 0; py < size; py++) {
       // Exact Web Mercator latitude per pixel row for crisp alignment with MapLibre tiles
       const ny = ty0 + ((py + 0.5) / size) * txSpan;
       const lat = (Math.atan(Math.sinh(Math.PI * (1 - 2 * ny))) * 180) / Math.PI;
+      const dyDeg = lat < s ? s - lat : lat > nBounds ? lat - nBounds : 0;
       for (let px = 0; px < size; px++) {
         const nx = tx0 + ((px + 0.5) / size) * txSpan;
         const lon = normalizeLonDeg(nx * 360 - 180);
         let elev = this.sampleElevation([lon, lat], false);
         if (elev === null) {
-          // Smoothly clamp to boundary elevation with gentle Mount Sharp regional slope fallback
-          elev = this.sampleElevation([lon, lat], true);
+          const dxDeg = lon < w ? w - lon : lon > e ? lon - e : 0;
+          const distDeg = Math.hypot(dxDeg, dyDeg);
+          if (distDeg >= fadeDeg) {
+            elev = regionalBase;
+          } else {
+            const edgeElev = this.sampleElevation([lon, lat], true);
+            const t = distDeg / fadeDeg;
+            const smooth = t * t * (3 - 2 * t);
+            elev = edgeElev + (regionalBase - edgeElev) * smooth;
+          }
         }
         const [r, g, b] = encodeTerrariumPixel(elev - baseElevM);
         const idx = (py * size + px) * 4;

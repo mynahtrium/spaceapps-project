@@ -199,6 +199,23 @@ body {
 
 .start-foot .lang {
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.start-foot .dev-trigger {
+  color: rgba(255, 255, 255, 0.24);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  margin-right: 10px;
+  opacity: 0.72;
+  transition: color 0.2s, opacity 0.2s;
+}
+
+.start-foot .dev-trigger:hover {
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 1;
 }
 
 /* ---------- top bar ---------- */
@@ -799,6 +816,97 @@ svg.profile-svg {
   pointer-events: none;
 }
 
+.visor-overlay.no-frame {
+  background: none;
+}
+
+.visor-overlay.clean-hud .visor-top,
+.visor-overlay.clean-hud .visor-bottom {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dev-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 11.5px;
+}
+
+.dev-note {
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dev-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.dev-row-exp {
+  border-color: rgba(245, 158, 11, 0.38);
+}
+
+.dev-label {
+  color: #fff;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dev-sub {
+  color: var(--muted);
+  font-size: 10.5px;
+  margin-top: 3px;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dev-badge-exp {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  padding: 1px 6px;
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  color: #fbbf24;
+}
+
+.dev-range {
+  width: 150px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.dev-presets {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.dev-preset {
+  padding: 1px 6px !important;
+  font-size: 9.5px !important;
+}
+
+.dev-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
 .map-probe .map-teleport-btn {
   pointer-events: auto;
   font-size: 10px;
@@ -806,6 +914,14 @@ svg.profile-svg {
   color: #38bdf8;
 }
 
+.map-probe .map-fit-btn {
+  pointer-events: auto;
+  font-size: 10px;
+  padding: 0 2px;
+  color: #fbbf24;
+}
+
+.map-probe .map-fit-btn:hover,
 .map-probe .map-teleport-btn:hover {
   color: #fff;
 }
@@ -965,4 +1081,436 @@ svg.profile-svg {
   letter-spacing: 0.08em;
   color: #38bdf8;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+
+/* ---------- 3D Map Boundary Wrap Notice ---------- */
+
+.hud-wrap-notice {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 6px 14px;
+  background: rgba(16, 10, 8, 0.9);
+  border: 1px solid #d4895a;
+  color: #f6d5b8;
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.hud-wrap-notice.visible {
+  opacity: 1;
+}
+
+/* ---------- Tactical Mars 3D Elevation Map Overlay (M key) ---------- */
+
+.hud-map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgba(6, 4, 3, 0.84);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.hud-map-overlay.open {
+  display: flex;
+}
+
+.hud-map-dialog {
+  width: min(860px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: #0c0806;
+  border: 1px solid rgba(212, 137, 90, 0.55);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+  padding: 18px 20px;
+}
+
+.hud-map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(212, 137, 90, 0.28);
+  margin-bottom: 14px;
+}
+
+.hud-map-title {
+  color: #f7dec4;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.hud-map-sub {
+  margin-top: 4px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: rgba(235, 196, 162, 0.65);
+}
+
+.hud-map-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.hud-map-body {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+}
+
+@media (max-width: 780px) {
+  .hud-map-body {
+    flex-direction: column;
+  }
+}
+
+.hud-map-canvas-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-map-canvas-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: min(560px, 66vh);
+  border: 1px solid rgba(212, 137, 90, 0.45);
+  background: #1a100c;
+  overflow: hidden;
+}
+
+#hud-map-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.hud-map-hover {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: #f1cfb0;
+  background: rgba(24, 14, 10, 0.9);
+  border: 1px solid rgba(212, 137, 90, 0.28);
+  padding: 7px 10px;
+}
+
+.hud-map-side {
+  width: 245px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 780px) {
+  .hud-map-side {
+    width: 100%;
+  }
+}
+
+.hud-map-panel {
+  border: 1px solid rgba(212, 137, 90, 0.28);
+  background: rgba(18, 11, 8, 0.85);
+  padding: 12px;
+}
+
+.hud-map-panel-title {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: #f6d5b8;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.hud-map-legend-wrap {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  height: 112px;
+}
+
+.hud-map-legend-bar {
+  width: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: linear-gradient(
+    to bottom,
+    #edc498 0%,
+    #cf8653 25%,
+    #a85d38 50%,
+    #6f3b24 75%,
+    #3b2016 100%
+  );
+}
+
+.hud-map-legend-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: #f3d6bc;
+}
+
+.hud-map-legend-note {
+  margin-top: 10px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(235, 196, 162, 0.7);
+}
+
+.hud-map-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: rgba(243, 214, 188, 0.85);
+  margin-bottom: 6px;
+}
+
+.hud-map-key-row:last-child {
+  margin-bottom: 0;
+}
+
+.dot-you,
+.dot-start,
+.dot-stop,
+.dot-target {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+
+.dot-you {
+  background: #38bdf8;
+  border: 1.5px solid #fff;
+}
+
+.dot-start {
+  background: #4ade80;
+  border: 1.5px solid #fff;
+}
+
+.dot-stop {
+  background: #fff;
+  border: 1.5px solid #000;
+}
+
+.dot-target {
+  background: #fbbf24;
+  border: 1.5px solid #fff;
+}
+
+.hud-map-confirm {
+  border: 1px solid #fbbf24;
+  background: rgba(34, 19, 10, 0.96);
+  padding: 12px;
+}
+
+.hud-map-confirm-q {
+  color: #fde68a;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.hud-map-confirm-meta {
+  font-size: 10px;
+  line-height: 1.55;
+  color: #f3d6bc;
+  margin-bottom: 10px;
+}
+
+.hud-map-confirm-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hud-map-scope-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hud-map-scope-row .btn,
+.hud-map-landmarks .btn {
+  padding: 4px 8px;
+  font-size: 9.5px;
+}
+
+.hud-map-landmarks {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(212, 137, 90, 0.25);
+  background: rgba(34, 17, 11, 0.72);
+}
+
+.hud-map-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hud-map-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fed7aa;
+  background: rgba(249, 115, 22, 0.2);
+  border: 1px solid rgba(251, 146, 60, 0.55);
+}
+
+/* Modern orbital UI strictly for the initial locked landing screen */
+.hud-map-overlay.landing-hero {
+  background: radial-gradient(circle at 50% 35%, rgba(234, 112, 56, 0.2), rgba(5, 8, 16, 0.94) 68%);
+  backdrop-filter: blur(14px);
+}
+
+.hud-map-overlay.landing-hero .hud-map-dialog {
+  width: min(1040px, 100%);
+  border-radius: 18px;
+  padding: 22px 24px;
+  background: linear-gradient(155deg, rgba(16, 21, 34, 0.94), rgba(9, 12, 20, 0.97));
+  border: 1px solid rgba(251, 191, 142, 0.24);
+  box-shadow: 0 32px 96px rgba(0, 0, 0, 0.92), 0 0 90px rgba(249, 115, 22, 0.12);
+}
+
+.hud-map-overlay.landing-hero .hud-map-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  padding-bottom: 14px;
+  margin-bottom: 12px;
+}
+
+.hud-map-overlay.landing-hero .hud-map-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: #fff7ed;
+}
+
+.hud-map-overlay.landing-hero .hud-map-sub {
+  font-size: 10.5px;
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.hud-map-overlay.landing-hero .hud-map-scope-row .btn,
+.hud-map-overlay.landing-hero #hud-map-mode {
+  border-radius: 999px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.hud-map-overlay.landing-hero .hud-map-scope-row .btn:hover,
+.hud-map-overlay.landing-hero #hud-map-mode:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(251, 191, 142, 0.45);
+}
+
+.hud-map-overlay.landing-hero .hud-map-scope-row .btn.active {
+  background: linear-gradient(135deg, #f97316, #fbbf24);
+  border-color: transparent;
+  color: #0b0f19;
+  font-weight: 700;
+}
+
+.hud-map-overlay.landing-hero .hud-map-landmarks {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 10px;
+  margin-bottom: 14px;
+}
+
+.hud-map-overlay.landing-hero .hud-map-landmarks .btn {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f8fafc;
+  padding: 5px 10px;
+  transition: all 0.15s ease;
+}
+
+.hud-map-overlay.landing-hero .hud-map-landmarks .btn:hover {
+  background: rgba(249, 115, 22, 0.25);
+  border-color: rgba(251, 146, 60, 0.65);
+  transform: translateY(-1px);
+}
+
+.hud-map-overlay.landing-hero .hud-map-canvas-frame {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: radial-gradient(circle at center, #0d1424 0%, #05070d 100%);
+  box-shadow: inset 0 0 48px rgba(0, 0, 0, 0.75);
+}
+
+.hud-map-overlay.landing-hero .hud-map-hover {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  padding: 9px 12px;
+}
+
+.hud-map-overlay.landing-hero .hud-map-side {
+  width: 270px;
+}
+
+.hud-map-overlay.landing-hero .hud-map-panel {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 14px;
+}
+
+.hud-map-overlay.landing-hero .hud-map-confirm {
+  border-radius: 14px;
+  border: 1px solid rgba(251, 191, 36, 0.65);
+  background: linear-gradient(160deg, rgba(249, 115, 22, 0.2), rgba(15, 23, 42, 0.94));
+  box-shadow: 0 12px 34px rgba(249, 115, 22, 0.2);
+  padding: 14px;
+}
+
+.hud-map-overlay.landing-hero #hud-map-confirm-yes {
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f97316, #fbbf24);
+  border-color: transparent;
+  color: #090d16;
+  font-weight: 700;
+  padding: 7px 14px;
+}
+
+.hud-map-overlay.landing-hero #hud-map-confirm-no {
+  border-radius: 999px;
+  padding: 7px 12px;
 }

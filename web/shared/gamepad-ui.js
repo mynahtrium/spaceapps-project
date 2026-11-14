@@ -34,6 +34,16 @@ const PAD_SVG = `
 </svg>`;
 
 const CSS = `
+/* crosshair used by the map controllers (planner map and the 3D Mars globe map) */
+.pad-crosshair { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; pointer-events: none;
+  z-index: 6; display: none; }
+.pad-crosshair.on { display: block; }
+.pad-crosshair::before, .pad-crosshair::after { content: ""; position: absolute; background: #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.7); }
+.pad-crosshair::before { left: 16px; top: 0; width: 2px; height: 34px; }
+.pad-crosshair::after { top: 16px; left: 0; height: 2px; width: 34px; }
+.pad-crosshair .ring { position: absolute; inset: 9px; border: 1.5px solid #fff; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6); }
 #pad-setup { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.94); display: none;
   align-items: center; justify-content: center; padding: 24px; font-family: var(--mono, monospace); color: #f2f2f2; }
 #pad-setup.open { display: flex; }

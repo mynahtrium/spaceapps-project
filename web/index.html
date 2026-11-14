@@ -22,6 +22,7 @@
     <div id="start-lines" class="start-lines"></div>
     <nav id="start-menu" class="start-menu" aria-label="Main menu">
       <button class="menu-item" data-action="eva" data-i18n="menu_eva">BEGIN EVA</button>
+      <button class="menu-item" data-action="demo" data-i18n="menu_demo">3D MARS GLOBE DEMO</button>
       <button class="menu-item" data-action="planner" data-i18n="menu_planner">ROUTE PLANNER</button>
       <button class="menu-item" data-action="credits" data-i18n="menu_credits">SOURCES &amp; HONESTY</button>
     </nav>
@@ -31,6 +32,7 @@
         · EXAMPLE ROUTE, STOPS NOT LOCKED (PRE-07)
       </div>
       <div class="lang">
+        <button class="txt-btn dev-trigger" id="btn-dev-settings" data-i18n="menu_dev" title="Developer settings">DEV</button>
         <button class="txt-btn" id="lang-en">EN</button>
         <button class="txt-btn" id="lang-tr">TR</button>
       </div>
@@ -47,6 +49,7 @@
     <div class="topbar-actions">
       <button id="btn-tab-planner" class="btn active">Planner</button>
       <button id="btn-tab-hud" class="btn">Bodycam</button>
+      <button id="btn-demo-3d" class="btn" title="Open 3D Spherical Mars Globe &amp; NASA MOLA Terrain (?demo=1)">3D Mars Demo</button>
       <button id="btn-crew" class="btn">Crew (1)</button>
       <button id="btn-credits" class="btn">Sources</button>
       <button id="btn-pad" class="btn">Controller</button>
@@ -62,6 +65,7 @@
         <div id="map"></div>
         <div id="map-probe-readout" class="map-probe">
           <span id="map-probe-text">CLICK TO INSPECT · DOUBLE-CLICK MAP TO TELEPORT</span>
+          <button id="map-fit-btn" class="txt-btn map-fit-btn" type="button">FIT EVA</button>
           <button id="map-teleport-btn" class="txt-btn map-teleport-btn" type="button" style="display:none;">TELEPORT HERE</button>
         </div>
         <div class="map-legend">
@@ -148,6 +152,78 @@
       <div id="hud-canvas-wrap"></div>
       <div class="hud-reticle"></div>
       <div id="hud-loading" class="loading-veil">LOADING TERRAIN · NASA SUIT MODEL</div>
+      <div id="hud-wrap-notice" class="hud-wrap-notice" aria-live="polite"></div>
+
+      <!-- In-HUD Tactical Mars Elevation Map (toggled with M key) -->
+      <div id="hud-map-overlay" class="hud-map-overlay" role="dialog" aria-label="Mars 3D Elevation Map">
+        <div class="hud-map-dialog">
+          <div class="hud-map-header">
+            <div>
+              <div class="hud-map-title-row">
+                <div class="hud-map-title" id="hud-map-title">GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP</div>
+                <span id="hud-map-lock-badge" class="hud-map-lock-badge" style="display:none;">LANDING REQUIRED</span>
+              </div>
+              <div class="hud-map-sub" id="hud-map-sub">HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP</div>
+            </div>
+            <div class="hud-map-header-actions">
+              <div id="hud-map-scope-row" class="hud-map-scope-row" style="display:none;">
+                <button id="hud-map-scope-globe" class="btn primary" type="button">Mars 3D</button>
+                <button id="hud-map-scope-world" class="btn" type="button">Mars 2D</button>
+                <button id="hud-map-scope-local" class="btn" type="button">Gale 2 km</button>
+              </div>
+              <button id="hud-map-mode" class="btn" type="button">Layer: Elevation 3D</button>
+              <button id="hud-map-close" class="btn" type="button">Close (M)</button>
+            </div>
+          </div>
+
+          <div id="hud-map-landmarks" class="hud-map-landmarks" style="display:none;"></div>
+
+          <div class="hud-map-body">
+            <div class="hud-map-canvas-col">
+              <div class="hud-map-canvas-frame">
+                <canvas id="hud-map-canvas" width="540" height="540"></canvas>
+              </div>
+              <div id="hud-map-hover" class="hud-map-hover">
+                HOVER OR CLICK ON MAP FOR 3D ELEVATION (m MOLA) &amp; SLOPE (°)
+              </div>
+            </div>
+
+            <aside class="hud-map-side">
+              <div class="hud-map-panel">
+                <div class="hud-map-panel-title" id="hud-map-elev-title">MOLA 3D ELEVATION (m)</div>
+                <div class="hud-map-legend-wrap">
+                  <div class="hud-map-legend-bar"></div>
+                  <div class="hud-map-legend-labels">
+                    <span id="hud-map-elev-max">-3369 m</span>
+                    <span id="hud-map-elev-mid">-3610 m</span>
+                    <span id="hud-map-elev-min">-3851 m</span>
+                  </div>
+                </div>
+                <div class="hud-map-legend-note" id="hud-map-contour-note">
+                  20 m minor / 60 m major contours · shaded by live 3D terrain normals &amp; sun angle.
+                </div>
+              </div>
+
+              <div class="hud-map-panel">
+                <div class="hud-map-panel-title" id="hud-map-key-title">MARKERS &amp; WRAP</div>
+                <div class="hud-map-key-row"><span class="dot-you"></span> You + gaze cone</div>
+                <div class="hud-map-key-row"><span class="dot-start"></span> Habitat / Start mast</div>
+                <div class="hud-map-key-row"><span class="dot-stop"></span> Science stops</div>
+                <div class="hud-map-key-row"><span class="dot-target"></span> Teleport target</div>
+              </div>
+
+              <div id="hud-map-confirm" class="hud-map-confirm" style="display:none;">
+                <div class="hud-map-confirm-q" id="hud-map-confirm-q">Do you want to teleport here?</div>
+                <div class="hud-map-confirm-meta" id="hud-map-confirm-meta">—</div>
+                <div class="hud-map-confirm-actions">
+                  <button id="hud-map-confirm-yes" class="btn primary" type="button">Yes, Teleport</button>
+                  <button id="hud-map-confirm-no" class="btn" type="button">Cancel</button>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
 
       <div class="visor-overlay">
         <div class="visor-top">
@@ -184,11 +260,12 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:6px;">
-              DRAG TO LOOK (LOOK DOWN FOR YOUR LEGS) · WASD WALK · SHIFT RUN · SPACE JUMP · P BEACON · CONTROLLER: LEFT STICK MOVE · RIGHT STICK CAMERA · A JUMP · RT RUN · X LANDMARK · Y THEME · VIEW MAP · MENU ESC MENU
+              DRAG TO LOOK (LOOK DOWN FOR YOUR LEGS) · WASD WALK · SHIFT RUN · SPACE JUMP · M MAP · T LAYER · P BEACON · CONTROLLER: LEFT STICK MOVE · RIGHT STICK CAMERA · A JUMP · RT RUN · X LANDMARK · Y THEME · VIEW MAP · MENU ESC MENU
             </div>
           </div>
 
           <div class="hud-controls">
+            <button id="hud-map-btn" class="btn">Map (M)</button>
             <button id="hud-tex" class="btn">Tex: relief</button>
             <button id="hud-ping" class="btn">Pin (P)</button>
             <button id="hud-pov-btn" class="btn">Rover POV</button>

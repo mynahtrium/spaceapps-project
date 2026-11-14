@@ -172,7 +172,7 @@ function ensureProtocolsRegistered(maplibregl) {
 
       try {
         const fetchedTiles = new Map();
-        await Promise.all(
+        const results = await Promise.allSettled(
           tileCoords.map(async ({ col, row }) => {
             const res = await reg.fetchWithCascade(chain, {
               eqZ,
@@ -192,10 +192,24 @@ function ensureProtocolsRegistered(maplibregl) {
             });
           })
         );
+        if (abortController.signal.aborted) {
+          for (const rec of fetchedTiles.values()) rec.bitmap.close?.();
+          const abortErr = new Error("Aborted");
+          abortErr.name = "AbortError";
+          throw abortErr;
+        }
+        if (fetchedTiles.size === 0) {
+          const firstRej = results.find((r) => r.status === "rejected");
+          throw firstRej?.reason || new Error("No equirectangular tiles available");
+        }
 
         const size = 256;
         const canvas = makeCanvas(size, size);
         const ctx = canvas.getContext("2d");
+        if (fetchedTiles.size < tileCoords.length && layerId !== "themis-day" && layerId !== "themis-night" && layerId !== "mola-color") {
+          ctx.fillStyle = "#261913";
+          ctx.fillRect(0, 0, size, size);
+        }
 
         // Exact Mercator -> Equirectangular scanline reprojection
         const nMerc = 2 ** z;
@@ -300,9 +314,12 @@ function renderShadedReliefTileRgba(dem, z, x, y, size = 256) {
         lat <= dem.bounds.north_lat_deg;
       const idx = (py * size + px) * 4;
       if (!inside) {
-        rgba[idx] = 32;
-        rgba[idx + 1] = 21;
-        rgba[idx + 2] = 17;
+        const wave = Math.sin(lon * 190 + lat * 120) * 0.5 + Math.cos(lon * 430 - lat * 310) * 0.5;
+        const grain = ((((px * 73 + py * 139) ^ (px * py)) & 15) - 7) * 0.8;
+        const shade = Math.max(0.75, Math.min(1.25, 1.0 + wave * 0.14));
+        rgba[idx] = Math.min(255, Math.max(18, Math.round(46 * shade + grain)));
+        rgba[idx + 1] = Math.min(255, Math.max(12, Math.round(30 * shade + grain * 0.7)));
+        rgba[idx + 2] = Math.min(255, Math.max(10, Math.round(23 * shade + grain * 0.5)));
         rgba[idx + 3] = 255;
         continue;
       }
@@ -480,7 +497,12 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
           type: "raster",
           source: "onmars-ctx",
           layout: { visibility: "visible" },
-          paint: { "raster-opacity": 0.92 },
+          paint: {
+            "raster-opacity": 0.84,
+            "raster-brightness-max": 0.78,
+            "raster-contrast": 0.12,
+            "raster-saturation": -0.25,
+          },
         },
         {
           id: "mars-hillshade",
@@ -557,7 +579,9 @@ export class MapLibreMarsAdapter extends BaseMapAdapter {
       const map = new maplibregl.Map({
         container,
         center,
-        zoom: options.zoom ?? 14.3,
+        zoom: options.zoom ?? 14.7,
+        minZoom: options.minZoom ?? 11.2,
+        maxZoom: options.maxZoom ?? 18,
         pitch: options.pitch ?? (wantsTerrain3d ? 52 : 0),
         bearing: options.bearing ?? (wantsTerrain3d ? -14 : 0),
         maxPitch: 85,

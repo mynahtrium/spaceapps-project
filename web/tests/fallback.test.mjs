@@ -4,8 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { makeLocalTangentOrigin } from "../map/Geodesy.js";
+import { makeLocalTangentOrigin, decodeTerrariumPixel } from "../map/Geodesy.js";
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
+import { DEFAULT_DEV_SETTINGS, normalizeDevSettings } from "../shared/dev-settings.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
 import { TerrainWorkerPool } from "../map/TerrainWorkerPool.js";
@@ -317,4 +318,34 @@ test("TileSourceRegistry substitutes THEMIS WMTS template params online and reso
   assert.equal(ancestorRes.col, 451);
   assert.equal(ancestorRes.row, 134);
   assert.ok(ancestorRes.url.endsWith("/day/z8_r134_c451.png"));
+});
+
+test("MarsDemSampler smoothly tapers outside HiRISE bounds without extruded edge streaks", () => {
+  const dem = MarsDemSampler.createSyntheticGale(32, 32);
+  // Tile overlapping east of Gale bounds at z=12 (x=3611, y=2102 crosses ~137.46 E..137.55 E outside HiRISE)
+  const rgba = dem.rasterizeTerrariumTileRGBA(12, 3612, 2102, 32, dem.minElevM - 20);
+  // Two pixels well beyond fadeDeg (top-left vs bottom-right of that eastern tile) must match evenly
+  const iA = 0;
+  const iB = (31 * 32 + 31) * 4;
+  const hA = decodeTerrariumPixel(rgba[iA], rgba[iA + 1], rgba[iA + 2]);
+  const hB = decodeTerrariumPixel(rgba[iB], rgba[iB + 1], rgba[iB + 2]);
+  assert.ok(Math.abs(hA - hB) < 0.05, `far outside terrain must settle smoothly (diff=${Math.abs(hA - hB)})`);
+});
+
+test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanly", () => {
+  const clean = normalizeDevSettings({
+    frameEffect: false,
+    frameStrength: 9,
+    speedMultiplier: 12,
+    superGraphics: true,
+    fov: 15,
+    cleanHud: true,
+  });
+  assert.equal(clean.frameEffect, false);
+  assert.equal(clean.frameStrength, 1.5);
+  assert.equal(clean.speedMultiplier, 8.0);
+  assert.equal(clean.superGraphics, true);
+  assert.equal(clean.fov, 60);
+  assert.equal(clean.cleanHud, true);
+  assert.equal(normalizeDevSettings().speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
 });

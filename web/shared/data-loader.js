@@ -148,6 +148,7 @@ export async function loadAllProjectData() {
     povIndexRes,
     themisRes,
     crismRes,
+    globalSourcesRes,
   ] = await Promise.all([
     fetchWithCascade(pick("terrain/cost-map.json", "cost-map.json", "cost-map.json")),
     fetchWithCascade(pick("routing/stops.json", "stops.json", "stops.json")),
@@ -177,6 +178,7 @@ export async function loadAllProjectData() {
             `${base}/data/demo/layers-crism.json`,
           ]
     ),
+    fetchWithCascade([`${base}/data/demo/mars-global-sources.json`]),
   ]);
 
   const themis = themisRes.data?.day ? themisRes.data : themisRes.data?.themis ?? null;
@@ -197,6 +199,9 @@ export async function loadAllProjectData() {
     reliefTextureUrl: `${terrainBase}/texture-relief.jpg`,
     povBaseUrl: demoSafe ? `${base}/data/demo/pov` : `${base}/data/processed/science/pov`,
     themisTileBaseUrl: `${base}/data/demo/tiles/themis`,
+    demoGlobalMolaDemUrl: demoSafe ? `${base}/data/demo/mars-mola-dem.png` : null,
+    demoGlobalVikingMosaicUrl: demoSafe ? `${base}/data/demo/mars-viking-global.jpg` : null,
+    demoGlobalMolaShadedUrl: demoSafe ? `${base}/data/demo/mars-mola-shaded.jpg` : null,
   };
 
   const sources = collectSources([
@@ -209,6 +214,7 @@ export async function loadAllProjectData() {
     { label: "THEMIS Thermal", payload: themisRes.data },
     { label: "CRISM Mineralogy", payload: crismRes.data },
     { label: "Curiosity Raw POV", payload: povIndexRes.data },
+    { label: "Global Mars Topography & Mosaic", payload: globalSourcesRes.data },
   ]);
 
   return {
