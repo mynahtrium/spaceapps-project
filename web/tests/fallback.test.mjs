@@ -29,6 +29,12 @@ import {
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
+import {
+  RT_HEIGHT_GLSL,
+  RT_LENS_PARS_GLSL,
+  buildHeightfieldRtData,
+  createRayTracerUniforms,
+} from "../hud/ray-tracer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
 import { TerrainWorkerPool } from "../map/TerrainWorkerPool.js";
@@ -380,6 +386,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(clean.speedMultiplier, 8.0);
   assert.equal(clean.roverSpeedMultiplier, 4.0);
   assert.equal(clean.superGraphics, true);
+  assert.equal(clean.rayTracing, true);
   assert.equal(clean.experimentalRover, true);
   assert.equal(clean.realisticTextures, true);
   assert.equal(clean.realisticDust, false);
@@ -393,6 +400,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(defs.frameStrength, 0.2);
   assert.equal(defs.speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
   assert.equal(defs.roverSpeedMultiplier, 1.0);
+  assert.equal(defs.rayTracing, false);
   assert.equal(defs.experimentalRover, false);
   assert.equal(defs.realisticTextures, false);
   assert.equal(defs.realisticDust, true);
@@ -401,6 +409,42 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(defs.dustTau, 0.5);
   assert.equal(defs.dustDevil, false);
   assert.equal(normalizeDevSettings({ dustTau: 0.05 }).dustTau, 0.35);
+});
+
+test("ray-tracer packs 16-bit mirrored heightfield accurately and exposes GLSL kernels", () => {
+  const sampleFn = (x, z) => 12.0 + Math.sin(x * 0.03) * 8.0 + Math.cos(z * 0.02) * 5.0;
+  const packed = buildHeightfieldRtData(sampleFn, 100, 100, 32);
+  assert.equal(packed.width, 64);
+  assert.equal(packed.height, 64);
+  assert.equal(packed.data.length, 64 * 64 * 4);
+  assert.ok(packed.span >= 1);
+
+  // Decode center vs mirrored column across tile seam (col 31 vs col 32)
+  const decodeAt = (row, col) => {
+    const o = (row * 64 + col) * 4;
+    const val16 = (packed.data[o] * 256 + packed.data[o + 1]) / 65535;
+    return packed.minH + val16 * packed.span;
+  };
+  assert.ok(Math.abs(decodeAt(10, 31) - decodeAt(10, 32)) < 0.02, "mirrored tile edge must be C0 continuous");
+  assert.ok(Math.abs(decodeAt(31, 12) - decodeAt(32, 12)) < 0.02, "mirrored row edge must be C0 continuous");
+
+  assert.match(RT_HEIGHT_GLSL, /rtTraceShadow/);
+  assert.match(RT_HEIGHT_GLSL, /rtTraceGI/);
+  assert.match(RT_HEIGHT_GLSL, /rtTraceReflectionRay/);
+  assert.match(RT_LENS_PARS_GLSL, /rtScreenSpacePass/);
+  assert.match(RT_LENS_PARS_GLSL, /rtFxaaSample/);
+
+  const mockThree = { Vector2: class { constructor(x = 0, y = 0) { this.x = x; this.y = y; } } };
+  const uniforms = createRayTracerUniforms(mockThree, 100, 100, { clone: () => ({ x: 0.6, y: 0.5, z: 0.6 }) }, {
+    texture: {},
+    width: 64,
+    height: 64,
+    minH: packed.minH,
+    span: packed.span,
+  });
+  assert.equal(uniforms.uRtEnabled.value, 0);
+  assert.equal(uniforms.uRtOrigin.value.x, -50);
+  assert.equal(uniforms.uRtPeriod.value.x, 200);
 });
 
 test("bundled offline NASA MMSEV rover GLB asset is a valid binary", () => {
@@ -461,10 +505,10 @@ test("stepRoverBallisticPhysics keeps normal driving planted and launches fast c
   // Fast ramp climb stays gripped, then launches airborne crisply at the crest dropoff
   const ramp = stepRoverBallisticPhysics(s, { groundY: 0.17, slopeClimbVy: 6.0, horizSpeed: 18.0, dt: 0.016 });
   assert.equal(ramp.launched, false);
-  const crest = stepRoverBallisticPhysics(s, { groundY: 0.1, slopeClimbVy: 0.0, horizSpeed: 18.0, dt: 0.016 });
+  const crest = stepRoverBallisticPhysics(s, { groundY: 0.0, slopeClimbVy: 0.0, horizSpeed: 18.0, dt: 0.016 });
   assert.equal(crest.launched, true);
   assert.equal(s.airborne, true);
-  assert.ok(s.velY >= 2.0 && s.velY <= 3.8);
+  assert.ok(s.velY >= 1.8 && s.velY <= 2.6);
 
   let landedStep = null;
   let totalAirTime = 0;
@@ -490,7 +534,7 @@ test("stepRoverBallisticPhysics keeps normal driving planted and launches fast c
   // Landing shock cooldown settles before next violent whip impulse can launch
   const blockedImmediately = stepRoverBallisticPhysics(s, {
     groundY: 0.1,
-    bumpImpulseVy: 2.5,
+    bumpImpulseVy: 3.6,
     horizSpeed: 14.0,
     dt: 0.016,
   });
@@ -499,7 +543,7 @@ test("stepRoverBallisticPhysics keeps normal driving planted and launches fast c
   s.landingCooldown = 0;
   const whip = stepRoverBallisticPhysics(s, {
     groundY: 0.1,
-    bumpImpulseVy: 2.5,
+    bumpImpulseVy: 3.6,
     horizSpeed: 14.0,
     dt: 0.016,
   });

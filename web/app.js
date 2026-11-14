@@ -435,6 +435,21 @@ async function boot() {
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
+              ${tr ? "Gerçek Zamanlı Işın İzleme (Ray Tracing)" : "Real-Time Ray Tracing"}
+              <span class="dev-badge-exp">${tr ? "GPU RT" : "GPU RT"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "Piksel başına GPU yükseklik alanı ışın yürütme: dinamik yumuşak gölgeler, 6 yönlü küresel aydınlatma (GI/AO), araç/vizör/arazi yansıma ışınları ve derinlik tamponu SSR/SSGI (ağır GPU yükü, FPS düşürebilir — R tuşuyla da aç/kapa)."
+                : "Per-pixel GPU heightfield ray marching & screen-space rays: dynamic penumbra soft shadows, 6-dir indirect bounce GI/AO, rover/visor/terrain reflection rays & depth SSR (heavy GPU cost, lowers FPS — toggle with R key)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-ray-tracing" ${s.rayTracing ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
               ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
               <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
             </div>
@@ -550,6 +565,7 @@ async function boot() {
     const roverSpeedRange = document.getElementById("dev-rover-speed");
     const roverSpeedVal = document.getElementById("dev-rover-speed-val");
     const superToggle = document.getElementById("dev-super-gfx");
+    const rtToggle = document.getElementById("dev-ray-tracing");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
@@ -576,6 +592,7 @@ async function boot() {
       if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
       if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (rtToggle) rtToggle.checked = cfg.rayTracing;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
@@ -605,6 +622,7 @@ async function boot() {
       );
     });
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    rtToggle?.addEventListener("change", () => syncUi(saveDevSettings({ rayTracing: rtToggle.checked })));
     expRoverToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
     );
@@ -925,8 +943,7 @@ async function boot() {
     setText("esc-lbl-eva", tr ? "EVA VE OPTİK KONTROLLER" : "EVA & OPTICS CONTROLS");
     setText("esc-lbl-system", tr ? "GÖREV VE AYARLAR" : "MISSION & SETTINGS");
     setText("esc-go-hud", tr ? "EVA Vücut Kamerası" : "EVA Bodycam");
-    setText("esc-go-orbit", tr ? "Yörünge Görünümü (O)" : "Orbit View (O)");
-    setText("esc-open-map", tr ? "Yükselti Haritası (M)" : "Elevation Map (M)");
+    setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
     setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
     setText("esc-dev", tr ? "Geliştirici Ayarları" : "Developer Settings");
@@ -986,11 +1003,6 @@ async function boot() {
   escGoOrbitBtn?.addEventListener("click", () => {
     toggleEscMenu(false);
     switchToOrbit();
-  });
-  document.getElementById("esc-open-map")?.addEventListener("click", () => {
-    toggleEscMenu(false);
-    switchToHud();
-    document.getElementById("hud-map-btn")?.click();
   });
   escRoversBtn?.addEventListener("click", () => {
     toggleEscMenu(false);
@@ -1120,8 +1132,7 @@ async function boot() {
       return [
         { heading: t("BODYCAM", "VÜCUT KAMERASI") },
         { label: t("Drop waypoint pin", "Yol işareti bırak"), hint: "P", action: clickId("hud-ping") },
-        { label: t("Elevation map", "Yükselti haritası"), hint: "M", action: clickId("hud-map-btn") },
-        { label: t("Orbit view", "Yörünge görünümü"), hint: "O", action: clickId("hud-orbit-btn") },
+        { label: t("Orbit view", "Yörünge görünümü"), hint: "M", action: clickId("hud-orbit-btn") },
         { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
         { label: btnLabel("hud-gold-btn", "Gold (G)"), action: clickId("hud-gold-btn") },
         { label: btnLabel("hud-lamp-btn", "Flashlight (F)"), action: clickId("hud-lamp-btn") },
@@ -1184,11 +1195,9 @@ async function boot() {
         if (el?.closest?.("#crew-drawer")) {
           return [{ label: t("Close crew panel", "Ekip panelini kapat"), hint: "Esc", action: () => crewDrawer?.classList.remove("open") }];
         }
-        // The in-HUD elevation map has its own click-to-teleport flow; keep it to global items.
-        const inHudMap = el?.closest?.("#hud-map-overlay.open");
         const view = activeView();
         const local =
-          view === "hud" && !inHudMap
+          view === "hud"
             ? hudItems()
             : view === "orbit"
               ? orbitItems()

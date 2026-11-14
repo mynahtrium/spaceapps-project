@@ -13,10 +13,10 @@ Do not put secrets, API keys, phone numbers, emails, addresses, school names, or
 Copy and fill:
 
 ```md
-### YYYY-MM-DD HH:MM Europe/Istanbul — <TASK-ID>
+### YYYY-MM-DD HH:MM Europe/Istanbul â€” <TASK-ID>
 
 - Human: (first name or nickname only)
-- Agent tool + model: (for example Claude, Gemini, Grok, DeepSeek — plus a model name if you know it)
+- Agent tool + model: (for example Claude, Gemini, Grok, DeepSeek â€” plus a model name if you know it)
 - Role: (backend-1, backend-2, backend-3, frontend-1, tester-1, tester-2, docs)
 - Task id: (from BOARD.md, or `n/a`)
 - Files changed:
@@ -40,11 +40,11 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 
 - **AGENT_LOG** is the detailed trail of what every agent did (files, task ids, commits).
 - **[docs/AI_USE.md](../AI_USE.md)** is the short submission disclosure (date, tool, what it was used for, what was kept or changed). The official FAQ requires that description (**UNVERIFIED** exact form until the 13 November submission guide).
-- Tester 1, before submission (hours 40–44) and at least once on 13–14 November, reads this log, groups work by tool, and **fills or updates AI_USE.md** so every distinct tool and purpose is listed. Authors may add an AI_USE row themselves when they first use a tool or when the kind of work changes; they do not need a new AI_USE row for every tiny commit if this log already covers it.
+- Tester 1, before submission (hours 40â€“44) and at least once on 13â€“14 November, reads this log, groups work by tool, and **fills or updates AI_USE.md** so every distinct tool and purpose is listed. Authors may add an AI_USE row themselves when they first use a tool or when the kind of work changes; they do not need a new AI_USE row for every tiny commit if this log already covers it.
 
 ## Entries
 
-### 2026-11-12 11:30 Europe/Istanbul — DOC-02
+### 2026-11-12 11:30 Europe/Istanbul â€” DOC-02
 
 - Human: (docs pass; no onboarding profile in this change)
 - Agent tool + model: Grok Bot (Cursor agent)
@@ -55,7 +55,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Testers and each role run the onboarding interview on their first session; claim PRE-* tasks on the board; on 13 Nov do PRE-05 and PRE-06.
 
-### 2026-11-13 08:12 Europe/Istanbul — PRE-05/PRE-06 (partial)
+### 2026-11-13 08:12 Europe/Istanbul â€” PRE-05/PRE-06 (partial)
 
 - Human: Doruk via Ari
 - Agent tool + model: Grok Bot (Scout)
@@ -66,7 +66,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Retry the official Resources tab, Project Submission Guide, and judging guide when the challenge page loads; then finish PRE-05 / PRE-06. PRE-07 (lock stops on HiView) is still open.
 
-### 2026-11-13 08:14 Europe/Istanbul — n/a
+### 2026-11-13 08:14 Europe/Istanbul â€” n/a
 
 - Human: Doruk via Ari
 - Agent tool + model: Grok Bot (Scout)
@@ -77,7 +77,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: none from this wording fix.
 
-### 2026-11-13 17:12 Europe/Istanbul — PRE-05/PRE-06 (unofficial sources)
+### 2026-11-13 17:12 Europe/Istanbul â€” PRE-05/PRE-06 (unofficial sources)
 
 - Human: Doruk via Ari
 - Agent tool + model: Grok Bot (Scout)
@@ -88,7 +88,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Testers confirm the official guides with a certificate-valid fetch before closing PRE-05 / PRE-06. Consider adding the Curiosity Mount Sharp path animation as a story reference (PRE-07 / demo), without unlocking stops.
 
-### 2026-11-13 17:15 Europe/Istanbul — PRE-06 follow-up
+### 2026-11-13 17:15 Europe/Istanbul â€” PRE-06 follow-up
 
 - Human: Doruk via Ari
 - Agent tool + model: Grok Bot (Scout)
@@ -99,7 +99,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00; Doruk to confirm the new DECISIONS row. Do not close PRE-05 / PRE-06 until then.
 
-### 2026-11-13 17:47 Europe/Istanbul — PRE-06 follow-up (decision locked)
+### 2026-11-13 17:47 Europe/Istanbul â€” PRE-06 follow-up (decision locked)
 
 - Human: Doruk via Lumi/Ari
 - Agent tool + model: Grok Bot (Scout)
@@ -110,7 +110,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00. PRE-05 / PRE-06 stay open until then.
 
-### 2026-11-14 11:19 Europe/Istanbul — PRE-02
+### 2026-11-14 11:19 Europe/Istanbul â€” PRE-02
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor)
@@ -121,7 +121,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Claim B2 prep/MUST tasks (PRE-01 roster username if needed, PRE-07 stop lock with team, MUST-04 stops.json).
 
-### 2026-11-14 11:21 Europe/Istanbul — comms intros
+### 2026-11-14 11:21 Europe/Istanbul â€” comms intros
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor) + role subagents for B1/B3/F1/T1/T2
@@ -132,18 +132,18 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Other humans run onboarding and fill Human on their intro files; Doruk asked to push this work to main (no feature-branch PR).
 
-### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
+### 2026-11-14 11:22 Europe/Istanbul â€” PRE-02 / MUST-12
 
 - Human: Eymen
 - Agent tool + model: Gemini (Antigravity)
 - Role: tester-2
 - Task id: PRE-02, MUST-12 (plus PRE-05/PRE-06 TLS re-check)
 - Files changed: docs/team/profiles/eymen.md (new), docs/demo/README.md, docs/demo/script.md (new), docs/demo/video-beats.md (new), docs/demo/slides-outline.md (new), docs/demo/submission-checklist.md (new), docs/coordination/BOARD.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
-- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2–3 min live demo script, ≤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40–48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
+- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2â€“3 min live demo script, â‰¤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40â€“48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
 - Commit: this commit
-- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0–16) and run the hour-16 rough demo walk.
+- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0â€“16) and run the hour-16 rough demo walk.
 
-### 2026-11-14 11:30 Europe/Istanbul — PRE-02
+### 2026-11-14 11:30 Europe/Istanbul â€” PRE-02
 
 - Human: Asil
 - Agent tool + model: Gemini (Gemini 3.8 Flash)
@@ -154,18 +154,18 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Draft MUST test checklist in docs/testing/ (MUST-11) and review judging checklist (PRE-06).
 
-### 2026-11-14 11:30 Europe/Istanbul — PRE-02
+### 2026-11-14 11:30 Europe/Istanbul â€” PRE-02
 
 - Human: CC
 - Agent tool + model: Antigravity (Gemini 4 Hydrogen Medium)
 - Role: backend-3
 - Task id: PRE-02
 - Files changed: docs/team/profiles/cc.md, docs/comms/intro-backend-3.md, docs/coordination/AGENT_LOG.md
-- Why: Completed first-session onboarding interview for CC (Backend 3 — data) and filled Human in docs/comms/intro-backend-3.md; pushed directly to main as requested.
+- Why: Completed first-session onboarding interview for CC (Backend 3 â€” data) and filled Human in docs/comms/intro-backend-3.md; pushed directly to main as requested.
 - Commit: this commit
 - Next step: Check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
 
-### 2026-11-14 12:08 Europe/Istanbul — MUST-07 (initial caches)
+### 2026-11-14 12:08 Europe/Istanbul â€” MUST-07 (initial caches)
 
 - Human: CC
 - Agent tool + model: Antigravity (Gemini 4 Hydrogen Medium)
@@ -176,7 +176,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Build SHOULD contract outputs (alerts.json, dose.json, weather.json, pov stills, THEMIS layers) once Backend 2 locks stops.json / route.json, or generate alerts.json from donki-cache.json next.
 
-### 2026-11-14 11:32 Europe/Istanbul — MUST-11
+### 2026-11-14 11:32 Europe/Istanbul â€” MUST-11
 
 - Human: Asil
 - Agent tool + model: Gemini (Gemini 3.8 Flash)
@@ -187,7 +187,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Review incoming PRs and coordinate with B1, B2, B3, F1 as MUST tasks get claimed.
 
-### 2026-11-14 11:40 Europe/Istanbul — PRE-02 / MUST-01 (claim)
+### 2026-11-14 11:40 Europe/Istanbul â€” PRE-02 / MUST-01 (claim)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Sonnet 5.5)
@@ -198,18 +198,18 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Install GDAL/rasterio and start MUST-01 again.
 
-### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
+### 2026-11-14 11:22 Europe/Istanbul â€” PRE-02 / MUST-12
 
 - Human: Eymen
 - Agent tool + model: Gemini (Antigravity)
 - Role: tester-2
 - Task id: PRE-02, MUST-12 (plus PRE-05/PRE-06 TLS re-check)
 - Files changed: docs/team/profiles/eymen.md (new), docs/demo/README.md, docs/demo/script.md (new), docs/demo/video-beats.md (new), docs/demo/slides-outline.md (new), docs/demo/submission-checklist.md (new), docs/coordination/BOARD.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
-- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2–3 min live demo script, ≤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40–48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
+- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2â€“3 min live demo script, â‰¤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40â€“48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
 - Commit: this commit
-- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0–16) and run the hour-16 rough demo walk.
+- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0â€“16) and run the hour-16 rough demo walk.
 
-### 2026-11-14 11:42 Europe/Istanbul — PRE-01 / PRE-02
+### 2026-11-14 11:42 Europe/Istanbul â€” PRE-01 / PRE-02
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -220,7 +220,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Watch for other teammates' PRs to review as Tester 2; support MUST milestones.
 
-### 2026-11-14 11:54 Europe/Istanbul — PRE-07
+### 2026-11-14 11:54 Europe/Istanbul â€” PRE-07
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor)
@@ -231,7 +231,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Doruk/team answers PRE-07 lock (and optional example-scaffold yes/no); then MUST-04.
 
-### 2026-11-14 11:55 Europe/Istanbul — MUST-01 (DTM crop, slope and ortho previews)
+### 2026-11-14 11:55 Europe/Istanbul â€” MUST-01 (DTM crop, slope and ortho previews)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Sonnet 5.5)
@@ -242,7 +242,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: MUST-02 cost map and height preview for the 3D view; re-crop when stops are locked; tilt check vs MSL waypoints (MUST-03).
 
-### 2026-11-14 12:00 Europe/Istanbul — MUST-02 (first-pass cost map)
+### 2026-11-14 12:00 Europe/Istanbul â€” MUST-02 (first-pass cost map)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Sonnet 5.5 / Opus 5.5)
@@ -253,7 +253,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Tilt check vs MSL waypoints (MUST-03); re-run both scripts when stops are locked.
 
-### 2026-11-14 12:05 Europe/Istanbul — MUST-11 (B1 terrain validation)
+### 2026-11-14 12:05 Europe/Istanbul â€” MUST-11 (B1 terrain validation)
 
 - Human: Asil
 - Agent tool + model: Gemini (Gemini 3.8 Flash)
@@ -264,7 +264,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Wait for team decision on PRE-07 stop locking; review upcoming MUST-04 and routing PRs.
 
-### 2026-11-14 12:05 Europe/Istanbul — MUST-04/05/06 (example scaffold)
+### 2026-11-14 12:05 Europe/Istanbul â€” MUST-04/05/06 (example scaffold)
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor)
@@ -275,7 +275,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Stay on backend-2/routing-must-scaffold (long-lived; merge only at end). Re-run after PRE-07 lock and B1 re-crop; then clear is_example.
 
-### 2026-11-14 12:17 Europe/Istanbul — SHOULD-01, SHOULD-02, SHOULD-04 (Phase 2 science outputs)
+### 2026-11-14 12:17 Europe/Istanbul â€” SHOULD-01, SHOULD-02, SHOULD-04 (Phase 2 science outputs)
 
 - Human: CC
 - Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
@@ -286,7 +286,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Once PRE-07/MUST-04 locks stops and Backend 2 produces route.json, re-run build_dose.py, build per-stop POV stills (SHOULD-03), resolve weather.json (SHOULD-04), and copy frozen fixtures into data/demo/ (SHOULD-07).
 
-### 2026-11-14 12:20 Europe/Istanbul — MUST-03 (tilt check, first pass)
+### 2026-11-14 12:20 Europe/Istanbul â€” MUST-03 (tilt check, first pass)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Sonnet 5.5)
@@ -298,7 +298,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Next step: Re-run make_slope.py, make_cost_map.py and tilt_check.py once the stops are locked, then freeze the MUST raster. Tell testers and the slides owner that the "DTM under-reads tilt" wording needs softening.
 - Previous commit: 3078ef5
 
-### 2026-11-14 13:30 Europe/Istanbul — MUST-02 / MUST-03 (fixes)
+### 2026-11-14 13:30 Europe/Istanbul â€” MUST-02 / MUST-03 (fixes)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Sonnet 5.5)
@@ -310,7 +310,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Next step: Open the PR for a tester; re-run the scripts once stops are locked (PRE-07).
 - Previous commit: 638e466
 
-### 2026-11-14 12:20 Europe/Istanbul — SHOULD-03, SHOULD-04, SHOULD-07 (B3 complete)
+### 2026-11-14 12:20 Europe/Istanbul â€” SHOULD-03, SHOULD-04, SHOULD-07 (B3 complete)
 
 - Human: CC
 - Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
@@ -321,7 +321,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Open PR for backend-3/must-07-data-cache; re-run build_dose, build_pov, and export_demo_fixtures once Backend 2 lands locked stops.json and route.json.
 
-### 2026-11-14 12:45 Europe/Istanbul — backend folder split
+### 2026-11-14 12:45 Europe/Istanbul â€” backend folder split
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor)
@@ -332,7 +332,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Later pass merges the five backend branches into the full project.
 
-### 2026-11-14 12:52 Europe/Istanbul — standing branch rules
+### 2026-11-14 12:52 Europe/Istanbul â€” standing branch rules
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor)
@@ -343,7 +343,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
 
-### 2026-11-14 12:59 Europe/Istanbul — MUST-11
+### 2026-11-14 12:59 Europe/Istanbul â€” MUST-11
 
 - Human: Asil
 - Agent tool + model: Grok (Cursor agent)
@@ -354,18 +354,18 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Tester 2 reviews branch `tester/review`. Do not merge to main until asked. Re-walk the plan after PRE-07 and after Frontend 1 lands. Previous commit on main before this branch: d2c4695.
 
-### 2026-11-14 13:03 Europe/Istanbul — MUST-12
+### 2026-11-14 13:03 Europe/Istanbul â€” MUST-12
 
 - Human: Eymen
 - Agent tool + model: Grok (Cursor)
 - Role: tester-2
 - Task id: MUST-12
 - Files changed: docs/demo/demo-path.md (new), docs/demo/demo-path.srt (new), docs/demo/README.md, docs/demo/script.md, docs/demo/video-beats.md, docs/demo/slides-outline.md, docs/demo/submission-checklist.md, docs/comms/note-tester-2-demo-path.md (new), docs/comms/intro-tester-2.md, docs/comms/README.md, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
-- Why: Scripted the record-now demo path. The web HUD is not built, so the 29 s English-subtitled cut uses the slope preview, two Curiosity stills, and a caption card (no under-18 faces or voices), with the 7-slide outline as the alternative. Aligned numbers to the example route (947.1 m stated; legs sum to 790.3 m — flagged, not papered over), the 96 min dose card (0.0427 ± 0.008 mSv), and the 14 Nov tilt check (no systematic under-read). No pipeline or web code. No secrets.
+- Why: Scripted the record-now demo path. The web HUD is not built, so the 29 s English-subtitled cut uses the slope preview, two Curiosity stills, and a caption card (no under-18 faces or voices), with the 7-slide outline as the alternative. Aligned numbers to the example route (947.1 m stated; legs sum to 790.3 m â€” flagged, not papered over), the 96 min dose card (0.0427 Â± 0.008 mSv), and the 14 Nov tilt check (no systematic under-read). No pipeline or web code. No secrets.
 - Commit: this commit
-- Next step: Tester 1 reviews branch tester/demo. Do not merge to main unless asked. Re-record after PRE-07, after Backend 2 confirms the route total, and when MUST-08–10 can be clicked.
+- Next step: Tester 1 reviews branch tester/demo. Do not merge to main unless asked. Re-record after PRE-07, after Backend 2 confirms the route total, and when MUST-08â€“10 can be clicked.
 
-### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
+### 2026-11-14 13:05 Europe/Istanbul â€” MUST-01 (crop plan)
 
 - Human: Cagan
 - Agent tool + model: Grok (Cursor)
@@ -376,29 +376,29 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Run the DTEEC_019698 crop and slope preview on backend/terrain, then the cost map on backend/costmap.
 
-### 2026-11-14 13:07 Europe/Istanbul — MUST-01 (example-stop HiRISE crop)
+### 2026-11-14 13:07 Europe/Istanbul â€” MUST-01 (example-stop HiRISE crop)
 
 - Human: Cagan
 - Agent tool + model: Grok (Cursor)
 - Role: backend-1
 - Task id: MUST-01
 - Files changed: pipeline/terrain/crop_window.py, make_slope.py, crop_ortho.py, README.md, data/processed/terrain/slope-preview.png, slope_stats.json, ortho-preview.png, README.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
-- Why: Recropped DTEEC_019698 and the matching RED ortho so every example stop already in docs/contracts/stops.json and data/processed/routing/stops.json is inside a 2 km window (centre about 4.800°S, 137.390°E). Averaged 1 m to ~5.06 m. Median slope 11.6°; 36% of cells above 15°; 24% above 20°; no no-data in this crop. Raw GeoTIFFs stay gitignored. Ids are the example ids already in those files. PRE-07 is still open. Cost grid is the next commit on backend/costmap, so cost-map.json on this branch is still the earlier placeholder-centre grid.
+- Why: Recropped DTEEC_019698 and the matching RED ortho so every example stop already in docs/contracts/stops.json and data/processed/routing/stops.json is inside a 2 km window (centre about 4.800Â°S, 137.390Â°E). Averaged 1 m to ~5.06 m. Median slope 11.6Â°; 36% of cells above 15Â°; 24% above 20Â°; no no-data in this crop. Raw GeoTIFFs stay gitignored. Ids are the example ids already in those files. PRE-07 is still open. Cost grid is the next commit on backend/costmap, so cost-map.json on this branch is still the earlier placeholder-centre grid.
 - Commit: this commit
 - Next step: Build the cost map and height preview for this same window on backend/costmap.
 
-### 2026-11-14 13:10 Europe/Istanbul — MUST-02 (example-stop cost grid)
+### 2026-11-14 13:10 Europe/Istanbul â€” MUST-02 (example-stop cost grid)
 
 - Human: Cagan
 - Agent tool + model: Grok (Cursor)
 - Role: backend-1
 - Task id: MUST-02
 - Files changed: pipeline/costmap/make_cost_map.py, pipeline/costmap/crop_window.py, pipeline/costmap/README.md, data/processed/terrain/cost-map.json, height-preview.png, README.md, docs/comms/intro-backend-1.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
-- Why: Rebuilt the hazard cost grid and 16-bit height preview on the same ~2 km DTEEC_019698 window as the terrain crop (395×395 cells, ~5.06 m, 23.8% blocked at the 20° lunar stand-in). Every example point in docs/contracts/stops.json and data/processed/routing/stops.json is inside the bounds (137.373–137.407°E, 4.817–4.783°S). The contract example boxwork point lands on a 20.8° cell, so that one cell is the blocked sentinel. The routing example at the cited Sol 4534 point is 14.0°. No official outcrop names. No raw rasters. PRE-07 is still open. Slope and ortho PNGs that match this window are on backend/terrain; this branch still has the earlier placeholder-centre previews.
+- Why: Rebuilt the hazard cost grid and 16-bit height preview on the same ~2 km DTEEC_019698 window as the terrain crop (395Ã—395 cells, ~5.06 m, 23.8% blocked at the 20Â° lunar stand-in). Every example point in docs/contracts/stops.json and data/processed/routing/stops.json is inside the bounds (137.373â€“137.407Â°E, 4.817â€“4.783Â°S). The contract example boxwork point lands on a 20.8Â° cell, so that one cell is the blocked sentinel. The routing example at the cited Sol 4534 point is 14.0Â°. No official outcrop names. No raw rasters. PRE-07 is still open. Slope and ortho PNGs that match this window are on backend/terrain; this branch still has the earlier placeholder-centre previews.
 - Commit: this commit
 - Next step: Testers review backend/terrain and backend/costmap. Re-run both after PRE-07 locks real outcrops. Do not merge to main unless asked.
 
-### 2026-11-14 13:34 Europe/Istanbul — MUST-12 (static analysis & POSSIBLE_BUGS.md)
+### 2026-11-14 13:34 Europe/Istanbul â€” MUST-12 (static analysis & POSSIBLE_BUGS.md)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -407,8 +407,8 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Files changed: POSSIBLE_BUGS.md (new), docs/coordination/AGENT_LOG.md
 - Why: Audited `main` (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/contracts/`), verified all 24 Python files compile, checked for secrets/bulky files and `data/` size (3.23 MB), and documented 7 bugs/integration risks in `POSSIBLE_BUGS.md` (empty `web/`, `cost-map.json` vs `stops.json` bounds mismatch, `hud-telemetry.json` wrapper mismatch, `dose.json` stale duration, missing terrain/routing `data/demo/` fixtures, and `MUST-03` tilt wording update).
 - Commit: this commit
-- Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1–3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
-### 2026-11-14 12:57 Europe/Istanbul — MUST-04/05/06 (B2 ship note + regenerate)
+- Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1â€“3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
+### 2026-11-14 12:57 Europe/Istanbul â€” MUST-04/05/06 (B2 ship note + regenerate)
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor)
@@ -419,7 +419,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Re-run when Cagan re-crops cost map over stops; clear is_example only after PRE-07 lock.
 
-### 2026-11-14 13:02 Europe/Istanbul — SHOULD-01 (claim)
+### 2026-11-14 13:02 Europe/Istanbul â€” SHOULD-01 (claim)
 
 - Human: CC
 - Agent tool + model: Grok 4.7 (Cursor)
@@ -430,18 +430,18 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Refresh dose from the example route, relabel POV JSON offline, write the labelled DONKI example, and tidy B3 board rows.
 
-### 2026-11-14 13:05 Europe/Istanbul — SHOULD-01 / SHOULD-02 / SHOULD-03 / PRE-04
+### 2026-11-14 13:05 Europe/Istanbul â€” SHOULD-01 / SHOULD-02 / SHOULD-03 / PRE-04
 
 - Human: CC
 - Agent tool + model: Grok 4.7 (Cursor)
 - Role: backend-3
 - Task id: SHOULD-01, SHOULD-02, SHOULD-03, PRE-04
 - Files changed: pipeline/data/example_fixtures.py (new), pipeline/data/run_examples.py (new), pipeline/data/{common.py,fetch_donki.py,build_dose.py,build_pov.py,export_demo_fixtures.py,README.md}, data/processed/science/{dose.json,alerts.example.json,donki-cache.example.json,pov/*}, data/demo/ science copies of those files, docs/coordination/{BOARD.md,HANDOFFS.md,AGENT_LOG.md}, docs/comms/note-backend-3-science-leftovers.md, docs/AI_USE.md
-- Why: NASA_API_KEY is not on this machine. Skipped live DONKI and wrote labelled example fixtures (11 Nov 2026 planning-check arrival only). Left the real 13-impact cache in place. Refreshed dose from the example route (71 min placeholder, 0.0315 ± 0.0059 mSv, status example). Relabelled POV JSON from example stops and reused the four JPEGs. No .env. No contract field changes. Board rows for B3 only.
+- Why: NASA_API_KEY is not on this machine. Skipped live DONKI and wrote labelled example fixtures (11 Nov 2026 planning-check arrival only). Left the real 13-impact cache in place. Refreshed dose from the example route (71 min placeholder, 0.0315 Â± 0.0059 mSv, status example). Relabelled POV JSON from example stops and reused the four JPEGs. No .env. No contract field changes. Board rows for B3 only.
 - Commit: this commit
 - Next step: Tester review of backend/science. Re-run dose and POV after PRE-07 locks real stops. A personal NASA_API_KEY in a local gitignored .env is still needed before any live DONKI refresh.
 
-### 2026-11-14 13:19 Europe/Istanbul — MUST-05 distance fix and cost-map re-run
+### 2026-11-14 13:19 Europe/Istanbul â€” MUST-05 distance fix and cost-map re-run
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor Grok 4.7)
@@ -452,7 +452,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Clear is_example only after PRE-07 lock. Do not merge backend/routing or backend/stops to main until asked.
 
-### 2026-11-14 13:34 Europe/Istanbul — MUST-12 (static analysis & POSSIBLE_BUGS.md)
+### 2026-11-14 13:34 Europe/Istanbul â€” MUST-12 (static analysis & POSSIBLE_BUGS.md)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -461,9 +461,9 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Files changed: POSSIBLE_BUGS.md (new), docs/coordination/AGENT_LOG.md
 - Why: Audited `main` (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/contracts/`), verified all 24 Python files compile, checked for secrets/bulky files and `data/` size (3.23 MB), and documented 7 bugs/integration risks in `POSSIBLE_BUGS.md` (empty `web/`, `cost-map.json` vs `stops.json` bounds mismatch, `hud-telemetry.json` wrapper mismatch, `dose.json` stale duration, missing terrain/routing `data/demo/` fixtures, and `MUST-03` tilt wording update).
 - Commit: this commit
-- Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1–3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
+- Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1â€“3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
 
-### 2026-11-14 13:40 Europe/Istanbul — Merge all backend branches into main
+### 2026-11-14 13:40 Europe/Istanbul â€” Merge all backend branches into main
 
 - Human: CC
 - Agent tool + model: Antigravity (Gemini 4 Hydrogen XHigh)
@@ -474,7 +474,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Frontend 1 starts on main; tester branches (tester/review, tester/demo) can review/merge next.
 
-### 2026-11-14 13:44 Europe/Istanbul — MUST-12 (re-audit after 5-branch merge)
+### 2026-11-14 13:44 Europe/Istanbul â€” MUST-12 (re-audit after 5-branch merge)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -485,7 +485,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Monitor Frontend 1 PRs (`web/`) and re-check after `PRE-07` stop lock + `build_dose.py` re-run.
 
-### 2026-11-14 13:44 Europe/Istanbul — MUST-06 height and slope on the example route
+### 2026-11-14 13:44 Europe/Istanbul â€” MUST-06 height and slope on the example route
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor Grok 4.7)
@@ -496,7 +496,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Clear is_example only after PRE-07 lock. Do not merge to main until asked.
 
-### 2026-11-14 13:55 Europe/Istanbul — Non-frontend bug & integration fixes (BUG-02..BUG-08)
+### 2026-11-14 13:55 Europe/Istanbul â€” Non-frontend bug & integration fixes (BUG-02..BUG-08)
 
 - Human: CC
 - Agent tool + model: Antigravity (Gemini)
@@ -507,7 +507,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Frontend 1 implements `web/` (`BUG-01`, `MUST-08`..`MUST-10`, `SHOULD-05`); team locks real stops for `PRE-07` (`BUG-09`).
 
-### 2026-11-14 14:03 Europe/Istanbul — MUST-12 (full re-audit on 0f200d0)
+### 2026-11-14 14:03 Europe/Istanbul â€” MUST-12 (full re-audit on 0f200d0)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -518,29 +518,29 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Hand off `BUG-10` to Backend 3 / Frontend 1; continue monitoring `web/` (`BUG-01`) and `PRE-07` (`BUG-09`).
 
-### 2026-11-14 14:13 Europe/Istanbul — MUST-12 (deep geometry, telemetry, manifest & link audit)
+### 2026-11-14 14:13 Europe/Istanbul â€” MUST-12 (deep geometry, telemetry, manifest & link audit)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
 - Role: tester-2
 - Task id: MUST-12
 - Files changed: POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
-- Why: Ran deep verification across `main` (`65c2e5e`): checked all 132 route vertices against `cost-map.json` blocked cells (0 hits, 0 out-of-bounds), verified `sum(legs) == 790.30 m`, checked all 8 HUD telemetry samples for `slope_class` / `O2` / distance sums, verified 28/28 `data/demo/science-manifest.json` files on disk, and checked all markdown relative links (0 broken). Logged `[BUG-11]` (missing GitHub usernames for B1–B3 and F1 in `docs/team/ROSTER.md`) and updated `POSSIBLE_BUGS.md`.
+- Why: Ran deep verification across `main` (`65c2e5e`): checked all 132 route vertices against `cost-map.json` blocked cells (0 hits, 0 out-of-bounds), verified `sum(legs) == 790.30 m`, checked all 8 HUD telemetry samples for `slope_class` / `O2` / distance sums, verified 28/28 `data/demo/science-manifest.json` files on disk, and checked all markdown relative links (0 broken). Logged `[BUG-11]` (missing GitHub usernames for B1â€“B3 and F1 in `docs/team/ROSTER.md`) and updated `POSSIBLE_BUGS.md`.
 - Commit: this commit
 - Next step: Await Frontend 1 `web/` scaffold (`BUG-01`), `BUG-10` demo path fix, and `PRE-07` stop lock.
 
-### 2026-11-14 14:09 Europe/Istanbul — PRE-02 / MUST-08..10 / SHOULD-05..07
+### 2026-11-14 14:09 Europe/Istanbul â€” PRE-02 / MUST-08..10 / SHOULD-05..07
 
 - Human: F1
 - Agent tool + model: Antigravity (Gemini)
 - Role: frontend-1
 - Task id: PRE-02, MUST-08, MUST-09, MUST-10, SHOULD-05, SHOULD-06, SHOULD-07
 - Files changed: docs/team/profiles/f1.md (new), docs/comms/intro-frontend-1.md, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, web/index.html (new), web/styles.css (new), web/app.js (new), web/README.md, web/shared/data-loader.js (new), web/shared/route-bridge.js (new), web/planner/planner.js (new), web/hud/hud3d.js (new)
-- Why: Completed F1 onboarding profile (PRE-02) and built the full Frontend 1 static web app (2D MapLibre planner + `mm:set-route` bridge + 3D three.js heightmap from `height-preview.png` + helmet HUD with distance, slope/class, next stop, placeholder suit O2 + DONKI, RAD dose, REMS weather, Curiosity POV lightbox, 15°/20° toggle, THEMIS/CRISM toggles, Credits/Honesty modal, and `?demo=1` demo-safe mode). Verified all 27 local web and data URLs return HTTP 200 via `http.server`.
+- Why: Completed F1 onboarding profile (PRE-02) and built the full Frontend 1 static web app (2D MapLibre planner + `mm:set-route` bridge + 3D three.js heightmap from `height-preview.png` + helmet HUD with distance, slope/class, next stop, placeholder suit O2 + DONKI, RAD dose, REMS weather, Curiosity POV lightbox, 15Â°/20Â° toggle, THEMIS/CRISM toggles, Credits/Honesty modal, and `?demo=1` demo-safe mode). Verified all 27 local web and data URLs return HTTP 200 via `http.server`.
 - Commit: this commit
 - Next step: Testers 1 & 2 review `web/` in browser and sign off MUST-08..10 and SHOULD-05..07.
 
-### 2026-11-14 14:26 Europe/Istanbul — MUST-09 (smooth 3D camera turns)
+### 2026-11-14 14:26 Europe/Istanbul â€” MUST-09 (smooth 3D camera turns)
 
 - Human: F1
 - Agent tool + model: Antigravity (Gemini)
@@ -551,7 +551,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Reload `http://localhost:8000/web/` in browser to verify smooth turns.
 
-### 2026-11-14 14:29 Europe/Istanbul — MUST-09 (keep camera yaw under user control)
+### 2026-11-14 14:29 Europe/Istanbul â€” MUST-09 (keep camera yaw under user control)
 
 - Human: F1
 - Agent tool + model: Antigravity (Gemini)
@@ -562,7 +562,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Reload `http://localhost:8000/web/` in browser to verify.
 
-### 2026-11-14 14:50 Europe/Istanbul — n/a
+### 2026-11-14 14:50 Europe/Istanbul â€” n/a
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor)
@@ -573,7 +573,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Paste `docs/roles/prompts/cagan.md` into Claude Code. Cetin then runs a live DONKI fetch. Divarci waits until Cagan's four processed JSON files are confirmed.
 
-### 2026-11-14 15:20 Europe/Istanbul — MUST-02 / MUST-04..06 (source citations)
+### 2026-11-14 15:20 Europe/Istanbul â€” MUST-02 / MUST-04..06 (source citations)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Fable 5.2)
@@ -584,18 +584,18 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Cetin re-exports data/demo fixtures; PRE-07 must replace the two uncited mudstone stops; PR for Eymen.
 
-### 2026-11-14 15:22 Europe/Istanbul — MUST-12 / SHOULD-07 (NASA data & ?demo=1 audit)
+### 2026-11-14 15:22 Europe/Istanbul â€” MUST-12 / SHOULD-07 (NASA data & ?demo=1 audit)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
 - Role: tester-2
 - Task id: MUST-12, SHOULD-07
 - Files changed: docs/testing/nasa-data-audit.md (new), POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
-- Why: Audited `web/`, `data/processed/`, and `data/demo/` against `docs/roles/prompts/eymen.md` §4 (NASA sources, fetch dates, placeholder labels, secrets/DEMO_KEY, `?demo=1` isolation). Verified all 11 processed JSONs cite NASA/PDS sources and fetch/compute dates (with 0 secrets or `DEMO_KEY`/`mars-photos` usage). Found and logged 3 `?demo=1` / sync bugs: `BUG-12` (`web/planner/planner.js` registers `trek.nasa.gov` tiles and `web/index.html` loads `unpkg.com` CDN even in `?demo=1`), `BUG-13` (`data/demo/` out of sync with `2b217d1` citations in `data/processed/`), and `BUG-14` (`web/shared/data-loader.js` hardcodes `data/processed/terrain/ortho-preview.png` in `?demo=1`).
+- Why: Audited `web/`, `data/processed/`, and `data/demo/` against `docs/roles/prompts/eymen.md` Â§4 (NASA sources, fetch dates, placeholder labels, secrets/DEMO_KEY, `?demo=1` isolation). Verified all 11 processed JSONs cite NASA/PDS sources and fetch/compute dates (with 0 secrets or `DEMO_KEY`/`mars-photos` usage). Found and logged 3 `?demo=1` / sync bugs: `BUG-12` (`web/planner/planner.js` registers `trek.nasa.gov` tiles and `web/index.html` loads `unpkg.com` CDN even in `?demo=1`), `BUG-13` (`data/demo/` out of sync with `2b217d1` citations in `data/processed/`), and `BUG-14` (`web/shared/data-loader.js` hardcodes `data/processed/terrain/ortho-preview.png` in `?demo=1`).
 - Commit: this commit
-- Next step: Hand off `BUG-12`/`BUG-14` to Frontend 1 (Dıvarcı) and `BUG-13` (`export_demo_fixtures.py` re-run) to Backend 3 (Çetin).
+- Next step: Hand off `BUG-12`/`BUG-14` to Frontend 1 (DÄ±varcÄ±) and `BUG-13` (`export_demo_fixtures.py` re-run) to Backend 3 (Ã‡etin).
 
-### 2026-11-14 15:45 Europe/Istanbul — BUG-13 / BUG-14
+### 2026-11-14 15:45 Europe/Istanbul â€” BUG-13 / BUG-14
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Sonnet 5.5)
@@ -606,7 +606,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Divarci and Eymen re-check ?demo=1 with the network off; Divarci fixes BUG-12; Cetin to know his export script gained one line.
 
-### 2026-11-14 15:45 Europe/Istanbul — MUST-02 follow-up (relief, textures, STL)
+### 2026-11-14 15:45 Europe/Istanbul â€” MUST-02 follow-up (relief, textures, STL)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -619,7 +619,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 
 - Correction (same day): the entry above was first written with 16:15; the real time was about 15:45. fetch_dtm.py now takes --chunk-kb (default 512) because the server reset 4 MB range requests ten times in a row.
 
-### 2026-11-14 15:32 Europe/Istanbul — MUST-12 / SHOULD-07 (deep web JS & demo sync verification)
+### 2026-11-14 15:32 Europe/Istanbul â€” MUST-12 / SHOULD-07 (deep web JS & demo sync verification)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -628,9 +628,9 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Files changed: POSSIBLE_BUGS.md, docs/testing/nasa-data-audit.md, docs/coordination/AGENT_LOG.md
 - Why: Pulled `20fc36f` and ran deep verification: `node --check` passed on all 5 JS files in `web/`, `0` missing DOM IDs against `web/index.html`, verified `BUG-13` and `BUG-14` are fixed (`data/demo/` matches `data/processed/` 1:1 and `ortho-preview.png` is bundled), and verified `web/planner/planner.js` already guards `trek.nasa.gov` CTX/THEMIS tiles behind `if (!demoSafe)`. Narrowed `BUG-12` strictly to `web/index.html` CDN links (`unpkg.com` for `maplibre-gl` and `three.js`).
 - Commit: this commit
-- Next step: Frontend 1 (Dıvarcı) optionally vendors `maplibre-gl` and `three.js` locally (`BUG-12`); team locks `PRE-07` stops (`BUG-09`).
+- Next step: Frontend 1 (DÄ±varcÄ±) optionally vendors `maplibre-gl` and `three.js` locally (`BUG-12`); team locks `PRE-07` stops (`BUG-09`).
 
-### 2026-11-14 15:34 Europe/Istanbul — SHOULD-07 (fix BUG-12 offline vendoring)
+### 2026-11-14 15:34 Europe/Istanbul â€” SHOULD-07 (fix BUG-12 offline vendoring)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -641,7 +641,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Run live browser verification at `http://localhost:8000/web/?demo=1` with DevTools Offline mode enabled.
 
-### 2026-11-14 15:59 Europe/Istanbul — MUST-09 follow-up (endless mirrored terrain)
+### 2026-11-14 15:59 Europe/Istanbul â€” MUST-09 follow-up (endless mirrored terrain)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -652,7 +652,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Divarci reviews; Eymen walks past the edge once.
 
-### 2026-11-14 15:59 Europe/Istanbul — SHOULD-07 / MUST-12 (app launcher scripts)
+### 2026-11-14 15:59 Europe/Istanbul â€” SHOULD-07 / MUST-12 (app launcher scripts)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -663,7 +663,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Team can double-click `start.bat` to launch the demo locally.
 
-### 2026-11-14 16:23 Europe/Istanbul — bodycam simulation and black UI (branch backend/simulation)
+### 2026-11-14 16:23 Europe/Istanbul â€” bodycam simulation and black UI (branch backend/simulation)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -674,7 +674,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Divarci reviews; push the branch and open a PR only when Cagan asks.
 
-### 2026-11-14 16:49 Europe/Istanbul — shadows and Shift run (branch backend/simulation)
+### 2026-11-14 16:49 Europe/Istanbul â€” shadows and Shift run (branch backend/simulation)
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -685,7 +685,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Divarci reviews web/; push when Cagan asks.
 
-### 2026-11-14 16:48 Europe/Istanbul — MUST-12 (live browser test & HUD bugs BUG-15, BUG-16)
+### 2026-11-14 16:48 Europe/Istanbul â€” MUST-12 (live browser test & HUD bugs BUG-15, BUG-16)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -696,7 +696,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Frontend 1 / Cagan fix `BUG-15` and `BUG-16` in `web/hud/hud3d.js`; team locks `PRE-07` (`BUG-09`).
 
-### 2026-11-14 17:09 Europe/Istanbul — elbow joints and suited arm pose
+### 2026-11-14 17:09 Europe/Istanbul â€” elbow joints and suited arm pose
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -707,7 +707,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: none for the arms.
 
-### 2026-11-14 16:53 Europe/Istanbul — Fix BUG-15 & BUG-16 in 3D HUD stop/distance tracking
+### 2026-11-14 16:53 Europe/Istanbul â€” Fix BUG-15 & BUG-16 in 3D HUD stop/distance tracking
 - Human: Doruk
 - Agent tool + model: Gemini (Antigravity)
 - Role: coordinator/implementer (`main`)
@@ -717,7 +717,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Reload `http://127.0.0.1:8765/web/?demo=1` in browser to verify `NEXT` stop and `790.3 m` readout.
 
-### 2026-11-14 16:54 Europe/Istanbul — MUST-09 / MUST-12 (solid partner astronaut collision)
+### 2026-11-14 16:54 Europe/Istanbul â€” MUST-09 / MUST-12 (solid partner astronaut collision)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -727,24 +727,24 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Eymen reported that free-roaming into the partner astronaut or turning back onto the route caused the player to clip inside the partner model. Added `PARTNER_COLLISION_R = 1.05` solid horizontal cylinder collision in `freeRoam` and an overlap guard on `partnerS` vs `alongM` in route mode in `web/hud/hud3d.js`, passed `node --check web/hud/hud3d.js`, and logged the cross-folder patch in `HANDOFFS.md`.
 - Commit: this commit
 - Next step: Divarci / Cagan review `web/hud/hud3d.js` collision patch; Eymen re-tests free-roam and route return collision in browser.
-### 2026-11-14 16:36 Europe/Istanbul — High-resolution Mars map & terrain visor replacement (`MAP-01`)
+### 2026-11-14 16:36 Europe/Istanbul â€” High-resolution Mars map & terrain visor replacement (`MAP-01`)
 - **Agent:** Gemini (Antigravity) acting for human teammate **Doruk** (`B2`, coordinator/branch override on `orchestrator/map-replacement`)
 - **Role / branch:** `orchestrator/map-replacement` (from `main` `a6a14e8`)
 - **Files:** `web/map/Geodesy.js`, `web/map/MarsDemSampler.js`, `web/map/IMapAdapter.js`, `web/map/LegacyMapAdapter.js`, `web/map/Fallback2DMap.js`, `web/map/TileSourceRegistry.js`, `web/map/TerrainMeshBuilder.js`, `web/map/terrain.worker.js`, `web/map/TerrainWorkerPool.js`, `web/map/MarsTerrainShader.js`, `web/map/HighResMarsTerrainEngine.js`, `web/map/MapLibreMarsAdapter.js`, `web/vendor/*`, `web/index.html`, `web/styles.css`, `web/app.js`, `web/planner/planner.js`, `web/hud/hud3d.js`, `web/shared/data-loader.js`, `web/shared/route-bridge.js`, `web/tests/geodesy.test.mjs`, `web/tests/fallback.test.mjs`, `docs/coordination/BOARD.md`, `docs/coordination/AGENT_LOG.md`
 - **Summary:** Implemented unified `IMapAdapter` + Strangler-Fig `LegacyMapAdapter` (`?legacyMap=1`), Mars geodesy (`3,389.5 km` mean / `3,396.19 km` equatorial, planetocentric ECEF <-> RTC, antimeridian unwrapping, Terrarium & HiRISE 16-bit codecs), multi-tier `TileSourceRegistry` (LRU byte cache, singleflight coalescing, per-provider circuit breaker, hard `?demo=1` network block), off-main-thread `TerrainWorkerPool` (1-px border-clamped analytical normal maps, skirted CDLOD quadtree meshes, `AbortSignal`), custom Martian PBR strata/regolith shader + sky dome, MapLibre `mars-eq://` + `mars-dem://` 2.5D Terrarium hillshade/terrain, unified collision-free astronaut visor UI, and local `web/vendor/` bundling (`BUG-12` + `BUG-14` fixed). Verified 13/13 tests pass (`node --test web/tests/*.test.mjs`) and initial browser verification passed with 0 console/page errors and 0 external requests in `?demo=1` (second pass halted on user browser takeover).
 - **Commit:** this commit
 
-### 2026-11-14 16:45 Europe/Istanbul — Offline Martian PBR textures, logdepthbuf shader chunks, and 2D/3D polish (`MAP-01`)
+### 2026-11-14 16:45 Europe/Istanbul â€” Offline Martian PBR textures, logdepthbuf shader chunks, and 2D/3D polish (`MAP-01`)
 - Human: Doruk
 - Agent tool + model: Gemini (Antigravity)
 - Role: coordinator/implementer (`orchestrator/map-replacement`)
 - Task id: MAP-01
 - Files changed: web/map/MarsPbrTextures.js, web/map/MarsTerrainShader.js, web/map/HighResMarsTerrainEngine.js, web/map/MapLibreMarsAdapter.js, web/hud/hud3d.js, web/tests/fallback.test.mjs, docs/coordination/AGENT_LOG.md
-- Why: Fixed flat/missing 3D ground textures (especially offline in `?demo=1`), depth-buffer occlusion mismatch, and 2D CTX priority. Added zero-network `256×256` procedural Martian PBR albedo + normal synthesis (`MarsPbrTextures.js` with integer hashing and wind ripples, basalt gravel, Voronoi mudstone slabs, sulfate veins, and crevice AO), `#include <common>` + `#include <logdepthbuf_*>` vertex/fragment chunks in terrain & sky shaders, `520`-instance `InstancedMesh` boulder field, `_slopeTex` isolation from `Mars PBR` mode `0`, tilted default gaze (`-0.14 rad`), `0.09 m` AR route tube, NASA `mars-eq://trek-ctx/{z}/{x}/{y}` priority in `MapLibreMarsAdapter`, `0.36` slope overlay opacity, and regression unit tests in `web/tests/fallback.test.mjs`.
+- Why: Fixed flat/missing 3D ground textures (especially offline in `?demo=1`), depth-buffer occlusion mismatch, and 2D CTX priority. Added zero-network `256Ã—256` procedural Martian PBR albedo + normal synthesis (`MarsPbrTextures.js` with integer hashing and wind ripples, basalt gravel, Voronoi mudstone slabs, sulfate veins, and crevice AO), `#include <common>` + `#include <logdepthbuf_*>` vertex/fragment chunks in terrain & sky shaders, `520`-instance `InstancedMesh` boulder field, `_slopeTex` isolation from `Mars PBR` mode `0`, tilted default gaze (`-0.14 rad`), `0.09 m` AR route tube, NASA `mars-eq://trek-ctx/{z}/{x}/{y}` priority in `MapLibreMarsAdapter`, `0.36` slope overlay opacity, and regression unit tests in `web/tests/fallback.test.mjs`.
 - Commit: this commit
 - Next step: User reloads `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctl+Shift+R`) to visually confirm textures, boulders, and 2D hillshade/contours.
 
-### 2026-11-14 17:06 Europe/Istanbul — Merge `main` (415e3b9: NASA Mark III suit, physics, shadows, BUG-15/16) into `orchestrator/map-replacement`
+### 2026-11-14 17:06 Europe/Istanbul â€” Merge `main` (415e3b9: NASA Mark III suit, physics, shadows, BUG-15/16) into `orchestrator/map-replacement`
 - Human: Doruk
 - Agent tool + model: Gemini (Antigravity)
 - Role: coordinator/implementer (`orchestrator/map-replacement`)
@@ -754,7 +754,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Visually verify `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctrl+Shift+R`), then decide whether to open a PR to `main`.
 
-### 2026-11-14 17:22 Europe/Istanbul — free-roam only, single astronaut, contact shadows
+### 2026-11-14 17:22 Europe/Istanbul â€” free-roam only, single astronaut, contact shadows
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -765,7 +765,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: push when Cagan asks.
 
-### 2026-11-14 17:25 Europe/Istanbul — MAP-01 / MUST-09 / MUST-10: map bug fixes, default 3D planner, map click/dblclick teleport & sky Phobos/Deimos
+### 2026-11-14 17:25 Europe/Istanbul â€” MAP-01 / MUST-09 / MUST-10: map bug fixes, default 3D planner, map click/dblclick teleport & sky Phobos/Deimos
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
 - Role: tester-2
@@ -775,7 +775,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) in browser to visually verify 3D planner, map click/dblclick teleport, THEMIS/MOLA overlays, and Phobos/Deimos in the 3D sky.
 
-### 2026-11-14 17:31 Europe/Istanbul — hide the route line in the 3D view
+### 2026-11-14 17:31 Europe/Istanbul â€” hide the route line in the 3D view
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -786,7 +786,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: none.
 
-### 2026-11-14 17:34 Europe/Istanbul — side-step and backward walking animation
+### 2026-11-14 17:34 Europe/Istanbul â€” side-step and backward walking animation
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -797,7 +797,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: none.
 
-### 2026-11-14 17:39 Europe/Istanbul — 3D view performance
+### 2026-11-14 17:39 Europe/Istanbul â€” 3D view performance
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -808,7 +808,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Cagan checks the frame rate on his machine.
 
-### 2026-11-14 17:38 Europe/Istanbul — MAP-01 / MUST-09 follow-up: MOLA offline ramp, PNG fallback buffer, buffered teleport, Stickney orientation & unit tests
+### 2026-11-14 17:38 Europe/Istanbul â€” MAP-01 / MUST-09 follow-up: MOLA offline ramp, PNG fallback buffer, buffered teleport, Stickney orientation & unit tests
 - Human: Eymen (ParongUs)
 - Agent tool + model: Antigravity (Gemini)
 - Role: tester-2
@@ -818,7 +818,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Hard-reload `http://localhost:8000/web/?demo=1` (`Ctrl+Shift+R`) to visually inspect MOLA offline color, double-click teleport, and Phobos/Deimos in browser.
 
-### 2026-11-14 17:48 Europe/Istanbul — fix black 2D map in 3D-terrain mode; one Planner button
+### 2026-11-14 17:48 Europe/Istanbul â€” fix black 2D map in 3D-terrain mode; one Planner button
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -829,7 +829,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: push when Cagan asks.
 
-### 2026-11-14 17:27 Europe/Istanbul — Add dual-transport EVA multiplayer support (BroadcastChannel + LAN WebSocket)
+### 2026-11-14 17:27 Europe/Istanbul â€” Add dual-transport EVA multiplayer support (BroadcastChannel + LAN WebSocket)
 - Human: Doruk
 - Agent tool + model: Gemini (Antigravity)
 - Role: coordinator/implementer (`main`)
@@ -839,7 +839,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Test two tabs (e.g. Planner + Bodycam or two Bodycam windows) at `http://localhost:8765/web/` or `?room=GALE-01`, and push `main` when ready.
 
-### 2026-11-14 17:39 Europe/Istanbul — Vercel static production config
+### 2026-11-14 17:39 Europe/Istanbul â€” Vercel static production config
 
 - Human: Doruk
 - Agent tool + model: Grok 4.7 (Cursor)
@@ -850,7 +850,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Turn off Vercel Authentication if judges should open https://martian-mappers.vercel.app without a Vercel login. Cross-device crew still needs the local server.
 
-### 2026-11-14 17:45 Europe/Istanbul — Merge origin/main into local main
+### 2026-11-14 17:45 Europe/Istanbul â€” Merge origin/main into local main
 
 - Human: Doruk
 - Agent tool + model: Grok 4.7 (Cursor)
@@ -861,7 +861,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Push main.
 
-### 2026-11-14 17:52 Europe/Istanbul — terrain seam cracks
+### 2026-11-14 17:52 Europe/Istanbul â€” terrain seam cracks
 
 - Human: Cagan
 - Agent tool + model: Claude Code (Claude Opus 5.5)
@@ -872,51 +872,51 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Cagan checks the corner; push when asked.
 
-### 2026-11-14 18:00 Europe/Istanbul — Taller start marker, M-key 3D Martian elevation map with click-to-teleport confirmation, and opposite-edge map wrap
+### 2026-11-14 18:00 Europe/Istanbul â€” Taller start marker, M-key 3D Martian elevation map with click-to-teleport confirmation, and opposite-edge map wrap
 
 - Human: Cinar
 - Agent tool + model: Gemini (Antigravity)
 - Role: frontend implementer (`main`)
 - Task id: MUST-09 / MUST-10 follow-up
 - Files changed: web/hud/hud3d.js, web/index.html, web/styles.css, docs/coordination/AGENT_LOG.md
-- Why: Raised the start/habitat marker pole height from 2.4 m to 4.6 m with a glowing cap lamp; added a tactical 3D Mars elevation map modal (`M` key / `Map (M)` button) rendered 1:1 from `elevGrid` with Martian hypsometric ramp, `sunDir` hillshade, `sunMask` shadows, 20 m / 60 m contours, optional Slope Hazard overlay, click confirmation prompt ("Buraya ışınlanmak istiyor musun?" / "Do you want to teleport here?") showing lat/lon, MOLA elevation, slope, and distance, and exact `sampleElevSceneY` + `justTeleportedOrWrapped` ground snapping on teleport; added toroidal opposite-edge boundary wrapping (`wrapSceneCoord`) with HUD wrap notification toast when walking past any edge of the 3D terrain. Preserved `P` beacon, multiplayer drawer styles, and single Planner button on merge with `origin/main` (`e18cac2`). Verified `node --check`, DOM ID consistency, and all `web/tests/*.mjs` tests.
+- Why: Raised the start/habitat marker pole height from 2.4 m to 4.6 m with a glowing cap lamp; added a tactical 3D Mars elevation map modal (`M` key / `Map (M)` button) rendered 1:1 from `elevGrid` with Martian hypsometric ramp, `sunDir` hillshade, `sunMask` shadows, 20 m / 60 m contours, optional Slope Hazard overlay, click confirmation prompt ("Buraya Ä±ÅŸÄ±nlanmak istiyor musun?" / "Do you want to teleport here?") showing lat/lon, MOLA elevation, slope, and distance, and exact `sampleElevSceneY` + `justTeleportedOrWrapped` ground snapping on teleport; added toroidal opposite-edge boundary wrapping (`wrapSceneCoord`) with HUD wrap notification toast when walking past any edge of the 3D terrain. Preserved `P` beacon, multiplayer drawer styles, and single Planner button on merge with `origin/main` (`e18cac2`). Verified `node --check`, DOM ID consistency, and all `web/tests/*.mjs` tests.
 - Commit: this commit
 - Next step: none.
 
-### 2026-11-14 18:43 Europe/Istanbul — MAP-01 / MUST-09 / MUST-12 (Planner border artifact fix + subtle Dev Settings menu)
+### 2026-11-14 18:43 Europe/Istanbul â€” MAP-01 / MUST-09 / MUST-12 (Planner border artifact fix + subtle Dev Settings menu)
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Antigravity (Gemini)
 - Role: tester-2
 - Task id: MAP-01, MUST-09, MUST-12
 - Files changed: `web/shared/dev-settings.js`, `web/map/MarsDemSampler.js`, `web/map/MapLibreMarsAdapter.js`, `web/planner/planner.js`, `web/hud/hud3d.js`, `web/app.js`, `web/index.html`, `web/styles.css`, `web/tests/fallback.test.mjs`, `docs/coordination/HANDOFFS.md`, `docs/coordination/AGENT_LOG.md`
-- Why: Eymen reported extruded N/S/E/W border cross-lines and tile cutoffs around the HiRISE box on the Planner map, and asked for a low-profile theme-matched Developer Settings button in the menu with frame effect, speed, and experimental super graphics toggles. Added a `smoothstep` 0.0085° outer DEM taper toward `borderMeanElevM` in `MarsDemSampler.js`, `Promise.allSettled` + procedural regional dust context + toned CTX + `minZoom: 11.2` in `MapLibreMarsAdapter.js`, `zoom: 14.7` + dashed HiRISE corridor + zoom-scaled markers + `[ FIT EVA ]` in `planner.js`, and a persistent `dev-settings.js` modal (`#btn-dev-settings` in `.start-foot`) wired live to `hud3d.js` (bodycam frame/lens toggle & strength, speed multiplier, 4096px soft-shadow/4x MSAA/1.25x supersampled Experimental Super Graphics, FOV, clean HUD). Verified live in browser (`0` console/WebGL errors on `?demo=1`), syntax check (`27` files), and `24/24` Node unit tests.
+- Why: Eymen reported extruded N/S/E/W border cross-lines and tile cutoffs around the HiRISE box on the Planner map, and asked for a low-profile theme-matched Developer Settings button in the menu with frame effect, speed, and experimental super graphics toggles. Added a `smoothstep` 0.0085Â° outer DEM taper toward `borderMeanElevM` in `MarsDemSampler.js`, `Promise.allSettled` + procedural regional dust context + toned CTX + `minZoom: 11.2` in `MapLibreMarsAdapter.js`, `zoom: 14.7` + dashed HiRISE corridor + zoom-scaled markers + `[ FIT EVA ]` in `planner.js`, and a persistent `dev-settings.js` modal (`#btn-dev-settings` in `.start-foot`) wired live to `hud3d.js` (bodycam frame/lens toggle & strength, speed multiplier, 4096px soft-shadow/4x MSAA/1.25x supersampled Experimental Super Graphics, FOV, clean HUD). Verified live in browser (`0` console/WebGL errors on `?demo=1`), syntax check (`27` files), and `24/24` Node unit tests.
 - Commit: this commit
 - Next step: Divarci / Doruk / Cagan review cross-folder `web/` changes; Eymen tests via live server on port 8000 (`Ctrl+Shift+R`).
 
-### 2026-11-14 20:33 Europe/Istanbul — PHYS-01 Martian visor physics core
+### 2026-11-14 20:33 Europe/Istanbul â€” PHYS-01 Martian visor physics core
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor) / Grok 4.7
 - Role: frontend visor (Doruk overriding `web/` on `frontend/mars-physics`)
 - Task id: PHYS-01
 - Files changed: `web/physics/MarsConstants.js`, `web/physics/MarsGravityField.js`, `web/physics/Terramechanics.js`, `web/physics/SuitBiomechanics.js`, `web/physics/MetabolicPlssModel.js`, `web/physics/MarsAcoustics.js`, `web/physics/MarsPhysicsWorld.js`, `web/hud/hud3d.js`, `web/hud/astronaut-rig.js`, `web/app.js`, `web/index.html`, `web/tests/physics.test.mjs`, `docs/coordination/BOARD.md`, `docs/coordination/AGENT_LOG.md`
-- Why: The visor walked with instant WASD speed, mid-air steering, and a flat 3.71 m/s². The helmet view now steps a 120 Hz Martian model: Gale gravity anchored at 3.717 m/s², 180 kg inertia, friction-limited braking, downhill slip above the 20°/15° lunar stand-in, and jumps that keep their horizontal speed. `#hud-o2` stays the linear placeholder. A second line shows a Pandolf stand-in and an illustrative sky-view factor. No Rapier binary.
+- Why: The visor walked with instant WASD speed, mid-air steering, and a flat 3.71 m/sÂ². The helmet view now steps a 120 Hz Martian model: Gale gravity anchored at 3.717 m/sÂ², 180 kg inertia, friction-limited braking, downhill slip above the 20Â°/15Â° lunar stand-in, and jumps that keep their horizontal speed. `#hud-o2` stays the linear placeholder. A second line shows a Pandolf stand-in and an illustrative sky-view factor. No Rapier binary.
 - Commit: this commit
 - Next step: Eymen reviews on `frontend/mars-physics`. Do not merge until asked.
 
-### 2026-11-14 21:01 Europe/Istanbul — REAL-01 Helmet-eye realism
+### 2026-11-14 21:01 Europe/Istanbul â€” REAL-01 Helmet-eye realism
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor) / Grok 4.7
 - Role: frontend visor (Doruk overriding `web/` on `frontend/mars-physics`)
 - Task id: REAL-01
 - Files changed: `web/index.html`, `web/styles.css`, `web/app.js`, `web/shared/dev-settings.js`, `web/hud/hud3d.js`, `web/hud/astronaut-rig.js`, `web/hud/footsteps.js`, `web/hud/MarsEphemeris.js`, `web/hud/MarsCelestialSky.js`, `web/hud/MarsRockField.js`, `web/hud/GaleVista.js`, `web/hud/DustDevil.js`, `web/hud/FieldKits.js`, `web/physics/SuitBiomechanics.js`, `web/assets/nasa-3d/advanced-crew-escape-suit.glb`, `web/assets/nasa-3d/SOURCE.md`, `docs/coordination/BOARD.md`, `docs/coordination/AGENT_LOG.md`
-- Why: The walk should feel like eyes inside a helmet. Escape opens the mission UI and hides the top bar during the EVA. The glass shows distance, slope, next stop, and placeholder O₂, plus the existing honesty lines. The body is NASA's orange Advanced Crew Escape Suit (launch/entry mesh, procedural gait; Mark III remains the fallback). Stance feet use a two-bone solve and sit on the slope normal. Footfalls are synthesized in the suit, with a quiet CO₂-filtered scuff, boot treads, and low-g dust. The sun is a Gale afternoon from a Mars24 solar longitude, with blue twilight, real-rate Phobos transit dimming, and a local bright-star field. Rocks, a Gale rim skirt, and stop kits stay behind Experimental Super Graphics. A dust-devil toggle and rare DONKI-linked visor streaks stay local. No network in `?demo=1`.
+- Why: The walk should feel like eyes inside a helmet. Escape opens the mission UI and hides the top bar during the EVA. The glass shows distance, slope, next stop, and placeholder Oâ‚‚, plus the existing honesty lines. The body is NASA's orange Advanced Crew Escape Suit (launch/entry mesh, procedural gait; Mark III remains the fallback). Stance feet use a two-bone solve and sit on the slope normal. Footfalls are synthesized in the suit, with a quiet COâ‚‚-filtered scuff, boot treads, and low-g dust. The sun is a Gale afternoon from a Mars24 solar longitude, with blue twilight, real-rate Phobos transit dimming, and a local bright-star field. Rocks, a Gale rim skirt, and stop kits stay behind Experimental Super Graphics. A dust-devil toggle and rare DONKI-linked visor streaks stay local. No network in `?demo=1`.
 - Commit: this commit
 - Next step: Eymen reviews on `frontend/mars-physics`. Do not merge until asked.
 
-### 2026-11-14 21:16 Europe/Istanbul — Revert globe merge
+### 2026-11-14 21:16 Europe/Istanbul â€” Revert globe merge
 
 - Human: Doruk
 - Agent tool + model: Grok (Cursor) / Grok 4.7
@@ -927,7 +927,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Helmet visor branch is merged onto main in this commit. No globe.
 
-### 2026-11-14 Europe/Istanbul — LICENSE-01 Add MIT license
+### 2026-11-14 Europe/Istanbul â€” LICENSE-01 Add MIT license
 
 - Human: Doruk
 - Agent tool + model: Claude Code / Claude Sonnet 5.5
@@ -938,7 +938,7 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Doruk confirms the copyright holder name and whether to mention the license in README.
 
-### 2026-11-14 23:14 Europe/Istanbul — Port developermenu UI, Dev Menu, MMSEV 6x6, 5 historic rovers & mars-fx onto main
+### 2026-11-14 23:14 Europe/Istanbul â€” Port developermenu UI, Dev Menu, MMSEV 6x6, 5 historic rovers & mars-fx onto main
 
 - Human: Eymen (ParongUs)
 - Agent tool + model: Gemini (Antigravity)
@@ -959,6 +959,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Replaced the high-frequency periodic sine-grid visor glare (`sin(c.x * 140.0 + c.y * 40.0)`) in `LENS_FRAG` when looking toward the sun with a subtle, minimalistic three-streak lens glint (`streakH`, `streakD1`, `streakD2`) with radial falloff (`fadeR`), tightened angular activation (`pow(max(0.0, uGlint), 3.5)`), and reduced brightness (`0.08` -> `0.022`) without changing anything else. Verified `node --check web/hud/hud3d.js` and `node --test web/tests/fallback.test.mjs` (18/18 pass).
 - Commit: this commit
 - Next step: Verify visually in browser (`Ctrl+Shift+R`).
+
+### 2026-11-14 23:25 Europe/Istanbul — Frosted obsidian HUD, snappy stop, anti-jitter & planted rover (main)
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen)
+- Role: frontend visor (edits in web/ at the user's request, branch main)
+- Task id: MUST-10 / PHYS-01 follow-up
+- Files changed: web/index.html, web/styles.css, web/hud/hud3d.js, web/hud/experimental-rover.js, web/physics/MarsPhysicsWorld.js, web/physics/SuitBiomechanics.js, web/tests/physics.test.mjs, web/tests/fallback.test.mjs, docs/coordination/AGENT_LOG.md
+- Why: Ported the frosted obsidian glass + ice-cyan HUD theme (glassmorphic cam-stamp & telemetry cards, top-center quick-access key bar, capsule drive bar, rounded slope/O2 gauges, pill controls with ice-cyan Map CTA), walker camera/gait anti-jitter smoothing, snappy braking (BRAKE_BOOST 3.4x, RESPONSE_TAU_S 0.1 s), and planted MMSEV rover crest physics onto main so the live deployment and main branch reflect all requested updates. Verified 26/26 Node tests pass and syntax checks pass.
+- Commit: this commit
+- Next step: Hard-reload (Ctrl+Shift+R) on main / ?demo=1.
 
 ### 2026-11-14 23:48 Europe/Istanbul — High-res ground texture upscale, multi-scale sharpening & elevation-aware slope blending
 
@@ -992,9 +1003,6 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Softened synthesized footstep audio in `web/hud/footsteps.js` (added smooth 14 ms attack ramp, lowered thud frequency/gain, smoothed regolith noise with a low-pass leaky integrator and bell envelope, lowered cutoff/gain) and removed the visor `O₂` indicator (`#hud-o2`, `#hud-o2-fill`, `.o2-bar`, `.o2-fill`, and HUD update logic) per user request. Verified `node --check` on `footsteps.js`/`hud3d.js` and `node --test web/tests/*.mjs` (`43/43` pass).
 - Commit: this commit
 - Next step: Reload `http://localhost:8000/web/` and verify live; note `AGENTS.md` lists `suit O₂` as a MUST HUD field if needed back for judging.
-
-
-
 ### 2026-11-15 00:22 Europe/Istanbul — Custom right-click menu
 
 - Human: Doruk
@@ -1005,6 +1013,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Replaced the browser right-click menu with a mission-styled one that changes with the view. Planner map: coordinates, elevation and slope heading, teleport here, drop crew pin, copy coordinates, fit EVA. Bodycam: pin, map, orbit, sun, texture, rovers, POV, copy my coordinates. Orbit: find me, layer, live time. Every view also has view switching, crew, sources, dev settings and main menu. Text fields, selected text and Shift + right-click keep the native menu. A right-drag (map rotate) does not open it, and it stays closed while the mouse is locked. Keyboard: arrows, Enter, Esc. Planner exposes `lonLatAt`, `teleportTo`, `fitEva`. Verified `node --check` and `node --test web/tests/*.test.mjs` (46/46 pass). Not tested in a browser (Doruk asked to skip).
 - Commit: this commit
 - Next step: Eymen checks it in the browser (Linux and Windows right-click timing differ).
+
+### 2026-11-15 00:25 Europe/Istanbul — Hybrid WebGL2 GPU Ray Tracing
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen)
+- Role: frontend graphics (branch main)
+- Task id: RT-01
+- Files changed: `web/hud/ray-tracer.js`, `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/app.js`, `web/shared/dev-settings.js`, `web/index.html`, `web/tests/fallback.test.mjs`, `docs/AI_USE_LOG.md`
+- Why: Added toggleable WebGL2 GPU hybrid ray tracing (`R` key and Developer Settings `#dev-ray-tracing`): 16-bit mirrored heightfield texture (`buildHeightfieldRtTexture`), per-pixel penumbra soft sun shadows (`rtTraceShadow`), 6-direction hemisphere bounce GI/AO (`rtTraceGI`), object reflection rays (`rtTraceReflectionRay` on MMSEV, historic rovers, astronaut suit/visor, rocks), and depth-buffer screen-space ray marching (`SSR`, `RTAO/SSGI`, `FXAA` in `LENS_FRAG`). Merged with `20ee6cc` cleanly. Verified `node --check` and `node --test web/tests/*.test.mjs`.
+- Commit: this commit
+- Next step: Push `main` and hard-reload browser (`Ctrl+Shift+R`).
 
 ### 2026-11-15 00:48 Europe/Istanbul — Remove Planner UI, add translucent ESC command menu
 
@@ -1028,6 +1047,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Push `main` to `origin/main` and hard-refresh in browser (`Ctrl+Shift+R`).
 
+### 2026-11-15 01:10 Europe/Istanbul — Remove tactical map overlay, bind M to Orbit View
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (requested HUD/navigation cleanup & stash merge)
+- Task id: n/a
+- Files changed: `web/index.html`, `web/app.js`, `web/hud/hud3d.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Removed the HUD tactical elevation map overlay (`#hud-map-overlay`, `#hud-map-btn`, `#esc-open-map`, `.hud-map-*` CSS, and `renderTacticalMap` / `setMapOpen` implementation) and rebound `M` in the EVA HUD to open Orbit View (`onOpenOrbit?.()`), updating HUD hints, `#hud-orbit-btn` (`Orbit (M)`), `#esc-go-orbit` (`Orbit View (M)`), and context menu hints accordingly. Resolved merge conflicts with upstream `27891f0` and `dbaa678` while preserving upstream `E` Interact, `F` Flashlight, unified cyan styling, 20% curved black visor bezel, and astronaut rig updates. Verified zero conflict markers, `node --check web/app.js`, `node --check web/hud/hud3d.js`, and `node --test web/tests/*.test.mjs` (`46/46` pass).
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` (`Ctrl+Shift+R`) and verify pressing `M` in EVA Bodycam opens Orbit View.
+
 ### 2026-11-15 01:36 Europe/Istanbul — Thinner 20% visor frame, safe HUD insets & symmetric keybind toggles
 
 - Human: Eymen (ParongUs)
@@ -1036,6 +1066,16 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Task id: HUD frame & keybind polish
 - Files changed: `web/shared/dev-settings.js`, `web/app.js`, `web/hud/hud3d.js`, `web/styles.css`, `web/tests/fallback.test.mjs`, `docs/AI_USE_LOG.md`
 - Why: Changed default `frameStrength` to `0.2` (`20%`) and slimmed `LENS_FRAG` curved black visor bezel proportions (`1.2%` top/bottom center -> `3.8%` corner vertical, `1.5%` side center -> `3.4%` corner horizontal, tighter `-0.032` inner rim). Added `syncVisorSafeInsets` in `web/hud/hud3d.js` + CSS custom property layout in `web/styles.css` (and removed `@media (max-height: 760px)` padding collapse + background bars) so all HUD text, compass, and buttons sit strictly inside the clear inner visor window without touching or overlapping the curved black frame. Fixed `Escape` in `web/app.js` calling `e.stopImmediatePropagation()` when closing `#esc-menu`, `#modal-backdrop`, or `#crew-drawer` so `hud3d.js` does not re-open `#esc-menu` on the same keypress, added symmetric `O` Orbit<->HUD toggle, `E` close on historic rover modals opened via `E`, `5` toggle for `#hud-fleet-panel`, and fixed stale `(F TO BOARD)`/`(BİN: F)` notice to `E`.
-- Commit: pending
+- Commit: `cbbe1da`
 - Next step: Run syntax/unit checks and verify thinner 20% bezel + all keybind toggles in browser.
 
+### 2026-11-15 01:41 Europe/Istanbul — Fix Three.js r170 PhysicalMaterial GLSL field in ray-tracer
+
+- Human: Doruk
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen)
+- Role: frontend graphics (`main`)
+- Task id: RT-01 fix
+- Files changed: `web/hud/ray-tracer.js`, `docs/AI_USE_LOG.md`
+- Why: Replaced non-existent `material.metalness` and `diffuseColor.rgb` in `patchObjectRayTracer` (`#include <lights_fragment_end>`) with `material.specularColor`, `metalnessFactor`, and `material.diffuseColor` so Three.js r170 `MeshPhysicalMaterial`/`MeshStandardMaterial` shaders (including the ACES astronaut suit and rovers) compile cleanly with zero GLSL errors. Verified in headless Chromium at `http://localhost:8000/web/?demo=1` (astronaut torso/legs/boots visible both with Ray Tracing OFF and ON, zero console/WebGL errors) and `node --test web/tests/fallback.test.mjs` (`19/19` pass).
+- Commit: `27b9b06`
+- Next step: Hard-reload (`Ctrl+Shift+R`) in browser.
