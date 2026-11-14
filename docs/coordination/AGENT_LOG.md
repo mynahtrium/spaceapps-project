@@ -581,3 +581,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Audit against docs/roles/prompts/cagan.md found that none of the four visor files cited a source URL or fetch date. Added an additive `sources[]` block (HiRISE DTEEC_019698 on PDS; MSL_waypoints.json; fetch date 2026-11-14) and per-stop `source_url`. Checked the Sol 4527 and Sol 4534 stop coordinates against the local waypoint file (exact match). Mudstone example stops have no citation and are marked UNVERIFIED. Regenerated stops, route and HUD locally; route numbers unchanged (790.3 m, 132 points, none outside the grid or on blocked cells); all four parse in Node. cost-map.json was edited in place (sources only) because the DTM re-download stalled. Status stays example.
 - Commit: this commit
 - Next step: Cetin re-exports data/demo fixtures; PRE-07 must replace the two uncited mudstone stops; PR for Eymen.
+
+### 2026-11-14 15:22 Europe/Istanbul — MUST-12 / SHOULD-07 (NASA data & ?demo=1 audit)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12, SHOULD-07
+- Files changed: docs/testing/nasa-data-audit.md (new), POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Audited `web/`, `data/processed/`, and `data/demo/` against `docs/roles/prompts/eymen.md` §4 (NASA sources, fetch dates, placeholder labels, secrets/DEMO_KEY, `?demo=1` isolation). Verified all 11 processed JSONs cite NASA/PDS sources and fetch/compute dates (with 0 secrets or `DEMO_KEY`/`mars-photos` usage). Found and logged 3 `?demo=1` / sync bugs: `BUG-12` (`web/planner/planner.js` registers `trek.nasa.gov` tiles and `web/index.html` loads `unpkg.com` CDN even in `?demo=1`), `BUG-13` (`data/demo/` out of sync with `2b217d1` citations in `data/processed/`), and `BUG-14` (`web/shared/data-loader.js` hardcodes `data/processed/terrain/ortho-preview.png` in `?demo=1`).
+- Commit: this commit
+- Next step: Hand off `BUG-12`/`BUG-14` to Frontend 1 (Dıvarcı) and `BUG-13` (`export_demo_fixtures.py` re-run) to Backend 3 (Çetin).

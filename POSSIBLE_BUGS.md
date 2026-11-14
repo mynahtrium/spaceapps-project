@@ -1,80 +1,52 @@
 # Possible Bugs & Integration Risks (`main`)
 
-**Last checked:** 2026-11-14 14:12 Europe/Istanbul (commit `65c2e5e`)  
-**Checked by:** Eymen (`ParongUs`, Bug tester 2); non-frontend fixes applied by CC (`backend-3`)  
-**Scope:** Deep geometry, telemetry, manifest, link, and module audit across `pipeline/`, `data/processed/`, `data/demo/`, `web/`, and `docs/`.
+**Last checked:** 2026-11-14 15:21 Europe/Istanbul (commit `2b217d1`)  
+**Checked by:** Eymen (`ParongUs`, Bug tester 2)  
+**Scope:** Full audit of `web/`, `pipeline/`, `data/processed/`, `data/demo/`, and `docs/roles/prompts/eymen.md` §4 NASA data & `?demo=1` rules. See [docs/testing/nasa-data-audit.md](./docs/testing/nasa-data-audit.md) for the full source/date table.
 
 ---
 
 ## 1. Critical / Blocking Issues
 
-### [BUG-01] `web/` has no application code yet (`MUST-08`, `MUST-09`, `MUST-10`)
-- **Where:** `web/planner/`, `web/hud/`, `web/shared/`
-- **What:** Only `README.md` placeholder files exist; there is no MapLibre planner, three.js 3D view, or `mm:set-route` bridge yet, and Frontend 1 (`F1`) tasks on `docs/coordination/BOARD.md` are still `todo` / `TBD`.
-- **Impact:** Blocks the Hour-16 MUST demo and all demo recordings.
-- **Suggested fix:** Frontend 1 claims `MUST-08`..`MUST-10` and scaffolds the static web app loading `data/processed/` (and `data/demo/` for `?demo=1`) with fallback to `docs/contracts/`. *(Note: `height-preview.png` on `main` is now 8-bit RGB `R*256+G` per `height_preview_encoding` in `cost-map.json`.)*
+### [BUG-12] `?demo=1` still makes external network calls to `trek.nasa.gov` and `unpkg.com` (`SHOULD-07` FAIL)
+- **Where:** `web/planner/planner.js` (lines 19, 150, 166) and `web/index.html` (lines 7, 12, 193)
+- **What:**
+  - `planner.js` unconditionally adds `https://trek.nasa.gov/tiles/Mars/EQ/CTX_...`, `THEMIS_DayIR_...`, and `THEMIS_NightIR_...` WMTS sources to MapLibre even when `?demo=1` (`demoSafe === true`) is enabled.
+  - `web/index.html` loads `maplibre-gl` CSS/JS and `three.js` from `https://unpkg.com/...` CDN.
+- **Impact:** Fails the `SHOULD-07` / `eymen.md` §4 network-off check if stage Wi-Fi is off.
+- **Suggested fix (Frontend 1):** Guard `trek.nasa.gov` sources behind `if (!data.demoSafe)` in `planner.js` (using local `slope-preview.png` / cached THEMIS tiles in `?demo=1`), and optionally vendor `maplibre-gl` and `three.js` under `web/vendor/`.
 
-### [FIXED] [BUG-02] `route.json` elevation/climb & `dose_mSv_see`
-- **Where:** `pipeline/routing/build_route.py`, `data/processed/routing/route.json`
-- **Status:** Fixed on 2026-11-14 13:55:
-  - Added pure-Python PNG decoding of 8-bit RGB (`R*256+G`) `data/processed/terrain/height-preview.png` and finite-difference slope sampling in `build_route.py`.
-  - `route.json` now populates `profile[].elev_m`, `profile[].slope_deg`, `totals.climb_m` (`38.3`), `totals.descent_m` (`38.3`), and `totals.dose_mSv_see` (`"data/processed/science/dose.json"`).
+### [BUG-13] `data/demo/` is out of sync with `data/processed/` after commit `2b217d1`
+- **Where:** `data/demo/cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`
+- **What:** Commit `2b217d1` added NASA/PDS citations to `data/processed/` (`cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`), but `export_demo_fixtures.py` was not re-run afterwards, so the 4 copies in `data/demo/` are stale.
+- **Suggested fix (Backend 3 / Backend 2):** Re-run `python -m pipeline.data.export_demo_fixtures` so `data/demo/` matches `data/processed/`.
 
-### [FIXED] [BUG-03] `hud-telemetry.json` top-level schema compatibility vs. contract
-- **Where:** `pipeline/routing/build_route.py`, `data/processed/routing/hud-telemetry.json`, `docs/contracts/CHANGES.md`
-- **Status:** Fixed on 2026-11-14 13:55:
-  - `hud-telemetry.json` now exposes all flat top-level contract keys (`along_route_m`, `position`, `heading_deg`, `distance_travelled_m`, `distance_to_next_stop_m`, `distance_remaining_m`, `slope_deg`, `slope_class`, `next_stop_id`, `next_stop_name`, `elapsed_min_placeholder`, `planned_eva_min_placeholder`, `suit_o2_remaining_percent`, `suit_o2_formula`, `suit_o2_note`) **alongside** `primary` and `samples[]`.
-  - Documented in `docs/contracts/CHANGES.md` and `HANDOFF-20261114-1355`. Frontend 1 can still safely read `data.primary ?? data` or top-level keys directly.
+### [BUG-14] `orthoPreviewUrl` points to `data/processed/` even in `?demo=1` mode
+- **Where:** `web/shared/data-loader.js` (lines 141–143)
+- **What:** `orthoPreviewUrl` returns `"../data/processed/terrain/ortho-preview.png"` in both normal and `demoSafe` modes (and `ortho-preview.png` is not bundled in `data/demo/`).
+- **Suggested fix:** Bundle `ortho-preview.png` (560 KB) in `data/demo/` via `export_demo_fixtures.py` and switch `orthoPreviewUrl` to `${baseTerrainDir}/ortho-preview.png`.
 
 ---
 
-## 2. Sync, Pipeline & Contract Warnings
+## 2. Open / Tracking Items
 
-### [BUG-04] `cost-map.json` key differences vs. contract (Frontend 1 note)
-- **Where:** `data/processed/terrain/cost-map.json` vs. `docs/contracts/cost-map.json`
-- **What:** Processed file uses `cost_row_major` (instead of `example_cost_row_major`) as a 1D flat array (`156025` floats = `395 × 395`). Also includes `height_preview_encoding` (`R*256+G`, `bit_depth=8`, `color_type=2` RGB).
-- **Suggested fix:** Frontend 1 must support `cost_row_major ?? example_cost_row_major` and use `grid.nrows` / `grid.ncols` to index the 1D array.
-
-### [FIXED] [BUG-05] `dose.json` synced with latest `route.json` duration (`59.3 min`)
-- **Where:** `data/processed/science/dose.json` and `data/demo/dose.json`
-- **Status:** Fixed on 2026-11-14 13:55 — re-ran `python -m pipeline.data.build_dose`, updating `dose.json` to `59.3 min` (`0.988 h` → `0.0263 ± 0.0049 mSv`), and re-exported to `data/demo/dose.json`.
-
-### [FIXED] [BUG-06] `data/demo/` now bundles terrain & routing fixtures (`SHOULD-07`)
-- **Where:** `pipeline/data/export_demo_fixtures.py`, `data/demo/`
-- **Status:** Fixed on 2026-11-14 13:55 — updated `export_demo_fixtures.py` and re-ran it to copy `cost-map.json`, `slope-preview.png`, `height-preview.png`, `stops.json`, `route.json`, and `hud-telemetry.json` alongside the science fixtures (`28` total files listed in `data/demo/science-manifest.json`). Note: re-run again after `PRE-07` locks stops.
-
-### [FIXED] [BUG-07] `MUST-03` tilt validation wording updated across non-frontend docs
-- **Where:** `docs/demo/{script.md,slides-outline.md,submission-checklist.md}`, `docs/testing/must-checklist.md`, `docs/roles/tester-2.md`, `docs/JUDGING_CHECKLIST.md`, `.cursor/rules/data-and-map.mdc`, `skills/{hud-3d,map-ui}/SKILL.md`, `AGENTS.md`, `ROADMAP.md`
-- **Status:** Fixed on 2026-11-14 13:55 — softened outdated "DTM under-reads tilt" wording to match `tilt-check.json` (~5 m medians `9.0°` vs `8.6°`, weak correlation, keep a safety margin).
-
-### [FIXED] [BUG-08] Duplicate `crop_window.py` consolidated
-- **Where:** `pipeline/terrain/crop_window.py` and `pipeline/costmap/crop_window.py`
-- **Status:** Fixed on 2026-11-14 13:55 — replaced the duplicate copy in `pipeline/costmap/crop_window.py` with a thin re-export wrapper loading canonical `pipeline/terrain/crop_window.py`.
+### [FIXED] [BUG-01] `web/` application implemented (`3d9636b`, `262e469`, `78acf33`)
+- Frontend 1 (`Dıvarcı`) shipped the 2D MapLibre planner, 3D three.js helmet HUD, `mm:set-route` bridge, and `?demo=1` loader. Needs browser sign-off after `BUG-12`..`BUG-14` are addressed.
 
 ### [BUG-09] `PRE-07` still blocked (`is_example: true` across stops, route, and dose)
 - **Where:** `data/processed/routing/stops.json`, `route.json`, `data/processed/science/dose.json`
-- **What:** All stops are still `is_example: true` and `dose.json` has `status: "example"`.
-- **Suggested fix:** Team locks real Curiosity/Mount Sharp stops (`PRE-07`), then re-runs B1 → B2 → B3 + `export_demo_fixtures.py` once so `is_example` can be cleared.
+- **Suggested fix:** Team locks real Mount Sharp stops (`PRE-07`), then re-runs B1 → B2 → B3 + `export_demo_fixtures.py`.
 
-### [BUG-10] `data/demo/*.json` still references `data/processed/...` asset paths (`SHOULD-07` risk)
-- **Where:** 13 JSON files in `data/demo/` (`cost-map.json`, `route.json`, `dose.json`, `layers-themis.json`, `pov/index.json`, `pov/stop-*.json`, `alerts*.json`, `layers-crism.json`)
-- **What:** `export_demo_fixtures.py` copies `data/processed/` JSONs verbatim into `data/demo/`, so fields like `preview_png_relpath` (`data/processed/terrain/slope-preview.png`), `height_preview_png_relpath`, `dose_mSv_see`, and POV/tile paths still point to `data/processed/` instead of `data/demo/`.
-- **Impact:** In `?demo=1` mode, if Frontend 1 loads nested asset paths directly from the JSON without rewriting `data/processed/<domain>/` → `data/demo/`, it will read from `data/processed/` (or break if only `data/demo/` is bundled).
-- **Suggested fix:** Either rewrite `data/processed/(terrain|routing|science)/` → `data/demo/` in `export_demo_fixtures.py`, or have Frontend 1's `?demo=1` loader normalize `data/processed/*/` paths to `data/demo/`.
+### [BUG-10] `data/demo/*.json` still contains `"data/processed/..."` strings inside JSON fields
+- **Where:** 13 JSON files in `data/demo/`
+- **Note:** `web/shared/data-loader.js` already uses `baseTerrainDir` / `baseScienceDir` for top-level assets, which mitigates most of this, though `export_demo_fixtures.py` rewriting `data/processed/*/` → `data/demo/` would make the demo JSONs completely self-consistent.
 
 ### [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
 - **Where:** `docs/team/ROSTER.md`
-- **What:** Only Tester 1 (`Asil`) and Tester 2 (`ParongUs`) have GitHub usernames filled in `ROSTER.md`; Backend 1, Backend 2, Backend 3, and Frontend 1 rows are still blank.
-- **Suggested fix:** Each teammate adds their GitHub username to `docs/team/ROSTER.md` (and Frontend 1 completes onboarding).
 
 ---
 
-## 3. Passed Checks (as of `65c2e5e` — 2026-11-14 14:12)
-- **Python syntax:** 28 / 28 files in `pipeline/` compiled cleanly (`py_compile`); `pipeline/costmap/crop_window.py` wrapper import verified.
-- **JSON validity & NaN/Inf:** 49 / 49 `.json` files parsed cleanly with `0` `NaN`/`Infinity` values; 9 / 9 core JSONs match 1:1 between `data/processed/` and `data/demo/`.
-- **Route geometry vs. cost-map:** 132 / 132 vertices in `route.json` are inside `cost-map.json` bounds with **0** hits on blocked (`9e99`) cells; `sum(legs) = 790.30 m` matches `totals.distance_m = 790.3 m`; `profile[].s_m` is monotonic.
-- **HUD telemetry consistency:** 8 / 8 samples in `hud-telemetry.json` have matching `slope_class` (`green`/`amber`/`red`/`blocked`), valid `suit_o2_remaining_percent` (`0..100`), and `distance_travelled_m + distance_remaining_m == 790.3 m`.
-- **Demo manifest completeness:** All 28 files listed in `data/demo/science-manifest.json` exist on disk (`0` missing, `0` unlisted).
-- **3D Height PNG format:** `height-preview.png` verified as `395×395` `8-bit RGB` (`bit_depth=8`, `color_type=2`, `332269` bytes) in both `data/processed/terrain/` and `data/demo/`.
-- **Markdown link integrity:** `0` broken relative links across all root and `docs/` markdown files.
-- **Merge hygiene & static size:** `0` conflict markers found; no `.env`, API keys, `.IMG`, `.tif`, or `.jp2` files tracked; `data/` total is **4.50 MB** (well under the ~100 MB target).
+## 3. Passed Checks (as of `2b217d1` — 2026-11-14 15:21)
+- **NASA Data & Citations (`eymen.md` §4):** All 11 processed terrain/routing/science JSONs have NASA/PDS source citations and fetch/compute dates; `alerts.json` & `donki-cache.json` are from live `api.nasa.gov/DONKI` (`2026-11-14T09:08:04Z`); `dose.json` uses Hassler et al. 2014 × duration; O₂ & lunar slope limits are labelled placeholders in `web/index.html`.
+- **Secrets & Deprecated APIs:** `0` `.env` files, API keys, or `DEMO_KEY` values in repo; `api.nasa.gov/mars-photos` is never used.
+- **Python syntax & JSON validity:** 28 / 28 `.py` files compile; 0 `NaN`/`Infinity` in `data/`.
