@@ -4,7 +4,7 @@ Copy this file to `docs/team/profiles/<firstname-or-nickname>.md` (lowercase, no
 
 - First name or nickname: Eymen
 - Role (from [docs/team/ROSTER.md](../ROSTER.md)): Bug tester 2 — demo, video, slides
-- GitHub username (optional, same as the roster):
+- GitHub username (optional, same as the roster): ParongUs
 - Skills (for example Python, git, maps, 3D, design, video — whatever they already know): Starting fresh (none prior)
 - Experience level (beginner / some practice / comfortable) at: coding, git, maps, 3D: beginner (coding, git, maps, 3D)
 - AI tool and editor (Claude, Gemini, Grok, DeepSeek, and/or which editor): Gemini, Claude Opus, GitHub Copilot (in Antigravity)

@@ -44,7 +44,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
-| MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Claude Code | doing | hour 6 | `pipeline/terrain/`, `data/processed/terrain/` |
+| MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Claude Code | review | hour 6 | `pipeline/terrain/`, `data/processed/terrain/`. First pass done 14 Nov with a placeholder crop centre; re-crop after PRE-07. |
 | MUST-02 | Cost / hazard map + `cost-map.json` + height preview for 3D | B1 | TBD | TBD | todo | hour 10 | Contract: `docs/contracts/cost-map.json` |
 | MUST-03 | Tilt check vs Curiosity waypoints; freeze MUST raster | B1 | TBD | TBD | todo | hour 16 | Note DTM under-read |
 | MUST-04 | Write locked `stops.json` | B2 | TBD | TBD | todo | hour 2 | Clear `is_example` on real stops |

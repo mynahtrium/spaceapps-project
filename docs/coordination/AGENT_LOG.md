@@ -184,3 +184,36 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Ran the onboarding interview (skills and GitHub username not asked) and wrote Cagan's profile. Claimed MUST-01 as Backend 1. Tried a first slope preview and cost map locally, then Cagan asked to drop it; none of that code or data is in this commit.
 - Commit: this commit
 - Next step: Install GDAL/rasterio and start MUST-01 again.
+
+### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: PRE-02, MUST-12 (plus PRE-05/PRE-06 TLS re-check)
+- Files changed: docs/team/profiles/eymen.md (new), docs/demo/README.md, docs/demo/script.md (new), docs/demo/video-beats.md (new), docs/demo/slides-outline.md (new), docs/demo/submission-checklist.md (new), docs/coordination/BOARD.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
+- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2–3 min live demo script, ≤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40–48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
+- Commit: this commit
+- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0–16) and run the hour-16 rough demo walk.
+
+### 2026-11-14 11:42 Europe/Istanbul — PRE-01 / PRE-02
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: PRE-01, PRE-02
+- Files changed: docs/team/ROSTER.md, docs/team/profiles/eymen.md, docs/comms/intro-tester-2.md, docs/coordination/AGENT_LOG.md
+- Why: Recorded Eymen's GitHub username (`ParongUs`) on the team roster, in his profile (`eymen.md`), and updated `docs/comms/intro-tester-2.md` with his human name and agent tool.
+- Commit: this commit
+- Next step: Watch for other teammates' PRs to review as Tester 2; support MUST milestones.
+
+### 2026-11-14 11:55 Europe/Istanbul — MUST-01 (DTM crop, slope and ortho previews)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend-1
+- Task id: MUST-01
+- Files changed: pipeline/terrain/make_slope.py (new), pipeline/terrain/crop_ortho.py (new), pipeline/terrain/requirements.txt (new), data/processed/terrain/slope-preview.png, slope_stats.json, ortho-preview.png (new), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Cropped 2 km x 2 km of DTEEC_019698 (HTTP range reads), averaged 1 m to ~5 m cells, computed slope (median 9.7 deg; 28% of cells above 15 deg, 18% above 20 deg; no no-data in this crop) and wrote a class-coloured preview. Cropped the 25 cm RED_A orthoimage to the same footprint (read at about 2 m per pixel, 1000 x 1000 preview). The two previews show the same gully and ridge pattern. Raw crops are in data/raw/ and are not committed. The crop centre (4.83 S, 137.39 E, near Curiosity Sol 5070) is a placeholder until the stops are locked (PRE-07). Slope limits are lunar stand-ins and the DTM under-reads rover tilt.
+- Commit: this commit
+- Next step: MUST-02 cost map and height preview for the 3D view; re-crop when stops are locked; tilt check vs MSL waypoints (MUST-03).

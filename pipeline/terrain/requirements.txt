@@ -1,0 +1,4 @@
+rasterio>=1.5
+numpy
+scikit-image
+shapely
