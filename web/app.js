@@ -11,6 +11,8 @@ import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
 import { loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "./shared/gamepad.js";
+import { initGamepadSetup } from "./shared/gamepad-ui.js";
 
 const I18N = {
   en: {
@@ -170,6 +172,73 @@ async function boot() {
     onDev: () => ready.then((a) => a.dev()),
   });
   document.getElementById("btn-menu").onclick = () => start.show();
+
+  // Controller routing (layout in shared/gamepad.js): Menu = Esc menu, View = map, A confirm, B back;
+  // D-pad or left stick move through menus. In-game actions live in hud3d.js, the maps handle
+  // their own stick / A / B once open.
+  const padSetup = initGamepadSetup();
+  document.getElementById("btn-pad").onclick = () => padSetup.open();
+  const pressKey = (key) => window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  const isOn = (id, cls) => document.getElementById(id)?.classList.contains(cls);
+  const appReady = () => Boolean(window.__MM_APP__);
+
+  function toggleMap() {
+    const hud = window.__MM_APP__?.hudApi;
+    if (isOn("hud-view", "active")) return hud?.toggleMap?.(); // the 3D view's map overlay
+    if (isOn("planner-view", "active")) document.getElementById("btn-tab-hud")?.click(); // back to 3D
+  }
+
+  // move keyboard focus through the controls of an open panel (controller setup)
+  function moveFocus(rootEl, dir) {
+    const items = [...rootEl.querySelectorAll("button, input")].filter((e) => !e.disabled && e.offsetParent !== null);
+    if (!items.length) return;
+    const cur = items.indexOf(document.activeElement);
+    const el = document.activeElement;
+    if ((dir === "left" || dir === "right") && el?.type === "range" && cur >= 0) {
+      const step = Number(el.step) || 0.1;
+      el.value = String(Number(el.value) + (dir === "right" ? step : -step));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+    const next = cur < 0 ? 0 : (cur + (dir === "up" || dir === "left" ? -1 : 1) + items.length) % items.length;
+    items[next].focus();
+  }
+
+  gamepad.onNav(({ dir }) => {
+    if (padSetup.isOpen) return moveFocus(document.getElementById("pad-setup"), dir);
+    if (!isOn("start-screen", "hidden")) {
+      if (dir === "up") pressKey("ArrowUp");
+      else if (dir === "down") pressKey("ArrowDown");
+    }
+  });
+
+  gamepad.onPress(({ button, actions }) => {
+    if (padSetup.isOpen) {
+      if (button === BACK_BUTTON) padSetup.close();
+      else if (button === CONFIRM_BUTTON && document.getElementById("pad-setup").contains(document.activeElement)) {
+        document.activeElement.click();
+      }
+      return;
+    }
+    if (isOn("modal-backdrop", "open")) {
+      if (button === CONFIRM_BUTTON || button === BACK_BUTTON) document.getElementById("modal-backdrop").classList.remove("open");
+      return;
+    }
+    if (!isOn("start-screen", "hidden")) {
+      if (button === CONFIRM_BUTTON) pressKey("Enter");
+      // B or Menu closes the Esc menu and returns to where you were (once the app has loaded)
+      else if ((button === BACK_BUTTON || actions.includes("menu")) && appReady()) start.hide();
+      return;
+    }
+    if (actions.includes("menu")) return start.show();
+    if (actions.includes("setup")) return padSetup.open();
+    if (window.__MM_APP__?.hudApi?.isMapOpen?.()) return; // the map overlay has its own A / B
+    if (actions.includes("map")) return toggleMap();
+    if (isOn("planner-view", "active")) {
+      if (button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
+      else if (button === CONFIRM_BUTTON) window.__MM_APP__?.plannerApi?.padConfirm?.();
+    }
+  });
 
   const data = await loadAllProjectData();
   // High-res Mars map stack: HiRISE DEM sampler + tile registry (demo-safe = zero network).

@@ -924,3 +924,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: The spherical Mars globe and orbital landing screen are not part of the visor. The walk stays a first-person helmet on Gale.
 - Commit: this commit
 - Next step: Helmet visor branch is merged onto main in this commit. No globe.
+
+### 2026-11-14 21:32 Europe/Istanbul — controller support on top of the new main (helmet visor, no globe)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 / MAP-01 follow-up
+- Files changed: web/shared/gamepad.js (new), web/shared/gamepad-ui.js (new), web/planner/map-gamepad.js (new), web/hud/hud3d.js, web/app.js, web/planner/planner.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Main changed while I was pushing (mynahtrium put the helmet visor and a physics world on main and took the spherical Mars globe off main; the globe lives on the demo-1 branch). Cagan said the 3D map must stay demo-1 only, so the controller work is split: this commit adds the controller to main without the globe, and the globe version is published separately as branch demo1-controller (merge of Cinar D.'s demo-1 work plus the controller). Layout: left stick move, right stick camera, Menu = Esc menu, View = map, A confirm (jump in game), B back, X landmark, Y theme, RT run; D-pad or left stick move through menus; rebinding and a controller silhouette on the setup screen. Walking and running go through the physics world (stick pushes scale speed; checked: full stick 1.38 m/s, half 0.57 m/s, RT 2.48 m/s). The visor's map overlay (View / M) and the planner map both have a crosshair (left stick), A to pick then A to teleport, B to cancel then close; the planner also turns with the right stick and zooms with LT/RT. Tested with a simulated pad in demo and normal mode; all web tests pass.
+- Commit: this commit
+- Next step: Cagan tries a real controller; Cinar D. may merge demo1-controller into demo-1.

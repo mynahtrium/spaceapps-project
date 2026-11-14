@@ -32,6 +32,7 @@ import {
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
+import { gamepad } from "../shared/gamepad.js";
 import { createFootsteps } from "./footsteps.js";
 import { galeSunState, PHOBOS_SKY_RATE_RAD_S, DEIMOS_SKY_RATE_RAD_S } from "./MarsEphemeris.js";
 import { createCelestialSky } from "./MarsCelestialSky.js";
@@ -1840,6 +1841,61 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       updatePendingConfirmCard();
       renderTacticalMap();
     });
+
+    // ---- Controller on the local map ----
+    // Left stick moves a crosshair over the map and updates the readout; A picks the point (the
+    // confirm card appears); A again teleports; B cancels the card, then closes the map.
+    const padCross = document.createElement("div");
+    padCross.className = "pad-crosshair";
+    padCross.innerHTML = '<div class="ring"></div>';
+    (mapCanvasEl.parentElement || document.body).appendChild(padCross);
+    let padCx = 0.5; // crosshair as a fraction of the canvas
+    let padCy = 0.5;
+    let padLast = performance.now();
+    const padFrame = (now) => {
+      const dt = Math.min(0.1, (now - padLast) / 1000);
+      padLast = now;
+      const live = isMapOpen() && gamepad.connected && !document.getElementById("pad-setup")?.classList.contains("open");
+      padCross.classList.toggle("on", live && !pendingTeleport);
+      if (live) {
+        const mv = gamepad.move();
+        if (mv.x || mv.y) {
+          padCx = Math.max(0.02, Math.min(0.98, padCx + mv.x * 0.5 * dt));
+          padCy = Math.max(0.02, Math.min(0.98, padCy - mv.y * 0.5 * dt));
+          if (!pendingTeleport) {
+            hoverTarget = formatPointMetrics((padCx - 0.5) * worldW, (padCy - 0.5) * worldH);
+            if (mapHoverEl) {
+              const { lat, lon, elevMola, slopeDeg } = hoverTarget;
+              mapHoverEl.textContent =
+                `${Math.abs(lat).toFixed(5)}°${lat < 0 ? "S" : "N"}, ${lon.toFixed(5)}°E · ` +
+                `${elevMola.toFixed(1)} m · ${slopeDeg.toFixed(1)}° · A`;
+            }
+            renderTacticalMap();
+          }
+        }
+        padCross.style.left = `${padCx * 100}%`;
+        padCross.style.top = `${padCy * 100}%`;
+      }
+      requestAnimationFrame(padFrame);
+    };
+    requestAnimationFrame(padFrame);
+
+    gamepad.onPress(({ button }) => {
+      if (!isMapOpen()) return;
+      if (document.getElementById("pad-setup")?.classList.contains("open")) return;
+      if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
+      if (button === 0) {
+        if (pendingTeleport) mapConfirmYesBtn?.click();
+        else {
+          pendingTeleport = formatPointMetrics((padCx - 0.5) * worldW, (padCy - 0.5) * worldH);
+          updatePendingConfirmCard();
+          renderTacticalMap();
+        }
+      } else if (button === 1) {
+        if (pendingTeleport) mapConfirmNoBtn?.click();
+        else setMapOpen(false);
+      }
+    });
   }
 
   function renderTacticalMap() {
@@ -2018,6 +2074,23 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     if (k === " ") {
       e.preventDefault();
       if (phys.grounded) phys.jumpQueued = true;
+    }
+  });
+
+  // Controller buttons in the 3D view (layout and rebinding: shared/gamepad.js + setup screen).
+  // Menus, dialogs and the map are handled in app.js / the map layer.
+  gamepad.onPress(({ actions }) => {
+    if (!hudView.classList.contains("active")) return;
+    if (document.getElementById("pad-setup")?.classList.contains("open")) return;
+    if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
+    if (document.getElementById("modal-backdrop")?.classList.contains("open")) return;
+    if (isMapOpen()) return;
+    for (const a of actions) {
+      if (a === "jump") {
+        if (phys.grounded) phys.jumpQueued = true;
+      } else if (a === "pin") dropLocalPing("Landmark");
+      else if (a === "texture") document.getElementById("hud-tex")?.click();
+      else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
     }
   });
 
@@ -2234,6 +2307,18 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     clockT += dt;
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
+    // controller look (right stick), off while a menu, dialog, setup screen or the map has the pad
+    const padBusy =
+      document.getElementById("pad-setup")?.classList.contains("open") ||
+      !document.getElementById("start-screen")?.classList.contains("hidden") ||
+      document.getElementById("modal-backdrop")?.classList.contains("open") ||
+      isMapOpen();
+    const lk = padBusy ? { x: 0, y: 0 } : gamepad.look();
+    if (lk.x || lk.y) {
+      userYaw -= lk.x * 2.6 * dt;
+      pitch = Math.max(-1.35, Math.min(1.42, pitch + lk.y * 1.9 * dt));
+    }
+
     // progress along the route = the route point nearest to you (for the HUD only)
     alongM = nearestAlongRoute(freePos.x, freePos.z, alongM);
     const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
@@ -2250,6 +2335,16 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         if (keys.has("s") || keys.has("arrowdown")) moveDir.sub(fwd);
         if (keys.has("d") || keys.has("arrowright")) moveDir.add(right);
         if (keys.has("a") || keys.has("arrowleft")) moveDir.sub(right);
+        // analog stick: direction from the stick, speed scaled by how far it is pushed
+        let stickPace = 1;
+        if (!padBusy && moveDir.lengthSq() === 0) {
+          const st = gamepad.move();
+          const mag = Math.min(1, Math.hypot(st.x, st.y));
+          if (mag > 0) {
+            moveDir.addScaledVector(fwd, st.y).addScaledVector(right, st.x);
+            stickPace = mag;
+          }
+        }
         if (moveDir.lengthSq() > 0) moveDir.normalize();
         const strict = document.getElementById("toggle-strict-15")?.checked;
         stepPhysicsWorld(
@@ -2258,8 +2353,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           {
             wishX: moveDir.x,
             wishZ: moveDir.z,
-            run: keys.has("shift"),
-            speedMultiplier: devCfg.speedMultiplier || 1,
+            run: keys.has("shift") || (!padBusy && gamepad.isDown("run")),
+            speedMultiplier: (devCfg.speedMultiplier || 1) * stickPace,
             slopeLimitDeg: strict ? 15 : 20,
             latDeg: zToLat(phys.z),
           },
@@ -2523,6 +2618,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       onResize();
     },
     dropLocalPing,
+    getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z) }),
+    /** View on the controller: open / close the 3D view's map overlay. */
+    toggleMap: () => setMapOpen(!isMapOpen()),
+    isMapOpen: () => isMapOpen(),
     syncAlongM: (s) => {
       alongM = Math.max(0, Math.min(totalDist, Number(s) || 0));
       if (freeRoam && btnFreeRoam) btnFreeRoam.click();

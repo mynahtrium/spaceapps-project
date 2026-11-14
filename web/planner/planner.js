@@ -8,6 +8,7 @@ import { shouldUseHighResMap } from "../map/IMapAdapter.js";
 import { LegacyMapAdapter } from "../map/LegacyMapAdapter.js";
 import { MapLibreMarsAdapter } from "../map/MapLibreMarsAdapter.js";
 import { dispatchSetRoute, dispatchTeleport } from "../shared/route-bridge.js";
+import { initMapGamepad } from "./map-gamepad.js";
 
 /**
  * Build an RGBA data URL from costMap.cost_row_major for the 15° strict vs 20° mask toggle.
@@ -361,6 +362,19 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     toggle3d.addEventListener("change", () => adapter.setTerrain3D?.(toggle3d.checked));
   }
 
+  // Controller on the planner map: crosshair target, turn / tilt / zoom, A teleports (B back: app.js)
+  const plannerView = document.getElementById("planner-view");
+  const padMap = container
+    ? initMapGamepad({
+        adapter,
+        container,
+        isActive: () => plannerView?.classList.contains("active") && document.getElementById("start-screen")?.classList.contains("hidden"),
+        is3d: () => Boolean(toggle3d?.checked),
+        onTeleport: (lon, lat) => triggerTeleport(lon, lat),
+        probeTextEl,
+      })
+    : null;
+
   // Strict 15° toggle
   const strictToggle = document.getElementById("toggle-strict-15");
   const legendLimit = document.getElementById("legend-limit");
@@ -450,6 +464,8 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     adapter,
     ready,
     getLastProbePoint: () => ({ ...lastProbePoint }),
+    padConfirm: () => padMap?.confirm() ?? false,
+    padFocus: (lon, lat) => padMap?.focus(lon, lat),
     updateCrewOverlay: (selfPose) => {
       crewFc = buildCrewFc(selfPose);
       adapter.updateGeoJsonLayer("eva-crew", crewFc);
