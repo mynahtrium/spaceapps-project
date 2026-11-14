@@ -22,6 +22,7 @@
     <div id="start-lines" class="start-lines"></div>
     <nav id="start-menu" class="start-menu" aria-label="Main menu">
       <button class="menu-item" data-action="eva" data-i18n="menu_eva">BEGIN EVA</button>
+      <button class="menu-item" data-action="demo" data-i18n="menu_demo">3D MARS GLOBE DEMO</button>
       <button class="menu-item" data-action="planner" data-i18n="menu_planner">ROUTE PLANNER</button>
       <button class="menu-item" data-action="credits" data-i18n="menu_credits">SOURCES &amp; HONESTY</button>
     </nav>
@@ -48,6 +49,7 @@
     <div class="topbar-actions">
       <button id="btn-tab-planner" class="btn active">Planner</button>
       <button id="btn-tab-hud" class="btn">Bodycam</button>
+      <button id="btn-demo-3d" class="btn" title="Open 3D Spherical Mars Globe &amp; NASA MOLA Terrain (?demo=1)">3D Mars Demo</button>
       <button id="btn-crew" class="btn">Crew (1)</button>
       <button id="btn-credits" class="btn">Sources</button>
       <button id="btn-start-eva" class="btn primary">Begin EVA</button>
@@ -156,14 +158,24 @@
         <div class="hud-map-dialog">
           <div class="hud-map-header">
             <div>
-              <div class="hud-map-title" id="hud-map-title">GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP</div>
+              <div class="hud-map-title-row">
+                <div class="hud-map-title" id="hud-map-title">GALE CRATER / MOUNT SHARP — 3D ELEVATION MAP</div>
+                <span id="hud-map-lock-badge" class="hud-map-lock-badge" style="display:none;">LANDING REQUIRED</span>
+              </div>
               <div class="hud-map-sub" id="hud-map-sub">HiRISE 1 m DTM RELIEF · CLICK ANY POINT TO TELEPORT · OPPOSITE EDGES WRAP</div>
             </div>
             <div class="hud-map-header-actions">
+              <div id="hud-map-scope-row" class="hud-map-scope-row" style="display:none;">
+                <button id="hud-map-scope-globe" class="btn primary" type="button">Mars 3D</button>
+                <button id="hud-map-scope-world" class="btn" type="button">Mars 2D</button>
+                <button id="hud-map-scope-local" class="btn" type="button">Gale 2 km</button>
+              </div>
               <button id="hud-map-mode" class="btn" type="button">Layer: Elevation 3D</button>
               <button id="hud-map-close" class="btn" type="button">Close (M)</button>
             </div>
           </div>
+
+          <div id="hud-map-landmarks" class="hud-map-landmarks" style="display:none;"></div>
 
           <div class="hud-map-body">
             <div class="hud-map-canvas-col">
@@ -247,7 +259,7 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:6px;">
-              DRAG TO LOOK (LOOK DOWN FOR YOUR LEGS) · WASD WALK · SHIFT RUN · SPACE JUMP · M MAP · P BEACON
+              DRAG TO LOOK (LOOK DOWN FOR YOUR LEGS) · WASD WALK · SHIFT RUN · SPACE JUMP · M MAP · T LAYER · P BEACON
             </div>
           </div>
 
