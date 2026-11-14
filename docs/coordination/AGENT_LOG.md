@@ -924,3 +924,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: The spherical Mars globe and orbital landing screen are not part of the visor. The walk stays a first-person helmet on Gale.
 - Commit: this commit
 - Next step: Helmet visor branch is merged onto main in this commit. No globe.
+
+### 2026-11-14 Europe/Istanbul — LICENSE-01 Add MIT license
+
+- Human: Doruk
+- Agent tool + model: Claude Code / Claude Sonnet 5.5
+- Role: orchestrator
+- Task id: LICENSE-01
+- Files changed: `LICENSE`, `docs/coordination/AGENT_LOG.md`
+- Why: Doruk asked for an MIT license. The copyright line names the team ("Martian Mappers"), not individuals, because team members are minors. Third-party assets (for example `web/assets/nasa-3d/`) keep their own terms; see their SOURCE.md files. The repository stays private.
+- Commit: this commit
+- Next step: Doruk confirms the copyright holder name and whether to mention the license in README.
