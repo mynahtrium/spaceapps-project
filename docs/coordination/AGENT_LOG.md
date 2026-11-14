@@ -341,6 +341,28 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
 
+### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
+
+- Human: Cagan
+- Agent tool + model: Grok (Cursor)
+- Role: backend-1
+- Task id: MUST-01
+- Files changed: docs/comms/intro-backend-1.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Posted the Backend 1 ship note before the recrop. Will cover every example stop already in docs/contracts/stops.json and data/processed/routing/stops.json with a HiRISE DTM and ortho crop on backend/terrain, then the cost grid on backend/costmap. No official outcrop names. No merge to main.
+- Commit: this commit
+- Next step: Run the DTEEC_019698 crop and slope preview on backend/terrain, then the cost map on backend/costmap.
+
+### 2026-11-14 13:07 Europe/Istanbul — MUST-01 (example-stop HiRISE crop)
+
+- Human: Cagan
+- Agent tool + model: Grok (Cursor)
+- Role: backend-1
+- Task id: MUST-01
+- Files changed: pipeline/terrain/crop_window.py, make_slope.py, crop_ortho.py, README.md, data/processed/terrain/slope-preview.png, slope_stats.json, ortho-preview.png, README.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Recropped DTEEC_019698 and the matching RED ortho so every example stop already in docs/contracts/stops.json and data/processed/routing/stops.json is inside a 2 km window (centre about 4.800°S, 137.390°E). Averaged 1 m to ~5.06 m. Median slope 11.6°; 36% of cells above 15°; 24% above 20°; no no-data in this crop. Raw GeoTIFFs stay gitignored. Ids are the example ids already in those files. PRE-07 is still open. Cost grid is the next commit on backend/costmap, so cost-map.json on this branch is still the earlier placeholder-centre grid.
+- Commit: this commit
+- Next step: Build the cost map and height preview for this same window on backend/costmap.
+
 ### 2026-11-14 13:34 Europe/Istanbul — MUST-12 (static analysis & POSSIBLE_BUGS.md)
 
 - Human: Eymen (ParongUs)

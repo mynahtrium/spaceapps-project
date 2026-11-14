@@ -1,8 +1,9 @@
 {
-  "status": "first-pass preview, not validated",
+  "status": "example-stop crop, not a locked route (PRE-07 still open)",
+  "dtm_product_id": "DTEEC_019698_1750_019988_1750_U01",
   "crop_centre_lat_lon": [
-    -4.83,
-    137.39
+    -4.800107,
+    137.389718
   ],
   "half_size_km": 1.0,
   "native_res_m": 1.0117467945795,
@@ -12,10 +13,68 @@
     395
   ],
   "mars_radius_m": 3396190.0,
+  "example_stops": [
+    {
+      "id": "stop-habitat",
+      "lon": 137.388,
+      "lat": -4.798,
+      "source": "docs/contracts/stops.json",
+      "inside_crop": true
+    },
+    {
+      "id": "stop-mudstone-a",
+      "lon": 137.39,
+      "lat": -4.8,
+      "source": "docs/contracts/stops.json",
+      "inside_crop": true
+    },
+    {
+      "id": "stop-mudstone-b",
+      "lon": 137.3915,
+      "lat": -4.8015,
+      "source": "docs/contracts/stops.json",
+      "inside_crop": true
+    },
+    {
+      "id": "stop-boxwork-bonus",
+      "lon": 137.393,
+      "lat": -4.803,
+      "source": "docs/contracts/stops.json",
+      "inside_crop": true
+    },
+    {
+      "id": "stop-habitat",
+      "lon": 137.3875065,
+      "lat": -4.7972137,
+      "source": "data/processed/routing/stops.json",
+      "inside_crop": true
+    },
+    {
+      "id": "stop-mudstone-a",
+      "lon": 137.39,
+      "lat": -4.8,
+      "source": "data/processed/routing/stops.json",
+      "inside_crop": true
+    },
+    {
+      "id": "stop-mudstone-b",
+      "lon": 137.3915,
+      "lat": -4.8015,
+      "source": "data/processed/routing/stops.json",
+      "inside_crop": true
+    },
+    {
+      "id": "stop-boxwork-bonus",
+      "lon": 137.3864361,
+      "lat": -4.7976176,
+      "source": "data/processed/routing/stops.json",
+      "inside_crop": true
+    }
+  ],
   "valid_fraction": 1.0,
-  "slope_median_deg": 9.663536071777344,
-  "share_gt_15_deg": 0.27742989905463866,
-  "share_gt_20_deg": 0.1827207178336805,
+  "slope_median_deg": 11.555047988891602,
+  "share_gt_15_deg": 0.3635058484217273,
+  "share_gt_20_deg": 0.23808364044223682,
   "classes": "0 <=10, 1 10-15, 2 15-20, 3 >20 (blocked), 4 no data",
-  "note": "Lunar slope limits are stand-ins; the 1 m DTM under-reads rover tilt."
+  "note": "Window covers example stop points already in the repo. Ids are not official outcrop names. Lunar slope limits are stand-ins. MUST-03 found no systematic DTM under-read at ~5 m over 176 waypoints, with weak correlation; keep a safety margin."
 }

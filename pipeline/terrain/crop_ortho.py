@@ -1,6 +1,7 @@
 """MUST-01: crop the 25 cm HiRISE orthoimage to the same footprint as the DTM crop.
 
 Run make_slope.py first (it writes data/raw/terrain/dtm_crop_1m.tif).
+That crop is the example-stop window, not a locked outcrop map.
 
 Outputs:
     data/raw/terrain/ortho_crop.tif            (gitignored, ~1 m / pixel preview of the 25 cm image)

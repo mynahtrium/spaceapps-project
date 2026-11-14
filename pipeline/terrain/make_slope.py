@@ -1,19 +1,23 @@
-"""MUST-01: crop HiRISE DTEEC_019698, average-resample to ~5 m, compute slope, write a preview.
+"""MUST-01: crop HiRISE DTEEC_019698 around the example stops, resample, write slope.
 
 Usage (from repo root):
-    .venv/Scripts/python pipeline/terrain/make_slope.py [--lat -4.83] [--lon 137.39] [--half-km 1.0]
+    python3 pipeline/terrain/make_slope.py [--min-half-km 1.0]
+
+The window is the bounding box of the example stops in
+docs/contracts/stops.json and data/processed/routing/stops.json, expanded
+to at least 2 km across. Those ids are examples. This does not lock
+outcrops (PRE-07) and does not invent official names.
 
 Outputs:
     data/raw/terrain/dtm_crop_1m.tif          (gitignored)
     data/processed/terrain/slope-preview.png  (class colours)
     data/processed/terrain/slope_stats.json
 
-The crop centre is a placeholder near Curiosity's Sol 5070 position until the stops are locked (PRE-07).
-Slope limits are lunar stand-ins; DTM slope vs rover tilt is only a weak match (see tilt_check.py).
+Slope limits are lunar stand-ins; DTM slope vs rover tilt is only a weak match (see data/processed/terrain/tilt-check.json).
 """
 import argparse
 import json
-import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -21,19 +25,15 @@ import rasterio
 from rasterio.windows import Window
 from skimage.io import imsave
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from crop_window import LON0, MARS_R_M, crop_xy, load_example_stops, lonlat_to_xy, xy_to_lonlat  # noqa: E402
+
 DTM_URL = (
     "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/"
     "ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG"
 )
-MARS_R_M = 3396190.0  # radius used by the DTM label
-LON0 = 137.38  # central meridian of the DTM projection
 CELL_M = 5  # target cell size in metres
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def lonlat_to_xy(lon, lat):
-    k = MARS_R_M * math.pi / 180.0
-    return (lon - LON0) * k, lat * k
 
 
 def block_mean(a, f):
@@ -66,9 +66,7 @@ def classify(s):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--lat", type=float, default=-4.83)
-    ap.add_argument("--lon", type=float, default=137.39)
-    ap.add_argument("--half-km", type=float, default=1.0)
+    ap.add_argument("--min-half-km", type=float, default=1.0)
     a = ap.parse_args()
 
     raw = ROOT / "data/raw/terrain"
@@ -76,12 +74,31 @@ def main():
     raw.mkdir(parents=True, exist_ok=True)
     out.mkdir(parents=True, exist_ok=True)
 
-    cx, cy = lonlat_to_xy(a.lon, a.lat)
-    half = a.half_km * 1000
+    stops = load_example_stops(ROOT)
+    cx, cy, half = crop_xy(stops, min_half_m=a.min_half_km * 1000.0)
+    centre_lon, centre_lat = xy_to_lonlat(cx, cy)
+    covered = []
     with rasterio.open("/vsicurl/" + DTM_URL) as ds:
         res = ds.res[0]
-        r0, c0 = ds.index(cx - half, cy + half)
-        r1, c1 = ds.index(cx + half, cy - half)
+        west, north = cx - half, cy + half
+        east, south = cx + half, cy - half
+        r0, c0 = ds.index(west, north)
+        r1, c1 = ds.index(east, south)
+        if r0 < 0 or c0 < 0 or r1 > ds.height or c1 > ds.width or r1 <= r0 or c1 <= c0:
+            raise SystemExit(f"crop window falls outside the DTM ({r0},{c0})-({r1},{c1})")
+        for stop in stops:
+            row, col = ds.index(stop["x"], stop["y"])
+            inside = r0 <= row < r1 and c0 <= col < c1
+            covered.append({
+                "id": stop["id"],
+                "lon": round(stop["lon"], 7),
+                "lat": round(stop["lat"], 7),
+                "source": stop["source"],
+                "inside_crop": bool(inside),
+            })
+        missed = [item["id"] for item in covered if not item["inside_crop"]]
+        if missed:
+            raise SystemExit("example stops outside the crop: " + ", ".join(missed))
         win = Window(c0, r0, c1 - c0, r1 - r0)
         z = ds.read(1, window=win).astype("float32")
         nodata = ds.nodata
@@ -110,19 +127,21 @@ def main():
 
     valid = np.isfinite(s)
     stats = {
-        "status": "first-pass preview, not validated",
-        "crop_centre_lat_lon": [a.lat, a.lon],
-        "half_size_km": a.half_km,
+        "status": "example-stop crop, not a locked route (PRE-07 still open)",
+        "dtm_product_id": "DTEEC_019698_1750_019988_1750_U01",
+        "crop_centre_lat_lon": [round(centre_lat, 6), round(centre_lon, 6)],
+        "half_size_km": round(half / 1000.0, 3),
         "native_res_m": res,
         "cell_size_m": cell,
         "shape_rows_cols": list(s.shape),
         "mars_radius_m": MARS_R_M,
+        "example_stops": covered,
         "valid_fraction": float(valid.mean()),
         "slope_median_deg": float(np.nanmedian(s)) if valid.any() else None,
         "share_gt_15_deg": float((s[valid] > 15).mean()) if valid.any() else None,
         "share_gt_20_deg": float((s[valid] > 20).mean()) if valid.any() else None,
         "classes": "0 <=10, 1 10-15, 2 15-20, 3 >20 (blocked), 4 no data",
-        "note": "Lunar slope limits are stand-ins; DTM slope is only weakly matched to rover tilt (MUST-03).",
+        "note": "Window covers example stop points already in the repo. Ids are not official outcrop names. Lunar slope limits are stand-ins. MUST-03 found no systematic DTM under-read at ~5 m over 176 waypoints, with weak correlation; keep a safety margin.",
     }
     (out / "slope_stats.json").write_text(json.dumps(stats, indent=2) + "\n")
     print(json.dumps(stats, indent=2))
