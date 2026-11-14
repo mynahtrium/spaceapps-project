@@ -90,36 +90,47 @@ export function createFootsteps(THREE, scene) {
     if (!ac) return;
     if (ac.state === "suspended") ac.resume();
     const now = ac.currentTime;
+
+    // Soft cushioned suit-borne thud with a smooth attack so there is no click.
     const osc = ac.createOscillator();
     const gain = ac.createGain();
+    const jitter = (Math.random() - 0.5) * 3;
     osc.type = "sine";
-    osc.frequency.setValueAtTime(side === "L" ? 68 : 76, now);
-    osc.frequency.exponentialRampToValueAtTime(42, now + 0.09);
-    gain.gain.setValueAtTime(0.2, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.frequency.setValueAtTime((side === "L" ? 54 : 60) + jitter, now);
+    osc.frequency.exponentialRampToValueAtTime(34, now + 0.11);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.055, now + 0.014);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
     osc.connect(gain).connect(ac.destination);
     osc.start(now);
-    osc.stop(now + 0.13);
+    osc.stop(now + 0.15);
 
+    // Gentle, muffled regolith brush (warmed noise + smooth bell envelope).
     const dusty = DUSTY.has(faciesId);
-    const dur = dusty ? 0.16 : 0.07;
+    const dur = dusty ? 0.18 : 0.09;
     const rate = ac.sampleRate;
     const buffer = ac.createBuffer(1, Math.max(1, Math.floor(rate * dur)), rate);
     const data = buffer.getChannelData(0);
+    let smooth = 0;
     for (let i = 0; i < data.length; i++) {
-      const env = 1 - i / data.length;
-      data[i] = (Math.random() * 2 - 1) * env * env;
+      const t = i / data.length;
+      const attack = Math.min(1, t / 0.22);
+      const decay = 1 - t;
+      const env = attack * decay * decay;
+      smooth = smooth * 0.78 + (Math.random() * 2 - 1) * 0.22;
+      data[i] = smooth * env;
     }
     const src = ac.createBufferSource();
     src.buffer = buffer;
     const filter = ac.createBiquadFilter();
     filter.type = "lowpass";
+    filter.Q.value = 0.5;
     const cutoff = lowPassCutoffHz(dusty ? 1.1 : 2.4);
-    filter.frequency.value = dusty ? Math.min(1600, cutoff) : Math.min(640, cutoff);
+    filter.frequency.value = dusty ? Math.min(680, cutoff) : Math.min(340, cutoff);
     const db = attenuationDbPerM(filter.frequency.value) * 1.6;
     const att = Math.pow(10, -db / 20);
     const sg = ac.createGain();
-    sg.gain.value = (dusty ? 0.14 : 0.045) * Math.min(1, att * 5);
+    sg.gain.value = (dusty ? 0.045 : 0.018) * Math.min(1, att * 5);
     src.connect(filter).connect(sg).connect(ac.destination);
     src.start(now);
   }

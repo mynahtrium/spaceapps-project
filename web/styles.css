@@ -879,20 +879,6 @@ svg.profile-svg {
   color: var(--blocked);
 }
 
-.o2-bar {
-  position: relative;
-  grid-column: 1 / -1;
-  height: 2px;
-  background: rgba(103, 232, 249, 0.22);
-  overflow: hidden;
-}
-
-.o2-fill {
-  height: 2px;
-  background: var(--wg);
-  transition: width 0.25s linear;
-}
-
 .should-line {
   font-size: 10px;
   line-height: 1.45;

@@ -3157,7 +3157,6 @@ export async function initHud3D(
 
   const clockEl = document.getElementById("hud-clock");
   function updateHudReadouts(sM, lon, lat, overrideSlopeDeg = null) {
-    const frac = totalDist > 0 ? sM / totalDist : 0;
     const rem = Math.max(0, totalDist - sM);
 
     const prof = activeRoute?.profile || [];
@@ -3189,7 +3188,6 @@ export async function initHud3D(
       ? resolveNextStopAlongRoute(activeRoute, stops, sM, [lon, lat])
       : { stop: null, distanceM: Infinity, mode: "none" };
 
-    const o2Pct = Math.max(0, 100 * (1 - frac)); // illustrative linear placeholder
     const setText = (id, txt) => {
       const el = document.getElementById(id);
       if (el && el.textContent !== txt) el.textContent = txt;
@@ -3214,9 +3212,6 @@ export async function initHud3D(
     }
     setText("hud-next-stop", nextStop?.properties?.name || "—");
     setText("hud-next-kind", nextStop?.properties?.kind || (onRoute ? "—" : "no science stops at this site"));
-    setText("hud-o2", `${o2Pct.toFixed(1)}%`);
-    const o2Fill = document.getElementById("hud-o2-fill");
-    if (o2Fill) o2Fill.style.width = `${o2Pct.toFixed(1)}%`;
 
     if (clockEl) {
       const t = Math.floor(sM / WALK_SPEED_MS);

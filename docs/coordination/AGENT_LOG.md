@@ -980,6 +980,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Merge `origin/main` (orbit view + high-res terrain upscale), verify tests, push `main`, and pull `main`.
 
+### 2026-11-15 00:31 Europe/Istanbul — Softer footsteps audio & remove HUD O2 gauge
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: frontend-1 (requested HUD/audio polish)
+- Task id: n/a
+- Files changed: `web/hud/footsteps.js`, `web/index.html`, `web/hud/hud3d.js`, `web/styles.css`, `docs/coordination/AGENT_LOG.md`
+- Why: Softened synthesized footstep audio in `web/hud/footsteps.js` (added smooth 14 ms attack ramp, lowered thud frequency/gain, smoothed regolith noise with a low-pass leaky integrator and bell envelope, lowered cutoff/gain) and removed the visor `O₂` indicator (`#hud-o2`, `#hud-o2-fill`, `.o2-bar`, `.o2-fill`, and HUD update logic) per user request. Verified `node --check` on `footsteps.js`/`hud3d.js` and `node --test web/tests/*.mjs` (`43/43` pass).
+- Commit: this commit
+- Next step: Reload `http://localhost:8000/web/` and verify live; note `AGENTS.md` lists `suit O₂` as a MUST HUD field if needed back for judging.
+
 
 
 ### 2026-11-15 00:22 Europe/Istanbul — Custom right-click menu
