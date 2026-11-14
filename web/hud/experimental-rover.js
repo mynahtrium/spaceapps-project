@@ -12,18 +12,19 @@
  */
 
 export const MARS_GRAVITY_MS2 = 3.71;
+export const ROVER_FLIGHT_G = 9.4;
 export const ROVER_COLLISION_RADIUS_M = 2.45;
 export const ROVER_WHEEL_RADIUS_M = 0.345;
 export const ROVER_OBB_HALF_W = 1.66;
 export const ROVER_OBB_HALF_L = 2.42;
 export const ROVER_OBB_HEIGHT_M = 3.25;
 
-// Exact scaled axle layout matching NASA `mmsev-rover.glb` bogie spindles in
-// native cockpit-forward (`-Z`) orientation (`x = ±1.339 m`, `z = [-1.708, -0.370, +0.969]`).
+// Exact scaled axle layout matching NASA `mmsev-rover.glb` bogie spindles after
+// cockpit-forward (`Math.PI`) alignment (`x = ±1.339 m`, `z = [-0.969, +0.370, +1.708]`).
 const MMSEV_POD_AXLES = [
-  { z: -1.708, role: "front" },
-  { z: -0.37, role: "mid" },
-  { z: 0.969, role: "rear" },
+  { z: -0.969, role: "front" },
+  { z: 0.37, role: "mid" },
+  { z: 1.708, role: "rear" },
 ];
 const MMSEV_TRACK_HALF_W = 1.339;
 const MMSEV_POD_DROP_OFFSET_Y = 0.055;
@@ -42,12 +43,13 @@ export function computeSpawnBesideOffset(x, z, yaw = 0, rightM = 3.8, fwdM = 2.8
 }
 
 /**
- * Pure vertical ballistic & crest-launch stepper for Mars low-gravity (3.71 m/s^2) vehicle flight.
- * Launches off crests/bumps when terrain drops faster than gravity pulls the rover down, or on abrupt maneuvers.
+ * Pure vertical ballistic & crest-launch stepper for Mars heavy-chassis vehicle flight.
+ * Absorbs normal terrain ripples on bogie travel and launches cleanly only on real fast crests
+ * or abrupt maneuvers, returning crisply under heavy chassis gravity (`ROVER_FLIGHT_G`) with zero floaty hang.
  */
 export function stepRoverBallisticPhysics(
   state,
-  { groundY, slopeClimbVy = 0, bumpImpulseVy = 0, horizSpeed = 0, dt = 0.016, marsG = MARS_GRAVITY_MS2 }
+  { groundY, slopeClimbVy = 0, bumpImpulseVy = 0, horizSpeed = 0, dt = 0.016, marsG = ROVER_FLIGHT_G }
 ) {
   const s = state;
   const safeDt = Math.max(0.001, Math.min(0.05, dt));
@@ -58,25 +60,35 @@ export function stepRoverBallisticPhysics(
     s.airborne = false;
     s.airTime = 0;
     s.peakLaunchVy = 0;
+    s.landingCooldown = 0;
     return { launched: false, landed: false, impactSpeed: 0 };
   }
 
-  const groundRiseRate = Math.max(-10, Math.min(15, (groundY - s.prevGroundY) / safeDt));
+  const groundRiseRate = Math.max(-8, Math.min(10, (groundY - s.prevGroundY) / safeDt));
   s.prevGroundY = groundY;
+  s.landingCooldown = Math.max(0, (s.landingCooldown || 0) - safeDt);
 
   if (!s.airborne) {
-    const rawClimb = Math.max(groundRiseRate * 0.72 + slopeClimbVy * 0.55, slopeClimbVy * 0.88) + bumpImpulseVy;
-    const clampedClimb = Math.max(-4, Math.min(14, rawClimb));
-    s.peakLaunchVy = Math.max((s.peakLaunchVy || 0) * Math.exp(-safeDt * 4.5), clampedClimb);
+    if (s.landingCooldown > 0) {
+      s.posY = groundY;
+      s.velY = 0;
+      s.peakLaunchVy = 0;
+      s.airTime = 0;
+      return { launched: false, landed: false, impactSpeed: 0 };
+    }
+    const rawClimb = Math.max(groundRiseRate * 0.48 + slopeClimbVy * 0.45, slopeClimbVy * 0.78) + bumpImpulseVy;
+    // Bogie suspension absorbs minor upward velocity (< 0.55 m/s) before chassis frame separates
+    const effectiveClimb = Math.max(-4, Math.min(3.8, rawClimb - 0.55));
+    s.peakLaunchVy = Math.max((s.peakLaunchVy || 0) * Math.exp(-safeDt * 8.5), effectiveClimb);
 
     const ballisticY = s.posY + s.peakLaunchVy * safeDt - 0.5 * marsG * safeDt * safeDt;
     const clearance = ballisticY - groundY;
     const shouldLaunch =
-      (clearance > 0.02 && s.peakLaunchVy > 1.15 && horizSpeed > 6.2) || bumpImpulseVy > 1.8;
+      (clearance > 0.065 && s.peakLaunchVy > 1.85 && horizSpeed > 8.8) || bumpImpulseVy > 2.1;
 
     if (shouldLaunch) {
       s.airborne = true;
-      s.velY = Math.max(s.peakLaunchVy, bumpImpulseVy > 1.8 ? bumpImpulseVy : 1.75);
+      s.velY = Math.min(3.8, Math.max(s.peakLaunchVy, bumpImpulseVy > 2.1 ? bumpImpulseVy : 1.9));
       s.posY = Math.max(s.posY, groundY) + s.velY * safeDt;
       s.airTime = 0;
       s.peakLaunchVy = 0;
@@ -84,7 +96,7 @@ export function stepRoverBallisticPhysics(
     }
 
     s.posY = groundY;
-    s.velY = Math.min(0, clampedClimb);
+    s.velY = Math.min(0, effectiveClimb);
     s.airTime = 0;
     return { launched: false, landed: false, impactSpeed: 0 };
   }
@@ -93,13 +105,14 @@ export function stepRoverBallisticPhysics(
   s.velY -= marsG * safeDt;
   s.posY += s.velY * safeDt;
 
-  if (s.posY <= groundY + 0.008 && (s.airTime > 0.05 || s.velY <= 0)) {
+  if (s.posY <= groundY + 0.01 && (s.airTime > 0.05 || s.velY <= 0)) {
     const impactSpeed = Math.max(0, groundRiseRate - s.velY);
     s.posY = groundY;
     s.velY = 0;
     s.airborne = false;
     s.airTime = 0;
     s.peakLaunchVy = 0;
+    s.landingCooldown = 0.28;
     return { launched: false, landed: true, impactSpeed };
   }
 
@@ -643,24 +656,24 @@ export function createExperimentalRover(THREE) {
     roughness: 0.2,
   });
   const lamps = [];
-  for (const lx of [-0.56, 0.56]) {
+  for (const lx of [-0.58, 0.58]) {
     const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.06, 12), lampMat);
-    lamp.position.set(lx, 0.88, -1.96);
+    lamp.position.set(lx, 0.9, -2.02);
     lamp.rotation.x = Math.PI / 2;
     bodyRoot.add(lamp);
     lamps.push(lamp);
   }
   const headlight = new THREE.PointLight(0xffdfb3, 2.0, 24, 1.5);
-  headlight.position.set(0, 1.15, -2.55);
+  headlight.position.set(0, 1.15, -2.6);
   bodyRoot.add(headlight);
 
   const highBeam = new THREE.SpotLight(0xffe7c2, 5.2, 46, 0.56, 0.65, 1.35);
-  highBeam.position.set(0, 1.18, -2.15);
+  highBeam.position.set(0, 1.18, -2.18);
   highBeam.target.position.set(0, 0.12, -18);
   bodyRoot.add(highBeam);
   bodyRoot.add(highBeam.target);
 
-  // Subtle rear amber-red brake/marker tailbars flush against aft airlock ring
+  // Subtle rear amber-red brake/marker tailbars flush against aft airlock ring (`+Z` rear)
   const tailBarMat = new THREE.MeshStandardMaterial({
     color: 0xff4938,
     emissive: 0xef4444,
@@ -670,7 +683,7 @@ export function createExperimentalRover(THREE) {
   const tailBars = [];
   for (const lx of [-0.66, 0.66]) {
     const tb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.055, 0.045), tailBarMat);
-    tb.position.set(lx, 0.96, 2.02);
+    tb.position.set(lx, 1.08, 2.02);
     tb.visible = false;
     bodyRoot.add(tb);
     tailBars.push(tb);
@@ -700,9 +713,9 @@ export function createExperimentalRover(THREE) {
       // Remove NASA GLB's frozen pale wireframe wheels cleanly while keeping cabin, trusses & forks intact
       stripStaticWheelTriangles(THREE, model);
 
-      // Native GLB `-Z` holds the cantilevered dual-windshield cockpit nose; keep Y orientation unflipped (`0`)
+      // Native GLB `+Z` holds the cantilevered 4-pane cockpit nose; rotate `Math.PI` so nose aims strictly `-Z` forward
       const wrapper = new THREE.Group();
-      wrapper.rotation.y = 0;
+      wrapper.rotation.y = Math.PI;
       wrapper.add(model);
 
       wrapper.traverse((o) => {
@@ -782,13 +795,14 @@ export function createExperimentalRover(THREE) {
     const sinY = Math.sin(yaw);
     const cosY = Math.cos(yaw);
     const halfW = 1.34;
-    const frontZ = hasRealModel ? -1.7 : -1.0;
-    const rearZ = hasRealModel ? 0.97 : 1.3;
+    const frontZ = hasRealModel ? -0.97 : -1.0;
+    const midZ = hasRealModel ? 0.37 : 0.0;
+    const rearZ = hasRealModel ? 1.7 : 1.3;
     const pt = (lx, lz) => sampleElevY(x + cosY * lx + sinY * lz, z - sinY * lx + cosY * lz);
     const hFL = pt(-halfW, frontZ);
     const hFR = pt(halfW, frontZ);
-    const hML = pt(-halfW, -0.37);
-    const hMR = pt(halfW, -0.37);
+    const hML = pt(-halfW, midZ);
+    const hMR = pt(halfW, midZ);
     const hRL = pt(-halfW, rearZ);
     const hRR = pt(halfW, rearZ);
     const hC = sampleElevY(x, z);
@@ -822,13 +836,14 @@ export function createExperimentalRover(THREE) {
     const cosY = Math.cos(yaw);
 
     const halfW = 1.34;
-    const frontZ = hasRealModel ? -1.7 : -1.0;
-    const rearZ = hasRealModel ? 0.97 : 1.3;
+    const frontZ = hasRealModel ? -0.97 : -1.0;
+    const midZ = hasRealModel ? 0.37 : 0.0;
+    const rearZ = hasRealModel ? 1.7 : 1.3;
     const samplePt = (lx, lz) => sampleElevY(px + cosY * lx + sinY * lz, pz - sinY * lx + cosY * lz);
     const hFL = samplePt(-halfW, frontZ);
     const hFR = samplePt(halfW, frontZ);
-    const hML = samplePt(-halfW, -0.37);
-    const hMR = samplePt(halfW, -0.37);
+    const hML = samplePt(-halfW, midZ);
+    const hMR = samplePt(halfW, midZ);
     const hRL = samplePt(-halfW, rearZ);
     const hRR = samplePt(halfW, rearZ);
     const hC = sampleElevY(px, pz);
@@ -958,7 +973,7 @@ export function createExperimentalRover(THREE) {
     const rz = -Math.sin(yaw);
     const fx = -Math.sin(yaw);
     const fz = -Math.cos(yaw);
-    const zBack = hasRealModel ? 1.18 : 1.38;
+    const zBack = hasRealModel ? 1.72 : 1.38;
     const xSide = (hasRealModel ? MMSEV_TRACK_HALF_W : 1.26) * sideSign;
     return {
       x: group.position.x + rx * xSide - fx * zBack,

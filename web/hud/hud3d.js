@@ -31,6 +31,7 @@ import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
 import {
+  ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
   createExperimentalRover,
   stepRoverBallisticPhysics,
@@ -1307,6 +1308,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     airborne: false,
     airTime: 0,
     peakLaunchVy: 0,
+    landingCooldown: 0,
   };
   function resetRoverMotionState() {
     roverThrottleVel = 0;
@@ -1321,6 +1323,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     roverAirState.airborne = false;
     roverAirState.airTime = 0;
     roverAirState.peakLaunchVy = 0;
+    roverAirState.landingCooldown = 0;
   }
   let roverWasOn = false;
   let nearRoverPrompted = false;
@@ -2480,7 +2483,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           const projFwd = curVx * fx1 + curVz * fz1;
           const projLat = curVx * rx1 + curVz * rz1;
           const driftingTurn = Math.abs(roverSteer) > 0.45 && Math.abs(projFwd) > 8.5;
-          const latGrip = driftingTurn ? 3.8 : 10.5;
+          const latGrip = driftingTurn ? 6.2 : 12.5;
           const dampedLat = projLat * Math.exp(-dt * latGrip);
           roverVelX = fx1 * projFwd + rx1 * dampedLat;
           roverVelZ = fz1 * projFwd + rz1 * dampedLat;
@@ -2554,8 +2557,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           rover.group.position.z + Math.sin(rover.group.rotation.y) * 1.34
         );
         const crossBump = Math.abs(hLeft - hRight);
-        if ((steerJerk > 1.4 || Math.abs(roverLateralSpeed) > 3.6) && horizSpeed > 7.5 && (crossBump > 0.045 || slopeClimbVy > 0.7)) {
-          bumpImpulseVy = Math.min(4.0, steerJerk * 0.35 + crossBump * 3.0 + Math.abs(roverLateralSpeed) * 0.32);
+        if ((steerJerk > 2.6 || Math.abs(roverLateralSpeed) > 5.0) && horizSpeed > 11.5 && (crossBump > 0.24 || slopeClimbVy > 2.2)) {
+          bumpImpulseVy = Math.min(2.8, steerJerk * 0.28 + crossBump * 2.2 + Math.abs(roverLateralSpeed) * 0.22);
         }
       }
       const airStep = stepRoverBallisticPhysics(roverAirState, {
@@ -2564,7 +2567,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         bumpImpulseVy,
         horizSpeed,
         dt,
-        marsG: MARS_G,
+        marsG: ROVER_FLIGHT_G,
       });
       if (airStep.launched && devCfg.realisticDust) {
         for (const sideSign of [-1, 1]) {

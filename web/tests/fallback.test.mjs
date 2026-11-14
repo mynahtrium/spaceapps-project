@@ -8,7 +8,7 @@ import { makeLocalTangentOrigin, decodeTerrariumPixel } from "../map/Geodesy.js"
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
 import { DEFAULT_DEV_SETTINGS, FULL_REALISM_PRESET, normalizeDevSettings } from "../shared/dev-settings.js";
 import {
-  MARS_GRAVITY_MS2,
+  ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
   resolveRoverObbCollision,
   stepRoverBallisticPhysics,
@@ -415,41 +415,59 @@ test("resolveRoverObbCollision keeps nose, sides, corners, and wheel pods solid 
   assert.equal(highJump.hit, false);
 });
 
-test("stepRoverBallisticPhysics keeps slow crawl planted and launches high-speed crests under 3.71 m/s^2 gravity", () => {
-  const s = { posY: 0, velY: 0, prevGroundY: 0, airborne: false, airTime: 0, peakLaunchVy: 0 };
+test("stepRoverBallisticPhysics keeps normal driving planted and launches fast crests crisply without floaty hang", () => {
+  const s = { posY: 0, velY: 0, prevGroundY: 0, airborne: false, airTime: 0, peakLaunchVy: 0, landingCooldown: 0 };
   const slow = stepRoverBallisticPhysics(s, { groundY: 0.04, slopeClimbVy: 0.4, horizSpeed: 2.0, dt: 0.016 });
   assert.equal(slow.launched, false);
   assert.equal(s.airborne, false);
 
-  // Smooth uphill ramp climb stays planted, then launches airborne at the crest dropoff
-  const ramp = stepRoverBallisticPhysics(s, { groundY: 0.105, slopeClimbVy: 4.2, horizSpeed: 15.0, dt: 0.016 });
+  // Moderate turn/ripple stays planted cleanly without false bounce
+  const ripple = stepRoverBallisticPhysics(s, { groundY: 0.08, slopeClimbVy: 1.5, horizSpeed: 9.0, dt: 0.016 });
+  assert.equal(ripple.launched, false);
+
+  // Fast ramp climb stays gripped, then launches airborne crisply at the crest dropoff
+  const ramp = stepRoverBallisticPhysics(s, { groundY: 0.17, slopeClimbVy: 6.0, horizSpeed: 18.0, dt: 0.016 });
   assert.equal(ramp.launched, false);
-  const crest = stepRoverBallisticPhysics(s, { groundY: 0.1, slopeClimbVy: 0.0, horizSpeed: 15.0, dt: 0.016 });
+  const crest = stepRoverBallisticPhysics(s, { groundY: 0.1, slopeClimbVy: 0.0, horizSpeed: 18.0, dt: 0.016 });
   assert.equal(crest.launched, true);
   assert.equal(s.airborne, true);
-  assert.ok(s.velY >= 3.5);
+  assert.ok(s.velY >= 2.0 && s.velY <= 3.8);
 
   let landedStep = null;
-  for (let i = 0; i < 300; i++) {
+  let totalAirTime = 0;
+  for (let i = 0; i < 120; i++) {
     const res = stepRoverBallisticPhysics(s, {
       groundY: 0.1,
-      horizSpeed: 15.0,
+      horizSpeed: 18.0,
       dt: 0.016,
-      marsG: MARS_GRAVITY_MS2,
+      marsG: ROVER_FLIGHT_G,
     });
+    totalAirTime += 0.016;
     if (res.landed) {
       landedStep = res;
       break;
     }
   }
-  assert.ok(landedStep && landedStep.landed, "Rover must return to terrain under Mars gravity");
+  assert.ok(landedStep && landedStep.landed, "Rover must return promptly to terrain");
+  assert.ok(totalAirTime < 1.0, `Airtime should stay crisp (<1.0s), got ${totalAirTime.toFixed(2)}s`);
   assert.equal(s.airborne, false);
-  assert.ok(landedStep.impactSpeed > 2.5, "Touchdown should report vertical impact velocity");
+  assert.ok(s.landingCooldown > 0.1, "Shock cooldown should prevent instant trampoline re-bounce");
+  assert.ok(landedStep.impactSpeed > 1.8);
 
+  // Landing shock cooldown settles before next violent whip impulse can launch
+  const blockedImmediately = stepRoverBallisticPhysics(s, {
+    groundY: 0.1,
+    bumpImpulseVy: 2.5,
+    horizSpeed: 14.0,
+    dt: 0.016,
+  });
+  assert.equal(blockedImmediately.launched, false);
+
+  s.landingCooldown = 0;
   const whip = stepRoverBallisticPhysics(s, {
     groundY: 0.1,
-    bumpImpulseVy: 2.6,
-    horizSpeed: 11.0,
+    bumpImpulseVy: 2.5,
+    horizSpeed: 14.0,
     dt: 0.016,
   });
   assert.equal(whip.launched, true);
