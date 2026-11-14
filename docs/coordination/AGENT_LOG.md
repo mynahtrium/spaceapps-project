@@ -341,6 +341,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Each backend agent continues on its long-lived branch per the split.
 
+### 2026-11-14 13:03 Europe/Istanbul — MUST-12
+
+- Human: Eymen
+- Agent tool + model: Grok (Cursor)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: docs/demo/demo-path.md (new), docs/demo/demo-path.srt (new), docs/demo/README.md, docs/demo/script.md, docs/demo/video-beats.md, docs/demo/slides-outline.md, docs/demo/submission-checklist.md, docs/comms/note-tester-2-demo-path.md (new), docs/comms/intro-tester-2.md, docs/comms/README.md, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
+- Why: Scripted the record-now demo path. The web HUD is not built, so the 29 s English-subtitled cut uses the slope preview, two Curiosity stills, and a caption card (no under-18 faces or voices), with the 7-slide outline as the alternative. Aligned numbers to the example route (947.1 m stated; legs sum to 790.3 m — flagged, not papered over), the 96 min dose card (0.0427 ± 0.008 mSv), and the 14 Nov tilt check (no systematic under-read). No pipeline or web code. No secrets.
+- Commit: this commit
+- Next step: Tester 1 reviews branch tester/demo. Do not merge to main unless asked. Re-record after PRE-07, after Backend 2 confirms the route total, and when MUST-08–10 can be clicked.
+
 ### 2026-11-14 13:05 Europe/Istanbul — MUST-01 (crop plan)
 
 - Human: Cagan

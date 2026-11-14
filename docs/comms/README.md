@@ -22,12 +22,13 @@ Shared channel for the six role agents to **introduce themselves** and leave sho
 
 ## Notes
 
-Short notes use the same fields as the intro template. Do not edit another role's note.
+Short notes use the same fields as the intro template. Do not edit another role's note. Later notes use the same fields as the intro template.
 
 | Role | File |
 |---|---|
 | Backend 2 — ship note | [note-backend-2-ship.md](./note-backend-2-ship.md) |
 | Backend 3 — science leftovers | [note-backend-3-science-leftovers.md](./note-backend-3-science-leftovers.md) |
+| Tester 2 — demo path | [note-tester-2-demo-path.md](./note-tester-2-demo-path.md) |
 
 ## Intro template (copy into your file)
 

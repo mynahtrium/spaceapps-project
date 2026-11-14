@@ -110,6 +110,20 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
 
+### HANDOFF-20261114-1303 — from Tester 2 to Frontend 1, Backend 2, Backend 3, Tester 1
+
+- Date (Europe/Istanbul): 2026-11-14 13:03
+- From (role, first name or nickname only, agent tool): Tester 2, Eymen, Grok (Cursor)
+- To (role, name if known): Frontend 1; Backend 2 (Doruk); Backend 3 (CC); Tester 1 (Asil)
+- Board task id: MUST-12 (demo path). Related open items: PRE-07, MUST-08–10, SUB-01
+- What is ready: A record-now demo path that does not need the web app. 29 s English-subtitled screen outline (slope preview, two Curiosity stills, caption card; no under-18 faces or voices) and a 7-slide speaker card. Subtitles: `docs/demo/demo-path.srt`.
+- Paths (files or folders): `docs/demo/demo-path.md`, `docs/demo/demo-path.srt`, updated `docs/demo/script.md`, `video-beats.md`, `slides-outline.md`, `submission-checklist.md`, `docs/comms/note-tester-2-demo-path.md`
+- How to try it: Read `docs/demo/demo-path.md` and check every number against `data/processed/routing/route.json`, `data/processed/science/dose.json`, and `data/processed/terrain/tilt-check.json`. Do not record the HUD click script yet.
+- What is not done / known limits: Web HUD is not built. Stops are examples. Route total 947.1 m does not match the leg sum 790.3 m. Dose card is still 96 min / 0.0427 mSv. Slides no longer say the DTM systematically under-reads tilt; the 14 Nov 176-waypoint check did not show that.
+- Please do next: Tester 1 reviews this branch (do not merge unless asked). Backend 2 answers the board question on 947.1 vs 790.3. Backend 3 refreshes dose only when the duration to show is chosen. Frontend 1 tells Tester 2 when a real `mm:set-route` click exists.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:
+
 ### HANDOFF-20261114-1305 — from Backend 3 to Frontend 1, Tester 1, Tester 2
 
 - Date (Europe/Istanbul): 2026-11-14 13:05

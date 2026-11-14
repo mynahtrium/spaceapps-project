@@ -1,0 +1,19 @@
+1
+00:00:00,000 --> 00:00:05,000
+A crew at Curiosity's Mount Sharp needs a slope-aware walk.
+
+2
+00:00:05,000 --> 00:00:11,000
+Example stops only. Outcrops are not locked. Red means steeper than 20 degrees.
+
+3
+00:00:11,000 --> 00:00:18,000
+Primary goal: ancient lake mudstones. Boxwork ridges are the bonus stop.
+
+4
+00:00:18,000 --> 00:00:24,000
+Dose is time times Curiosity's RAD rate, plus a cached DONKI alert. Not a map of rocks.
+
+5
+00:00:24,000 --> 00:00:29,000
+Martian Mappers. NASA data. Lunar slope stand-in. Oxygen is a placeholder.

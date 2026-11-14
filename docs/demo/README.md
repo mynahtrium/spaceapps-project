@@ -4,7 +4,9 @@ Tester 2 (Eymen) owns the demo script, 30-second video beat sheet, 7-slide prese
 
 ## Files in this folder
 
-- **[script.md](./script.md)** — 2–3 minute live demo walkthrough (3D HUD first, 2D MapLibre planner sends route via `mm:set-route`, Gale / Mount Sharp lake-sediment goal, boxwork bonus stop, `?demo=1` offline mode, and scientific honesty callouts).
+- **[demo-path.md](./demo-path.md)** — **Record this.** 29-second subtitled screen path (no web HUD yet, no under-18 faces or voices) plus the seven sentences for the slide alternative. Numbers match the 14 Nov example route, dose card, and tilt check.
+- **[demo-path.srt](./demo-path.srt)** — English subtitles for that 29-second cut. Hard-cut the video at 29 s.
+- **[script.md](./script.md)** — 2–3 minute live demo walkthrough (3D HUD first, 2D MapLibre planner sends route via `mm:set-route`, Gale / Mount Sharp lake-sediment goal, boxwork bonus stop, `?demo=1` offline mode, and scientific honesty callouts). **Do not perform the clicks until MUST-08–10 exist.**
 - **[video-beats.md](./video-beats.md)** — Second-by-second beat sheet for the **≤30 s screen-recording video** with burned-in **English subtitles**, zero under-18 faces/voices, and public no-login link checklist.
 - **[slides-outline.md](./slides-outline.md)** — **7-slide presentation outline** (including title and intro slides) covering mission framing, multi-mission NASA data, hazard cost map + A\*/Dijkstra routing, 2D→3D HUD bridge, RAD/DONKI dose budget, scientific caveats, and AI/SI disclosure.
 - **[submission-checklist.md](./submission-checklist.md)** — Hours 40–48 feature-freeze, `?demo=1` network-off rehearsal, under-18 privacy check, SI-tools disclosure, and early submission checklist.
