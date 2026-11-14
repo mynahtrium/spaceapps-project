@@ -199,6 +199,23 @@ body {
 
 .start-foot .lang {
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.start-foot .dev-trigger {
+  color: rgba(255, 255, 255, 0.24);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  margin-right: 10px;
+  opacity: 0.72;
+  transition: color 0.2s, opacity 0.2s;
+}
+
+.start-foot .dev-trigger:hover {
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 1;
 }
 
 /* ---------- top bar ---------- */
@@ -799,6 +816,97 @@ svg.profile-svg {
   pointer-events: none;
 }
 
+.visor-overlay.no-frame {
+  background: none;
+}
+
+.visor-overlay.clean-hud .visor-top,
+.visor-overlay.clean-hud .visor-bottom {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dev-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 11.5px;
+}
+
+.dev-note {
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dev-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.dev-row-exp {
+  border-color: rgba(245, 158, 11, 0.38);
+}
+
+.dev-label {
+  color: #fff;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dev-sub {
+  color: var(--muted);
+  font-size: 10.5px;
+  margin-top: 3px;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dev-badge-exp {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  padding: 1px 6px;
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  color: #fbbf24;
+}
+
+.dev-range {
+  width: 150px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.dev-presets {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.dev-preset {
+  padding: 1px 6px !important;
+  font-size: 9.5px !important;
+}
+
+.dev-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
 .map-probe .map-teleport-btn {
   pointer-events: auto;
   font-size: 10px;
@@ -806,6 +914,14 @@ svg.profile-svg {
   color: #38bdf8;
 }
 
+.map-probe .map-fit-btn {
+  pointer-events: auto;
+  font-size: 10px;
+  padding: 0 2px;
+  color: #fbbf24;
+}
+
+.map-probe .map-fit-btn:hover,
 .map-probe .map-teleport-btn:hover {
   color: #fff;
 }

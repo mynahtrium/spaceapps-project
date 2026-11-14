@@ -307,4 +307,23 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Verified via `node --check` on 22 JS/MJS files and 18/18 Node unit tests; live interactive WebGL/DOM re-check awaits browser hard-reload in Eymen's active tab.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Please do next: Divarci reviews `web/` map/bridge/HUD patches; Eymen hard-reloads (`Ctrl+Shift+R`) and tests visually.
+- Received: 2026-11-14 18:43 (Eymen / Tester 2 — live verified; planner border streaks fixed + dev settings menu added below)
+
+### HANDOFF-20261114-1843 — from Tester 2 (Eymen) to Frontend 1 (Divarci) / Doruk / Cagan
+
+- Date (Europe/Istanbul): 2026-11-14 18:43
+- From (role, first name or nickname only, agent tool): bug tester 2, Eymen, Antigravity (Gemini)
+- To (role, name if known): Frontend 1 (Divarci, owner of `web/`), Doruk, Cagan
+- Board task id: MAP-01 / MUST-09 / MUST-12 follow-up
+- What is ready:
+  1. **Planner Visual Fixes (`MarsDemSampler.js`, `MapLibreMarsAdapter.js`, `planner.js`, `index.html`, `styles.css`):**
+     - Eliminated the 4 giant `+` extruded border grooves radiating N/S/E/W across Mars around the 2 km HiRISE tile by adding a `smoothstep` 0.0085° apron blend toward `borderMeanElevM` outside DEM bounds in `rasterizeTerrariumTileRGBA()`.
+     - Switched `mars-eq://` sub-tile fetching from `Promise.all` to `Promise.allSettled` so partial equirectangular swath misses don't turn entire Mercator columns into solid flat brown cut-offs, added subtle procedural Mars dust relief outside HiRISE bounds in `renderShadedReliefTileRgba()`, toned `onmars-ctx` brightness/saturation, clamped `minZoom: 11.2`, started closer (`zoom: 14.7`), added dashed `hirise-footprint` perimeter, zoom-scaled stop/CRISM circle radii (`radiusExpr`), and added a `[ FIT EVA ]` button inside `#map-probe-readout`.
+  2. **Subtle Theme-Matched Developer Settings Menu (`web/shared/dev-settings.js`, `web/app.js`, `web/hud/hud3d.js`, `web/index.html`, `web/styles.css`):**
+     - Added low-profile `DEV` / `GELİŞTİRİCİ` button (`#btn-dev-settings`) in `#start-screen` `.start-foot` opening a monochrome tactical settings modal (`localStorage`-persisted + live `mm:dev-settings` updates): **Bodycam Frame & Lens Effect** toggle (`uFrameZoom = 1.0` when off + `.visor-overlay.no-frame`), **Lens Strength** slider, **Walk/Run Speed Multiplier** (`0.5×–8×` + `1×/2.5×/5×` presets), **Experimental Super Graphics** toggle (2× DPR + 1.25× supersampling, 4× MSAA RT, 4096 px `PCFSoftShadowMap`, boosted PBR micro-relief, adaptive downscaling disabled), **Camera FOV**, **Clean Camera** toggle, and **Reset Defaults**.
+- Paths (files or folders): `web/shared/dev-settings.js`, `web/map/MarsDemSampler.js`, `web/map/MapLibreMarsAdapter.js`, `web/planner/planner.js`, `web/hud/hud3d.js`, `web/app.js`, `web/index.html`, `web/styles.css`, `web/tests/fallback.test.mjs`
+- How to try it: Open `http://localhost:8000/web/?demo=1` (or `web/`) with `Ctrl+Shift+R`, check `ROUTE PLANNER` (zoom out `-` and click `[ FIT EVA ]`), and open `DEV` / `GELİŞTİRİCİ` in the menu footer.
+- What is not done / known limits: Verified live in browser across both `?demo=1` and `/web/` (0 console errors on `?demo=1`, `DEV` settings applied cleanly in 3D Bodycam), plus `node --check` and 24/24 Node unit tests. Divarci code review pending.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Please do next: Divarci / Doruk / Cagan review cross-folder `web/` changes.
 - Received:

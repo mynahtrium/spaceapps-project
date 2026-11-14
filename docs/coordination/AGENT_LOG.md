@@ -880,3 +880,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Raised the start/habitat marker pole height from 2.4 m to 4.6 m with a glowing cap lamp; added a tactical 3D Mars elevation map modal (`M` key / `Map (M)` button) rendered 1:1 from `elevGrid` with Martian hypsometric ramp, `sunDir` hillshade, `sunMask` shadows, 20 m / 60 m contours, optional Slope Hazard overlay, click confirmation prompt ("Buraya ışınlanmak istiyor musun?" / "Do you want to teleport here?") showing lat/lon, MOLA elevation, slope, and distance, and exact `sampleElevSceneY` + `justTeleportedOrWrapped` ground snapping on teleport; added toroidal opposite-edge boundary wrapping (`wrapSceneCoord`) with HUD wrap notification toast when walking past any edge of the 3D terrain. Preserved `P` beacon, multiplayer drawer styles, and single Planner button on merge with `origin/main` (`e18cac2`). Verified `node --check`, DOM ID consistency, and all `web/tests/*.mjs` tests.
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-14 18:43 Europe/Istanbul — MAP-01 / MUST-09 / MUST-12 (Planner border artifact fix + subtle Dev Settings menu)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Antigravity (Gemini)
+- Role: tester-2
+- Task id: MAP-01, MUST-09, MUST-12
+- Files changed: `web/shared/dev-settings.js`, `web/map/MarsDemSampler.js`, `web/map/MapLibreMarsAdapter.js`, `web/planner/planner.js`, `web/hud/hud3d.js`, `web/app.js`, `web/index.html`, `web/styles.css`, `web/tests/fallback.test.mjs`, `docs/coordination/HANDOFFS.md`, `docs/coordination/AGENT_LOG.md`
+- Why: Eymen reported extruded N/S/E/W border cross-lines and tile cutoffs around the HiRISE box on the Planner map, and asked for a low-profile theme-matched Developer Settings button in the menu with frame effect, speed, and experimental super graphics toggles. Added a `smoothstep` 0.0085° outer DEM taper toward `borderMeanElevM` in `MarsDemSampler.js`, `Promise.allSettled` + procedural regional dust context + toned CTX + `minZoom: 11.2` in `MapLibreMarsAdapter.js`, `zoom: 14.7` + dashed HiRISE corridor + zoom-scaled markers + `[ FIT EVA ]` in `planner.js`, and a persistent `dev-settings.js` modal (`#btn-dev-settings` in `.start-foot`) wired live to `hud3d.js` (bodycam frame/lens toggle & strength, speed multiplier, 4096px soft-shadow/4x MSAA/1.25x supersampled Experimental Super Graphics, FOV, clean HUD). Verified live in browser (`0` console/WebGL errors on `?demo=1`), syntax check (`27` files), and `24/24` Node unit tests.
+- Commit: this commit
+- Next step: Divarci / Doruk / Cagan review cross-folder `web/` changes; Eymen tests via live server on port 8000 (`Ctrl+Shift+R`).

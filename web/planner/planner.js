@@ -79,6 +79,7 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
   const probeEl = document.getElementById("map-probe-readout");
   const probeTextEl = document.getElementById("map-probe-text") || probeEl;
   const teleportBtn = document.getElementById("map-teleport-btn");
+  const fitBtn = document.getElementById("map-fit-btn");
   const toggle3d = document.getElementById("toggle-3d-map");
   let selectedTarget = null;
   let activePopup = null;
@@ -161,11 +162,44 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
     const terrain3dDefault = toggle3d ? toggle3d.checked : true;
     await adapter.mount(container, {
       center,
-      zoom: 14.3,
-      pitch: terrain3dDefault ? 52 : 0,
+      zoom: 14.7,
+      minZoom: 11.2,
+      maxZoom: 18,
+      pitch: terrain3dDefault ? 50 : 0,
       bearing: terrain3dDefault ? -14 : 0,
       terrain3d: terrain3dDefault,
     });
+
+    if (fitBtn) {
+      fitBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        adapter.flyTo?.({
+          center,
+          zoom: 14.7,
+          pitch: toggle3d?.checked ? 50 : 0,
+          bearing: toggle3d?.checked ? -14 : 0,
+        });
+      });
+    }
+
+    // Subtle study corridor perimeter so the 2 km HiRISE DTM tile reads clearly against Gale Crater context
+    adapter.addGeoJsonLayer(
+      "hirise-footprint",
+      {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { name: "HiRISE DTEEC_019698 Study Corridor" },
+            geometry: {
+              type: "LineString",
+              coordinates: [...imgCoords, imgCoords[0]],
+            },
+          },
+        ],
+      },
+      { type: "line", color: "rgba(245, 158, 11, 0.55)", width: 1.5, dasharray: [4, 3], visible: true }
+    );
 
     // Strict 15° overlay (raw MapLibre image layer or Fallback2DMap raster overlay; hidden until toggled)
     if (costMap?.cost_row_major) {
@@ -199,7 +233,15 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
               geometry: { type: "Point", coordinates: [parseFloat(p.center_lon), parseFloat(p.center_lat)] },
             })),
         },
-        { type: "circle", radius: 6, color: "#c084fc", strokeWidth: 1.5, strokeColor: "#ffffff", visible: true }
+        {
+          type: "circle",
+          radius: 4.5,
+          radiusExpr: ["interpolate", ["linear"], ["zoom"], 11, 3, 14, 4.5, 16, 6],
+          color: "#c084fc",
+          strokeWidth: 1.2,
+          strokeColor: "#ffffff",
+          visible: true,
+        }
       );
     }
 
@@ -207,16 +249,17 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry,
       adapter.addGeoJsonLayer(
         "eva-route",
         { type: "FeatureCollection", features: [route] },
-        { type: "line", color: "#ffffff", width: 2.5, visible: true }
+        { type: "line", color: "#ffffff", width: 2.8, visible: true }
       );
     }
 
     if (stops) {
       adapter.addGeoJsonLayer("eva-stops", stops, {
         type: "circle",
-        radius: 8,
+        radius: 6.5,
+        radiusExpr: ["interpolate", ["linear"], ["zoom"], 11, 3.5, 13.5, 5.5, 16, 8.5],
         color: "#ffffff",
-        strokeWidth: 2,
+        strokeWidth: 1.8,
         strokeColor: "#000000",
         visible: true,
       });

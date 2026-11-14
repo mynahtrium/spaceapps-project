@@ -29,6 +29,7 @@ import {
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
+import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -209,6 +210,7 @@ const LENS_FRAG = /* glsl */ `
   uniform vec2 uResolution;
   uniform float uTime;
   uniform float uDistort;
+  uniform float uFrameZoom;
   uniform float uAberration;
   uniform float uGrain;
   uniform float uVignette;
@@ -227,7 +229,7 @@ const LENS_FRAG = /* glsl */ `
     c.x *= aspect;
     float r2 = dot(c, c);
     vec2 d = c * (1.0 + uDistort * r2 + 0.35 * uDistort * r2 * r2);
-    d *= 0.88; // zoom in so the distorted edges stay inside the frame
+    d *= uFrameZoom; // zoom slightly when bezel distortion is active, 1.0 when frame effect is disabled
     d.x /= aspect;
     vec2 uv = d + 0.5;
     vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
@@ -241,8 +243,10 @@ const LENS_FRAG = /* glsl */ `
     col *= uExposure;
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = mix(vec3(lum), col, 0.86); // bodycam sensors run a little desaturated
-    float vig = smoothstep(1.25, 0.25, length(c) * uVignette);
-    col *= mix(0.25, 1.0, vig);
+    if (uVignette > 0.001) {
+      float vig = smoothstep(1.25, 0.25, length(c) * uVignette);
+      col *= mix(0.25, 1.0, vig);
+    }
 
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
@@ -307,6 +311,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   // fills them with a weak reddish light rather than washing them out.
   const SHADOW_HALF_M = 20; // about 2 cm per shadow texel around the walker
   const SHADOW_MAP_PX = 2048;
+  let shadowHalfM = SHADOW_HALF_M;
+  let shadowMapPx = SHADOW_MAP_PX;
   const sun = new THREE.DirectionalLight(0xfff0de, 3.6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP_PX, SHADOW_MAP_PX);
@@ -319,7 +325,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   sun.shadow.bias = -0.00015;
   sun.shadow.normalBias = 0.025;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xc99a76, 0x2e1a12, 0.22));
+  const hemiLight = new THREE.HemisphereLight(0xc99a76, 0x2e1a12, 0.22);
+  scene.add(hemiLight);
 
   const ZENITH = new THREE.Color(0.23, 0.15, 0.12);
   const SKY_GROUND = new THREE.Color(0.3, 0.19, 0.13);
@@ -664,6 +671,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     metalness: 0.0,
   });
   terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
+  const superDetailUniform = { value: 0 };
   terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.detailMap = { value: detailTex };
     shader.uniforms.pbrDust = { value: pbr.dustAlbedoTex };
@@ -672,6 +680,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
     shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
     shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
+    shader.uniforms.uSuperDetail = superDetailUniform;
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec2 vMmWorldXZ;")
       .replace(
@@ -692,21 +701,25 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
           sunChunk
       )
-      .replace("#include <map_pars_fragment>", "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;")
+      .replace(
+        "#include <map_pars_fragment>",
+        "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;\nuniform float uSuperDetail;"
+      )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
         #ifdef USE_MAP
           float dA = texture2D(detailMap, vMapUv * 173.0).r;
           float dB = texture2D(detailMap, vMapUv * 911.0).r;
-          diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
+          float detailGain = mix(0.40, 0.54, uSuperDetail);
+          diffuseColor.rgb *= (1.0 - detailGain * 0.65) + detailGain * dA * 0.6 + detailGain * dB * 0.4;
           // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
-          vec3 mmDust = texture2D(pbrDust, vMapUv * 640.0).rgb;
-          vec3 mmRock = texture2D(pbrRock, vMapUv * 290.0 + 0.37).rgb;
+          vec3 mmDust = texture2D(pbrDust, vMapUv * mix(640.0, 920.0, uSuperDetail)).rgb;
+          vec3 mmRock = texture2D(pbrRock, vMapUv * mix(290.0, 440.0, uSuperDetail) + 0.37).rgb;
           float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
           vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
           float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
-          diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.35, 1.6), 0.7);
+          diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.30, 1.75), mix(0.7, 0.92, uSuperDetail));
         #endif`
       );
   };
@@ -1138,7 +1151,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   }
 
   // ---------- bodycam lens pass ----------
-  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
+  let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
+  let rtSamples = 2;
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -1150,6 +1164,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       uResolution: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uDistort: { value: 0.26 },
+      uFrameZoom: { value: 0.88 },
       uAberration: { value: 0.006 },
       uGrain: { value: 0.07 },
       uVignette: { value: 1.05 },
@@ -1925,6 +1940,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
   }
 
+  let devCfg = loadDevSettings();
+  let renderScale = 1;
+  let frameAvg = 16;
+  let lastScaleChange = 0;
+
   const onResize = () => {
     const w = wrap.clientWidth || window.innerWidth;
     const h = wrap.clientHeight || window.innerHeight - 44;
@@ -1936,12 +1956,71 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
   };
 
+  function applyDevSettings(cfg) {
+    devCfg = cfg;
+    const visorOverlay = document.querySelector(".visor-overlay");
+    if (visorOverlay) {
+      visorOverlay.classList.toggle("no-frame", !cfg.frameEffect);
+      visorOverlay.classList.toggle("clean-hud", Boolean(cfg.cleanHud));
+    }
+
+    const strength = cfg.frameEffect ? cfg.frameStrength : 0;
+    lensMat.uniforms.uFrameZoom.value = cfg.frameEffect ? 1.0 - 0.12 * Math.min(1, strength) : 1.0;
+    lensMat.uniforms.uDistort.value = 0.26 * strength;
+    lensMat.uniforms.uAberration.value = 0.006 * strength;
+    lensMat.uniforms.uVignette.value = 1.05 * strength;
+    lensMat.uniforms.uGrain.value = cfg.superGraphics ? 0.025 * strength : 0.07 * strength;
+
+    if (camera.fov !== cfg.fov) {
+      camera.fov = cfg.fov;
+      camera.updateProjectionMatrix();
+    }
+
+    const wantSuper = Boolean(cfg.superGraphics);
+    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : 1.25);
+    renderer.setPixelRatio(targetPr);
+    renderScale = wantSuper ? 1.25 : 1.0;
+
+    const wantSamples = wantSuper ? 4 : 2;
+    if (rtSamples !== wantSamples) {
+      rtSamples = wantSamples;
+      rt.dispose();
+      rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
+      lensMat.uniforms.tDiffuse.value = rt.texture;
+    }
+
+    const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
+    const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
+    const wantShadowType = wantSuper ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    if (shadowMapPx !== wantShadowPx || shadowHalfM !== wantShadowHalf || renderer.shadowMap.type !== wantShadowType) {
+      shadowMapPx = wantShadowPx;
+      shadowHalfM = wantShadowHalf;
+      renderer.shadowMap.type = wantShadowType;
+      sun.shadow.mapSize.set(wantShadowPx, wantShadowPx);
+      sun.shadow.camera.left = -wantShadowHalf;
+      sun.shadow.camera.right = wantShadowHalf;
+      sun.shadow.camera.top = wantShadowHalf;
+      sun.shadow.camera.bottom = -wantShadowHalf;
+      sun.shadow.camera.updateProjectionMatrix();
+      if (sun.shadow.map) {
+        sun.shadow.map.dispose();
+        sun.shadow.map = null;
+      }
+      renderer.shadowMap.needsUpdate = true;
+    }
+
+    terrainMat.normalScale.set(wantSuper ? 0.95 : 0.55, wantSuper ? 0.95 : 0.55);
+    superDetailUniform.value = wantSuper ? 1.0 : 0.0;
+    sun.intensity = wantSuper ? 3.95 : 3.6;
+    hemiLight.intensity = wantSuper ? 0.28 : 0.22;
+    renderer.toneMappingExposure = wantSuper ? 1.06 : 1.0;
+    onResize();
+  }
+
   // Adaptive resolution: the 3D scene renders into rt, so its size can drop when frames are slow
-  // and come back when there is headroom. The lens pass scales it to the screen.
-  let renderScale = 1;
-  let frameAvg = 16;
-  let lastScaleChange = 0;
+  // and come back when there is headroom. Disabled when Experimental Super Graphics is active.
   function adaptResolution(frameMs, now) {
+    if (devCfg.superGraphics) return;
     frameAvg += (frameMs - frameAvg) * 0.05;
     if (now - lastScaleChange < 1200) return;
     let next = renderScale;
@@ -1954,7 +2033,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
   }
   window.addEventListener("resize", onResize);
-  onResize();
+  subscribeDevSettings(applyDevSettings);
+  applyDevSettings(devCfg);
 
   // ---------- loop ----------
   const fwd = new THREE.Vector3();
@@ -2013,7 +2093,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
           const ahead = sampleElevSceneY(freePos.x + moveDir.x * 1.5, freePos.z + moveDir.z * 1.5);
           const slopeDeg = Math.abs(Math.atan2(ahead - here, 1.5)) * (180 / Math.PI);
           const slowdown = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeDeg - 10) / 22));
-          const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
+          const v =
+            (run ? RUN_SPEED_MS : WALK_SPEED_MS) *
+            (devCfg.speedMultiplier || 1) *
+            slowdown *
+            (player.grounded ? 1 : 0.6);
           freePos.addScaledVector(moveDir, v * dt);
         }
       }
@@ -2174,7 +2258,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     updateContactShadows();
 
     // sun, moons and shadow box follow the walker
-    const texel = (2 * SHADOW_HALF_M) / SHADOW_MAP_PX;
+    const texel = (2 * shadowHalfM) / shadowMapPx;
     sun.target.position.set(Math.round(px / texel) * texel, Math.round(ground / texel) * texel, Math.round(pz / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
@@ -2196,7 +2280,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
     adaptResolution(dt * 1000, now);
     lensMat.uniforms.uTime.value = clockT;
-    lensMat.uniforms.uExposure.value = 1.0 + Math.sin(clockT * 0.7) * 0.015 + Math.sin(clockT * 13.0) * 0.006;
+    const flicker = devCfg.frameEffect
+      ? 1.0 + Math.sin(clockT * 0.7) * 0.015 * devCfg.frameStrength + Math.sin(clockT * 13.0) * 0.006 * devCfg.frameStrength
+      : 1.0;
+    lensMat.uniforms.uExposure.value = flicker;
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);

@@ -10,6 +10,7 @@ import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
 import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
+import { loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
 
 const I18N = {
   en: {
@@ -23,6 +24,7 @@ const I18N = {
     menu_eva: "BEGIN EVA",
     menu_planner: "ROUTE PLANNER",
     menu_credits: "SOURCES & HONESTY",
+    menu_dev: "DEV",
     foot_sources:
       "DATA: NASA / MRO HiRISE (UArizona), MSL CURIOSITY, MARS TREK, DONKI · ASTRONAUT MODEL: NASA 3D RESOURCES · EXAMPLE ROUTE, STOPS NOT LOCKED (PRE-07)",
   },
@@ -37,6 +39,7 @@ const I18N = {
     menu_eva: "EVA'YA BAŞLA",
     menu_planner: "ROTA PLANLAYICI",
     menu_credits: "KAYNAKLAR VE DÜRÜSTLÜK",
+    menu_dev: "GELİŞTİRİCİ",
     foot_sources:
       "VERİ: NASA / MRO HiRISE (UArizona), MSL CURIOSITY, MARS TREK, DONKI · ASTRONOT MODELİ: NASA 3D RESOURCES · ÖRNEK ROTA, DURAKLAR KİLİTLİ DEĞİL (PRE-07)",
   },
@@ -50,7 +53,7 @@ function readLang() {
   }
 }
 
-function initStartScreen({ onEva, onPlanner, onCredits }) {
+function initStartScreen({ onEva, onPlanner, onCredits, onDev }) {
   const screen = document.getElementById("start-screen");
   const linesEl = document.getElementById("start-lines");
   const menu = document.getElementById("start-menu");
@@ -148,6 +151,8 @@ function initStartScreen({ onEva, onPlanner, onCredits }) {
   };
   document.getElementById("lang-en").onclick = () => setLang("en");
   document.getElementById("lang-tr").onclick = () => setLang("tr");
+  const devBtn = document.getElementById("btn-dev-settings");
+  if (devBtn) devBtn.onclick = () => onDev?.();
 
   applyLang();
   show();
@@ -162,6 +167,7 @@ async function boot() {
     onEva: () => ready.then((a) => a.eva()),
     onPlanner: () => ready.then((a) => a.planner()),
     onCredits: () => ready.then((a) => a.credits()),
+    onDev: () => ready.then((a) => a.dev()),
   });
   document.getElementById("btn-menu").onclick = () => start.show();
 
@@ -239,6 +245,142 @@ async function boot() {
   }
 
   btnCredits.onclick = openCreditsModal;
+
+  function openDevSettingsModal() {
+    const tr = readLang() === "tr";
+    const s = loadDevSettings();
+    modalTitle.textContent = tr ? "GELİŞTİRİCİ AYARLARI // DENEYSEL" : "DEVELOPER SETTINGS // EXPERIMENTAL";
+    modalBody.innerHTML = `
+      <div class="dev-panel">
+        <div class="dev-note">
+          ${
+            tr
+              ? "Değişiklikler anlık olarak 3D Bodycam görünümüne uygulanır ve tarayıcıda saklanır."
+              : "Changes apply live to the 3D Bodycam view and persist locally in your browser."
+          }
+        </div>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Ekrandaki Çerçeve & Lens Efekti" : "Bodycam Frame & Lens Effect"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Kavisli kask vizörü siyah çerçevesi, kenar karartması, kromatik sapma ve film greni."
+                : "Curved visor bezel frame, edge vignette, barrel distortion, chromatic aberration & grain."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
+        </label>
+
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Çerçeve / Lens Şiddeti" : "Lens & Frame Strength"}</div>
+            <div class="dev-sub"><span id="dev-frame-strength-val">${Math.round(s.frameStrength * 100)}%</span></div>
+          </div>
+          <input class="dev-range" type="range" id="dev-frame-strength" min="0.2" max="1.5" step="0.05" value="${s.frameStrength}" />
+        </div>
+
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Yürüyüş & Koşu Hızı" : "Walk / Run Speed Multiplier"}</div>
+            <div class="dev-sub">
+              <span id="dev-speed-val">${s.speedMultiplier.toFixed(2)}×</span>
+              <span class="dev-presets">
+                <button class="btn dev-preset" type="button" data-speed="1">1×</button>
+                <button class="btn dev-preset" type="button" data-speed="2.5">2.5×</button>
+                <button class="btn dev-preset" type="button" data-speed="5">5×</button>
+              </span>
+            </div>
+          </div>
+          <input class="dev-range" type="range" id="dev-speed" min="0.5" max="8" step="0.25" value="${s.speedMultiplier}" />
+        </div>
+
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Deneysel Süper Grafikler" : "Experimental Super Graphics"}
+              <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "Uyarlamalı çözünürlük düşürmeyi kapatır, 2× DPR + 1.25× supersampling, 4× MSAA, 4096 px yumuşak güneş gölgeleri ve yüksek mikro-detay açar (GPU yoğun)."
+                : "Locks off adaptive downscale, enables up to 2× DPR + 1.25× supersampling, 4× MSAA, 4096 px PCFSoft sun shadows & high terrain micro-relief (heavy GPU)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
+        </label>
+
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Kamera Görüş Açısı (FOV)" : "Camera Field of View (FOV)"}</div>
+            <div class="dev-sub"><span id="dev-fov-val">${Math.round(s.fov)}°</span></div>
+          </div>
+          <input class="dev-range" type="range" id="dev-fov" min="60" max="110" step="1" value="${s.fov}" />
+        </div>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Sade Kamera (HUD Metinlerini Gizle)" : "Clean Camera (Hide HUD Telemetry)"}</div>
+            <div class="dev-sub">${
+              tr ? "3D ekrandaki telemetri yazılarını temiz ekran görüntüsü için gizler." : "Hides telemetry text overlays in 3D view for clean capture."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-clean-hud" ${s.cleanHud ? "checked" : ""} />
+        </label>
+
+        <div class="dev-actions">
+          <button class="btn" type="button" id="dev-reset">${tr ? "Varsayılanlara Sıfırla" : "Reset Defaults"}</button>
+        </div>
+      </div>
+    `;
+
+    const frameToggle = document.getElementById("dev-frame-toggle");
+    const frameStrength = document.getElementById("dev-frame-strength");
+    const frameStrengthVal = document.getElementById("dev-frame-strength-val");
+    const speedRange = document.getElementById("dev-speed");
+    const speedVal = document.getElementById("dev-speed-val");
+    const superToggle = document.getElementById("dev-super-gfx");
+    const fovRange = document.getElementById("dev-fov");
+    const fovVal = document.getElementById("dev-fov-val");
+    const cleanToggle = document.getElementById("dev-clean-hud");
+    const resetBtn = document.getElementById("dev-reset");
+
+    const syncUi = (cfg) => {
+      if (frameToggle) frameToggle.checked = cfg.frameEffect;
+      if (frameStrength) {
+        frameStrength.value = String(cfg.frameStrength);
+        frameStrength.disabled = !cfg.frameEffect;
+      }
+      if (frameStrengthVal) frameStrengthVal.textContent = `${Math.round(cfg.frameStrength * 100)}%`;
+      if (speedRange) speedRange.value = String(cfg.speedMultiplier);
+      if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
+      if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (fovRange) fovRange.value = String(cfg.fov);
+      if (fovVal) fovVal.textContent = `${Math.round(cfg.fov)}°`;
+      if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
+    };
+
+    syncUi(s);
+    frameToggle?.addEventListener("change", () => syncUi(saveDevSettings({ frameEffect: frameToggle.checked })));
+    frameStrength?.addEventListener("input", () => syncUi(saveDevSettings({ frameStrength: parseFloat(frameStrength.value) })));
+    speedRange?.addEventListener("input", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(speedRange.value) })));
+    modalBody.querySelectorAll(".dev-preset").forEach((btn) => {
+      btn.addEventListener("click", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(btn.dataset.speed) })));
+    });
+    superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    fovRange?.addEventListener("input", () => syncUi(saveDevSettings({ fov: parseFloat(fovRange.value) })));
+    cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
+    resetBtn?.addEventListener("click", () => syncUi(resetDevSettings()));
+
+    modalBackdrop.classList.add("open");
+  }
+
+  const initDev = loadDevSettings();
+  const visorOverlayEl = document.querySelector(".visor-overlay");
+  if (visorOverlayEl) {
+    visorOverlayEl.classList.toggle("no-frame", !initDev.frameEffect);
+    visorOverlayEl.classList.toggle("clean-hud", Boolean(initDev.cleanHud));
+  }
 
   let hudApi = null;
   let plannerApi = null;
@@ -459,7 +601,12 @@ async function boot() {
     switchToHud();
   };
 
-  resolveReady({ eva: () => btnStartEva.onclick(), planner: switchToPlanner, credits: openCreditsModal });
+  resolveReady({
+    eva: () => btnStartEva.onclick(),
+    planner: switchToPlanner,
+    credits: openCreditsModal,
+    dev: openDevSettingsModal,
+  });
 
   plannerApi = initPlanner(data, {
     demSampler,
