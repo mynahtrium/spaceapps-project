@@ -42,6 +42,9 @@ dist/
 .ipynb_checkpoints/
 *.ipynb
 
+# Vercel link metadata (project id); never commit pulled env files
+.vercel/
+
 # Node
 node_modules/
 .cache/

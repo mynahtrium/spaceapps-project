@@ -27,6 +27,7 @@ import {
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
+import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
@@ -253,7 +254,7 @@ const LENS_FRAG = /* glsl */ `
   }
 `;
 
-export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
+export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, onLocalPose = null }) {
   const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
@@ -782,9 +783,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   }
 
   // ---------- astronauts (NASA 3D Resources, procedural rig) ----------
+  let suitRig = null;
   let self = null;
   let partner = null;
   let suitLabel = "SUIT MODEL UNAVAILABLE";
+  const makeStandInAvatar = (colorHex = 0xe9e7e2) => {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.32, ASTRONAUT_HEIGHT_M - 0.64, 6, 16),
+      new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.7 })
+    );
+    body.position.y = ASTRONAUT_HEIGHT_M / 2;
+    body.castShadow = true;
+    g.add(body);
+    return { group: g, update() {}, phase: 0, amount: 0 };
+  };
   {
     const draco = new DRACOLoader();
     draco.setDecoderPath("./vendor/addons/libs/draco/gltf/");
@@ -793,6 +806,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     for (const m of SUIT_MODELS) {
       try {
         const rig = await loadSuitRig(loader, m.url, ASTRONAUT_HEIGHT_M);
+        suitRig = rig;
         self = createAstronaut(rig, { hideHead: true });
         suitLabel = m.label + " · RIGGED";
         break;
@@ -803,18 +817,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   }
   if (!self) {
     // Stand-in: a 1.80 m capsule, labelled in the HUD
-    const make = () => {
-      const g = new THREE.Group();
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.32, ASTRONAUT_HEIGHT_M - 0.64, 6, 16),
-        new THREE.MeshStandardMaterial({ color: 0xe9e7e2, roughness: 0.7 })
-      );
-      body.position.y = ASTRONAUT_HEIGHT_M / 2;
-      body.castShadow = true;
-      g.add(body);
-      return { group: g, update() {}, phase: 0, amount: 0 };
-    };
-    self = make();
+    self = makeStandInAvatar();
     self.group.visible = false;
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
@@ -888,6 +891,186 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const suitEl = document.getElementById("hud-suit");
   if (suitEl) suitEl.textContent = suitLabel;
 
+  // ---------- multiplayer remote crewmates & shared beacons ----------
+  const remoteGroup = new THREE.Group();
+  const pingGroup = new THREE.Group();
+  scene.add(remoteGroup, pingGroup);
+  const remoteAvatars = new Map();
+
+  function makeCallsignSprite(text, colorCss = "#38bdf8") {
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 64;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+    ctx.fillRect(10, 12, 236, 40);
+    ctx.strokeStyle = colorCss;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(10, 12, 236, 40);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "600 22px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(text || "CREW").slice(0, 16), 128, 33);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true });
+    const spr = new THREE.Sprite(mat);
+    spr.scale.set(1.55, 0.39, 1);
+    spr.position.set(0, 2.15, 0);
+    return { spr, tex, mat };
+  }
+
+  function ensureRemoteAvatar(peer) {
+    let entry = remoteAvatars.get(peer.id);
+    if (entry) {
+      if (peer.callsign && peer.callsign !== entry.callsign) {
+        entry.group.remove(entry.badge.spr);
+        entry.badge.tex.dispose();
+        entry.badge.mat.dispose();
+        entry.badge = makeCallsignBadgeFor(peer);
+        entry.group.add(entry.badge.spr);
+        entry.callsign = peer.callsign;
+      }
+      return entry;
+    }
+    const avatar = suitRig ? createAstronaut(suitRig) : makeStandInAvatar(peer.color || 0x38bdf8);
+    const beacon = new THREE.Mesh(
+      new THREE.SphereGeometry(0.065, 10, 8),
+      new THREE.MeshBasicMaterial({ color: peer.color || "#38bdf8" })
+    );
+    beacon.position.set(0, 1.88, 0.12);
+    avatar.group.add(beacon);
+
+    const badge = makeCallsignBadgeFor(peer);
+    avatar.group.add(badge.spr);
+    remoteGroup.add(avatar.group);
+
+    const st = peer.state || {};
+    const sx = Number.isFinite(st.x) ? st.x : Number.isFinite(st.lon) ? lonToX(st.lon) : 0;
+    const sz = Number.isFinite(st.z) ? st.z : Number.isFinite(st.lat) ? latToZ(st.lat) : 0;
+    const sy = Number.isFinite(st.y) ? st.y : sampleElevSceneY(sx, sz);
+    const syaw = Number.isFinite(st.yaw) ? st.yaw : 0;
+    avatar.group.position.set(sx, sy, sz);
+    avatar.group.rotation.y = syaw;
+
+    entry = {
+      id: peer.id,
+      callsign: peer.callsign || "CREW",
+      color: peer.color || "#38bdf8",
+      avatar,
+      group: avatar.group,
+      beacon,
+      badge,
+      target: { x: sx, y: sy, z: sz, yaw: syaw, airborne: Boolean(st.airborne), speed: Number(st.speed) || 0 },
+      cur: { x: sx, y: sy, z: sz, yaw: syaw },
+    };
+    remoteAvatars.set(peer.id, entry);
+    updateCrewHudSummary();
+    return entry;
+  }
+
+  function makeCallsignBadgeFor(peer) {
+    return makeCallsignSprite(peer.callsign || "CREW", peer.color || "#38bdf8");
+  }
+
+  function removeRemoteAvatar(peerId) {
+    const entry = remoteAvatars.get(peerId);
+    if (!entry) return;
+    remoteGroup.remove(entry.group);
+    entry.beacon.geometry.dispose();
+    entry.beacon.material.dispose();
+    entry.badge.tex.dispose();
+    entry.badge.mat.dispose();
+    remoteAvatars.delete(peerId);
+    updateCrewHudSummary();
+  }
+
+  function rebuildPingBeacons(pins = []) {
+    while (pingGroup.children.length > 0) {
+      const child = pingGroup.children.pop();
+      child.traverse?.((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          if (o.material.map) o.material.map.dispose();
+          o.material.dispose();
+        }
+      });
+    }
+    for (const pin of pins) {
+      if (!Number.isFinite(pin.lon) || !Number.isFinite(pin.lat)) continue;
+      const x = lonToX(pin.lon);
+      const z = latToZ(pin.lat);
+      const y = sampleElevSceneY(x, z);
+      const g = new THREE.Group();
+      const col = pin.color || "#fbbf24";
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035, 0.035, 6.0, 8),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.72 })
+      );
+      beam.position.set(0, 3.0, 0);
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.55, 0.04, 8, 24),
+        new THREE.MeshBasicMaterial({ color: col })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(0, 0.12, 0);
+      const badge = makeCallsignSprite(`${pin.by || "CREW"} PIN`, col);
+      badge.spr.position.set(0, 3.2, 0);
+      badge.spr.scale.set(1.7, 0.42, 1);
+      g.add(beam, ring, badge.spr);
+      g.position.set(x, y, z);
+      pingGroup.add(g);
+    }
+  }
+
+  function updateCrewHudSummary() {
+    const crewEl = document.getElementById("hud-crew");
+    const summaryEl = document.getElementById("hud-crew-summary");
+    if (crewEl) {
+      const cs = mp?.callsign || "AST-1";
+      crewEl.innerHTML = `${cs} · 1.80 M · <span id="hud-suit">${suitLabel}</span>`;
+    }
+    if (summaryEl) {
+      if (remoteAvatars.size > 0) {
+        summaryEl.textContent = `MARS g 3.71 M/S² · CREW: ${1 + remoteAvatars.size} LIVE · ROOM ${mp?.room || "GALE-01"}`;
+      } else {
+        summaryEl.textContent = "MARS g 3.71 M/S² · CREW: 2 (BUDDY EVA)";
+      }
+    }
+  }
+
+  if (mp) {
+    for (const p of mp.peers.values()) ensureRemoteAvatar(p);
+    rebuildPingBeacons(mp.pins || []);
+    mp.on("peerjoin", (peer) => ensureRemoteAvatar(peer));
+    mp.on("peerstate", (peer) => {
+      const entry = ensureRemoteAvatar(peer);
+      const st = peer.state || {};
+      const tx = Number.isFinite(st.x) ? st.x : Number.isFinite(st.lon) ? lonToX(st.lon) : entry.target.x;
+      const tz = Number.isFinite(st.z) ? st.z : Number.isFinite(st.lat) ? latToZ(st.lat) : entry.target.z;
+      const ty = Number.isFinite(st.y) ? st.y : sampleElevSceneY(tx, tz);
+      entry.target = {
+        x: tx,
+        y: ty,
+        z: tz,
+        yaw: Number.isFinite(st.yaw) ? st.yaw : entry.target.yaw,
+        airborne: Boolean(st.airborne),
+        speed: Number(st.speed) || 0,
+      };
+    });
+    mp.on("peerleave", (peer) => removeRemoteAvatar(peer.id));
+    mp.on("pins", (pins) => rebuildPingBeacons(pins));
+    mp.on("status", () => {
+      const liveIds = new Set(mp.peers.keys());
+      for (const pid of [...remoteAvatars.keys()]) {
+        if (!liveIds.has(pid)) removeRemoteAvatar(pid);
+      }
+      updateCrewHudSummary();
+    });
+    updateCrewHudSummary();
+  }
+
   // ---------- bodycam lens pass ----------
   const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
   const lensMat = new THREE.ShaderMaterial({
@@ -951,13 +1134,26 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     lastX = e.clientX;
     lastY = e.clientY;
   });
+  const dropLocalPing = (label = "Science Beacon") => {
+    if (!mp) return null;
+    const x = player.init ? player.x : lonToX(routeCoords[0]?.[0] ?? 137.39);
+    const z = player.init ? player.z : latToZ(routeCoords[0]?.[1] ?? -4.8);
+    const lon = xToLon(x);
+    const lat = zToLat(z);
+    const elev = elevMin + sampleElevSceneY(x, z);
+    return mp.dropPing({ lon, lat, elevM: elev, label });
+  };
+
   const hudView = document.getElementById("hud-view");
   window.addEventListener("keydown", (e) => {
     if (!hudView.classList.contains("active")) return;
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
     const k = e.key.toLowerCase();
     keys.add(k);
-    // walking keys take over from route playback
-
+    if (k === "p") {
+      dropLocalPing("EVA Waypoint");
+    }
     if (k === " ") {
       e.preventDefault();
       if (player.grounded) {
@@ -975,7 +1171,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const btnTex = document.getElementById("hud-tex");
   const btnFreeRoam = document.getElementById("hud-freeroam");
   const btnBack = document.getElementById("hud-back-planner");
+  const btnPing = document.getElementById("hud-ping");
   const btnPov = document.getElementById("hud-pov-btn");
+
+  btnPing?.addEventListener("click", () => dropLocalPing("EVA Waypoint"));
 
   btnBack?.addEventListener("click", () => {
     playing = false;
@@ -1174,7 +1373,26 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const moveDir = new THREE.Vector3();
   let prevT = performance.now();
   let clockT = 0;
+  let lastMpSendMs = 0;
+  let lastSentPose = null;
   let hudTimer = 1;
+
+  const pushApart = (targetPos) => {
+    if (!targetPos) return;
+    const pdx = freePos.x - targetPos.x;
+    const pdz = freePos.z - targetPos.z;
+    const pdy = Math.abs((player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)) - targetPos.y);
+    const pDist = Math.hypot(pdx, pdz);
+    if (pdy < ASTRONAUT_HEIGHT_M * 0.9 && pDist < PARTNER_COLLISION_R) {
+      if (pDist > 1e-4) {
+        freePos.x = targetPos.x + (pdx / pDist) * PARTNER_COLLISION_R;
+        freePos.z = targetPos.z + (pdz / pDist) * PARTNER_COLLISION_R;
+      } else {
+        freePos.x -= fwd.x * PARTNER_COLLISION_R;
+        freePos.z -= fwd.z * PARTNER_COLLISION_R;
+      }
+    }
+  };
 
   function animate(now) {
     requestAnimationFrame(animate);
@@ -1207,21 +1425,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
         const v = (run ? RUN_SPEED_MS : WALK_SPEED_MS) * slowdown * (player.grounded ? 1 : 0.6);
         freePos.addScaledVector(moveDir, v * dt);
       }
-      // Solid collision against the partner astronaut so free-roam cannot walk through them
+      // Solid collision against visible NPC partner or live crewmates so free-roam cannot clip through them
       if (partner && partner.group.visible) {
-        const pdx = freePos.x - partner.group.position.x;
-        const pdz = freePos.z - partner.group.position.z;
-        const pdy = Math.abs((player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)) - partner.group.position.y);
-        const pDist = Math.hypot(pdx, pdz);
-        if (pdy < ASTRONAUT_HEIGHT_M * 0.9 && pDist < PARTNER_COLLISION_R) {
-          if (pDist > 1e-4) {
-            freePos.x = partner.group.position.x + (pdx / pDist) * PARTNER_COLLISION_R;
-            freePos.z = partner.group.position.z + (pdz / pDist) * PARTNER_COLLISION_R;
-          } else {
-            freePos.x -= fwd.x * PARTNER_COLLISION_R;
-            freePos.z -= fwd.z * PARTNER_COLLISION_R;
-          }
-        }
+        pushApart(partner.group.position);
+      }
+      for (const remote of remoteAvatars.values()) {
+        pushApart(remote.group.position);
       }
       px = freePos.x;
       pz = freePos.z;
@@ -1304,6 +1513,49 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     camera.rotation.x = pitch + micro(0.9, 0.0006);
     camera.rotation.z = Math.sin(ph) * 0.0025 * amt;
 
+    // Smoothly animate live multiplayer crewmates
+    const lerpAlpha = Math.min(1, dt * 12);
+    for (const remote of remoteAvatars.values()) {
+      const prevRx = remote.cur.x;
+      const prevRz = remote.cur.z;
+      remote.cur.x += (remote.target.x - remote.cur.x) * lerpAlpha;
+      remote.cur.y += (remote.target.y - remote.cur.y) * lerpAlpha;
+      remote.cur.z += (remote.target.z - remote.cur.z) * lerpAlpha;
+      remote.cur.yaw = lerpAngleRad(remote.cur.yaw, remote.target.yaw, lerpAlpha);
+      const rStep = Math.hypot(remote.cur.x - prevRx, remote.cur.z - prevRz);
+      const rSpeed = dt > 0 ? Math.max(rStep / dt, remote.target.speed * 0.5) : 0;
+      remote.group.position.set(remote.cur.x, remote.cur.y, remote.cur.z);
+      remote.group.rotation.y = remote.cur.yaw;
+      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne);
+    }
+
+    // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
+    const curLon = xToLon(px);
+    const curLat = zToLat(pz);
+    const movedOrTurned =
+      !lastSentPose ||
+      Math.hypot(px - lastSentPose.x, pz - lastSentPose.z) > 0.04 ||
+      Math.abs(player.y - lastSentPose.y) > 0.04 ||
+      Math.abs(yaw - lastSentPose.yaw) > 0.03 ||
+      !player.grounded !== lastSentPose.airborne;
+    if (now - lastMpSendMs > 1200 || (movedOrTurned && now - lastMpSendMs > 65)) {
+      lastMpSendMs = now;
+      lastSentPose = { x: px, y: player.y, z: pz, yaw, airborne: !player.grounded };
+      const posePayload = {
+        x: Number(px.toFixed(3)),
+        y: Number(player.y.toFixed(3)),
+        z: Number(pz.toFixed(3)),
+        lon: Number(curLon.toFixed(6)),
+        lat: Number(curLat.toFixed(6)),
+        yaw: Number(yaw.toFixed(4)),
+        speed: Number(groundSpeed.toFixed(2)),
+        airborne: !player.grounded,
+        freeRoam,
+        alongM: Number(alongM.toFixed(1)),
+      };
+      mp?.sendState(posePayload);
+      onLocalPose?.(posePayload);
+    }
     updateContactShadows();
 
     // sun, moons and shadow box follow the walker
@@ -1340,6 +1592,24 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   return {
     onResize: () => {
       onResize();
+    },
+    dropLocalPing,
+    syncAlongM: (s) => {
+      alongM = Math.max(0, Math.min(totalDist, Number(s) || 0));
+      if (freeRoam && btnFreeRoam) btnFreeRoam.click();
+      if (scrubber) scrubber.value = alongM.toFixed(1);
+    },
+    teleportTo: (lon, lat) => {
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+      const tx = lonToX(lon);
+      const tz = latToZ(lat);
+      if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
+      freePos.set(tx, 0, tz);
+      player.x = tx;
+      player.z = tz;
+      player.y = sampleElevSceneY(tx, tz);
+      player.vy = 0;
+      player.grounded = true;
     },
   };
 }

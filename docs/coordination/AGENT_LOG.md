@@ -826,3 +826,35 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan reported the 2D map was buggy with two Planner buttons. The planner opens in MapLibre 3D terrain mode by default, and the whole map rendered black: the DEM tiles carried true Mars heights (about -3.6 km), which MapLibre's terrain camera/depth setup does not handle. The mars-dem:// tiles now encode heights above the local minimum (minElevM - 20 m); relief and hillshade are unchanged and UI elevations still come from the sampler. Removed the 3D HUD's own Planner button (the top bar one remains). Checked in the browser: map renders in 3D-terrain mode, no console errors; web tests pass.
 - Commit: this commit
 - Next step: push when Cagan asks.
+
+### 2026-11-14 17:27 Europe/Istanbul — Add dual-transport EVA multiplayer support (BroadcastChannel + LAN WebSocket)
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`main`)
+- Task id: STRETCH-MP
+- Files changed: scripts/mp-hub.mjs, scripts/server.mjs, scripts/start-app.sh, start.bat, web/shared/multiplayer.js, web/app.js, web/hud/hud3d.js, web/planner/planner.js, web/index.html, web/styles.css, web/tests/multiplayer.test.mjs, docs/coordination/AGENT_LOG.md
+- Why: Added zero-dependency multiplayer EVA support across both 2D Mission Control Planner and 3D Bodycam views. Added `scripts/mp-hub.mjs` + `scripts/server.mjs` (pure Node RFC 6455 WebSocket room relay `/ws?room=<code>`, `/api/mp/status` LAN URL discovery, static file serving), updated `scripts/start-app.sh` and `start.bat` to prefer `node scripts/server.mjs` with Python fallback, built dual-transport `web/shared/multiplayer.js` (`BroadcastChannel` always active offline including in `?demo=1` with 0 network calls, plus LAN WebSocket with sequence deduplication), rendered live animated rigged NASA Mark III crewmate avatars with callsign badges, backpack LEDs, solid collision, shared terrain beacon pillars (`P` key / Pin button), Crew/Comms drawer, EVA radio chat, `Go To` crewmate teleport, and live 2D `eva-crew`/`eva-pings` layers. Verified DOM ID audit (0 missing) and 20/20 unit tests (`node --test web/tests/*.test.mjs`).
+- Commit: this commit
+- Next step: Test two tabs (e.g. Planner + Bodycam or two Bodycam windows) at `http://localhost:8765/web/` or `?room=GALE-01`, and push `main` when ready.
+
+### 2026-11-14 17:39 Europe/Istanbul — Vercel static production config
+
+- Human: Doruk
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: docs
+- Task id: n/a
+- Files changed: vercel.json, .vercelignore, .gitignore, docs/coordination/AGENT_LOG.md
+- Why: Published the static Marswalk app to Vercel production (`martian-mappers`). Root redirects to `/web/`. The deploy ignore list leaves out team profiles, coordination notes, pipeline code, secrets, and the relief STL. `.vercel/` stays untracked so link metadata and pulled env files are not committed.
+- Commit: this commit
+- Next step: Turn off Vercel Authentication if judges should open https://martian-mappers.vercel.app without a Vercel login. Cross-device crew still needs the local server.
+
+### 2026-11-14 17:45 Europe/Istanbul — Merge origin/main into local main
+
+- Human: Doruk
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: docs
+- Task id: n/a
+- Files changed: web/hud/hud3d.js, web/index.html, web/planner/planner.js, web/styles.css, docs/coordination/AGENT_LOG.md
+- Why: Local main had the multiplayer commit and the Vercel config; origin/main had the single-astronaut HUD, map teleport, and performance work. Kept both: crew pins, radio, and remote avatars, plus teleport, contact shadows, and CREW: 1 with no AI buddy. `node --check` and 22/22 web tests passed.
+- Commit: this commit
+- Next step: Push main.
