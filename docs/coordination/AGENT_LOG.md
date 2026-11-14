@@ -107,3 +107,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Locked the 13 Nov demo/AI decision after Doruk's confirmation ("Yes, lock the demo and AI decision"), relayed via Lumi and Ari at 13 Nov 2026, 17:46 Europe/Istanbul. Replaced pending-confirmation wording in the DECISIONS row with locked status. Role sheets, docs/demo/README.md, and docs/AI_USE.md had no pending-Doruk wording, so they were left unchanged. Kept the provisionally official source label (confirm with a cert-valid fetch on 14 Nov 08:00).
 - Commit: this commit
 - Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00. PRE-05 / PRE-06 stay open until then.
+
+### 2026-11-14 11:18 Europe/Istanbul — PRE-02
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen Medium)
+- Role: backend-3
+- Task id: PRE-02
+- Files changed: docs/team/profiles/cc.md, docs/coordination/AGENT_LOG.md
+- Why: Completed first-session onboarding interview for CC (Backend 3 — data) before starting Backend 3 tasks.
+- Commit: this commit
+- Next step: Commit onboarding profile, check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
