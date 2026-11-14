@@ -671,3 +671,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan asked for a 1.80 m astronaut with a NASA model, photorealistic bodycam-style graphics and a completely new black UI with white text buttons. Used NASA 3D Resources (Mark III spacesuit; Z2 download did not finish). Added PBR lighting, an image-based sky light, shadows, sky, tone mapping and a camera lens pass; true ray tracing is not possible in real time in WebGL, and the UI and credits say so. Follow-up the same session: the NASA model has no skeleton, so a procedural rig was written (joint heights for a 1.80 m body, skin weights from vertex position, distance-driven walk / jog, arms lowered from the model's forward-reaching pose); helmet camera moved in front of the deep chest so the legs show when looking down; camera sway cut to millimetres; third-person camera removed; Mars gravity, jumping and slower jog (2.2 m/s) added. Checked in the browser with side and front renders of the rig and in the live view; no console errors. Cagan pasted a NASA API key in chat: it was not used (NASA 3D Resources need no key) and was not written to any file; Cagan was advised to rotate it.
 - Commit: this commit
 - Next step: Divarci reviews; push the branch and open a PR only when Cagan asks.
+
+### 2026-11-14 16:49 Europe/Istanbul — shadows and Shift run (branch backend/simulation)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in Divarci's web/ tree at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/hud3d.js, web/index.html, web/app.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan said shadows looked unrealistic and Shift did not run. Shadows: near sun shadows now use a 4096 px map over a 56 m box (about 1.4 cm per texel), snapped to texels so edges do not crawl, with lower sky/ambient fill so shade stays dark; far terrain shadows are baked at load by marching the height grid towards the sun over one mirror period (about 1.3 s, 5.5% of ground in terrain shadow at a 25 deg sun) and applied to the sun light only in the terrain shader. Shift: it did nothing in route playback, and in free-roam 2.2 m/s on slopes stayed below the run-pose threshold; now Shift is a light run (2.5 m/s) in both modes, WASD switches to free-roam, and the partner keeps pace. Checked in the browser, no console errors.
+- Commit: this commit
+- Next step: Divarci reviews web/; push when Cagan asks.

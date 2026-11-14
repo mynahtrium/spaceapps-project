@@ -29,7 +29,7 @@ const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
 const EYE_FORWARD_M = 0.36; // at the visor, ahead of the suit's deep chest so the legs show when looking down
 const WALK_SPEED_MS = 1.4; // placeholder walking pace (Earth hiking stand-in)
-const RUN_SPEED_MS = 2.2; // a suited jog
+const RUN_SPEED_MS = 2.5; // a light suited run (Shift); clearly faster than walking, not a sprint
 const MARS_G = 3.71; // m/s^2
 const JUMP_SPEED_MS = 1.7; // about 0.4 m apex under Mars gravity
 const PARTNER_AHEAD_M = 6;
@@ -233,19 +233,23 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
 
   // Sun: mid-afternoon, fairly low so the relief throws long shadows.
   const sunDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize();
-  const sun = new THREE.DirectionalLight(0xfff0de, 3.2);
+  // Mars sees a small sun disc (about 0.35 deg), so near shadows are crisp; the thin dusty sky
+  // fills them with a weak reddish light rather than washing them out.
+  const SHADOW_HALF_M = 28;
+  const SHADOW_MAP_PX = 4096;
+  const sun = new THREE.DirectionalLight(0xfff0de, 3.6);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -45;
-  sun.shadow.camera.right = 45;
-  sun.shadow.camera.top = 45;
-  sun.shadow.camera.bottom = -45;
+  sun.shadow.mapSize.set(SHADOW_MAP_PX, SHADOW_MAP_PX);
+  sun.shadow.camera.left = -SHADOW_HALF_M;
+  sun.shadow.camera.right = SHADOW_HALF_M;
+  sun.shadow.camera.top = SHADOW_HALF_M;
+  sun.shadow.camera.bottom = -SHADOW_HALF_M;
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 900;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.04;
+  sun.shadow.bias = -0.00015;
+  sun.shadow.normalBias = 0.025;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xd8a984, 0x3b2418, 0.45));
+  scene.add(new THREE.HemisphereLight(0xc99a76, 0x2e1a12, 0.22));
 
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(8500, 48, 24),
@@ -272,7 +276,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     const envScene = new THREE.Scene();
     envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), sky.material));
     scene.environment = pmrem.fromScene(envScene, 0.04).texture;
-    scene.environmentIntensity = 0.7;
+    scene.environmentIntensity = 0.5;
     pmrem.dispose();
   }
 
@@ -332,6 +336,78 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const terrainGeom = buildTerrainGeometry(fullSeg);
   const copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 2)));
 
+  // ---------- far terrain shadows (baked) ----------
+  // The real-time shadow map only covers the ground near the walker. For the rest, march from every
+  // terrain cell towards the sun through the height grid and store how much of the sun is visible.
+  // The mirrored terrain repeats every 2 tiles in world space, so one mask over that period, sampled
+  // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
+  function bakeSunMask() {
+    const n = elevGrid ? imgW : 0;
+    if (!n) return null;
+    const N = 2 * n; // cells across one mirror period
+    const cell = worldW / n;
+    const H = new Float32Array(N * N);
+    for (let r = 0; r < N; r++) {
+      const sr = r < n ? r : 2 * n - 1 - r;
+      for (let c = 0; c < N; c++) {
+        const sc = c < n ? c : 2 * n - 1 - c;
+        H[r * N + c] = elevGrid[sr * imgW + sc];
+      }
+    }
+    const horiz = Math.hypot(sunDir.x, sunDir.z);
+    const tanSun = sunDir.y / horiz;
+    const dx = sunDir.x / horiz; // cells per step towards the sun (x = columns, east)
+    const dz = sunDir.z / horiz; // z = rows, south
+    const maxSteps = Math.ceil(700 / cell);
+    const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
+    const out = new Uint8Array(N * N * 4);
+    const wrap = (v) => ((v % N) + N) % N;
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        const h0 = H[r * N + c];
+        let worst = -1e9;
+        for (let k = 1; k <= maxSteps; k++) {
+          const fx = c + dx * k;
+          const fz = r + dz * k;
+          const x0 = Math.floor(fx);
+          const z0 = Math.floor(fz);
+          const tx = fx - x0;
+          const tz = fz - z0;
+          const a = wrap(x0);
+          const b = wrap(x0 + 1);
+          const ra = wrap(z0) * N;
+          const rb = wrap(z0 + 1) * N;
+          const h =
+            (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
+          const t = (h - h0) / (k * cell);
+          if (t > worst) {
+            worst = t;
+            if (worst > tanSun + SOFT) break; // fully in shadow
+          }
+        }
+        const lit = Math.min(1, Math.max(0, (tanSun - worst) / (2 * SOFT) + 0.5));
+        // texture row 0 = smallest world z (north), matching the shader's lookup
+        const o = (r * N + c) * 4;
+        out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
+        out[o + 3] = 255;
+      }
+    }
+    const tex = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const bakeT0 = performance.now();
+  const sunMask = bakeSunMask();
+  if (sunMask) {
+    const d = sunMask.image.data;
+    let shade = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] < 128) shade++;
+    console.info(`sun mask baked in ${Math.round(performance.now() - bakeT0)} ms, ${((100 * shade) / (d.length / 4)).toFixed(1)}% of ground in terrain shadow`);
+  }
+
   // ---------- terrain material ----------
   const texLoader = new THREE.TextureLoader();
   const prepTex = (t) => {
@@ -359,9 +435,33 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   const detailTex = makeDetailTexture();
 
   const terrainMat = new THREE.MeshStandardMaterial({ map: reliefTex, roughness: 0.96, metalness: 0.0 });
+  terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
   terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.detailMap = { value: detailTex };
+    shader.uniforms.sunMask = { value: sunMask };
+    shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
+    shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
+    shader.uniforms.sunMaskOrigin = { value: new THREE.Vector2(-worldW / 2, -worldH / 2) };
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vMmWorldXZ;")
+      .replace(
+        "#include <project_vertex>",
+        "#include <project_vertex>\nvMmWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;"
+      );
+    const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
+      "getDirectionalLightInfo( directionalLight, directLight );",
+      "getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= mmSunVis;"
+    );
     shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;"
+      )
+      .replace(
+        "#include <lights_fragment_begin>",
+        "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
+          sunChunk
+      )
       .replace("#include <map_pars_fragment>", "#include <map_pars_fragment>\nuniform sampler2D detailMap;")
       .replace(
         "#include <map_fragment>",
@@ -570,6 +670,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     if (!hudView.classList.contains("active")) return;
     const k = e.key.toLowerCase();
     keys.add(k);
+    // walking keys take over from route playback
+    if (!freeRoam && ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
+      btnFreeRoam?.click();
+    }
     if (k === " ") {
       e.preventDefault();
       if (player.grounded) {
@@ -746,7 +850,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
     if (playing && !freeRoam) {
-      alongM += dt * WALK_SPEED_MS * SPEEDS[speedIdx];
+      const pace = keys.has("shift") ? RUN_SPEED_MS : WALK_SPEED_MS * SPEEDS[speedIdx];
+      alongM += dt * pace;
       if (alongM > totalDist) alongM = 0;
       if (scrubber) scrubber.value = alongM.toFixed(1);
     }
@@ -848,7 +953,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     if (routeCoords.length > 1) {
       const wantS = alongM + PARTNER_AHEAD_M;
       const prevS = partnerS;
-      const maxStep = WALK_SPEED_MS * SPEEDS[speedIdx] * 1.2 * dt;
+      const maxStep = (keys.has("shift") && !freeRoam ? RUN_SPEED_MS : WALK_SPEED_MS * SPEEDS[speedIdx]) * 1.2 * dt;
       partnerS += Math.max(-maxStep, Math.min(maxStep, wantS - partnerS));
       if (Math.abs(wantS - partnerS) > 30) partnerS = wantS; // scrubber jump
       const pa = routePoint(partnerS);
@@ -859,7 +964,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     }
 
     // sun and shadow box follow the walker
-    sun.target.position.set(px, ground, pz);
+    const texel = (2 * SHADOW_HALF_M) / SHADOW_MAP_PX;
+    sun.target.position.set(Math.round(px / texel) * texel, Math.round(ground / texel) * texel, Math.round(pz / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
 
