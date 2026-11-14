@@ -130,6 +130,28 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Other humans run onboarding and fill Human on their intro files; Doruk asked to push this work to main (no feature-branch PR).
 
+### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: PRE-02, MUST-12 (plus PRE-05/PRE-06 TLS re-check)
+- Files changed: docs/team/profiles/eymen.md (new), docs/demo/README.md, docs/demo/script.md (new), docs/demo/video-beats.md (new), docs/demo/slides-outline.md (new), docs/demo/submission-checklist.md (new), docs/coordination/BOARD.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
+- Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2–3 min live demo script, ≤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40–48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
+- Commit: this commit
+- Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0–16) and run the hour-16 rough demo walk.
+
+### 2026-11-14 11:30 Europe/Istanbul — PRE-02
+
+- Human: Asil
+- Agent tool + model: Gemini (Gemini 3.8 Flash)
+- Role: tester-1
+- Task id: PRE-02
+- Files changed: docs/team/profiles/asil.md, docs/team/ROSTER.md, docs/coordination/BOARD.md, docs/AI_USE.md, docs/coordination/AGENT_LOG.md
+- Why: Completed first-session onboarding interview for Asil (Tester 1); created profile, updated roster and board.
+- Commit: this commit
+- Next step: Draft MUST test checklist in docs/testing/ (MUST-11) and review judging checklist (PRE-06).
+
 ### 2026-11-14 11:30 Europe/Istanbul — PRE-02
 
 - Human: CC
@@ -140,6 +162,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Completed first-session onboarding interview for CC (Backend 3 — data) and filled Human in docs/comms/intro-backend-3.md; pushed directly to main as requested.
 - Commit: this commit
 - Next step: Check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
+
+### 2026-11-14 11:32 Europe/Istanbul — MUST-11
+
+- Human: Asil
+- Agent tool + model: Gemini (Gemini 3.8 Flash)
+- Role: tester-1
+- Task id: MUST-11
+- Files changed: docs/testing/must-checklist.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Drafted beginner-friendly MUST test checklist covering PR gating, B1/B2/F1 criteria, and fallback requirements for hour 16 sign-off.
+- Commit: this commit
+- Next step: Review incoming PRs and coordinate with B1, B2, B3, F1 as MUST tasks get claimed.
 
 ### 2026-11-14 11:40 Europe/Istanbul — PRE-02 / MUST-01 (claim)
 
@@ -184,3 +217,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Next B2 MUST work (MUST-04/05/06) needs locked stops. Did not invent outcrop names or clear is_example. Claimed PRE-07 as blocked and filed a cited lock request + board question for Doruk/team.
 - Commit: this commit
 - Next step: Doruk/team answers PRE-07 lock (and optional example-scaffold yes/no); then MUST-04.
+
+### 2026-11-14 11:55 Europe/Istanbul — MUST-01 (DTM crop, slope and ortho previews)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend-1
+- Task id: MUST-01
+- Files changed: pipeline/terrain/make_slope.py (new), pipeline/terrain/crop_ortho.py (new), pipeline/terrain/requirements.txt (new), data/processed/terrain/slope-preview.png, slope_stats.json, ortho-preview.png (new), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Cropped 2 km x 2 km of DTEEC_019698 (HTTP range reads), averaged 1 m to ~5 m cells, computed slope (median 9.7 deg; 28% of cells above 15 deg, 18% above 20 deg; no no-data in this crop) and wrote a class-coloured preview. Cropped the 25 cm RED_A orthoimage to the same footprint (read at about 2 m per pixel, 1000 x 1000 preview). The two previews show the same gully and ridge pattern. Raw crops are in data/raw/ and are not committed. The crop centre (4.83 S, 137.39 E, near Curiosity Sol 5070) is a placeholder until the stops are locked (PRE-07). Slope limits are lunar stand-ins and the DTM under-reads rover tilt.
+- Commit: this commit
+- Next step: MUST-02 cost map and height preview for the 3D view; re-crop when stops are locked; tilt check vs MSL waypoints (MUST-03).

@@ -33,7 +33,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
 | PRE-01 | GitHub account, collaborator access, practice PR on the roster | All | TBD | TBD | todo | before 14 Nov | [GITHUB_WORKFLOW.md](../GITHUB_WORKFLOW.md) |
-| PRE-02 | First-session onboarding interview; write `docs/team/profiles/<name>.md` | All | Doruk (B2), Cagan (B1), CC (B3), Eymen (T2) | Grok (Cursor), Claude Code, Gemini (Antigravity) | doing | first session | Profiles: [doruk.md](../team/profiles/doruk.md), [cagan.md](../team/profiles/cagan.md), [cc.md](../team/profiles/cc.md), [eymen.md](../team/profiles/eymen.md). Other roles still need interviews. No personal data; see [profiles/README.md](../team/profiles/README.md) |
+| PRE-02 | First-session onboarding interview; write `docs/team/profiles/<name>.md` | All | Doruk (B2), Cagan (B1), CC (B3), Asil (T1), Eymen (T2) | Grok (Cursor), Claude Code, Antigravity, Gemini | doing | first session | Profiles: [doruk.md](../team/profiles/doruk.md), [cagan.md](../team/profiles/cagan.md), [cc.md](../team/profiles/cc.md), [asil.md](../team/profiles/asil.md), [eymen.md](../team/profiles/eymen.md). F1 interview pending. No personal data; see [profiles/README.md](../team/profiles/README.md) |
 | PRE-03 | Installs (Git, Python 3, editor; GDAL for B1) | All / B1 | TBD | TBD | todo | before 14 Nov | No project pipeline yet |
 | PRE-04 | Personal `NASA_API_KEY` in a local gitignored `.env` only | B3 | TBD | TBD | todo | before 14 Nov | Never commit or paste the key |
 | PRE-05 | Read 13 Nov Resources tab, submission guide, judging guide | All | TBD | TBD | todo | 13 Nov | **UNVERIFIED** until those pages can be read. Partial pass 13 Nov: the [2026 landing page](https://www.spaceappschallenge.org/2026/) and [official terms](https://www.spaceappschallenge.org/legal/) loaded; official challenge Details, Resources tab, and judging / submission guides were unreadable (certificate error / HTTP 500). Re-checked 14 Nov 11:19: TLS cert validation still fails (`curl` exit 60 / Windows Schannel). |
@@ -44,7 +44,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
-| MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Claude Code | doing | hour 6 | `pipeline/terrain/`, `data/processed/terrain/` |
+| MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Claude Code | review | hour 6 | `pipeline/terrain/`, `data/processed/terrain/`. First pass done 14 Nov with a placeholder crop centre; re-crop after PRE-07. |
 | MUST-02 | Cost / hazard map + `cost-map.json` + height preview for 3D | B1 | TBD | TBD | todo | hour 10 | Contract: `docs/contracts/cost-map.json` |
 | MUST-03 | Tilt check vs Curiosity waypoints; freeze MUST raster | B1 | TBD | TBD | todo | hour 16 | Note DTM under-read |
 | MUST-04 | Write locked `stops.json` | B2 | TBD | TBD | todo | hour 2 | Clear `is_example` on real stops |
@@ -54,8 +54,8 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-08 | Scaffold planner + 3D scene; load contract JSON | F1 | TBD | TBD | todo | hour 2 | `web/planner/`, `web/hud/` |
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
-| MUST-11 | MUST test plan + sign-off | T1 | TBD | TBD | todo | hour 16 | |
-| MUST-12 | Review early PRs; rough demo walk | T1, T2 | Eymen (T2) | Gemini (Antigravity) | doing | hour 16 | Drafted `docs/demo/script.md`, `video-beats.md`, `slides-outline.md`, `submission-checklist.md`; ready to review early PRs |
+| MUST-11 | MUST test plan + sign-off | T1 | Asil | Gemini | doing | hour 16 | Drafted in docs/testing/must-checklist.md |
+| MUST-12 | Review early PRs; rough demo walk | T1, T2 | Eymen (T2), Asil (T1) | Gemini (Antigravity) | doing | hour 16 | Drafted demo docs in docs/demo/ and test checklist in docs/testing/; ready to review early PRs |
 
 ### SHOULD (hours 16–32)
 

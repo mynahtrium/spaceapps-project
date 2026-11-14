@@ -1,0 +1,21 @@
+{
+  "status": "first-pass preview, not validated",
+  "crop_centre_lat_lon": [
+    -4.83,
+    137.39
+  ],
+  "half_size_km": 1.0,
+  "native_res_m": 1.0117467945795,
+  "cell_size_m": 5.0587339728975,
+  "shape_rows_cols": [
+    395,
+    395
+  ],
+  "mars_radius_m": 3396190.0,
+  "valid_fraction": 1.0,
+  "slope_median_deg": 9.663536071777344,
+  "share_gt_15_deg": 0.27742989905463866,
+  "share_gt_20_deg": 0.1827207178336805,
+  "classes": "0 <=10, 1 10-15, 2 15-20, 3 >20 (blocked), 4 no data",
+  "note": "Lunar slope limits are stand-ins; the 1 m DTM under-reads rover tilt."
+}
