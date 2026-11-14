@@ -140,3 +140,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Completed first-session onboarding interview for CC (Backend 3 — data) and filled Human in docs/comms/intro-backend-3.md; pushed directly to main as requested.
 - Commit: this commit
 - Next step: Check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
+
+### 2026-11-14 11:40 Europe/Istanbul — PRE-02 / MUST-01 (claim)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend-1
+- Task id: PRE-02, MUST-01
+- Files changed: docs/team/profiles/cagan.md (new), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: Ran the onboarding interview (skills and GitHub username not asked) and wrote Cagan's profile. Claimed MUST-01 as Backend 1. Tried a first slope preview and cost map locally, then Cagan asked to drop it; none of that code or data is in this commit.
+- Commit: this commit
+- Next step: Install GDAL/rasterio and start MUST-01 again.
