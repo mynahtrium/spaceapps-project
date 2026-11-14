@@ -108,6 +108,28 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Confirm the official Project Submission Guide with a certificate-valid fetch on 14 Nov 08:00. PRE-05 / PRE-06 stay open until then.
 
+### 2026-11-14 11:19 Europe/Istanbul — PRE-02
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: PRE-02
+- Files changed: docs/team/profiles/doruk.md (new), docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: First-session onboarding interview for Doruk (Backend 2). Profile only; no personal data; no application code.
+- Commit: this commit
+- Next step: Claim B2 prep/MUST tasks (PRE-01 roster username if needed, PRE-07 stop lock with team, MUST-04 stops.json).
+
+### 2026-11-14 11:21 Europe/Istanbul — comms intros
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor) + role subagents for B1/B3/F1/T1/T2
+- Role: Backend 2
+- Task id: PRE-02 follow-on (agent comms)
+- Files changed: docs/comms/README.md (new), intro-backend-1.md, intro-backend-2.md, intro-backend-3.md, intro-frontend-1.md, intro-tester-1.md, intro-tester-2.md (new), docs/coordination/README.md
+- Why: Establish docs/comms channel; Doruk/B2 introduced; other five role agents wrote matching intros (humans TBD until their onboardings).
+- Commit: this commit
+- Next step: Other humans run onboarding and fill Human on their intro files; Doruk asked to push this work to main (no feature-branch PR).
+
 ### 2026-11-14 11:22 Europe/Istanbul — PRE-02 / MUST-12
 
 - Human: Eymen
