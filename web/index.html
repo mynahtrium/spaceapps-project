@@ -117,6 +117,17 @@
         </div>
 
         <div class="card">
+          <h3 class="card-title"><span>Visor</span></h3>
+          <div class="topbar-actions" style="flex-wrap:wrap;">
+            <button id="mission-tex" class="btn" type="button">Ground: relief</button>
+            <button id="mission-pov" class="btn" type="button">Rover POV</button>
+          </div>
+          <div class="honesty-note" style="margin-top:8px;">
+            Escape returns to the helmet. Gold visor is G. Magnifier is Z.
+          </div>
+        </div>
+
+        <div class="card">
           <h3 class="card-title"><span>Layers</span></h3>
           <div class="toggle-grid">
             <label class="toggle-item"><input type="checkbox" id="layer-ortho" checked /> HiRISE ortho</label>
@@ -212,52 +223,44 @@
         </div>
       </div>
 
-      <div class="visor-overlay">
-        <div class="visor-top">
-          <div class="cam-stamp">
-            <div><span class="rec">●</span> REC &nbsp;EVA-CAM 02 &nbsp;<span class="dim">// HELMET MOUNT</span></div>
-            <div id="hud-clock">T+00:00:00</div>
-            <div class="dim" id="hud-crew">AST-1 · 1.80 M · <span id="hud-suit">SUIT —</span></div>
-            <div class="dim" id="hud-crew-summary">MARS g 3.717 M/S² · CREW: 1</div>
-            <div class="dim" id="hud-metabolic">METABOLIC: — (Pandolf stand-in)</div>
-            <div class="dim" id="hud-view-label">GALE CRATER · MOUNT SHARP · 4.80°S 137.39°E</div>
+      <div class="visor-overlay" id="visor-overlay">
+        <div class="helmet-status">
+          <div id="hud-clock">T+00:00:00</div>
+          <div id="hud-crew">AST-1 · 1.80 M · <span id="hud-suit">SUIT —</span></div>
+          <div id="hud-crew-summary">MARS g 3.717 M/S² · CREW: 1</div>
+          <div id="hud-metabolic">METABOLIC: — (Pandolf stand-in)</div>
+          <div id="hud-view-label">GALE CRATER · MOUNT SHARP · 4.80°S 137.39°E</div>
+          <div class="should-line" id="hud-should-line">—</div>
+        </div>
+
+        <div id="hud-zoom-reticle" class="zoom-reticle" hidden>
+          <div class="zoom-ring"></div>
+          <div id="hud-zoom-readout" class="zoom-readout">1×</div>
+        </div>
+
+        <div class="helmet-glass">
+          <div class="helmet-readout">
+            <div class="helmet-k">DIST</div>
+            <div class="helmet-v" id="hud-dist">0.0 m</div>
+            <div class="helmet-note" id="hud-dist-sub">remaining — · next stop —</div>
+            <div class="helmet-k">SLOPE</div>
+            <div class="helmet-v"><span id="hud-slope">0.0°</span><span id="hud-slope-badge" class="slope-badge slope-green">green</span></div>
+            <div class="helmet-note">lunar stand-in limit · weak DTM-tilt match</div>
           </div>
-
-          <div class="telemetry">
-            <span class="k">DIST</span>
-            <span class="v"><span class="hud-value" id="hud-dist">0.0 m</span></span>
-            <span class="note hud-sub" id="hud-dist-sub">remaining — · next stop —</span>
-
-            <span class="k">SLOPE</span>
-            <span class="v"><span id="hud-slope">0.0°</span><span id="hud-slope-badge" class="slope-badge slope-green">green</span></span>
-            <span class="note">lunar stand-in limit · weak DTM-tilt match</span>
-
-            <span class="k">NEXT</span>
-            <span class="v hud-value" id="hud-next-stop">—</span>
-            <span class="note hud-sub" id="hud-next-kind">—</span>
-
-            <span class="k">O₂</span>
-            <span class="v hud-value" id="hud-o2">100.0%</span>
+          <div class="helmet-readout helmet-readout-right">
+            <div class="helmet-k">NEXT</div>
+            <div class="helmet-v" id="hud-next-stop">—</div>
+            <div class="helmet-note" id="hud-next-kind">—</div>
+            <div class="helmet-k">O₂</div>
+            <div class="helmet-v" id="hud-o2">100.0%</div>
             <div class="o2-bar"><div id="hud-o2-fill" class="o2-fill" style="width:100%"></div></div>
-            <span class="note">illustrative linear placeholder, not a suit model</span>
+            <div class="helmet-note">illustrative linear placeholder, not a suit model</div>
           </div>
         </div>
 
-        <div class="visor-bottom">
-          <div>
-            <div id="hud-comms-toast" class="comms-toast"></div>
-            <div class="should-line hud-sub" id="hud-should-line">—</div>
-            <div class="hud-hint" style="text-align:left;margin-top:6px;">
-              DRAG TO LOOK (LOOK DOWN FOR YOUR LEGS) · WASD WALK · SHIFT RUN · SPACE JUMP · M MAP · P BEACON
-            </div>
-          </div>
-
-          <div class="hud-controls">
-            <button id="hud-map-btn" class="btn">Map (M)</button>
-            <button id="hud-tex" class="btn">Tex: relief</button>
-            <button id="hud-ping" class="btn">Pin (P)</button>
-            <button id="hud-pov-btn" class="btn">Rover POV</button>
-          </div>
+        <div id="hud-comms-toast" class="comms-toast"></div>
+        <div class="hud-hint" id="hud-hint">
+          DRAG LOOK · WASD WALK · SHIFT RUN · SPACE JUMP · M MAP · P BEACON · G GOLD VISOR · Z ZOOM · ESC MISSION UI
         </div>
       </div>
     </section>

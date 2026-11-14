@@ -1,5 +1,9 @@
 /**
- * 3D helmet-cam view of the Mount Sharp walk (`web/hud/hud3d.js`).
+ * 3D helmet view of the Mount Sharp walk (`web/hud/hud3d.js`).
+ *
+ * The camera is the astronaut's eyes. Escape leaves this view for the mission UI.
+ * Symbology is drawn on the inner visor. The suit is NASA's Advanced Crew Escape Suit
+ * when that mesh loads, with a procedural gait, slope-matched feet, and synthesized footsteps.
  *
  * - Terrain: Backend's 8-bit RGB height-preview.png (value = R*256 + G) on the real 2 km tile,
  *   surrounded by mirrored copies so the ground never ends (copies are visual, not data).
@@ -28,6 +32,13 @@ import {
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
+import { createFootsteps } from "./footsteps.js";
+import { galeSunState, PHOBOS_SKY_RATE_RAD_S, DEIMOS_SKY_RATE_RAD_S } from "./MarsEphemeris.js";
+import { createCelestialSky } from "./MarsCelestialSky.js";
+import { createRockField } from "./MarsRockField.js";
+import { createGaleVista } from "./GaleVista.js";
+import { createDustDevil } from "./DustDevil.js";
+import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
@@ -35,7 +46,7 @@ import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
 import { createMarsBody, stepPhysicsWorld } from "../physics/MarsPhysicsWorld.js";
-import { torsoLeanRad } from "../physics/SuitBiomechanics.js";
+import { downhillLeanRad, torsoLeanRad } from "../physics/SuitBiomechanics.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -49,7 +60,13 @@ const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
 // NASA 3D Resources models, tried in order (first one that loads wins). The Z2 suit
 // (16.9 MB, NASA's Mars-oriented prototype) can be added in front of this list once downloaded
 // to ./assets/nasa-3d/z2-spacesuit.glb.
-const SUIT_MODELS = [{ url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III SUIT" }];
+const SUIT_MODELS = [
+  {
+    url: "./assets/nasa-3d/advanced-crew-escape-suit.glb",
+    label: "NASA ACES · LAUNCH/ENTRY MESH · PROCEDURAL GAIT",
+  },
+  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III · PROCEDURAL GAIT" },
+];
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -127,18 +144,26 @@ const SKY_FRAG = /* glsl */ `
   uniform vec3 uHorizon;
   uniform vec3 uGround;
   uniform vec3 uSunDir;
+  uniform float uTau;
+  uniform float uSunElev;
+  uniform float uSunCos;
   varying vec3 vDir;
   void main() {
     vec3 d = normalize(vDir);
     float h = d.y;
+    float tau = max(0.2, uTau);
     vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
+    col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
     col = mix(col, uGround, smoothstep(0.0, -0.08, h));
     float s = max(dot(d, normalize(uSunDir)), 0.0);
-    // Mars: 0.35 deg sun disc + small bluish dust halo around sun, warm dust glow further out
-    col += vec3(1.6, 1.65, 1.8) * smoothstep(0.999965, 0.999992, s);
+    float disc = smoothstep(uSunCos - 0.00002, min(0.9999992, uSunCos + 0.0000015), s);
+    col += vec3(1.6, 1.65, 1.8) * disc * exp(-0.18 * tau);
     col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
     col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
     col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    float lowSun = smoothstep(0.38, -0.02, uSunElev);
+    float fwd = smoothstep(0.90, 0.992, s);
+    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -163,6 +188,8 @@ const MOON_FRAG = /* glsl */ `
   uniform vec3 uHorizon;
   uniform vec3 uGround;
   uniform vec3 uSunDir;
+  uniform float uTau;
+  uniform float uSunElev;
   uniform vec3 uBaseColor;
   uniform float uAlbedoBoost;
   varying vec3 vNormalW;
@@ -171,12 +198,17 @@ const MOON_FRAG = /* glsl */ `
 
   vec3 marsSky(vec3 d) {
     float h = d.y;
+    float tau = max(0.2, uTau);
     vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
+    col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
     col = mix(col, uGround, smoothstep(0.0, -0.08, h));
     float s = max(dot(d, normalize(uSunDir)), 0.0);
     col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0;
     col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6;
     col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35;
+    float lowSun = smoothstep(0.38, -0.02, uSunElev);
+    float fwd = smoothstep(0.90, 0.992, s);
+    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22);
     return col;
   }
 
@@ -208,7 +240,7 @@ const LENS_VERT = /* glsl */ `
   }
 `;
 
-// Bodycam lens: barrel distortion, chromatic aberration, vignette, grain, slight flicker.
+// Eyes through clear polycarbonate. Gold tint, magnifier, and rare cosmic-ray ticks are uniforms.
 const LENS_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform vec2 uResolution;
@@ -219,6 +251,10 @@ const LENS_FRAG = /* glsl */ `
   uniform float uGrain;
   uniform float uVignette;
   uniform float uExposure;
+  uniform float uGold;
+  uniform float uOptZoom;
+  uniform float uGlint;
+  uniform float uRay;
   varying vec2 vUv;
 
   float hash(vec2 p) {
@@ -233,7 +269,7 @@ const LENS_FRAG = /* glsl */ `
     c.x *= aspect;
     float r2 = dot(c, c);
     vec2 d = c * (1.0 + uDistort * r2 + 0.35 * uDistort * r2 * r2);
-    d *= uFrameZoom; // zoom slightly when bezel distortion is active, 1.0 when frame effect is disabled
+    d *= uFrameZoom / max(1.0, uOptZoom);
     d.x /= aspect;
     vec2 uv = d + 0.5;
     vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
@@ -245,12 +281,27 @@ const LENS_FRAG = /* glsl */ `
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
 
     col *= uExposure;
-    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col = mix(vec3(lum), col, 0.86); // bodycam sensors run a little desaturated
-    if (uVignette > 0.001) {
-      float vig = smoothstep(1.25, 0.25, length(c) * uVignette);
-      col *= mix(0.25, 1.0, vig);
+    vec3 gold = col * vec3(1.15, 0.78, 0.38);
+    gold = mix(gold, gold * vec3(0.72, 0.62, 0.4), 0.35);
+    col = mix(col, gold, uGold);
+    float helm = smoothstep(0.45, 1.25, length(c));
+    col *= mix(1.0, 0.12, helm * uVignette);
+    col += vec3(0.42, 0.32, 0.24) * helm * helm * 0.16 * (1.0 - 0.45 * uGold);
+    float scratch = uGlint * pow(max(0.0, 1.0 - abs(c.y) * 3.0), 2.0) * (0.5 + 0.5 * sin(c.x * 140.0 + c.y * 40.0));
+    col += vec3(1.0, 0.95, 0.85) * scratch * 0.08;
+
+    float ray = 0.0;
+    float tbin = floor(uTime * 12.0);
+    for (int i = 0; i < 3; i++) {
+      float h = hash(vec2(tbin, float(i) + 2.7));
+      if (h > uRay) continue;
+      vec2 p = vec2(hash(vec2(h, 1.3)), hash(vec2(h, 2.7)));
+      vec2 sdir = normalize(vec2(hash(vec2(h, 3.1)) - 0.5, hash(vec2(h, 4.2)) - 0.5) + 1e-4);
+      float side = abs(dot(vUv - p, vec2(-sdir.y, sdir.x)));
+      float along = dot(vUv - p, sdir);
+      ray += smoothstep(0.0035, 0.0, side) * smoothstep(0.0, 0.01, along) * smoothstep(0.09, 0.02, along);
     }
+    col += vec3(0.75, 0.92, 1.0) * ray;
 
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
@@ -258,7 +309,6 @@ const LENS_FRAG = /* glsl */ `
 
     float g = hash(vUv * uResolution + fract(uTime * 37.0) * 91.0) - 0.5;
     gl_FragColor.rgb += g * uGrain * (1.0 - 0.6 * dot(gl_FragColor.rgb, vec3(0.333)));
-    gl_FragColor.rgb += 0.012 * sin(vUv.y * uResolution.y * 1.5 + uTime * 30.0) * uGrain;
   }
 `;
 
@@ -310,8 +360,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   wrap.appendChild(renderer.domElement);
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-  // Sun: mid-afternoon, fairly low so the relief throws long shadows.
-  const sunDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize();
+  // Afternoon at Gale from the Mars24 solar longitude, not a fixed vector.
+  const sunState = galeSunState(new Date(), 15);
+  const sunDir = new THREE.Vector3(sunState.x, sunState.y, sunState.z).normalize();
+  let sunTransit = 1;
   // Mars sees a small sun disc (about 0.35 deg), so near shadows are crisp; the thin dusty sky
   // fills them with a weak reddish light rather than washing them out.
   const SHADOW_HALF_M = 20; // about 2 cm per shadow texel around the walker
@@ -348,6 +400,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         uHorizon: { value: HORIZON },
         uGround: { value: SKY_GROUND },
         uSunDir: { value: sunDir },
+        uTau: { value: 0.5 },
+        uSunElev: { value: sunState.elevationRad },
+        uSunCos: { value: Math.cos(sunState.sunAngularRad * 0.5) },
       },
     })
   );
@@ -394,6 +449,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
         uHorizon: { value: HORIZON },
         uGround: { value: SKY_GROUND },
         uSunDir: { value: sunDir },
+        uTau: { value: 0.5 },
+        uSunElev: { value: sunState.elevationRad },
         uBaseColor: { value: new THREE.Color(baseHex) },
         uAlbedoBoost: { value: albedoBoost },
       },
@@ -402,12 +459,12 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   const skyMoons = new THREE.Group();
   const phobos = new THREE.Mesh(
-    buildMoonGeometry(145, [1.34, 0.9, 0.82], true),
+    buildMoonGeometry(16, [1.34, 0.9, 0.82], true),
     makeMoonMat(0xd6cbc2, 1.35)
   );
   phobos.renderOrder = -1;
   const deimos = new THREE.Mesh(
-    buildMoonGeometry(52, [1.14, 0.95, 0.9], false),
+    buildMoonGeometry(3.4, [1.14, 0.95, 0.9], false),
     makeMoonMat(0xf0e4d8, 1.7)
   );
   deimos.renderOrder = -1;
@@ -416,35 +473,40 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
   const PHOBOS_ORBIT_R = 9600;
   const DEIMOS_ORBIT_R = 10400;
+  const moonSpin = new THREE.Vector3();
+  const phobosDir = new THREE.Vector3();
+  const deimosDir = new THREE.Vector3();
+  function dirNearSun(out, angleRad, elevBias) {
+    const c = Math.cos(angleRad);
+    const s = Math.sin(angleRad);
+    out.set(sunDir.x * c - sunDir.z * s, sunDir.y + elevBias, sunDir.x * s + sunDir.z * c);
+    if (out.lengthSq() < 1e-6) out.set(0, 1, 0);
+    return out.normalize();
+  }
   function updateMoons(tSec, camPos = camera.position) {
-    // Phobos orbits faster than Mars rotates -> rises West (-X), drifts East (+X) across upper sky
-    const pAngle = 1.05 - tSec * 0.014; // ~0.5 rad above NW horizon at start, gliding W -> E
-    const pAzX = -Math.cos(pAngle);
-    const pAltY = Math.sin(pAngle) * 0.72 + 0.16;
-    const pLatZ = -0.52;
-    const pLen = Math.hypot(pAzX, pAltY, pLatZ);
-    phobos.position.set(
-      (pAzX / pLen) * PHOBOS_ORBIT_R,
-      (pAltY / pLen) * PHOBOS_ORBIT_R,
-      (pLatZ / pLen) * PHOBOS_ORBIT_R
-    );
-    phobos.lookAt(camPos); // tidally locked toward viewer / Mars surface
-    phobos.rotateZ(0.32);
-
-    // Deimos orbits slower than Mars rotates -> rises East (+X), slowly drifts West (-X)
-    const dAngle = 0.85 + tSec * 0.0055;
-    const dAzX = Math.cos(dAngle);
-    const dAltY = Math.sin(dAngle) * 0.82 + 0.12;
-    const dLatZ = -0.34;
-    const dLen = Math.hypot(dAzX, dAltY, dLatZ);
-    deimos.position.set(
-      (dAzX / dLen) * DEIMOS_ORBIT_R,
-      (dAltY / dLen) * DEIMOS_ORBIT_R,
-      (dLatZ / dLen) * DEIMOS_ORBIT_R
-    );
+    // Epoch puts Phobos just west of the Sun so a real-rate transit starts soon after the visor opens.
+    const pAng = (tSec - 18) * PHOBOS_SKY_RATE_RAD_S;
+    dirNearSun(phobosDir, pAng, 0);
+    phobos.position.copy(phobosDir).multiplyScalar(PHOBOS_ORBIT_R);
+    phobos.lookAt(camPos);
+    const dAng = 1.15 + tSec * DEIMOS_SKY_RATE_RAD_S;
+    dirNearSun(deimosDir, dAng, 0.08);
+    deimos.position.copy(deimosDir).multiplyScalar(DEIMOS_ORBIT_R);
     deimos.lookAt(camPos);
+    const sep = Math.acos(Math.max(-1, Math.min(1, phobosDir.dot(sunDir))));
+    const limit = sunState.sunAngularRad * 0.5 + 0.1 * (Math.PI / 180);
+    sunTransit = sep < limit ? 1 - 0.35 * (1 - sep / limit) : 1;
   }
   updateMoons(0);
+  const celestial = createCelestialSky(THREE);
+  celestial.update({ ...sunState, date: new Date() });
+  scene.add(celestial.group);
+  const rockField = createRockField(THREE);
+  scene.add(rockField.group);
+  const galeVista = createGaleVista(THREE);
+  scene.add(galeVista);
+  const dustDevil = createDustDevil(THREE);
+  scene.add(dustDevil.points);
 
   // Image-based light from the same sky, so suits and rocks pick up the dusty sky and ground bounce.
   {
@@ -497,6 +559,30 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     const top = e00 + (e10 - e00) * tx;
     const bot = e01 + (e11 - e01) * tx;
     return top + (bot - top) * ty - elevMin;
+  }
+
+  function sampleNormal(x, z) {
+    const e = 0.35;
+    const nx = sampleElevSceneY(x - e, z) - sampleElevSceneY(x + e, z);
+    const nz = sampleElevSceneY(x, z - e) - sampleElevSceneY(x, z + e);
+    const ny = 2 * e;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    return { x: nx / len, y: ny / len, z: nz / len };
+  }
+
+  function footSample(x, z, yaw, bodyY) {
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const rx = Math.cos(yaw);
+    const rz = -Math.sin(yaw);
+    const one = (side) => {
+      const px = x + fx * 0.16 + rx * side * 0.12;
+      const pz = z + fz * 0.16 + rz * side * 0.12;
+      return { dy: sampleElevSceneY(px, pz) - bodyY, n: sampleNormal(px, pz) };
+    };
+    const L = one(-1);
+    const R = one(1);
+    return { footDyL: L.dy, footDyR: R.dy, normalL: L.n, normalR: R.n };
   }
 
   function buildTerrainGeometry(seg) {
@@ -802,6 +888,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       scene.add(pole, lamp);
     });
   }
+  const fieldKits = createFieldKits(THREE, stops, lonToX, latToZ, sampleElevSceneY);
+  scene.add(fieldKits);
+  const footsteps = createFootsteps(THREE, scene);
 
   // ---------- route ----------
   let routeLineMesh = null;
@@ -1189,6 +1278,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       uGrain: { value: 0.07 },
       uVignette: { value: 1.05 },
       uExposure: { value: 1.0 },
+      uGold: { value: 0 },
+      uOptZoom: { value: 1 },
+      uGlint: { value: 0 },
+      uRay: { value: 0.00035 },
     },
   });
   const lensScene = new THREE.Scene();
@@ -1260,6 +1353,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
   let lastX = 0;
   let lastY = 0;
   renderer.domElement.addEventListener("pointerdown", (e) => {
+    footsteps.resume();
     if (isMapOpen()) return;
     dragging = true;
     lastX = e.clientX;
@@ -1330,6 +1424,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     terrainMat.needsUpdate = true;
     const b = document.getElementById("hud-tex");
     if (b) b.textContent = `Tex: ${TEX[texMode].label}`;
+    return TEX[texMode].label;
   }
   btnTex?.addEventListener("click", () => setTexMode((texMode + 1) % TEX.length));
 
@@ -1877,6 +1972,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     mapCtx.fillText("N ↑", W - 32, 20);
   }
 
+  let goldVisor = 0;
+  let optZoom = 1;
+  let nextPovStop = null;
+
   window.addEventListener("keydown", (e) => {
     if (!hudView.classList.contains("active")) return;
     const tag = e.target?.tagName;
@@ -1893,10 +1992,24 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     if (e.key === "Escape" && isMapOpen()) {
       e.preventDefault();
+      e.stopImmediatePropagation();
       setMapOpen(false);
       return;
     }
     if (isMapOpen()) return;
+
+    if (k === "g" && !e.repeat) {
+      goldVisor = goldVisor > 0.5 ? 0 : 1;
+      return;
+    }
+    if (k === "z" && !e.repeat) {
+      optZoom = optZoom === 1 ? 3 : optZoom === 3 ? 8 : 1;
+      const reticle = document.getElementById("hud-zoom-reticle");
+      const readout = document.getElementById("hud-zoom-readout");
+      if (reticle) reticle.hidden = optZoom === 1;
+      if (readout) readout.textContent = `${optZoom}×`;
+      return;
+    }
 
     keys.add(k);
     if (k === "p") {
@@ -1969,15 +2082,9 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const hh = String(Math.floor(t / 3600)).padStart(2, "0");
       const mm = String(Math.floor((t % 3600) / 60)).padStart(2, "0");
       const ss = String(t % 60).padStart(2, "0");
-      clockEl.textContent = `T+${hh}:${mm}:${ss}  (WALK-TIME PLACEHOLDER)`;
+      clockEl.textContent = `LTST 15:00 · T+${hh}:${mm}:${ss}  (WALK-TIME PLACEHOLDER)`;
     }
-
-    if (btnPov && nextStop) {
-      btnPov.onclick = () => {
-        const entry = povIndex?.stops?.find((s) => s.stop_id === nextStop.properties.id) || povIndex?.stops?.[0];
-        if (entry) onOpenPov(entry);
-      };
-    }
+    nextPovStop = nextStop;
   }
 
   let devCfg = loadDevSettings();
@@ -2004,12 +2111,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       visorOverlay.classList.toggle("clean-hud", Boolean(cfg.cleanHud));
     }
 
-    const strength = cfg.frameEffect ? cfg.frameStrength : 0;
-    lensMat.uniforms.uFrameZoom.value = cfg.frameEffect ? 1.0 - 0.12 * Math.min(1, strength) : 1.0;
-    lensMat.uniforms.uDistort.value = 0.26 * strength;
-    lensMat.uniforms.uAberration.value = 0.006 * strength;
-    lensMat.uniforms.uVignette.value = 1.05 * strength;
-    lensMat.uniforms.uGrain.value = cfg.superGraphics ? 0.025 * strength : 0.07 * strength;
+    const strength = cfg.frameEffect ? cfg.frameStrength : 0.35;
+    lensMat.uniforms.uFrameZoom.value = 1.0 - 0.04 * Math.min(1, strength);
+    lensMat.uniforms.uDistort.value = 0.09 * strength;
+    lensMat.uniforms.uAberration.value = 0.0035 * strength;
+    lensMat.uniforms.uVignette.value = 0.85 * Math.max(0.45, strength);
+    lensMat.uniforms.uGrain.value = (cfg.superGraphics ? 0.008 : 0.014) * Math.max(0.35, strength);
+    lensMat.uniforms.uGold.value = goldVisor;
+    lensMat.uniforms.uOptZoom.value = optZoom;
 
     if (camera.fov !== cfg.fov) {
       camera.fov = cfg.fov;
@@ -2051,9 +2160,22 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
     terrainMat.normalScale.set(wantSuper ? 0.95 : 0.55, wantSuper ? 0.95 : 0.55);
     superDetailUniform.value = wantSuper ? 1.0 : 0.0;
-    sun.intensity = wantSuper ? 3.95 : 3.6;
+    sun.intensity = (wantSuper ? 3.95 : 3.6) * (sunState.fluxWm2 / 590);
     hemiLight.intensity = wantSuper ? 0.28 : 0.22;
     renderer.toneMappingExposure = wantSuper ? 1.06 : 1.0;
+    rockField.group.visible = wantSuper;
+    galeVista.visible = wantSuper;
+    fieldKits.visible = wantSuper;
+    const tau = cfg.dustTau ?? 0.5;
+    sky.material.uniforms.uTau.value = tau;
+    sky.material.uniforms.uSunElev.value = sunState.elevationRad;
+    for (const moon of [phobos, deimos]) {
+      moon.material.uniforms.uTau.value = tau;
+      moon.material.uniforms.uSunElev.value = sunState.elevationRad;
+    }
+    scene.fog.density = 0.00042 * (0.55 + tau * 0.85);
+    const alertCount = alerts?.alerts?.length ?? 0;
+    lensMat.uniforms.uRay.value = alertCount > 0 ? 0.0018 : 0.00035;
     onResize();
   }
 
@@ -2104,6 +2226,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
   };
 
+  const lookDir = new THREE.Vector3();
   function animate(now) {
     requestAnimationFrame(animate);
     const dt = Math.min(0.1, (now - prevT) / 1000);
@@ -2220,19 +2343,34 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     }
     fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
     right.set(1, 0, 0).applyAxisAngle(UP, yaw);
-    const footLx = px + fwd.x * 0.16 - right.x * 0.12;
-    const footLz = pz + fwd.z * 0.16 - right.z * 0.12;
-    const footRx = px + fwd.x * 0.16 + right.x * 0.12;
-    const footRz = pz + fwd.z * 0.16 + right.z * 0.12;
     const uphillAlign = fwd.x * phys.uphillX + fwd.z * phys.uphillZ;
-    const lean = uphillAlign > 0 ? torsoLeanRad(((phys.slopeDeg * Math.PI) / 180) * uphillAlign) : 0.08;
+    const slopeRad = ((phys.slopeDeg || 0) * Math.PI) / 180;
+    let lean = 0.08;
+    let brake = 0;
+    if (uphillAlign > 0.05) lean = torsoLeanRad(slopeRad * uphillAlign);
+    else if (uphillAlign < -0.05) {
+      lean = 0.08 + downhillLeanRad(slopeRad * -uphillAlign);
+      brake = Math.min(1, -uphillAlign);
+    }
+    const feet = footSample(px, pz, yaw, player.y);
+    const strikes = [];
     self.update(dt, step, groundSpeed, !player.grounded, gaitDir, {
       crouch: phys.crouch,
       lean,
-      footDyL: sampleElevSceneY(footLx, footLz) - player.y,
-      footDyR: sampleElevSceneY(footRx, footRz) - player.y,
+      brake,
+      ...feet,
+      onStrike: (side) => strikes.push(side),
     });
     self.group.updateMatrixWorld(true);
+    for (const side of strikes) {
+      const bone = side === "L" ? self.bones.footL : self.bones.footR;
+      if (!bone) continue;
+      bone.getWorldPosition(footPos);
+      const gy = sampleElevSceneY(footPos.x, footPos.z);
+      const n = sampleNormal(footPos.x, footPos.z);
+      footsteps.play(side, phys.faciesId);
+      footsteps.stamp(footPos.x, gy, footPos.z, n, yaw, phys.faciesId);
+    }
 
     // helmet camera at the visor, with only a few millimetres of walking sway
     const ph = self.phase ?? 0;
@@ -2268,7 +2406,11 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       const rSpeed = dt > 0 ? Math.max(rStep / dt, remote.target.speed * 0.5) : 0;
       remote.group.position.set(remote.cur.x, remote.cur.y, remote.cur.z);
       remote.group.rotation.y = remote.cur.yaw;
-      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne);
+      const remoteFeet = footSample(remote.cur.x, remote.cur.z, remote.cur.yaw, remote.cur.y);
+      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne, null, {
+        ...remoteFeet,
+        lean: 0.08,
+      });
     }
 
     // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
@@ -2307,7 +2449,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
     skyMoons.position.copy(camera.position);
+    celestial.group.position.copy(camera.position);
     updateMoons(clockT, camera.position);
+    footsteps.update(dt, phys.g || surfaceG);
+    rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
+    dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
+    const tauDim = Math.exp(-0.28 * ((devCfg.dustTau ?? 0.5) - 0.5));
+    sun.intensity = (devCfg.superGraphics ? 3.95 : 3.6) * (sunState.fluxWm2 / 590) * tauDim * sunTransit;
 
     // the HUD text only needs ~10 updates a second
     hudTimer += dt;
@@ -2330,6 +2478,23 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       } else {
         updateHudReadouts(alongM, sample.lon, sample.lat);
       }
+      if (optZoom > 1) {
+        const readout = document.getElementById("hud-zoom-readout");
+        camera.getWorldDirection(lookDir);
+        let dist = 1.5;
+        let hit = null;
+        for (let i = 0; i < 22; i++) {
+          const x = camera.position.x + lookDir.x * dist;
+          const y = camera.position.y + lookDir.y * dist;
+          const z = camera.position.z + lookDir.z * dist;
+          if (y < sampleElevSceneY(x, z) + 0.2) {
+            hit = dist;
+            break;
+          }
+          dist *= 1.28;
+        }
+        if (readout) readout.textContent = hit ? `${optZoom}×  ${hit.toFixed(0)} m` : `${optZoom}×`;
+      }
     }
     curvAnchor.value.set(camera.position.x, camera.position.z);
     followEndless(camera.position);
@@ -2337,6 +2502,10 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
 
     adaptResolution(dt * 1000, now);
     lensMat.uniforms.uTime.value = clockT;
+    lensMat.uniforms.uGold.value = goldVisor;
+    lensMat.uniforms.uOptZoom.value = optZoom;
+    camera.getWorldDirection(lookDir);
+    lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir));
     const flicker = devCfg.frameEffect
       ? 1.0 + Math.sin(clockT * 0.7) * 0.015 * devCfg.frameStrength + Math.sin(clockT * 13.0) * 0.006 * devCfg.frameStrength
       : 1.0;
@@ -2363,6 +2532,13 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov, mp = null, o
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
       if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
       teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw: true });
+    },
+    cycleTex: () => setTexMode((texMode + 1) % TEX.length),
+    openRoverPov: () => {
+      const stop = nextPovStop;
+      const entry =
+        povIndex?.stops?.find((s) => s.stop_id === stop?.properties?.id) || povIndex?.stops?.[0];
+      if (entry) onOpenPov(entry);
     },
   };
 }

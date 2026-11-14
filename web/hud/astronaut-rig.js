@@ -323,6 +323,68 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   let air = 0; // 0 grounded .. 1 airborne
   let dirF = 1; // smoothed walking direction relative to the body: forward (+1) / back (-1)
   let dirS = 0; // and sideways: right (+1) / left (-1)
+  let prevStanceL = 0;
+  let prevStanceR = 0;
+  const L1 = Math.max(0.25, J.hipY - J.kneeY);
+  const L2 = Math.max(0.22, J.kneeY - J.ankleY);
+  const soleDrop = Math.max(0.05, J.ankleY);
+  const footUp = new THREE.Vector3();
+  const footFwd = new THREE.Vector3();
+  const footX = new THREE.Vector3();
+  const footZ = new THREE.Vector3();
+  const footM = new THREE.Matrix4();
+  const qWorld = new THREE.Quaternion();
+  const qShin = new THREE.Quaternion();
+  const qGait = new THREE.Quaternion();
+
+  function clampUnit(v) {
+    return Math.max(-1, Math.min(1, v));
+  }
+
+  /**
+   * Two-bone solve. Positive hipX pitches the thigh toward -Z (forward).
+   * Knee flex is applied as a negative shin rotation.x, which folds the foot back.
+   */
+  function solveLeg(gaitHip, gaitKnee, dy, stance, brake) {
+    let hipX = gaitHip + HIP_NEUTRAL_RAD;
+    let knee = gaitKnee + KNEE_NEUTRAL_RAD + brake * 0.42;
+    if (!(stance > 0.12) || !Number.isFinite(dy)) return { hipX, knee };
+    const vertical = Math.max(0.08, pelvis.position.y - (dy + soleDrop));
+    const zReach = -Math.sin(gaitHip) * Math.min(0.28, (L1 + L2) * 0.22);
+    let dist = Math.hypot(vertical, zReach);
+    const maxD = L1 + L2 - 0.01;
+    const minD = Math.abs(L1 - L2) + 0.01;
+    dist = Math.min(maxD, Math.max(minD, dist));
+    const cosKnee = clampUnit((L1 * L1 + L2 * L2 - dist * dist) / (2 * L1 * L2));
+    const kneeIk = Math.PI - Math.acos(cosKnee);
+    const cosHip = clampUnit((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist));
+    const hipIk = Math.atan2(-zReach, vertical) + Math.acos(cosHip);
+    return {
+      hipX: hipX * (1 - stance) + hipIk * stance,
+      knee: knee * (1 - stance) + kneeIk * stance,
+    };
+  }
+
+  function alignAnkle(footBone, shinBone, normal, stance) {
+    if (!(stance > 0.2) || !normal) return;
+    footUp.set(normal.x, normal.y, normal.z);
+    if (footUp.lengthSq() < 1e-6) return;
+    footUp.normalize();
+    footFwd.set(0, 0, -1).applyQuaternion(group.quaternion);
+    footFwd.addScaledVector(footUp, -footFwd.dot(footUp));
+    if (footFwd.lengthSq() < 1e-6) footFwd.set(0, 0, -1);
+    footFwd.normalize();
+    footZ.copy(footFwd).negate();
+    footX.crossVectors(footUp, footZ).normalize();
+    footZ.crossVectors(footX, footUp).normalize();
+    footM.makeBasis(footX, footUp, footZ);
+    qWorld.setFromRotationMatrix(footM);
+    shinBone.getWorldQuaternion(qShin);
+    qGait.copy(footBone.quaternion);
+    footBone.quaternion.copy(qShin.invert()).multiply(qWorld);
+    qGait.slerp(footBone.quaternion, Math.min(1, stance));
+    footBone.quaternion.copy(qGait);
+  }
 
   /**
    * @param dt seconds
@@ -330,7 +392,7 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
    * @param speed current ground speed (m/s)
    * @param airborne true while falling or jumping
    * @param dir optional walking direction in the body frame: { f: forward, s: right }
-   * @param pose optional { crouch, lean, footDyL, footDyR } from the physics step
+   * @param pose optional { crouch, lean, brake, footDyL, footDyR, normalL, normalR, onStrike }
    */
   function update(dt, moved, speed, airborne, dir, pose) {
     const lope = speed >= FROUDE_LOPE_MS;
@@ -364,19 +426,20 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     const tuck = air * 0.62;
     const crouch = pose?.crouch || 0;
     const lean = pose?.lean || 0;
-    const plant = (knee, dy) => (knee < 0.35 && Number.isFinite(dy) ? Math.max(-0.12, Math.min(0.1, dy)) : 0);
-    thighL.rotation.x = L.hip + HIP_NEUTRAL_RAD + tuck * 0.6;
-    thighL.rotation.z = -abdL;
-    shinL.rotation.x = -(L.knee + KNEE_NEUTRAL_RAD + tuck) - plant(L.knee, pose?.footDyL) * 1.4;
-    footL.rotation.x = L.ankle + tuck * 0.3;
-    footL.rotation.z = abdL * 0.6;
-    thighR.rotation.x = R.hip + HIP_NEUTRAL_RAD + tuck * 0.4;
-    thighR.rotation.z = abdR;
-    shinR.rotation.x = -(R.knee + KNEE_NEUTRAL_RAD + tuck * 0.8) - plant(R.knee, pose?.footDyR) * 1.4;
-    footR.rotation.x = R.ankle + tuck * 0.3;
-    footR.rotation.z = -abdR * 0.6;
+    const brake = pose?.brake || 0;
+    const stanceOf = (knee) => (1 - air) * (1 - smooth(0.05, 0.55, knee));
+    const sL = stanceOf(L.knee);
+    const sR = stanceOf(R.knee);
+    pelvis.position.y = basePelvisY - a * 0.022 * Math.abs(Math.sin(phase)) - air * 0.05 - crouch - brake * 0.03;
+    const solvedL = solveLeg(L.hip + tuck * 0.6, L.knee + tuck, pose?.footDyL, sL, brake);
+    const solvedR = solveLeg(R.hip + tuck * 0.4, R.knee + tuck * 0.8, pose?.footDyR, sR, brake);
+    thighL.rotation.set(solvedL.hipX, 0, -abdL);
+    shinL.rotation.set(-solvedL.knee, 0, 0);
+    footL.rotation.set(L.ankle * (1 - sL) + tuck * 0.3, 0, abdL * 0.6);
+    thighR.rotation.set(solvedR.hipX, 0, abdR);
+    shinR.rotation.set(-solvedR.knee, 0, 0);
+    footR.rotation.set(R.ankle * (1 - sR) + tuck * 0.3, 0, -abdR * 0.6);
 
-    pelvis.position.y = basePelvisY - a * 0.022 * Math.abs(Math.sin(phase)) - air * 0.05 - crouch;
     pelvis.rotation.y = a * 0.07 * Math.sin(phase) * Math.abs(fw);
     pelvis.rotation.z = a * 0.025 * Math.cos(phase) - sd * a * 0.04;
     spine.rotation.y = -a * 0.05 * Math.sin(phase);
@@ -387,6 +450,16 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     poseArm(armL, foreL, "L", -swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.35, air * 0.3 + balance);
     poseArm(armR, foreR, "R", swing * Math.sin(phase) * Math.sign(fw || 1) + air * 0.35, air * 0.3 + balance);
     head.rotation.y = a * 0.02 * Math.sin(phase);
+
+    group.updateWorldMatrix(true, true);
+    alignAnkle(footL, shinL, pose?.normalL, sL);
+    alignAnkle(footR, shinR, pose?.normalR, sR);
+    if (!airborne && pose?.onStrike) {
+      if (prevStanceL < 0.55 && sL >= 0.55) pose.onStrike("L");
+      if (prevStanceR < 0.55 && sR >= 0.55) pose.onStrike("R");
+    }
+    prevStanceL = sL;
+    prevStanceR = sR;
   }
 
   return { group, bones: { root, pelvis, spine, chest, head, footL, footR }, update, get phase() { return phase; }, get amount() { return amount; } };

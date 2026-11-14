@@ -45,3 +45,9 @@ export function torsoLeanRad(uphillSlopeRad) {
   const s = Math.max(0, uphillSlopeRad || 0);
   return 0.08 + 0.45 * Math.sin(s);
 }
+
+/** Downhill brake lean, radians. Negative pitches the torso back and the caller adds knee bend. */
+export function downhillLeanRad(downhillSlopeRad) {
+  const s = Math.max(0, downhillSlopeRad || 0);
+  return -0.06 - 0.28 * Math.sin(s);
+}
