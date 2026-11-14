@@ -1,7 +1,7 @@
 {
   "contract": "martian-mappers.hud-telemetry.v1",
   "status": "example",
-  "note": "Array of example HUD samples along the example route, plus `primary` for loaders that expect one object. Slope/elev null until a covering DTM crop exists.",
+  "note": "Array of example HUD samples along the example route, plus `primary` for loaders that expect one object. Elevation and slope, when present, come from the 16-bit height preview along the path. Suit O2 stays a labelled placeholder.",
   "route_id": "eva-example-pre07-scaffold-001",
   "primary": {
     "contract": "martian-mappers.hud-telemetry.v1",
@@ -12,14 +12,14 @@
     "position": {
       "lat_deg": -4.8009221,
       "lon_deg": 137.3900909,
-      "elev_m": null
+      "elev_m": -3621.3
     },
     "heading_deg": 315.1,
     "distance_travelled_m": 439.1,
     "distance_to_next_stop_m": 283.7,
     "distance_remaining_m": 351.2,
-    "slope_deg": null,
-    "slope_class": "unknown",
+    "slope_deg": 7.5,
+    "slope_class": "green",
     "next_stop_id": "stop-boxwork-bonus",
     "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
     "elapsed_min_placeholder": 32.9,
@@ -38,14 +38,14 @@
       "position": {
         "lat_deg": -4.7983147,
         "lon_deg": 137.3885929,
-        "elev_m": null
+        "elev_m": -3640.5
       },
       "heading_deg": 135.1,
       "distance_travelled_m": 87.8,
       "distance_to_next_stop_m": 133.1,
       "distance_remaining_m": 702.5,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 0.0,
+      "slope_class": "green",
       "next_stop_id": "stop-mudstone-a",
       "next_stop_name": "Lake-sediment mudstone A (example)",
       "elapsed_min_placeholder": 6.6,
@@ -63,14 +63,14 @@
       "position": {
         "lat_deg": -4.7995396,
         "lon_deg": 137.3894765,
-        "elev_m": null
+        "elev_m": -3631.5
       },
       "heading_deg": 135.1,
       "distance_travelled_m": 175.6,
       "distance_to_next_stop_m": 45.3,
       "distance_remaining_m": 614.7,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 19.3,
+      "slope_class": "red",
       "next_stop_id": "stop-mudstone-a",
       "next_stop_name": "Lake-sediment mudstone A (example)",
       "elapsed_min_placeholder": 13.2,
@@ -88,14 +88,14 @@
       "position": {
         "lat_deg": -4.8007043,
         "lon_deg": 137.3903852,
-        "elev_m": null
+        "elev_m": -3621.6
       },
       "heading_deg": 135.1,
       "distance_travelled_m": 263.4,
       "distance_to_next_stop_m": 82.8,
       "distance_remaining_m": 526.9,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 5.9,
+      "slope_class": "green",
       "next_stop_id": "stop-mudstone-b",
       "next_stop_name": "Lake-sediment contact B (example)",
       "elapsed_min_placeholder": 19.8,
@@ -113,14 +113,14 @@
       "position": {
         "lat_deg": -4.8014451,
         "lon_deg": 137.3914673,
-        "elev_m": null
+        "elev_m": -3615.1
       },
       "heading_deg": 315.1,
       "distance_travelled_m": 351.2,
       "distance_to_next_stop_m": 371.6,
       "distance_remaining_m": 439.1,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 1.9,
+      "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
       "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
       "elapsed_min_placeholder": 26.3,
@@ -138,14 +138,14 @@
       "position": {
         "lat_deg": -4.8009221,
         "lon_deg": 137.3900909,
-        "elev_m": null
+        "elev_m": -3621.3
       },
       "heading_deg": 315.1,
       "distance_travelled_m": 439.1,
       "distance_to_next_stop_m": 283.7,
       "distance_remaining_m": 351.2,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 7.5,
+      "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
       "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
       "elapsed_min_placeholder": 32.9,
@@ -163,14 +163,14 @@
       "position": {
         "lat_deg": -4.7999775,
         "lon_deg": 137.3888902,
-        "elev_m": null
+        "elev_m": -3627.9
       },
       "heading_deg": 315.1,
       "distance_travelled_m": 526.9,
       "distance_to_next_stop_m": 195.9,
       "distance_remaining_m": 263.4,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 2.2,
+      "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
       "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
       "elapsed_min_placeholder": 39.5,
@@ -188,14 +188,14 @@
       "position": {
         "lat_deg": -4.7988023,
         "lon_deg": 137.3878857,
-        "elev_m": null
+        "elev_m": -3638.6
       },
       "heading_deg": 315.1,
       "distance_travelled_m": 614.7,
       "distance_to_next_stop_m": 108.1,
       "distance_remaining_m": 175.6,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 6.3,
+      "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
       "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
       "elapsed_min_placeholder": 46.1,
@@ -213,14 +213,14 @@
       "position": {
         "lat_deg": -4.7977868,
         "lon_deg": 137.3867646,
-        "elev_m": null
+        "elev_m": -3642.8
       },
       "heading_deg": 270.0,
       "distance_travelled_m": 702.5,
       "distance_to_next_stop_m": 20.3,
       "distance_remaining_m": 87.8,
-      "slope_deg": null,
-      "slope_class": "unknown",
+      "slope_deg": 3.3,
+      "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
       "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
       "elapsed_min_placeholder": 52.7,

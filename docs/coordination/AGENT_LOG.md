@@ -460,3 +460,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Pulled `5542207` after the 5-branch backend merge (`terrain`, `costmap`, `stops`, `routing`, `science`) and re-ran static checks: 28/28 Python files compile cleanly, 4/4 stops now sit inside `cost-map.json` bounds, and `data/` is 3.23 MB. Updated `POSSIBLE_BUGS.md` with current open issues (empty `web/`, `route.json` null elevation/climb & stale `dose_mSv_see`, `hud-telemetry.json` wrapper mismatch, `dose.json` stale 71.0 min duration vs 59.3 min route, missing terrain/routing `data/demo/` fixtures, duplicate `crop_window.py`, and open `PRE-07`).
 - Commit: this commit
 - Next step: Monitor Frontend 1 PRs (`web/`) and re-check after `PRE-07` stop lock + `build_dose.py` re-run.
+
+### 2026-11-14 13:44 Europe/Istanbul — MUST-06 height and slope on the example route
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor Grok 4.7)
+- Role: backend-2
+- Task id: MUST-05, MUST-06
+- Files changed: pipeline/routing/build_route.py, pipeline/routing/README.md, data/processed/routing/route.json, data/processed/routing/hud-telemetry.json, docs/comms/note-backend-2-ship.md, docs/coordination/BOARD.md (MUST-05 and MUST-06 rows), docs/coordination/AGENT_LOG.md
+- Why: The example route on backend/costmap @ 5e84db6 already reported 790.3 m, matching the four legs, so that fix was not repeated. Climb, descent, profile elevation, and HUD slope now come from the matching 16-bit height preview. Stops stay is_example. The blocked contract example boxwork point was not moved. No invented outcrop names. No secrets. Terrain files were not replaced.
+- Commit: this commit
+- Next step: Clear is_example only after PRE-07 lock. Do not merge to main until asked.
