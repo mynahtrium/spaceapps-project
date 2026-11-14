@@ -45,7 +45,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
-| MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Claude Code | review | hour 6 | `pipeline/terrain/`, `data/processed/terrain/`. First pass done 14 Nov with a placeholder crop centre; re-crop after PRE-07. |
+| MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Grok (Cursor) | doing | hour 6 | `pipeline/terrain/`, `data/processed/terrain/`. Recropping DTEEC_019698 on `backend/terrain` so example stops already in the repo sit inside the window. Not a PRE-07 lock. |
 | MUST-02 | Cost / hazard map + `cost-map.json` + height preview for 3D | B1 | Cagan | Claude Code | review | hour 10 | Contract: `docs/contracts/cost-map.json` |
 | MUST-03 | Tilt check vs Curiosity waypoints; freeze MUST raster | B1 | Cagan | Claude Code | doing | hour 16 | Tilt check done (first pass): no systematic under-read over 176 waypoints, weak correlation; see `data/processed/terrain/tilt-check.json`. Raster freeze waits for PRE-07. |
 | MUST-04 | Write locked `stops.json` | B2 | Doruk | Grok (Cursor) | doing | hour 2 | Example scaffold on branch `backend-2/routing-must-scaffold` (cited Sol 4527/4534 + contract mudstones). Still `is_example`; clear only after PRE-07 lock. |
