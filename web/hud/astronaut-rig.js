@@ -392,8 +392,9 @@ function armWeight(x, y, z, J, H) {
   const ax = Math.abs(x);
   const side = y >= 0.86 * H ? smooth(0.22 * H, 0.255 * H, ax) : 0;
   const thumbPocket = y >= 0.88 * H && y <= 1.04 * H && ax >= 0.18 * H ? smooth(-0.18 * H, -0.205 * H, z) : 0;
+  const thumbInner = y >= 0.88 * H && y <= 1.04 * H && ax >= 0.212 * H ? smooth(-0.148 * H, -0.162 * H, z) : 0;
   const front = ax >= 0.18 * H ? smooth(-0.20 * H, -0.28 * H, z) : smooth(-0.26 * H, -0.34 * H, z);
-  return Math.max(side, thumbPocket, front) * (1 - smooth(1.32 * H, 1.44 * H, y));
+  return Math.max(side, thumbPocket, thumbInner, front) * (1 - smooth(1.32 * H, 1.44 * H, y));
 }
 
 // Structured anatomical NASA White (1.0) vs NASA International Orange (0.0) suit panels.
