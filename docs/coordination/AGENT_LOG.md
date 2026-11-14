@@ -207,6 +207,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Watch for other teammates' PRs to review as Tester 2; support MUST milestones.
 
+### 2026-11-14 11:54 Europe/Istanbul — PRE-07
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: PRE-07
+- Files changed: pipeline/routing/PRE07_LOCK_REQUEST.md (new), pipeline/routing/README.md, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Next B2 MUST work (MUST-04/05/06) needs locked stops. Did not invent outcrop names or clear is_example. Claimed PRE-07 as blocked and filed a cited lock request + board question for Doruk/team.
+- Commit: this commit
+- Next step: Doruk/team answers PRE-07 lock (and optional example-scaffold yes/no); then MUST-04.
+
 ### 2026-11-14 11:55 Europe/Istanbul — MUST-01 (DTM crop, slope and ortho previews)
 
 - Human: Cagan
