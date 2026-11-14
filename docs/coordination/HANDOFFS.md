@@ -63,3 +63,49 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Backend 2 can start routing on this grid; Frontend 1 can load the height preview in the 3D view; testers check the bounds against HiView.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
 - Received: 2026-11-14 12:02 (Asil / Tester 1) — Alındı ve must-checklist.md üzerinden doğrulandı (PASS).
+
+### HANDOFF-20261114-1217 — from Backend 3 to Frontend 1, Tester 1, Tester 2 (and Backend 1)
+
+- Date (Europe/Istanbul): 2026-11-14 12:17
+- From (role, first name or nickname only, agent tool): Backend 3, CC, Antigravity (Gemini)
+- To (role, name if known): Frontend 1, Tester 1 (Asil), Tester 2 (Eymen), Backend 1 (Cagan)
+- Board task id: MUST-07, SHOULD-01, SHOULD-02, SHOULD-04 (THEMIS/CRISM pass)
+- What is ready:
+  - `data/processed/science/alerts.json` (30-day cached DONKI window 2026-10-15..2026-11-14 with 13 WSA-Enlil Mars impacts + banner copy)
+  - `data/processed/science/dose.json` (Hassler et al. 2014 RAD baseline 0.64 +/- 0.12 mSv/day; currently computed against placeholder 96 min route duration until Backend 2 ships `route.json`)
+  - `data/processed/science/layers-themis.json` + 6 cached Gale sample PNG tiles (`tiles/themis/{day,night}/z{4,6,8}_*.png`)
+  - `data/processed/science/layers-crism.json` (9 MRO CRISM MTRDR product metadata records over Gale from ODE REST)
+  - `data/processed/science/msl-waypoints-cache.json` (1,389 MSL waypoints with `tilt` through Sol 5073 for B1 MUST-03 reference)
+- Paths (files or folders): `pipeline/data/`, `data/processed/science/`
+- How to try it: Run `python -m pipeline.data.run_must07` and `python -m pipeline.data.run_phase2` (stdlib only, no extra pip packages required; `.env` with `NASA_API_KEY` needed only for DONKI re-fetch).
+- What is not done / known limits:
+  - REMS (`atmos.nmsu.edu`) reset connections and RAD RDR (`pds-ppi.igpp.ucla.edu`) failed TLS certificate expiration check on 2026-11-14; both recorded honestly as `unavailable`. `weather.json` (REMS window) and `pov/<id>.json` + JPEG stills (`SHOULD-03`) are next once `stops.json` locks.
+  - `dose.json` uses `docs/contracts/route.json` duration (`96 min`) until `data/processed/routing/route.json` exists.
+- Please do next:
+  - Frontend 1: wire `alerts.json`, `dose.json`, and `layers-themis.json` from `data/processed/science/` (with fallback to `docs/contracts/`).
+  - Backend 2: let us know when `stops.json` and `route.json` land so we regenerate `dose.json` and fetch per-stop POV stills.
+  - Testers: review PR / verify offline JSON contracts.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (kept contract field names; additive metadata fields only)
+- Received:
+
+### HANDOFF-20261114-1220 — from Backend 3 to Frontend 1, Tester 1, Tester 2, Backend 2
+
+- Date (Europe/Istanbul): 2026-11-14 12:20
+- From (role, first name or nickname only, agent tool): Backend 3, CC, Antigravity (Gemini)
+- To (role, name if known): Frontend 1, Tester 1 (Asil), Tester 2 (Eymen), Backend 2 (Doruk)
+- Board task id: SHOULD-03, SHOULD-04, SHOULD-07 (B3 complete)
+- What is ready:
+  - `data/processed/science/weather.json` (4,745 sols from CAB/NASA MSL REMS outreach feed through Sol 4995; early-morning EVA window `06:46`–`09:30` LTST)
+  - `data/processed/science/pov/` (`index.json` + 4 per-stop JSONs and 4 cached Curiosity JPEGs: Sol 5073 Navcams + Sol 4698 boxwork Mastcam, ~91–115 KB each)
+  - `data/demo/` frozen science fixtures exported (`22` files, `789.7 KB` total, listed in `data/demo/science-manifest.json`) for offline `DEMO_SAFE=1` / `?demo=1`
+- Paths (files or folders): `pipeline/data/`, `data/processed/science/`, `data/demo/`
+- How to try it: Run `python -m pipeline.data.run_phase3` (after `run_must07` and `run_phase2`). All `data/processed/science/` assets total `838.3 KB` (well under the 100 MB budget).
+- What is not done / known limits:
+  - `dose.json` and `pov/*.json` currently use `docs/contracts/route.json` (`96 min`) and `docs/contracts/stops.json` (`is_example_stop: true`). Once Backend 2 writes locked `data/processed/routing/stops.json` and `route.json`, re-run `python -m pipeline.data.run_phase2` and `python -m pipeline.data.run_phase3` (or `build_dose`, `build_pov`, `export_demo_fixtures`) to refresh them automatically.
+  - REMS sub-hourly diurnal curves are not in the CAB daily summary feed (only daily min/max air/ground temperatures are reported; no hourly curve invented).
+- Please do next:
+  - Testers: review `backend-3/must-07-data-cache` PR and sign off `MUST-07`, `SHOULD-01`–`SHOULD-04` (and B3's `SHOULD-07` fixtures).
+  - Frontend 1: wire `data/processed/science/` (and `data/demo/` for `?demo=1`).
+  - Backend 2: ping Backend 3 once `stops.json` and `route.json` are locked so we refresh `dose.json` + `pov/`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
+- Received:

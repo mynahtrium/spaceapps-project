@@ -163,6 +163,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
 
+### 2026-11-14 12:08 Europe/Istanbul — MUST-07 (initial caches)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen Medium)
+- Role: backend-3
+- Task id: MUST-07
+- Files changed: docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md, pipeline/data/__init__.py, pipeline/data/common.py, pipeline/data/fetch_donki.py, pipeline/data/fetch_waypoints.py, pipeline/data/fetch_pov_index.py, pipeline/data/fetch_pds_indexes.py, pipeline/data/run_must07.py, data/processed/science/donki-cache.json, data/processed/science/msl-waypoints-cache.json, data/processed/science/msl-raw-images-cache.json, data/processed/science/pds-archives-index.json
+- Why: Claimed MUST-07 and created Backend 3 background data-fetching scripts + initial processed caches (DONKI 30-day window with 13 Mars impacts, 1,389 MSL waypoints through Sol 5073, 30 latest + 30 boxwork MSL raw images). Recorded REMS (connection reset) and RAD (expired TLS cert) as unavailable without bypassing TLS.
+- Commit: this commit
+- Next step: Build SHOULD contract outputs (alerts.json, dose.json, weather.json, pov stills, THEMIS layers) once Backend 2 locks stops.json / route.json, or generate alerts.json from donki-cache.json next.
+
 ### 2026-11-14 11:32 Europe/Istanbul — MUST-11
 
 - Human: Asil
@@ -262,6 +273,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Stay on backend-2/routing-must-scaffold (long-lived; merge only at end). Re-run after PRE-07 lock and B1 re-crop; then clear is_example.
 
+### 2026-11-14 12:17 Europe/Istanbul — SHOULD-01, SHOULD-02, SHOULD-04 (Phase 2 science outputs)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: backend-3
+- Task id: SHOULD-01, SHOULD-02, SHOULD-04
+- Files changed: docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, pipeline/data/build_alerts.py, pipeline/data/build_dose.py, pipeline/data/build_layers_themis.py, pipeline/data/build_crism_index.py, pipeline/data/run_phase2.py, data/processed/science/alerts.json, data/processed/science/dose.json, data/processed/science/layers-themis.json, data/processed/science/layers-crism.json, data/processed/science/tiles/themis/{day,night}/z{4,6,8}_*.png
+- Why: Built Phase 2 science outputs from cached/live NASA & PDS sources: alerts.json (13 WSA-Enlil Mars impacts), dose.json (0.0427 +/- 0.008 mSv using Hassler et al. 2014 baseline and placeholder 96 min route duration), layers-themis.json + 6 cached Gale sample PNG tiles (Day/Night IR z4/z6/z8), and layers-crism.json (9 CRISM MTRDR products over Gale via ODE REST). Marked MUST-07 review on BOARD.md and logged handoff to F1/Testers/B1.
+- Commit: this commit
+- Next step: Once PRE-07/MUST-04 locks stops and Backend 2 produces route.json, re-run build_dose.py, build per-stop POV stills (SHOULD-03), resolve weather.json (SHOULD-04), and copy frozen fixtures into data/demo/ (SHOULD-07).
+
 ### 2026-11-14 12:20 Europe/Istanbul — MUST-03 (tilt check, first pass)
 
 - Human: Cagan
@@ -273,3 +295,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Re-run make_slope.py, make_cost_map.py and tilt_check.py once the stops are locked, then freeze the MUST raster. Tell testers and the slides owner that the "DTM under-reads tilt" wording needs softening.
 - Previous commit: 3078ef5
+
+### 2026-11-14 12:20 Europe/Istanbul — SHOULD-03, SHOULD-04, SHOULD-07 (B3 complete)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: backend-3
+- Task id: SHOULD-03, SHOULD-04, SHOULD-07
+- Files changed: docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, docs/AI_USE.md, pipeline/data/build_weather.py, pipeline/data/build_pov.py, pipeline/data/export_demo_fixtures.py, pipeline/data/run_phase3.py, data/processed/science/weather.json, data/processed/science/pov/*, data/demo/*
+- Why: Completed Backend 3 Phase 3 outputs: weather.json from official CAB/NASA REMS daily summary feed (4,745 sols through Sol 4995, no invented hourly curve), 4 cached Curiosity POV JPEGs + per-stop JSONs (marked example stops until PRE-07 locks), and exported 22 frozen science fixtures (789.7 KB) to data/demo/ for demo-safe mode. Marked SHOULD-01..04 review on BOARD.md, logged AI use in docs/AI_USE.md, and added final handoff in HANDOFFS.md.
+- Commit: this commit
+- Next step: Open PR for backend-3/must-07-data-cache; re-run build_dose, build_pov, and export_demo_fixtures once Backend 2 lands locked stops.json and route.json.

@@ -1,0 +1,172 @@
+{
+  "contract": "martian-mappers.alerts.v1",
+  "status": "cached",
+  "source": "DONKI WSAEnlilSimulations (cached)",
+  "source_urls": [
+    "https://api.nasa.gov/",
+    "https://ccmc.gsfc.nasa.gov/tools/DONKI/"
+  ],
+  "note": "Generated from cached personal-key DONKI query (WSAEnlilSimulations, CME, SEP, GST). FLR endpoint omitted (404 in planning checks). Offline-safe; no live call in UI.",
+  "queried_at": "2026-11-14T09:08:04Z",
+  "window": {
+    "startDate": "2026-10-15",
+    "endDate": "2026-11-14",
+    "days_back": 30
+  },
+  "counts": {
+    "WSAEnlilSimulations": 57,
+    "CME": 86,
+    "SEP": 0,
+    "GST": 1
+  },
+  "cache_relpath": "data/processed/science/donki-cache.json",
+  "alerts": [
+    {
+      "id": "WSA-ENLIL/49472/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-11-13T12:00Z",
+      "model_completion_time": "2026-11-09T19:32Z",
+      "is_glancing_blow": true,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49472/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49473/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-11-13T12:00Z",
+      "model_completion_time": "2026-11-09T19:59Z",
+      "is_glancing_blow": true,
+      "au": 5.5,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49473/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49360/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-11-07T06:00Z",
+      "model_completion_time": "2026-11-01T21:43Z",
+      "is_glancing_blow": true,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49360/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49326/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-11-04T08:00Z",
+      "model_completion_time": "2026-10-30T13:36Z",
+      "is_glancing_blow": false,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49326/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49274/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-11-01T02:00Z",
+      "model_completion_time": "2026-10-26T20:04Z",
+      "is_glancing_blow": false,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49274/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49248/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-11-01T01:00Z",
+      "model_completion_time": "2026-10-25T21:45Z",
+      "is_glancing_blow": false,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49248/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49279/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-10-31T11:00Z",
+      "model_completion_time": "2026-10-26T22:40Z",
+      "is_glancing_blow": false,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49279/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49280/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-10-31T11:00Z",
+      "model_completion_time": "2026-10-26T23:09Z",
+      "is_glancing_blow": false,
+      "au": 5.5,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49280/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49257/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-10-31T00:00Z",
+      "model_completion_time": "2026-10-26T15:40Z",
+      "is_glancing_blow": true,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49257/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49251/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-10-30T18:00Z",
+      "model_completion_time": "2026-10-26T12:37Z",
+      "is_glancing_blow": true,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49251/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49252/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-10-30T18:00Z",
+      "model_completion_time": "2026-10-26T13:10Z",
+      "is_glancing_blow": true,
+      "au": 5.5,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49252/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49259/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-10-30T18:00Z",
+      "model_completion_time": "2026-10-26T15:56Z",
+      "is_glancing_blow": false,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49259/-1",
+      "is_example": false
+    },
+    {
+      "id": "WSA-ENLIL/49216/1",
+      "type": "WSA-Enlil",
+      "mars_in_impact_list": true,
+      "predicted_arrival": "2026-10-27T12:00Z",
+      "model_completion_time": "2026-10-23T12:09Z",
+      "is_glancing_blow": false,
+      "au": 2.0,
+      "link": "https://ccmc.gsfc.nasa.gov/DONKI/view/WSA-ENLIL/49216/-1",
+      "is_example": false
+    }
+  ],
+  "banner": {
+    "level": "warn",
+    "text": "DONKI cache (2026-10-15 to 2026-11-14): 13 WSA-Enlil runs list Mars in impactList (latest predicted arrival 2026-11-13T12:00Z (glancing blow); 86 CMEs, 0 SEPs, 1 GSTs in window)."
+  }
+}

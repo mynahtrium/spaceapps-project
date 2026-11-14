@@ -1,0 +1,219 @@
+{
+  "fetched_at": "2026-11-14T09:06:33Z",
+  "sources": {
+    "waypoints": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
+    "traverse": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_traverse.json"
+  },
+  "waypoint_count": 1389,
+  "traverse_feature_count": 1317,
+  "latest_waypoint": {
+    "sol": 5073,
+    "lat": -4.82602331,
+    "lon": 137.388886,
+    "elev_geoid": -3472.085,
+    "tilt": 12.45,
+    "dist_total_m": 38638.02
+  },
+  "recent_waypoints_sample": [
+    {
+      "sol": 4957,
+      "lat": -4.82081119,
+      "lon": 137.3847756,
+      "elev_geoid": -3526.324,
+      "tilt": 11.09,
+      "dist_total_m": 37816.47
+    },
+    {
+      "sol": 4959,
+      "lat": -4.81991106,
+      "lon": 137.3850737,
+      "elev_geoid": -3531.088,
+      "tilt": 4.63,
+      "dist_total_m": 37874.92
+    },
+    {
+      "sol": 4963,
+      "lat": -4.82018328,
+      "lon": 137.3854043,
+      "elev_geoid": -3528.521,
+      "tilt": 7.34,
+      "dist_total_m": 37900.99
+    },
+    {
+      "sol": 4966,
+      "lat": -4.82073326,
+      "lon": 137.3855089,
+      "elev_geoid": -3523.36,
+      "tilt": 15.32,
+      "dist_total_m": 37935.96
+    },
+    {
+      "sol": 4970,
+      "lat": -4.82096424,
+      "lon": 137.3856038,
+      "elev_geoid": -3520.894,
+      "tilt": 24.02,
+      "dist_total_m": 37953.97
+    },
+    {
+      "sol": 4973,
+      "lat": -4.82122965,
+      "lon": 137.3857036,
+      "elev_geoid": -3516.727,
+      "tilt": 11.56,
+      "dist_total_m": 37972.1
+    },
+    {
+      "sol": 4977,
+      "lat": -4.82142997,
+      "lon": 137.3858154,
+      "elev_geoid": -3514.602,
+      "tilt": 16.12,
+      "dist_total_m": 37986.46
+    },
+    {
+      "sol": 4983,
+      "lat": -4.82149644,
+      "lon": 137.3860993,
+      "elev_geoid": -3512.648,
+      "tilt": 7.68,
+      "dist_total_m": 38015.78
+    },
+    {
+      "sol": 4987,
+      "lat": -4.82207562,
+      "lon": 137.3866196,
+      "elev_geoid": -3508.268,
+      "tilt": 10.72,
+      "dist_total_m": 38062.76
+    },
+    {
+      "sol": 4989,
+      "lat": -4.82248841,
+      "lon": 137.3866647,
+      "elev_geoid": -3505.49,
+      "tilt": 8.43,
+      "dist_total_m": 38088.03
+    },
+    {
+      "sol": 4994,
+      "lat": -4.82301157,
+      "lon": 137.3867203,
+      "elev_geoid": -3501.818,
+      "tilt": 12.14,
+      "dist_total_m": 38120.0
+    },
+    {
+      "sol": 4996,
+      "lat": -4.82359728,
+      "lon": 137.3866964,
+      "elev_geoid": -3498.715,
+      "tilt": 11.18,
+      "dist_total_m": 38167.34
+    },
+    {
+      "sol": 4998,
+      "lat": -4.82367388,
+      "lon": 137.3866745,
+      "elev_geoid": -3498.516,
+      "tilt": 12.81,
+      "dist_total_m": 38176.61
+    },
+    {
+      "sol": 5004,
+      "lat": -4.82381279,
+      "lon": 137.3866207,
+      "elev_geoid": -3496.879,
+      "tilt": 7.2,
+      "dist_total_m": 38185.78
+    },
+    {
+      "sol": 5008,
+      "lat": -4.82414128,
+      "lon": 137.3871122,
+      "elev_geoid": -3493.685,
+      "tilt": 11.73,
+      "dist_total_m": 38222.63
+    },
+    {
+      "sol": 5011,
+      "lat": -4.82460269,
+      "lon": 137.3875926,
+      "elev_geoid": -3488.925,
+      "tilt": 11.65,
+      "dist_total_m": 38278.56
+    },
+    {
+      "sol": 5014,
+      "lat": -4.8246287,
+      "lon": 137.3881211,
+      "elev_geoid": -3486.334,
+      "tilt": 14.65,
+      "dist_total_m": 38314.57
+    },
+    {
+      "sol": 5016,
+      "lat": -4.8246039,
+      "lon": 137.3884767,
+      "elev_geoid": -3484.839,
+      "tilt": 10.02,
+      "dist_total_m": 38338.27
+    },
+    {
+      "sol": 5018,
+      "lat": -4.82512583,
+      "lon": 137.3888373,
+      "elev_geoid": -3480.041,
+      "tilt": 9.83,
+      "dist_total_m": 38382.65
+    },
+    {
+      "sol": 5021,
+      "lat": -4.82513971,
+      "lon": 137.3888471,
+      "elev_geoid": -3479.905,
+      "tilt": 8.18,
+      "dist_total_m": 38383.67
+    },
+    {
+      "sol": 5041,
+      "lat": -4.82458563,
+      "lon": 137.3877779,
+      "elev_geoid": -3488.313,
+      "tilt": 10.99,
+      "dist_total_m": 38467.52
+    },
+    {
+      "sol": 5045,
+      "lat": -4.82466475,
+      "lon": 137.3876138,
+      "elev_geoid": -3487.995,
+      "tilt": 13.67,
+      "dist_total_m": 38480.16
+    },
+    {
+      "sol": 5069,
+      "lat": -4.82525828,
+      "lon": 137.3889348,
+      "elev_geoid": -3478.776,
+      "tilt": 12.75,
+      "dist_total_m": 38581.41
+    },
+    {
+      "sol": 5070,
+      "lat": -4.82567778,
+      "lon": 137.3891532,
+      "elev_geoid": -3473.684,
+      "tilt": 14.68,
+      "dist_total_m": 38610.11
+    },
+    {
+      "sol": 5073,
+      "lat": -4.82602331,
+      "lon": 137.388886,
+      "elev_geoid": -3472.085,
+      "tilt": 12.45,
+      "dist_total_m": 38638.02
+    }
+  ]
+}

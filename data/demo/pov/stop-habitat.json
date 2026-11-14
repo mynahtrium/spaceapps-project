@@ -1,0 +1,21 @@
+{
+  "contract": "martian-mappers.pov.v1",
+  "status": "cached",
+  "fetched_at": "2026-11-14T09:19:12Z",
+  "note": "Cached Curiosity rover raw image still for offline demo. Linked to placeholder stops until PRE-07 locks real stops.",
+  "stop_id": "stop-habitat",
+  "stop_name": "Habitat / EVA start (example)",
+  "stops_source": "docs/contracts/stops.json",
+  "is_example_stop": true,
+  "imageid": "NLB_847853302EDR_F1252490NCAM00354M_",
+  "sol": 5073,
+  "camera": "NAV_LEFT_B",
+  "title": "Mars Curiosity Sol 5073: Left Navigation Camera (Navcam)",
+  "date_taken_utc": "2026-11-13T16:01:24.64222",
+  "image_relpath": "data/processed/science/pov/stop-habitat.jpg",
+  "bytes": 115360,
+  "source_url": "https://mars.nasa.gov/msl-raw-images/proj/msl/redops/ods/surface/sol/05073/opgs/edr/ncam/NLB_847853302EDR_F1252490NCAM00354M_-br.jpg",
+  "credit": "NASA/JPL-Caltech",
+  "missing": false,
+  "missing_label": ""
+}

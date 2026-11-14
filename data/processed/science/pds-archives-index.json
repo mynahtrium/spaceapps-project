@@ -1,0 +1,17 @@
+{
+  "fetched_at": "2026-11-14T09:07:50Z",
+  "rems": {
+    "url": "https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/",
+    "status": "unavailable",
+    "error": "Network error ([WinError 10054] Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı) while fetching https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/",
+    "folder_count": 0,
+    "latest_folders": []
+  },
+  "rad": {
+    "url": "https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/DATA/",
+    "status": "unavailable",
+    "error": "Network error ([SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1077)) while fetching https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/DATA/",
+    "folder_count": 0,
+    "latest_folders": []
+  }
+}
