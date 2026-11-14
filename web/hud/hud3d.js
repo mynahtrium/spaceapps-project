@@ -1220,6 +1220,8 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       player.init = true;
     }
     const movedXZ = Math.hypot(px - player.x, pz - player.z);
+    const mvx = px - player.x;
+    const mvz = pz - player.z;
     player.x = px;
     player.z = pz;
     if (movedXZ > 20) {
@@ -1247,7 +1249,14 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     // own body: rigged walk driven by distance actually covered
     self.group.position.set(px, player.y, pz);
     self.group.rotation.y = yaw;
-    self.update(dt, step, groundSpeed, !player.grounded);
+    // walking direction in the body frame, so strafing side-steps and S walks backwards
+    let gaitDir = null;
+    if (step > 1e-5) {
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      gaitDir = { f: (mvx * fx + mvz * fz) / movedXZ, s: (mvx * -fz + mvz * fx) / movedXZ };
+    }
+    self.update(dt, step, groundSpeed, !player.grounded, gaitDir);
     self.group.updateMatrixWorld(true);
 
     // helmet camera at the visor, with only a few millimetres of walking sway

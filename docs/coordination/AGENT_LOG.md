@@ -783,3 +783,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan asked to remove the route. The white route line is no longer added to the 3D scene and the hint text no longer mentions it. The 2D planner route and route.json are unchanged, and the HUD still uses them for distance, next stop and O2.
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-14 17:34 Europe/Istanbul — side-step and backward walking animation
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edit in web/hud at Cagan's request)
+- Task id: MUST-09 follow-up
+- Files changed: web/hud/astronaut-rig.js, web/hud/hud3d.js, docs/coordination/AGENT_LOG.md
+- Why: Cagan said the astronaut looked like it walked forward while strafing. hud3d.js now passes the walking direction in the body frame to the rig; the fore-aft leg swing scales with the forward part (reversed when walking backwards), and the sideways part drives a side-step (leading leg reaches out, trailing leg closes, feet do not cross, soles kept flat, pelvis leans into the step, arm swing reduced). Checked with front-view renders of a right and a left side-step.
+- Commit: this commit
+- Next step: none.
