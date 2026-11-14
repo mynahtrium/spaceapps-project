@@ -33,11 +33,11 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
 | PRE-01 | GitHub account, collaborator access, practice PR on the roster | All | TBD | TBD | todo | before 14 Nov | [GITHUB_WORKFLOW.md](../GITHUB_WORKFLOW.md) |
-| PRE-02 | First-session onboarding interview; write `docs/team/profiles/<name>.md` | All | TBD | TBD | todo | first session | No personal data; see [profiles/README.md](../team/profiles/README.md) |
+| PRE-02 | First-session onboarding interview; write `docs/team/profiles/<name>.md` | All | Eymen (T2); others TBD | Gemini (Antigravity) | doing | first session | No personal data; see [profiles/README.md](../team/profiles/README.md). `eymen.md` added (T2). |
 | PRE-03 | Installs (Git, Python 3, editor; GDAL for B1) | All / B1 | TBD | TBD | todo | before 14 Nov | No project pipeline yet |
 | PRE-04 | Personal `NASA_API_KEY` in a local gitignored `.env` only | B3 | TBD | TBD | todo | before 14 Nov | Never commit or paste the key |
-| PRE-05 | Read 13 Nov Resources tab, submission guide, judging guide | All | TBD | TBD | todo | 13 Nov | **UNVERIFIED** until those pages can be read. Partial pass 13 Nov: the [2026 landing page](https://www.spaceappschallenge.org/2026/) and [official terms](https://www.spaceappschallenge.org/legal/) loaded; official challenge Details, Resources tab, and judging / submission guides were unreadable (certificate error / HTTP 500). |
-| PRE-06 | Update [JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official 13 Nov judging guide | T1, T2 | TBD | TBD | todo | 13 Nov | Checklist is explicitly **UNVERIFIED** until this is done. Partial pass 13 Nov: a Status 2026-11-13 note was added; the 2026 judging guide itself could not be read, so UNVERIFIED labels stay. |
+| PRE-05 | Read 13 Nov Resources tab, submission guide, judging guide | All | TBD | TBD | todo | 13 Nov | **UNVERIFIED** until those pages can be read. Partial pass 13 Nov: the [2026 landing page](https://www.spaceappschallenge.org/2026/) and [official terms](https://www.spaceappschallenge.org/legal/) loaded; official challenge Details, Resources tab, and judging / submission guides were unreadable (certificate error / HTTP 500). Re-checked 14 Nov 11:19: TLS cert validation still fails (`curl` exit 60 / Windows Schannel). |
+| PRE-06 | Update [JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official 13 Nov judging guide | T1, T2 | Eymen (T2) | Gemini (Antigravity) | doing | 13 Nov | Checklist is explicitly **UNVERIFIED** until this is done. Partial pass 13 Nov: a Status 2026-11-13 note was added; the 2026 judging guide itself could not be read with a valid TLS cert (re-checked 14 Nov 11:19, still failing TLS), so UNVERIFIED labels stay. |
 | PRE-07 | Lock route stops on paper / HiView (inside DTEEC_019698) | B2 + team | TBD | TBD | todo | before hour 0 | No application code; testers record ids in `docs/testing/` |
 
 ### MUST (hours 0–16)
@@ -55,7 +55,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
 | MUST-11 | MUST test plan + sign-off | T1 | TBD | TBD | todo | hour 16 | |
-| MUST-12 | Review early PRs; rough demo walk | T1, T2 | TBD | TBD | todo | hour 16 | |
+| MUST-12 | Review early PRs; rough demo walk | T1, T2 | Eymen (T2) | Gemini (Antigravity) | doing | hour 16 | Drafted `docs/demo/script.md`, `video-beats.md`, `slides-outline.md`, `submission-checklist.md`; ready to review early PRs |
 
 ### SHOULD (hours 16–32)
 
