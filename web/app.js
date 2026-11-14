@@ -6,7 +6,8 @@
 
 import { loadAllProjectData, loadDemSamplerFromData } from "./shared/data-loader.js";
 import { TileSourceRegistry } from "./map/TileSourceRegistry.js";
-import { dispatchSetRoute } from "./shared/route-bridge.js";
+import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
+import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
 
@@ -126,6 +127,8 @@ function initStartScreen({ onEva, onPlanner, onCredits }) {
 
   window.addEventListener("keydown", (e) => {
     if (screen.classList.contains("hidden")) return;
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
     if (e.key === "ArrowDown") setFocus(focusIdx + 1);
     else if (e.key === "ArrowUp") setFocus(focusIdx - 1);
     else if (e.key === "Enter") items[focusIdx].click();
@@ -239,11 +242,204 @@ async function boot() {
 
   let hudApi = null;
   let plannerApi = null;
+  let lastSelfPose = null;
+
+  const mp = new MultiplayerClient({ demoSafe: data.demoSafe, role: "planner" });
+
+  // ---------- Crew & EVA Multiplayer Drawer ----------
+  const btnCrew = document.getElementById("btn-crew");
+  const crewDrawer = document.getElementById("crew-drawer");
+  const mpClose = document.getElementById("mp-close");
+  const mpRoomIn = document.getElementById("mp-room");
+  const mpCallsignIn = document.getElementById("mp-callsign");
+  const mpJoinBtn = document.getElementById("mp-join");
+  const mpInviteBtn = document.getElementById("mp-invite");
+  const mpDropPingBtn = document.getElementById("mp-drop-ping");
+  const mpSyncRouteBtn = document.getElementById("mp-sync-route");
+  const mpClearPinsBtn = document.getElementById("mp-clear-pins");
+  const mpTransportEl = document.getElementById("mp-transport");
+  const mpLanHintEl = document.getElementById("mp-lan-hint");
+  const mpRosterEl = document.getElementById("mp-roster");
+  const mpChatLogEl = document.getElementById("mp-chat-log");
+  const mpChatForm = document.getElementById("mp-chat-form");
+  const mpChatInput = document.getElementById("mp-chat-input");
+  const toastEl = document.getElementById("hud-comms-toast");
+
+  if (mpRoomIn) mpRoomIn.value = mp.room;
+  if (mpCallsignIn) mpCallsignIn.value = mp.callsign;
+
+  let toastTimer = null;
+  function showToast(msg) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastEl.textContent = "";
+    }, 5500);
+  }
+
+  function appendChatLine({ callsign, color, text }) {
+    if (!mpChatLogEl) return;
+    const row = document.createElement("div");
+    row.className = "crew-chat-line";
+    const badge = document.createElement("strong");
+    badge.style.color = color || "#38bdf8";
+    badge.textContent = `[${callsign}] `;
+    row.appendChild(badge);
+    row.appendChild(document.createTextNode(text));
+    mpChatLogEl.appendChild(row);
+    while (mpChatLogEl.children.length > 40) mpChatLogEl.firstChild.remove();
+    mpChatLogEl.scrollTop = mpChatLogEl.scrollHeight;
+  }
+
+  function renderCrewUi() {
+    const status = mp.getStatusSummary();
+    if (btnCrew) btnCrew.textContent = `Crew (${status.crewTotal})`;
+    if (mpTransportEl) {
+      mpTransportEl.textContent = status.transport;
+      mpTransportEl.classList.toggle("live", status.wsConnected || status.peerCount > 0);
+    }
+    if (mpLanHintEl) {
+      if (data.demoSafe) {
+        mpLanHintEl.textContent = "Demo-Safe mode: offline same-browser tabs sync via BroadcastChannel (0 network requests).";
+      } else if (status.lanUrls?.length > 0) {
+        const invite = buildInviteUrl(window.location.href, mp.room, status.lanUrls[0]);
+        mpLanHintEl.textContent = `LAN relay online · Share: ${invite}`;
+      } else {
+        mpLanHintEl.innerHTML =
+          "Local tabs active. Start <code>scripts/start-app.sh</code> or <code>node scripts/server.mjs</code> for cross-device LAN.";
+      }
+    }
+    if (mpRosterEl) {
+      mpRosterEl.innerHTML = "";
+      const selfRow = document.createElement("div");
+      selfRow.className = "crew-row";
+      selfRow.innerHTML = `<span><span class="crew-dot" style="background:${mp.color};"></span>${mp.callsign} (YOU)</span><span>${mp.role.toUpperCase()}</span>`;
+      mpRosterEl.appendChild(selfRow);
+
+      for (const peer of mp.peers.values()) {
+        const row = document.createElement("div");
+        row.className = "crew-row";
+        const left = document.createElement("span");
+        const dot = document.createElement("span");
+        dot.className = "crew-dot";
+        dot.style.background = peer.color || "#38bdf8";
+        left.appendChild(dot);
+        let distTxt = peer.role?.toUpperCase() || "EVA";
+        if (lastSelfPose?.lon != null && peer.state?.lon != null) {
+          const d = marsDistanceM([lastSelfPose.lon, lastSelfPose.lat], [peer.state.lon, peer.state.lat]);
+          distTxt = `${d.toFixed(0)} m`;
+        }
+        left.appendChild(document.createTextNode(`${peer.callsign} · ${distTxt}`));
+
+        const right = document.createElement("span");
+        if (peer.state && Number.isFinite(peer.state.lon) && Number.isFinite(peer.state.lat)) {
+          const goBtn = document.createElement("button");
+          goBtn.className = "btn";
+          goBtn.style.padding = "2px 6px";
+          goBtn.style.fontSize = "9.5px";
+          goBtn.textContent = "Go To";
+          goBtn.onclick = () => {
+            hudApi?.teleportTo?.(peer.state.lon, peer.state.lat);
+            switchToHud();
+          };
+          right.appendChild(goBtn);
+        } else {
+          right.textContent = peer.state?.freeRoam ? "FREE" : "ROUTE";
+        }
+        row.append(left, right);
+        mpRosterEl.appendChild(row);
+      }
+    }
+  }
+
+  btnCrew?.addEventListener("click", () => {
+    crewDrawer?.classList.toggle("open");
+    renderCrewUi();
+  });
+  mpClose?.addEventListener("click", () => crewDrawer?.classList.remove("open"));
+  mpJoinBtn?.addEventListener("click", async () => {
+    await mp.connect({
+      room: mpRoomIn?.value,
+      callsign: mpCallsignIn?.value,
+    });
+    renderCrewUi();
+    showToast(`Joined room ${mp.room} as ${mp.callsign}`);
+  });
+  mpInviteBtn?.addEventListener("click", async () => {
+    const baseOrigin = mp.lanUrls?.[0] || null;
+    const url = buildInviteUrl(window.location.href, mp.room, baseOrigin);
+    try {
+      await navigator.clipboard?.writeText(url);
+      showToast(`Copied invite: ${url}`);
+    } catch {
+      window.prompt("Copy crew invite link:", url);
+    }
+  });
+  mpDropPingBtn?.addEventListener("click", () => {
+    if (hudView.classList.contains("active") && hudApi?.dropLocalPing) {
+      hudApi.dropLocalPing("Science Beacon");
+    } else if (plannerApi?.getLastProbePoint) {
+      const pt = plannerApi.getLastProbePoint();
+      mp.dropPing({ lon: pt.lon, lat: pt.lat, elevM: pt.elevM, label: "Planner Pin" });
+    }
+  });
+  mpSyncRouteBtn?.addEventListener("click", () => {
+    const sM = lastSelfPose?.alongM ?? 0;
+    mp.sendRouteSync(sM, false);
+    showToast(`Synced crew route timeline to ${sM.toFixed(0)} m`);
+  });
+  mpClearPinsBtn?.addEventListener("click", () => mp.clearPings());
+  mpChatForm?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const txt = mpChatInput?.value || "";
+    if (!txt.trim()) return;
+    mp.sendChat(txt);
+    if (mpChatInput) mpChatInput.value = "";
+  });
+
+  mp.on("status", () => {
+    renderCrewUi();
+    plannerApi?.updateCrewOverlay?.(lastSelfPose);
+  });
+  mp.on("peerjoin", (peer) => {
+    showToast(`${peer.callsign} joined EVA room ${mp.room}`);
+    appendChatLine({ callsign: "SYS", color: "#34d399", text: `${peer.callsign} connected` });
+    renderCrewUi();
+    plannerApi?.updateCrewOverlay?.(lastSelfPose);
+  });
+  mp.on("peerleave", (peer) => {
+    showToast(`${peer.callsign} left EVA`);
+    appendChatLine({ callsign: "SYS", color: "#94a3b8", text: `${peer.callsign} disconnected` });
+    renderCrewUi();
+    plannerApi?.updateCrewOverlay?.(lastSelfPose);
+  });
+  mp.on("peerstate", () => {
+    plannerApi?.updateCrewOverlay?.(lastSelfPose);
+    if (crewDrawer?.classList.contains("open")) renderCrewUi();
+  });
+  mp.on("pins", (pins) => {
+    plannerApi?.updatePinsOverlay?.(pins);
+  });
+  mp.on("ping", (pin) => {
+    showToast(`${pin.by} dropped ${pin.label}`);
+    appendChatLine({ callsign: pin.by, color: pin.color, text: `Dropped beacon (${pin.lat.toFixed(4)}°, ${pin.lon.toFixed(4)}°)` });
+  });
+  mp.on("chat", (msg) => {
+    appendChatLine(msg);
+    if (!msg.self) showToast(`${msg.callsign}: ${msg.text}`);
+  });
+  mp.on("routesync", (sync) => {
+    hudApi?.syncAlongM?.(sync.alongM);
+    showToast(`${sync.by || "CREW"} synced route to ${Number(sync.alongM).toFixed(0)} m`);
+  });
+
   function switchToHud() {
     plannerView.classList.remove("active");
     hudView.classList.add("active");
     btnTabPlanner.classList.remove("active");
     btnTabHud.classList.add("active");
+    mp.setRole("eva");
     if (hudApi) hudApi.onResize();
   }
 
@@ -252,6 +448,7 @@ async function boot() {
     plannerView.classList.add("active");
     btnTabHud.classList.remove("active");
     btnTabPlanner.classList.add("active");
+    mp.setRole("planner");
     requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
   }
 
@@ -267,12 +464,32 @@ async function boot() {
   plannerApi = initPlanner(data, {
     demSampler,
     registry,
+    mp,
     onOpenPov: openPovModal,
     onStartEva: switchToHud,
   });
 
-  window.__MM_APP__ = { data, demSampler, registry, get plannerApi() { return plannerApi; } };
+  await mp.connect();
+  renderCrewUi();
+
+  window.__MM_APP__ = {
+    data,
+    demSampler,
+    registry,
+    mp,
+    get plannerApi() {
+      return plannerApi;
+    },
+    get hudApi() {
+      return hudApi;
+    },
+  };
   hudApi = await initHud3D(data, {
+    mp,
+    onLocalPose: (pose) => {
+      lastSelfPose = pose;
+      plannerApi?.updateCrewOverlay?.(pose);
+    },
     onBackToPlanner: switchToPlanner,
     onOpenPov: openPovModal,
   });

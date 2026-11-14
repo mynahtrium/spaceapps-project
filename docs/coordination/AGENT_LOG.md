@@ -751,3 +751,13 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Merged `main` (`415e3b9`) into `orchestrator/map-replacement` combining `main`'s NASA Mark III rigged spacesuit, buddy EVA, Mars gravity/jump/Shift run, endless mirrored terrain + sun mask shadows, start menu (EN/TR), black UI, and `BUG-15`/`BUG-16` fixes with the map-branch's `MapLibreMarsAdapter` (`mars-eq://` Trek WMTS + `mars-dem://` HiRISE hillshade/3D tilt + click elevation/slope probe + offline demo shaded relief) and `MarsPbrTextures` close-range wind-rippled dust / fractured mudstone shader detail on the 3D terrain. Also enabled bundled `data/demo/ortho-preview.png` in `?demo=1` while keeping `demoSafe` 0-network isolation, unified `classifySlope()` `id`/`level` fields, and verified zero missing DOM IDs and 16/16 passing tests.
 - Commit: this commit
 - Next step: Visually verify `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctrl+Shift+R`), then decide whether to open a PR to `main`.
+
+### 2026-11-14 17:27 Europe/Istanbul — Add dual-transport EVA multiplayer support (BroadcastChannel + LAN WebSocket)
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`main`)
+- Task id: STRETCH-MP
+- Files changed: scripts/mp-hub.mjs, scripts/server.mjs, scripts/start-app.sh, start.bat, web/shared/multiplayer.js, web/app.js, web/hud/hud3d.js, web/planner/planner.js, web/index.html, web/styles.css, web/tests/multiplayer.test.mjs, docs/coordination/AGENT_LOG.md
+- Why: Added zero-dependency multiplayer EVA support across both 2D Mission Control Planner and 3D Bodycam views. Added `scripts/mp-hub.mjs` + `scripts/server.mjs` (pure Node RFC 6455 WebSocket room relay `/ws?room=<code>`, `/api/mp/status` LAN URL discovery, static file serving), updated `scripts/start-app.sh` and `start.bat` to prefer `node scripts/server.mjs` with Python fallback, built dual-transport `web/shared/multiplayer.js` (`BroadcastChannel` always active offline including in `?demo=1` with 0 network calls, plus LAN WebSocket with sequence deduplication), rendered live animated rigged NASA Mark III crewmate avatars with callsign badges, backpack LEDs, solid collision, shared terrain beacon pillars (`P` key / Pin button), Crew/Comms drawer, EVA radio chat, `Go To` crewmate teleport, and live 2D `eva-crew`/`eva-pings` layers. Verified DOM ID audit (0 missing) and 20/20 unit tests (`node --test web/tests/*.test.mjs`).
+- Commit: this commit
+- Next step: Test two tabs (e.g. Planner + Bodycam or two Bodycam windows) at `http://localhost:8765/web/` or `?room=GALE-01`, and push `main` when ready.

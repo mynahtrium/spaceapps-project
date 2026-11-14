@@ -47,6 +47,7 @@
     <div class="topbar-actions">
       <button id="btn-tab-planner" class="btn active">Planner</button>
       <button id="btn-tab-hud" class="btn">Bodycam</button>
+      <button id="btn-crew" class="btn">Crew (1)</button>
       <button id="btn-credits" class="btn">Sources</button>
       <button id="btn-start-eva" class="btn primary">Begin EVA</button>
       <button id="btn-menu" class="btn">Menu</button>
@@ -150,7 +151,7 @@
             <div><span class="rec">●</span> REC &nbsp;EVA-CAM 02 &nbsp;<span class="dim">// HELMET MOUNT</span></div>
             <div id="hud-clock">T+00:00:00</div>
             <div class="dim" id="hud-crew">AST-1 · 1.80 M · <span id="hud-suit">SUIT —</span></div>
-            <div class="dim">MARS g 3.71 M/S² · CREW: 2 (BUDDY EVA)</div>
+            <div class="dim" id="hud-crew-summary">MARS g 3.71 M/S² · CREW: 2 (BUDDY EVA)</div>
             <div class="dim" id="hud-view-label">GALE CRATER · MOUNT SHARP · 4.80°S 137.39°E</div>
           </div>
 
@@ -176,9 +177,10 @@
 
         <div class="visor-bottom">
           <div>
+            <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:6px;">
-              DRAG TO LOOK (LOOK DOWN FOR YOUR LEGS) · WASD WALK · SHIFT RUN · SPACE JUMP
+              DRAG TO LOOK (LOOK DOWN FOR YOUR LEGS) · WASD WALK · SHIFT RUN · SPACE JUMP · P BEACON
             </div>
           </div>
 
@@ -189,12 +191,44 @@
             <button id="hud-speed" class="btn">1x walk</button>
             <button id="hud-tex" class="btn">Tex: relief</button>
             <button id="hud-freeroam" class="btn">Free-roam: off</button>
+            <button id="hud-ping" class="btn">Pin (P)</button>
             <button id="hud-pov-btn" class="btn">Rover POV</button>
           </div>
         </div>
       </div>
     </section>
   </main>
+
+  <!-- Multiplayer Crew & Comms Drawer -->
+  <aside id="crew-drawer" class="crew-drawer" aria-label="Crew multiplayer &amp; radio">
+    <div class="crew-drawer-head">
+      <span>CREW EVA LINK</span>
+      <span id="mp-transport" class="crew-pill">LOCAL TABS</span>
+      <button id="mp-close" class="btn" style="padding:3px 8px;">Close</button>
+    </div>
+    <div class="crew-form-row">
+      <label class="crew-field"><span>ROOM</span><input id="mp-room" type="text" value="GALE-01" maxlength="24" /></label>
+      <label class="crew-field"><span>CALLSIGN</span><input id="mp-callsign" type="text" value="AST-1" maxlength="20" /></label>
+      <button id="mp-join" class="btn primary" style="align-self:flex-end;">Join</button>
+    </div>
+    <div class="crew-actions-row">
+      <button id="mp-invite" class="btn">Copy Invite Link</button>
+      <button id="mp-drop-ping" class="btn">Drop Pin (P)</button>
+      <button id="mp-sync-route" class="btn">Sync Route</button>
+      <button id="mp-clear-pins" class="btn">Clear Pins</button>
+    </div>
+    <div id="mp-lan-hint" class="honesty-note" style="margin:6px 0;">
+      Same-browser tabs sync offline. Run <code>scripts/start-app.sh</code> or <code>node scripts/server.mjs</code> for cross-device LAN.
+    </div>
+    <div class="crew-section-label">CONNECTED CREW</div>
+    <div id="mp-roster" class="crew-roster"></div>
+    <div class="crew-section-label">EVA RADIO</div>
+    <div id="mp-chat-log" class="crew-chat-log"></div>
+    <form id="mp-chat-form" class="crew-chat-form">
+      <input id="mp-chat-input" type="text" placeholder="Radio crewmates…" maxlength="160" />
+      <button class="btn" type="submit">Send</button>
+    </form>
+  </aside>
 
   <div id="modal-backdrop" class="modal-backdrop">
     <div class="modal-card">

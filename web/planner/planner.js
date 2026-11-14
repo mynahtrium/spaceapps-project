@@ -45,7 +45,7 @@ function buildStrict15Canvas(costMap) {
   return canvas.toDataURL();
 }
 
-export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry }) {
+export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry, mp }) {
   const { costMap, stops, route, alerts, dose, weather, povIndex, crism, demoSafe, assets } = data;
 
   const bounds = costMap?.bounds || {
@@ -77,6 +77,51 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
   const adapter = shouldUseHighResMap() ? new MapLibreMarsAdapter(adapterOpts) : new LegacyMapAdapter(adapterOpts);
   const container = document.getElementById("map");
   const probeEl = document.getElementById("map-probe-readout");
+  let lastProbePoint = {
+    lon: route?.geometry?.coordinates?.[0]?.[0] ?? center[0],
+    lat: route?.geometry?.coordinates?.[0]?.[1] ?? center[1],
+    elevM: null,
+  };
+  let crewFc = { type: "FeatureCollection", features: [] };
+  let pinsFc = { type: "FeatureCollection", features: [] };
+
+  const buildCrewFc = (selfPose = null) => {
+    const features = [];
+    if (mp) {
+      for (const peer of mp.peers.values()) {
+        const st = peer.state;
+        if (st && Number.isFinite(st.lon) && Number.isFinite(st.lat)) {
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [st.lon, st.lat] },
+            properties: { id: peer.id, callsign: peer.callsign, color: peer.color || "#38bdf8" },
+          });
+        }
+      }
+    }
+    if (selfPose && Number.isFinite(selfPose.lon) && Number.isFinite(selfPose.lat)) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [selfPose.lon, selfPose.lat] },
+        properties: { id: "SELF", callsign: mp?.callsign || "YOU", color: "#ffffff" },
+      });
+    }
+    return { type: "FeatureCollection", features };
+  };
+
+  const buildPinsFc = (pins = []) => ({
+    type: "FeatureCollection",
+    features: pins.map((pin) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
+      properties: {
+        id: pin.id,
+        label: pin.label || "Science Beacon",
+        by: pin.by || "CREW",
+        color: pin.color || "#fbbf24",
+      },
+    })),
+  });
 
   const ready = (async () => {
     if (!container) return;
@@ -132,7 +177,28 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
       });
     }
 
+    pinsFc = buildPinsFc(mp?.pins || []);
+    adapter.addGeoJsonLayer("eva-pings", pinsFc, {
+      type: "circle",
+      radius: 7,
+      colorExpr: ["coalesce", ["get", "color"], "#fbbf24"],
+      strokeWidth: 2,
+      strokeColor: "#000000",
+      visible: true,
+    });
+
+    crewFc = buildCrewFc();
+    adapter.addGeoJsonLayer("eva-crew", crewFc, {
+      type: "circle",
+      radius: 7,
+      colorExpr: ["coalesce", ["get", "color"], "#38bdf8"],
+      strokeWidth: 2,
+      strokeColor: "#ffffff",
+      visible: true,
+    });
+
     adapter.on("click", (evt) => {
+      lastProbePoint = { lon: evt.lon, lat: evt.lat, elevM: evt.elevM ?? null };
       if (probeEl) {
         const elev = evt.elevM != null ? `${evt.elevM.toFixed(1)} m` : "no data";
         const slope = evt.slopeDeg != null ? `${evt.slopeDeg.toFixed(1)}°` : "—";
@@ -265,7 +331,20 @@ export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry 
     doseEl.innerHTML = `<strong>Radiation Dose:</strong> ${dose.dose_estimate_mSv} ± ${dose.dose_uncertainty_mSv} mSv (${dose.baseline_rate_mSv_per_day} mSv/day RAD baseline × ${dose.eva_duration_min_placeholder} min placeholder walk). Time &amp; shielding problem — no spatial rock radiation map.`;
   }
 
-  return { map: adapter, adapter, ready };
+  return {
+    map: adapter,
+    adapter,
+    ready,
+    getLastProbePoint: () => ({ ...lastProbePoint }),
+    updateCrewOverlay: (selfPose) => {
+      crewFc = buildCrewFc(selfPose);
+      adapter.updateGeoJsonLayer("eva-crew", crewFc);
+    },
+    updatePinsOverlay: (pins) => {
+      pinsFc = buildPinsFc(pins);
+      adapter.updateGeoJsonLayer("eva-pings", pinsFc);
+    },
+  };
 }
 
 function renderProfileSvg(profile, onSelectDist) {
