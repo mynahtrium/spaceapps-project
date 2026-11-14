@@ -1,10 +1,10 @@
 /**
- * Visor Tactical Map, Elevation Profile & NASA Science Drawer (`web/planner/planner.js`).
+ * Visor Tactical Map & NASA Science Drawer (`web/planner/planner.js`).
  * Runs MapLibre GL JS directly inside the helmet visor dock, syncs live astronaut position,
  * and binds NASA/PDS science cards with honest empty states ("no NASA value").
  */
 
-import { buildCumulativeDistances, closestAlongM, dispatchSetRoute } from "../shared/route-bridge.js";
+import { dispatchJumpToCoord } from "../shared/route-bridge.js";
 
 function tileToLon(x, z) {
   return (x / Math.pow(2, z)) * 360 - 180;
@@ -148,7 +148,7 @@ function buildStrict15Canvas(costMap) {
 }
 
 export function initPlanner(data, { onOpenPov }) {
-  const { costMap, stops, route, alerts, dose, weather, povIndex, crism, demoSafe, assets } = data;
+  const { costMap, stops, alerts, dose, weather, povIndex, crism, demoSafe, assets } = data;
 
   const bounds = costMap?.bounds || {
     west_lon_deg: 137.372831,
@@ -181,7 +181,7 @@ export function initPlanner(data, { onOpenPov }) {
 
   let map = null;
   let mapReady = false;
-  const startCoord = route?.geometry?.coordinates?.[0] || center;
+  const startCoord = stops?.features?.[0]?.geometry?.coordinates || center;
 
   if (window.maplibregl) {
     map = new window.maplibregl.Map({
@@ -290,22 +290,6 @@ export function initPlanner(data, { onOpenPov }) {
             "circle-stroke-width": 1.2,
             "circle-stroke-color": "#ffffff",
           },
-        });
-      }
-
-      if (route) {
-        map.addSource("eva-route", { type: "geojson", data: route });
-        map.addLayer({
-          id: "eva-route-glow",
-          type: "line",
-          source: "eva-route",
-          paint: { "line-color": "#38bdf8", "line-width": 6, "line-opacity": 0.35 },
-        });
-        map.addLayer({
-          id: "eva-route-line",
-          type: "line",
-          source: "eva-route",
-          paint: { "line-color": "#38bdf8", "line-width": 2.6 },
         });
       }
 
@@ -425,26 +409,8 @@ export function initPlanner(data, { onOpenPov }) {
     btnSciCollapse.textContent = collapsed ? "Show" : "Hide";
   });
 
-  // Elevation Profile SVG + click to jump via mm:set-route
-  const profileController = renderProfileSvg(route?.profile || [], (sM) => {
-    if (route) dispatchSetRoute(route, sM);
-  });
-
-  // Route totals summary
-  const totals = route?.totals || route?.properties || {};
-  const routeTotalsEl = document.getElementById("hud-route-totals");
-  if (routeTotalsEl) {
-    if (totals.distance_m != null) {
-      routeTotalsEl.textContent = `Route: ${Number(totals.distance_m).toFixed(1)} m · +${totals.climb_m ?? "—"}/-${totals.descent_m ?? "—"} m · ~${totals.duration_min_placeholder ?? "—"} min (Earth hiking placeholder)`;
-    } else {
-      routeTotalsEl.textContent = "Route: no NASA value";
-    }
-  }
-
   // Stops list with Jump & POV
   const stopsList = document.getElementById("stops-list");
-  const routeCoords = route?.geometry?.coordinates || [];
-  const cumDist = buildCumulativeDistances(routeCoords);
 
   if (stopsList) {
     if (stops?.features?.length) {
@@ -452,7 +418,6 @@ export function initPlanner(data, { onOpenPov }) {
       stops.features.forEach((f) => {
         const p = f.properties;
         const povEntry = povIndex?.stops?.find((s) => s.stop_id === p.id);
-        const stopAlong = closestAlongM(routeCoords, cumDist, f.geometry.coordinates);
         const div = document.createElement("div");
         div.className = "stop-item";
         div.innerHTML = `
@@ -468,7 +433,7 @@ export function initPlanner(data, { onOpenPov }) {
           </div>
         `;
         div.querySelector("[data-jump]")?.addEventListener("click", () => {
-          if (route) dispatchSetRoute(route, stopAlong);
+          dispatchJumpToCoord(f.geometry.coordinates, p.name);
         });
         div.querySelector("[data-zoom]")?.addEventListener("click", () => {
           if (map) map.flyTo({ center: f.geometry.coordinates, zoom: 15.8 });
@@ -519,7 +484,7 @@ export function initPlanner(data, { onOpenPov }) {
     }
   }
 
-  function updateAstronautPosition(lon, lat, alongM) {
+  function updateAstronautPosition(lon, lat) {
     if (mapReady && map) {
       const src = map.getSource("astronaut-pos");
       if (src) {
@@ -529,64 +494,7 @@ export function initPlanner(data, { onOpenPov }) {
         });
       }
     }
-    if (profileController) {
-      profileController.updateMarker(alongM);
-    }
   }
 
   return { map, updateAstronautPosition };
-}
-
-function renderProfileSvg(profile, onSelectDist) {
-  const svg = document.getElementById("profile-svg");
-  if (!svg) return null;
-  if (!profile || profile.length < 2) {
-    svg.innerHTML = `<text x="10" y="40" fill="#fca5a5" font-size="10" font-family="monospace">Profile: no NASA value</text>`;
-    return null;
-  }
-
-  const W = 300;
-  const H = 74;
-  const pad = 10;
-
-  const maxS = profile[profile.length - 1].s_m || 1;
-  const elevs = profile.map((p) => p.elev_m);
-  const minE = Math.min(...elevs);
-  const maxE = Math.max(...elevs);
-  const spanE = maxE - minE || 1;
-
-  const pts = profile.map((p) => {
-    const x = pad + (p.s_m / maxS) * (W - pad * 2);
-    const y = H - pad - ((p.elev_m - minE) / spanE) * (H - pad * 2);
-    return { x, y, ...p };
-  });
-
-  const poly = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const area = `${pad},${H - pad} ${poly} ${W - pad},${H - pad}`;
-
-  svg.innerHTML = `
-    <polygon points="${area}" fill="rgba(56,189,248,0.18)" />
-    <polyline points="${poly}" fill="none" stroke="#38bdf8" stroke-width="2" />
-    <line id="profile-cursor" x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2,2" />
-    <text x="${pad}" y="10" fill="#93a7c3" font-size="8" font-family="monospace">${maxE.toFixed(1)} m</text>
-    <text x="${pad}" y="${H - 2}" fill="#93a7c3" font-size="8" font-family="monospace">${minE.toFixed(1)} m · 0→${maxS.toFixed(0)} m (click to jump)</text>
-  `;
-
-  svg.style.cursor = "pointer";
-  svg.onclick = (ev) => {
-    const rect = svg.getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-    onSelectDist(frac * maxS);
-  };
-
-  return {
-    updateMarker(sM) {
-      const line = svg.querySelector("#profile-cursor");
-      if (!line) return;
-      const frac = Math.max(0, Math.min(1, (sM || 0) / maxS));
-      const x = pad + frac * (W - pad * 2);
-      line.setAttribute("x1", x.toFixed(1));
-      line.setAttribute("x2", x.toFixed(1));
-    },
-  };
 }

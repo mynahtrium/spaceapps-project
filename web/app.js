@@ -5,7 +5,6 @@
  */
 
 import { loadAllProjectData } from "./shared/data-loader.js";
-import { dispatchSetRoute } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
 
@@ -22,7 +21,6 @@ async function boot() {
   }
 
   if (
-    data.route?.status === "example" ||
     data.stops?.status === "example" ||
     data.dose?.is_example === true
   ) {
@@ -102,14 +100,10 @@ async function boot() {
 
   await initHud3D(data, {
     onOpenPov: openPovModal,
-    onPositionChange: (lon, lat, sM) => {
-      plannerApi.updateAstronautPosition(lon, lat, sM);
+    onPositionChange: (lon, lat) => {
+      plannerApi.updateAstronautPosition(lon, lat);
     },
   });
-
-  if (data.route) {
-    dispatchSetRoute(data.route, 0);
-  }
 }
 
 boot();

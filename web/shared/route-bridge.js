@@ -36,6 +36,34 @@ export function onSetRoute(handler) {
 }
 
 /**
+ * Dispatch `mm:jump-coord` on `window` to place the 1st-person astronaut at `[lon, lat]`.
+ * @param {[number, number]} coord - [lon_deg, lat_deg]
+ * @param {string} [label] - Optional target label
+ */
+export function dispatchJumpToCoord(coord, label = "") {
+  window.dispatchEvent(
+    new CustomEvent("mm:jump-coord", {
+      detail: { coord, label },
+    })
+  );
+}
+
+/**
+ * Subscribe to `mm:jump-coord` events.
+ * @param {(detail: { coord: [number, number], label?: string }) => void} handler
+ * @returns {() => void} Unsubscribe function
+ */
+export function onJumpToCoord(handler) {
+  const listener = (ev) => {
+    if (ev.detail && Array.isArray(ev.detail.coord)) {
+      handler(ev.detail);
+    }
+  };
+  window.addEventListener("mm:jump-coord", listener);
+  return () => window.removeEventListener("mm:jump-coord", listener);
+}
+
+/**
  * Spherical distance on Mars (mean radius 3,389.5 km) between two [lon, lat] points.
  */
 export function marsDistanceM(coordA, coordB) {

@@ -592,3 +592,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Switched 1st-person HUD default to free camera-relative WASD walking (`W/A/S/D`, arrow keys, `Shift` sprint) anchored to the look yaw without forced camera turns; matched the Three.js terrain mesh geometry 1:1 to `height-preview.png` (`segW = imgW - 1`, `segH = imgH - 1`), added exact triangle-interpolated `sampleMeshY` + 0.6m near-plane cliff collar clearance at 1.7m human eye height (`EYE_HEIGHT_M = 1.7`), clamped movement inside terrain bounds, and synced live position/distance/slope from free-roam coordinates to the HUD and MapLibre visor marker. Verified all JS files via `node --check` and ephemeral HTTP 200 check.
 - Commit: this commit
 - Next step: Push `frontend/planner-hud` so Eymen can test 1st-person WASD movement in the browser.
+
+### 2026-11-14 15:47 Europe/Istanbul — MUST-09 / MUST-10 (Pointer-Lock Mouse Look & Route Removal)
+
+- Human: Divarci
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1 (UI designer)
+- Task id: MUST-09, MUST-10
+- Files changed: web/hud/hud3d.js, web/planner/planner.js, web/shared/route-bridge.js, web/app.js, web/index.html, web/styles.css, docs/coordination/AGENT_LOG.md
+- Why: Added FPS Pointer Lock mouse look when clicking the 3D terrain canvas (rotates camera via `movementX`/`movementY`, highlights `.hud-reticle.locked`, unlocks on `Esc`, with drag fallback), and removed the planned route line/ribbon, auto-walk playback bar (`Walk EVA` / scrubber), and elevation profile SVG from both the 3D scene and 2D MapLibre tactical map per user decision while preserving science stops (`mm:jump-coord` telemetry jump), HiRISE/CTX/THEMIS/CRISM layers, Curiosity POV, RAD/REMS/DONKI cards, and live WASD position tracking. Verified with `node --check` and ephemeral HTTP 200 checks.
+- Commit: this commit
+- Next step: Push `frontend/planner-hud` and verify Pointer Lock + route-free visor live at `http://localhost:8000/web/`.

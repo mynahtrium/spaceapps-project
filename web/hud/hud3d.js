@@ -1,16 +1,11 @@
 /**
- * First-Person Mount Sharp 3D Terrain, AR Route/Stop World Markers & Helmet HUD (`web/hud/hud3d.js`).
- * Decodes Backend 1's 8-bit RGB height-preview.png (value = R*256 + G), renders AR route + stop labels
- * directly on the terrain mesh, receives routes via `mm:set-route`, and updates the visor readouts.
+ * First-Person Mount Sharp 3D Terrain, AR Science Stop Beacons & Helmet HUD (`web/hud/hud3d.js`).
+ * Decodes Backend 1's 8-bit RGB height-preview.png (value = R*256 + G), renders free-roam 1st-person
+ * camera-relative WASD walking at 1.7m eye height with Pointer Lock mouse look and AR stop labels.
  */
 
 import * as THREE from "three";
-import {
-  buildCumulativeDistances,
-  classifySlope,
-  onSetRoute,
-  sampleAlongRoute,
-} from "../shared/route-bridge.js";
+import { classifySlope, onJumpToCoord } from "../shared/route-bridge.js";
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -96,7 +91,7 @@ function compassLabel(deg) {
 }
 
 export async function initHud3D(data, { onOpenPov, onPositionChange }) {
-  const { costMap, route, stops, telemetry, povIndex, assets } = data;
+  const { costMap, stops, telemetry, povIndex, assets } = data;
   const wrap = document.getElementById("hud-canvas-wrap");
 
   const bounds = costMap?.bounds || {
@@ -258,7 +253,7 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   const terrainMesh = new THREE.Mesh(geom, terrainMat);
   scene.add(terrainMesh);
 
-  // AR Group: Route + Stop Beacons + Floating AR Labels on Terrain
+  // AR Group: Science Stop Beacons + Floating AR Labels on Terrain
   const arGroup = new THREE.Group();
   scene.add(arGroup);
 
@@ -294,99 +289,92 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     });
   }
 
-  let routeGroup = new THREE.Group();
-  arGroup.add(routeGroup);
-  let activeRoute = route;
-  let routeCoords = activeRoute?.geometry?.coordinates || [];
-  let cumDist = buildCumulativeDistances(routeCoords);
-  let totalDist = cumDist[cumDist.length - 1] || 1;
-  let alongM = 0;
-
-  function rebuildRouteRibbon(r) {
-    arGroup.remove(routeGroup);
-    routeGroup = new THREE.Group();
-    arGroup.add(routeGroup);
-
-    activeRoute = r;
-    routeCoords = r?.geometry?.coordinates || [];
-    cumDist = buildCumulativeDistances(routeCoords);
-    totalDist = cumDist[cumDist.length - 1] || 1;
-
-    const pts = routeCoords.map(([lon, lat]) => {
-      const x = lonToX(lon);
-      const z = latToZ(lat);
-      return new THREE.Vector3(x, sampleElevSceneY(x, z) + 0.9, z);
-    });
-
-    if (pts.length > 1) {
-      const curve = new THREE.CatmullRomCurve3(pts);
-      const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, Math.min(400, pts.length * 3), 0.45, 6, false),
-        new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9 })
-      );
-      routeGroup.add(tube);
-
-      // Periodic AR ground markers along the path
-      for (let i = 0; i < pts.length; i += 6) {
-        const pin = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.65, 0),
-          new THREE.MeshBasicMaterial({ color: 0xbae6fd })
-        );
-        pin.position.copy(pts[i]).add(new THREE.Vector3(0, 1.0, 0));
-        routeGroup.add(pin);
-      }
-    }
-
-    const scrubber = document.getElementById("hud-scrubber");
-    if (scrubber) {
-      scrubber.max = totalDist.toFixed(1);
-      scrubber.value = alongM.toFixed(1);
-    }
-  }
-
-  if (activeRoute) rebuildRouteRibbon(activeRoute);
-
-  // State & Controls (Default: 1st-person WASD walking at 1.7m human eye height)
+  // State & Controls (Pure 1st-person camera-relative WASD walking at 1.7m human eye height)
   const clamp = (val, lo, hi) => Math.max(lo, Math.min(hi, val));
   const halfW = worldW * 0.5 - 2;
   const halfH = worldH * 0.5 - 2;
 
-  const startLon = routeCoords[0]?.[0] ?? (bounds.west_lon_deg + bounds.east_lon_deg) * 0.5;
-  const startLat = routeCoords[0]?.[1] ?? (bounds.south_lat_deg + bounds.north_lat_deg) * 0.5;
+  const firstStopCoord = stops?.features?.[0]?.geometry?.coordinates;
+  const startLon = firstStopCoord?.[0] ?? (bounds.west_lon_deg + bounds.east_lon_deg) * 0.5;
+  const startLat = firstStopCoord?.[1] ?? (bounds.south_lat_deg + bounds.north_lat_deg) * 0.5;
   const startX = clamp(lonToX(startLon), -halfW, halfW);
   const startZ = clamp(latToZ(startLat), -halfH, halfH);
 
   let initialYaw = 0;
-  if (routeCoords.length > 1) {
-    const ahead = routeCoords[Math.min(4, routeCoords.length - 1)];
-    const adx = lonToX(ahead[0]) - startX;
-    const adz = latToZ(ahead[1]) - startZ;
+  const secondStopCoord = stops?.features?.[1]?.geometry?.coordinates;
+  if (secondStopCoord) {
+    const adx = lonToX(secondStopCoord[0]) - startX;
+    const adz = latToZ(secondStopCoord[1]) - startZ;
     if (Math.hypot(adx, adz) > 0.5) initialYaw = Math.atan2(-adx, -adz);
   }
 
-  let playing = false;
   let speedMult = 1;
-  let freeRoam = true;
   let yawOffset = initialYaw;
   let pitchOffset = -0.04;
   let walkedM = 0;
   const freePos = new THREE.Vector3(startX, getSafeEyeY(startX, startZ), startZ);
   const keys = new Set();
 
-  // Mouse drag look
+  // Pointer Lock mouse look (click 3D view to lock cursor; Esc to unlock) + drag fallback
+  const reticleEl = document.getElementById("hud-reticle");
+  const lockHintEl = document.getElementById("hud-lock-hint");
   let dragging = false;
+  let movedWhileDragging = false;
   let lastX = 0;
   let lastY = 0;
+
+  const isLocked = () => document.pointerLockElement === renderer.domElement;
+
+  function syncLockUi() {
+    const locked = isLocked();
+    reticleEl?.classList.toggle("locked", locked);
+    if (lockHintEl) {
+      lockHintEl.textContent = locked
+        ? "Mouse Locked · Esc: Unlock · WASD: Walk"
+        : "Click 3D view: Lock Mouse (Esc: Unlock)";
+    }
+    if (locked) dragging = false;
+  }
+
+  document.addEventListener("pointerlockchange", syncLockUi);
+  document.addEventListener("pointerlockerror", syncLockUi);
+
+  renderer.domElement.addEventListener("click", () => {
+    if (movedWhileDragging) {
+      movedWhileDragging = false;
+      return;
+    }
+    if (!isLocked() && renderer.domElement.requestPointerLock) {
+      try {
+        const res = renderer.domElement.requestPointerLock();
+        if (res && typeof res.catch === "function") res.catch(() => {});
+      } catch {
+        // Fallback drag look remains active if pointer lock is blocked
+      }
+    }
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isLocked()) return;
+    yawOffset -= e.movementX * 0.0026;
+    pitchOffset = clamp(pitchOffset - e.movementY * 0.0022, -1.25, 1.15);
+  });
+
   renderer.domElement.addEventListener("pointerdown", (e) => {
+    if (isLocked()) return;
     dragging = true;
+    movedWhileDragging = false;
     lastX = e.clientX;
     lastY = e.clientY;
   });
   window.addEventListener("pointerup", () => (dragging = false));
   window.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    yawOffset -= (e.clientX - lastX) * 0.004;
-    pitchOffset = Math.max(-1.25, Math.min(1.15, pitchOffset - (e.clientY - lastY) * 0.003));
+    if (isLocked() || !dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    if (Math.hypot(dx, dy) > 3) movedWhileDragging = true;
+    yawOffset -= dx * 0.004;
+    pitchOffset = clamp(pitchOffset - dy * 0.003, -1.25, 1.15);
     lastX = e.clientX;
     lastY = e.clientY;
   });
@@ -404,12 +392,9 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   window.addEventListener("blur", () => keys.clear());
 
   // UI Controls
-  const btnPlay = document.getElementById("hud-play");
-  const scrubber = document.getElementById("hud-scrubber");
   const btnSpeed = document.getElementById("hud-speed");
   const btnTex = document.getElementById("hud-tex");
   const btnAr = document.getElementById("hud-ar-toggle");
-  const btnFreeRoam = document.getElementById("hud-freeroam");
   const btnResetLook = document.getElementById("hud-reset-look");
   const btnPov = document.getElementById("hud-pov-btn");
 
@@ -417,28 +402,6 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     btnTex.textContent = useSlopeTex ? "Tex: Slope" : "Tex: Ortho";
     if (!assets.orthoPreviewUrl) btnTex.disabled = true;
   }
-  if (btnFreeRoam) {
-    btnFreeRoam.textContent = "Free-Roam: ON (WASD)";
-  }
-
-  btnPlay?.addEventListener("click", () => {
-    playing = !playing;
-    if (playing) {
-      freeRoam = false;
-      if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: OFF";
-    }
-    btnPlay.textContent = playing ? "⏸ Pause" : "▶ Walk EVA";
-  });
-
-  scrubber?.addEventListener("input", () => {
-    alongM = parseFloat(scrubber.value) || 0;
-    if (freeRoam) {
-      const s = sampleAlongRoute(routeCoords, cumDist, alongM);
-      const rx = clamp(lonToX(s.lon), -halfW, halfW);
-      const rz = clamp(latToZ(s.lat), -halfH, halfH);
-      freePos.set(rx, getSafeEyeY(rx, rz), rz);
-    }
-  });
 
   btnSpeed?.addEventListener("click", () => {
     speedMult = speedMult === 1 ? 2 : speedMult === 2 ? 5 : 1;
@@ -458,36 +421,21 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     btnAr.textContent = arGroup.visible ? "AR: ON" : "AR: OFF";
   });
 
-  btnFreeRoam?.addEventListener("click", () => {
-    freeRoam = !freeRoam;
-    if (freeRoam) {
-      playing = false;
-      if (btnPlay) btnPlay.textContent = "▶ Walk EVA";
-      freePos.x = clamp(camera.position.x, -halfW, halfW);
-      freePos.z = clamp(camera.position.z, -halfH, halfH);
-      freePos.y = getSafeEyeY(freePos.x, freePos.z);
-    }
-    btnFreeRoam.textContent = freeRoam ? "Free-Roam: ON (WASD)" : "Free-Roam: OFF";
-  });
-
   btnResetLook?.addEventListener("click", () => {
     yawOffset = initialYaw;
     pitchOffset = -0.04;
   });
 
-  // Listen for mm:set-route (moves astronaut to chosen stop / route point without locking WASD)
-  onSetRoute(({ route: newRoute, along_m }) => {
-    alongM = along_m || 0;
-    rebuildRouteRibbon(newRoute);
-    const s = sampleAlongRoute(routeCoords, cumDist, alongM);
-    const rx = clamp(lonToX(s.lon), -halfW, halfW);
-    const rz = clamp(latToZ(s.lat), -halfH, halfH);
+  // Jump directly to a science stop coordinate when clicked in the Stops drawer
+  onJumpToCoord(({ coord }) => {
+    const rx = clamp(lonToX(coord[0]), -halfW, halfW);
+    const rz = clamp(latToZ(coord[1]), -halfH, halfH);
     freePos.set(rx, getSafeEyeY(rx, rz), rz);
   });
 
   const compassEl = document.getElementById("hud-compass");
 
-  function updateHudReadouts(sM, lon, lat, camX, camZ) {
+  function updateHudReadouts(sM, camX, camZ) {
     // Update AR stop distances
     for (const st of stopSprites) {
       updateArLabelDist(st.sprite, Math.hypot(st.x - camX, st.z - camZ));
@@ -499,11 +447,10 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
       compassEl.textContent = `HDG ${compassLabel(lookHeadingDeg)}`;
     }
 
-    // Honest empty state if route & telemetry are both missing
     const primaryTel = telemetry?.primary || telemetry;
-    if (!activeRoute && !primaryTel && !elevGrid) {
+    if (!elevGrid && !primaryTel && !stops?.features?.length) {
       document.getElementById("hud-dist").textContent = "no NASA value";
-      document.getElementById("hud-dist-sub").textContent = "route.json / hud-telemetry.json missing";
+      document.getElementById("hud-dist-sub").textContent = "terrain / telemetry missing";
       document.getElementById("hud-slope").textContent = "no NASA value";
       document.getElementById("hud-next-stop").textContent = "no NASA value";
       document.getElementById("hud-next-kind").textContent = "stops.json missing";
@@ -511,15 +458,7 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
       return;
     }
 
-    const prof = activeRoute?.profile || [];
-    let slopeDeg = freeRoam ? sampleSlopeDeg(camX, camZ) : (primaryTel?.slope_deg ?? null);
-    if (!freeRoam && prof.length > 1) {
-      let i = 0;
-      while (i < prof.length - 2 && prof[i + 1].s_m < sM) i++;
-      slopeDeg = prof[i].slope_deg ?? slopeDeg;
-    } else if (slopeDeg == null) {
-      slopeDeg = sampleSlopeDeg(camX, camZ);
-    }
+    const slopeDeg = sampleSlopeDeg(camX, camZ) ?? primaryTel?.slope_deg ?? null;
     const slopeClass = classifySlope(slopeDeg, 20);
 
     let nextStop = stops?.features?.[0] || null;
@@ -536,18 +475,16 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
       }
     }
 
-    const budgetM = totalDist > 0 ? totalDist : 2500;
+    const budgetM = 2500;
     const frac = Math.min(1, sM / budgetM);
-    const rem = totalDist > 0 ? Math.max(0, totalDist - sM) : null;
     const o2Pct =
-      sM === 0 && primaryTel?.suit_o2_remaining_percent != null && !activeRoute
+      sM === 0 && primaryTel?.suit_o2_remaining_percent != null
         ? primaryTel.suit_o2_remaining_percent
         : Math.max(0, 100 * (1 - frac));
 
     document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    document.getElementById("hud-dist-sub").textContent = freeRoam
-      ? `WASD Walk · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`
-      : `Rem: ${rem != null ? rem.toFixed(1) + " m" : "—"} · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`;
+    document.getElementById("hud-dist-sub").textContent =
+      `WASD Walk (1.7m) · Next: ${minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "no NASA value"}`;
     document.getElementById("hud-slope").textContent =
       slopeDeg != null ? `${Number(slopeDeg).toFixed(1)}°` : "no NASA value";
 
@@ -592,7 +529,7 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
   const moveRight = new THREE.Vector3();
   const moveVec = new THREE.Vector3();
 
-  // Animation Loop (camera-relative WASD at 1.7m eye height, no forced yaw turns)
+  // Animation Loop (camera-relative WASD at 1.7m eye height, pointer-lock look)
   let prevT = performance.now();
   function animate(now) {
     requestAnimationFrame(animate);
@@ -605,69 +542,36 @@ export async function initHud3D(data, { onOpenPov, onPositionChange }) {
     const strafeInput =
       (keys.has("d") || keys.has("arrowright") ? 1 : 0) -
       (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
-    const anyWalkKey = fwdInput !== 0 || strafeInput !== 0;
 
-    // Pressing WASD switches seamlessly back to 1st-person manual control from current position
-    if (anyWalkKey && !freeRoam) {
-      freeRoam = true;
-      playing = false;
-      if (btnPlay) btnPlay.textContent = "▶ Walk EVA";
-      if (btnFreeRoam) btnFreeRoam.textContent = "Free-Roam: ON (WASD)";
-      freePos.x = clamp(camera.position.x, -halfW, halfW);
-      freePos.z = clamp(camera.position.z, -halfH, halfH);
-    }
-
-    if (playing && !freeRoam) {
-      alongM += dt * 12 * speedMult;
-      if (alongM > totalDist) alongM = 0;
-      if (scrubber) scrubber.value = alongM.toFixed(1);
-    }
-
-    let hudLon;
-    let hudLat;
-    let hudDistM;
-
-    if (freeRoam) {
-      if (anyWalkKey) {
-        const sprint = keys.has("shift") ? 2.2 : 1;
-        const moveSpeed = 10 * speedMult * sprint;
-        // Derive horizontal forward & right axes directly from current camera yawOffset
-        moveForward.set(-Math.sin(yawOffset), 0, -Math.cos(yawOffset));
-        moveRight.set(Math.cos(yawOffset), 0, -Math.sin(yawOffset));
-        moveVec
-          .set(0, 0, 0)
-          .addScaledVector(moveForward, fwdInput)
-          .addScaledVector(moveRight, strafeInput);
-        if (moveVec.lengthSq() > 0) {
-          moveVec.normalize();
-          const prevX = freePos.x;
-          const prevZ = freePos.z;
-          freePos.x = clamp(freePos.x + moveVec.x * moveSpeed * dt, -halfW, halfW);
-          freePos.z = clamp(freePos.z + moveVec.z * moveSpeed * dt, -halfH, halfH);
-          walkedM += Math.hypot(freePos.x - prevX, freePos.z - prevZ);
-        }
+    if (fwdInput !== 0 || strafeInput !== 0) {
+      const sprint = keys.has("shift") ? 2.2 : 1;
+      const moveSpeed = 10 * speedMult * sprint;
+      moveForward.set(-Math.sin(yawOffset), 0, -Math.cos(yawOffset));
+      moveRight.set(Math.cos(yawOffset), 0, -Math.sin(yawOffset));
+      moveVec
+        .set(0, 0, 0)
+        .addScaledVector(moveForward, fwdInput)
+        .addScaledVector(moveRight, strafeInput);
+      if (moveVec.lengthSq() > 0) {
+        moveVec.normalize();
+        const prevX = freePos.x;
+        const prevZ = freePos.z;
+        freePos.x = clamp(freePos.x + moveVec.x * moveSpeed * dt, -halfW, halfW);
+        freePos.z = clamp(freePos.z + moveVec.z * moveSpeed * dt, -halfH, halfH);
+        walkedM += Math.hypot(freePos.x - prevX, freePos.z - prevZ);
       }
-      freePos.y = getSafeEyeY(freePos.x, freePos.z);
-      camera.position.copy(freePos);
-      hudLon = xToLon(freePos.x);
-      hudLat = zToLat(freePos.z);
-      hudDistM = walkedM;
-    } else {
-      const sample = sampleAlongRoute(routeCoords, cumDist, alongM);
-      const rx = clamp(lonToX(sample.lon), -halfW, halfW);
-      const rz = clamp(latToZ(sample.lat), -halfH, halfH);
-      camera.position.set(rx, getSafeEyeY(rx, rz), rz);
-      hudLon = sample.lon;
-      hudLat = sample.lat;
-      hudDistM = sample.sM;
     }
 
+    freePos.y = getSafeEyeY(freePos.x, freePos.z);
+    camera.position.copy(freePos);
     camera.rotation.order = "YXZ";
     camera.rotation.y = yawOffset;
     camera.rotation.x = pitchOffset;
 
-    updateHudReadouts(hudDistM, hudLon, hudLat, camera.position.x, camera.position.z);
-    if (onPositionChange) onPositionChange(hudLon, hudLat, hudDistM);
+    const hudLon = xToLon(freePos.x);
+    const hudLat = zToLat(freePos.z);
+    updateHudReadouts(walkedM, camera.position.x, camera.position.z);
+    if (onPositionChange) onPositionChange(hudLon, hudLat, walkedM);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(animate);

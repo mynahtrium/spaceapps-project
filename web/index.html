@@ -16,10 +16,10 @@
 </head>
 <body>
   <main class="visor-stage">
-    <!-- First-Person 3D Mount Sharp Terrain + AR Route & Stop Beacons -->
+    <!-- First-Person 3D Mount Sharp Terrain & AR Stop Beacons -->
     <div id="hud-canvas-wrap"></div>
     <div class="visor-curvature"></div>
-    <div class="hud-reticle"></div>
+    <div id="hud-reticle" class="hud-reticle"></div>
 
     <!-- Unified Helmet Visor HUD -->
     <div class="visor-hud">
@@ -29,7 +29,7 @@
           <span class="brand-dot"></span>
           <span class="brand-title">GALE CRATER // MOUNT SHARP VISOR</span>
           <span id="badge-demo" class="pill demo" style="display:none;">DEMO-SAFE (?demo=1)</span>
-          <span id="badge-example" class="pill example" style="display:none;">EXAMPLE ROUTE (PRE-07 OPEN)</span>
+          <span id="badge-example" class="pill example" style="display:none;">EXAMPLE DATA (PRE-07 OPEN)</span>
           <a id="link-demo-toggle" class="btn mini" href="?demo=1">?demo=1</a>
           <button id="btn-credits" class="btn mini">NASA Sources &amp; Credits</button>
         </div>
@@ -39,7 +39,7 @@
           <div class="hud-panel must-card">
             <div class="hud-kicker">DISTANCE (MARS R=3,389.5km)</div>
             <div class="hud-value" id="hud-dist">0.0 m</div>
-            <div class="hud-sub" id="hud-dist-sub">Rem: — · Next: —</div>
+            <div class="hud-sub" id="hud-dist-sub">WASD Walk (1.7m) · Next: —</div>
           </div>
 
           <!-- MUST 2: Slope -->
@@ -77,7 +77,7 @@
         <!-- Visor Tactical Map (MapLibre moved onto the Visor) -->
         <section id="visor-map-dock" class="hud-panel visor-map-dock">
           <div class="hud-kicker">
-            <span>VISOR TACTICAL MAP &amp; PROFILE</span>
+            <span>VISOR TACTICAL MAP</span>
             <div style="display:flex;gap:4px;">
               <button id="btn-map-expand" class="btn mini">Expand</button>
               <button id="btn-map-collapse" class="btn mini">Hide</button>
@@ -104,7 +104,6 @@
               <label class="toggle-item"><input type="checkbox" id="layer-themis-night" /> THEMIS N</label>
               <label class="toggle-item"><input type="checkbox" id="layer-crism" checked /> CRISM</label>
             </div>
-            <svg id="profile-svg" class="profile-svg" viewBox="0 0 300 74"></svg>
           </div>
         </section>
 
@@ -123,22 +122,19 @@
         </section>
       </div>
 
-      <!-- Bottom Bar: First-Person Walk & AR Controls -->
+      <!-- Bottom Bar: First-Person Walk & Mouse Lock Controls -->
       <div class="visor-bottom-bar">
         <div class="hud-panel" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span class="compass-pill" id="hud-compass">HDG 000° N</span>
-          <span class="hud-sub" id="hud-route-totals" style="margin:0;">Route: —</span>
+          <span class="hud-sub" id="hud-lock-hint" style="margin:0;">Click 3D view: Lock Mouse (Esc: Unlock)</span>
         </div>
 
         <div class="hud-panel hud-controls">
-          <button id="hud-play" class="btn primary">▶ Walk EVA</button>
-          <input id="hud-scrubber" class="hud-scrubber" type="range" min="0" max="100" step="0.5" value="0" />
           <button id="hud-speed" class="btn">1x</button>
           <button id="hud-tex" class="btn">Tex: Ortho</button>
           <button id="hud-ar-toggle" class="btn">AR: ON</button>
-          <button id="hud-freeroam" class="btn">Free-Roam: ON (WASD)</button>
           <button id="hud-reset-look" class="btn">Reset Look</button>
-          <span class="hud-sub" style="margin:0 4px;">WASD: Walk (1.7m eye) · Drag: Look · Shift: Sprint</span>
+          <span class="hud-sub" style="margin:0 4px;">WASD: Walk (1.7m) · Shift: Sprint</span>
         </div>
       </div>
     </div>
