@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Martian Mappers — Gale Crater / Mount Sharp Marswalk Planner</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.170.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <div class="brand-title">MARTIAN MAPPERS // GALE CRATER &amp; MOUNT SHARP</div>
+      <span id="badge-demo" class="pill demo" style="display:none;">DEMO-SAFE (?demo=1)</span>
+      <span id="badge-example" class="pill example" style="display:none;">EXAMPLE ROUTE (PRE-07 OPEN)</span>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-tab-planner" class="btn active">2D Planner</button>
+      <button id="btn-tab-hud" class="btn">3D Helmet HUD</button>
+      <button id="btn-credits" class="btn">Credits &amp; Honesty</button>
+      <button id="btn-start-eva" class="btn primary">Start EVA →</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <!-- 2D MapLibre Planner -->
+    <section id="planner-view" class="view active">
+      <div id="map-container">
+        <div id="map"></div>
+        <div class="map-legend">
+          <div style="font-weight:700;margin-bottom:4px;">Slope / Hazard (Lunar Stand-in)</div>
+          <div class="legend-row"><span class="swatch" style="background:#22c55e;"></span> ≤ 10° Preferred</div>
+          <div class="legend-row"><span class="swatch" style="background:#f59e0b;"></span> 10–15° Caution</div>
+          <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span> 15–20° Steep</div>
+          <div class="legend-row"><span class="swatch" style="background:#a855f7;"></span> &gt; <span id="legend-limit">20</span>° Blocked / No-data</div>
+          <div class="honesty-note" style="margin-top:6px;">
+            DTM slope matches Curiosity tilt only weakly (5 m medians 9.0° vs 8.6°); keep a safety margin.
+          </div>
+        </div>
+      </div>
+
+      <aside class="planner-sidebar">
+        <!-- Route Summary -->
+        <div class="card">
+          <h3 class="card-title">
+            <span>EVA Route Summary</span>
+            <label style="font-size:11px;color:var(--text);text-transform:none;cursor:pointer;">
+              <input type="checkbox" id="toggle-strict-15" /> Strict 15° limit
+            </label>
+          </h3>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="stat-label">Distance (Mars R)</div>
+              <div class="stat-val" id="sum-distance">—</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Climb / Descent</div>
+              <div class="stat-val" id="sum-climb">—</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Walk Time (Placeholder)</div>
+              <div class="stat-val" id="sum-duration">—</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Est. Dose (RAD×Time)</div>
+              <div class="stat-val" id="sum-dose">—</div>
+            </div>
+          </div>
+          <div class="honesty-note" id="sum-honesty">
+            Frame: "if a crew visited where Curiosity studied Mount Sharp."
+          </div>
+        </div>
+
+        <!-- Elevation Profile -->
+        <div class="card">
+          <h3 class="card-title">
+            <span>Elevation &amp; Slope Profile</span>
+            <span style="font-size:10px;color:var(--muted);">Click to jump in 3D</span>
+          </h3>
+          <svg id="profile-svg" class="profile-svg" viewBox="0 0 320 110"></svg>
+        </div>
+
+        <!-- Map Layer Toggles -->
+        <div class="card">
+          <h3 class="card-title"><span>Map Layers</span></h3>
+          <div class="toggle-grid">
+            <label class="toggle-item"><input type="checkbox" id="layer-ortho" checked /> HiRISE Ortho</label>
+            <label class="toggle-item"><input type="checkbox" id="layer-slope" checked /> Slope Hazard</label>
+            <label class="toggle-item"><input type="checkbox" id="layer-themis-day" /> THEMIS Day IR</label>
+            <label class="toggle-item"><input type="checkbox" id="layer-themis-night" /> THEMIS Night IR</label>
+            <label class="toggle-item"><input type="checkbox" id="layer-crism" checked /> CRISM Footprints</label>
+            <label class="toggle-item"><input type="checkbox" id="layer-ctx" checked /> Mars Trek CTX</label>
+          </div>
+        </div>
+
+        <!-- Science Stops & Rover POV -->
+        <div class="card">
+          <h3 class="card-title"><span>Science Stops &amp; Rover POV</span></h3>
+          <div id="stops-list"></div>
+        </div>
+
+        <!-- Space Weather & REMS -->
+        <div class="card">
+          <h3 class="card-title"><span>DONKI Space Weather &amp; REMS</span></h3>
+          <div id="donki-banner" class="banner-warn">Loading space weather…</div>
+          <div id="weather-box" class="honesty-note" style="margin-top:8px;"></div>
+          <div id="dose-box" class="honesty-note" style="margin-top:6px;"></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- 3D First-Person Terrain + Helmet HUD -->
+    <section id="hud-view" class="view">
+      <div id="hud-canvas-wrap"></div>
+      <div class="hud-reticle"></div>
+
+      <div class="visor-overlay">
+        <div class="visor-top">
+          <!-- MUST 1: Distance -->
+          <div class="hud-box">
+            <div class="hud-kicker">EVA DISTANCE (MARS R = 3,389.5 KM)</div>
+            <div class="hud-value" id="hud-dist">0.0 m</div>
+            <div class="hud-sub" id="hud-dist-sub">Remaining: — · Next stop: —</div>
+          </div>
+
+          <!-- MUST 2: Slope -->
+          <div class="hud-box">
+            <div class="hud-kicker">LOCAL SLOPE (LUNAR STAND-IN)</div>
+            <div class="hud-value">
+              <span id="hud-slope">0.0°</span>
+              <span id="hud-slope-badge" class="slope-badge slope-green">green</span>
+            </div>
+            <div class="hud-sub">Weak DTM-tilt match; keep safety margin</div>
+          </div>
+
+          <!-- MUST 3: Next Stop -->
+          <div class="hud-box">
+            <div class="hud-kicker">NEXT SCIENCE STOP</div>
+            <div class="hud-value" id="hud-next-stop" style="font-size:15px;">—</div>
+            <div class="hud-sub" id="hud-next-kind">—</div>
+          </div>
+
+          <!-- MUST 4: Suit O2 (Illustrative Placeholder) -->
+          <div class="hud-box">
+            <div class="hud-kicker">SUIT O₂ (ILLUSTRATIVE PLACEHOLDER)</div>
+            <div class="hud-value" id="hud-o2">100.0%</div>
+            <div class="o2-bar"><div id="hud-o2-fill" class="o2-fill" style="width:100%"></div></div>
+            <div class="hud-sub">Linear placeholder; not a suit model</div>
+          </div>
+        </div>
+
+        <div class="visor-bottom">
+          <!-- SHOULD: Dose, DONKI, REMS pills -->
+          <div class="hud-box" style="max-width:440px;">
+            <div class="hud-kicker">RADIATION &amp; SPACE WEATHER (GALE)</div>
+            <div class="hud-sub" id="hud-should-line" style="color:var(--text);margin-top:4px;">—</div>
+          </div>
+
+          <!-- Playback & Camera Controls -->
+          <div class="hud-controls">
+            <button id="hud-back-planner" class="btn">← Planner</button>
+            <button id="hud-play" class="btn primary">▶ Play</button>
+            <input id="hud-scrubber" class="hud-scrubber" type="range" min="0" max="100" step="0.5" value="0" />
+            <button id="hud-speed" class="btn">1x</button>
+            <button id="hud-tex" class="btn">Tex: Ortho</button>
+            <button id="hud-freeroam" class="btn">Free-Roam: OFF</button>
+            <button id="hud-pov-btn" class="btn">Rover POV</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal for Rover POV & Credits/Honesty -->
+  <div id="modal-backdrop" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title" style="margin:0;font-size:16px;">Details</h3>
+        <button id="modal-close" class="btn">Close</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

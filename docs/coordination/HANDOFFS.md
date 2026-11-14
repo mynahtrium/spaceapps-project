@@ -29,7 +29,8 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits:
 - Please do next:
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md):
-- Received: (leave blank until the other role fills this)
+- Received:
+ (leave blank until the other role fills this)
 ```
 
 ## Log
@@ -48,7 +49,8 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: Mudstone outcrop names and final coordinates are not chosen. Resources tab still may be UNVERIFIED. HiView confirmation still needed for any pick.
 - Please do next: Lock the four stops (or reject candidates and supply alternates inside DTEEC_019698). Testers copy the locked ids into `docs/testing/`. Then Backend 2 runs MUST-04.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
-- Received: 2026-11-14 12:02 (Asil / Tester 1) — Alındı; durak kilitleme kararı bekleniyor.
+- Received:
+ 2026-11-14 12:02 (Asil / Tester 1) — Alındı; durak kilitleme kararı bekleniyor.
 
 ### HANDOFF-20261114-1200 — from backend-1 to backend-2, frontend-1, testers
 
@@ -62,7 +64,8 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: crop centre is a placeholder (near Curiosity Sol 5070); re-run once stops are locked (PRE-07). No ortho-based obstacles yet. Not checked against Curiosity tilt (MUST-03). Slope limits are lunar stand-ins; the DTM under-reads rover tilt. Height preview is scaled 0–65535 over `height_preview_elevation_range_m` (about -3575 to -3219 m).
 - Please do next: Backend 2 can start routing on this grid; Frontend 1 can load the height preview in the 3D view; testers check the bounds against HiView.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
-- Received: 2026-11-14 12:02 (Asil / Tester 1) — Alındı ve must-checklist.md üzerinden doğrulandı (PASS).
+- Received:
+ 2026-11-14 12:02 (Asil / Tester 1) — Alındı ve must-checklist.md üzerinden doğrulandı (PASS).
 
 ### HANDOFF-20261114-1217 — from Backend 3 to Frontend 1, Tester 1, Tester 2 (and Backend 1)
 
@@ -88,6 +91,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (kept contract field names; additive metadata fields only)
 - Received:
 
+
 ### HANDOFF-20261114-1220 — from Backend 3 to Frontend 1, Tester 1, Tester 2, Backend 2
 
 - Date (Europe/Istanbul): 2026-11-14 12:20
@@ -110,6 +114,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
 
+
 ### HANDOFF-20261114-1303 — from Tester 2 to Frontend 1, Backend 2, Backend 3, Tester 1
 
 - Date (Europe/Istanbul): 2026-11-14 13:03
@@ -123,6 +128,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Tester 1 reviews this branch (do not merge unless asked). Backend 2 answers the board question on 947.1 vs 790.3. Backend 3 refreshes dose only when the duration to show is chosen. Frontend 1 tells Tester 2 when a real `mm:set-route` click exists.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
+
 
 ### HANDOFF-20261114-1305 — from Backend 3 to Frontend 1, Tester 1, Tester 2
 
@@ -143,6 +149,7 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:
 
+
 ### HANDOFF-20261114-1330 — from backend-1 to frontend-1, backend-2, testers (follow-up to HANDOFF-20261114-1200)
 
 - Date (Europe/Istanbul): 2026-11-14 13:30
@@ -155,7 +162,8 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: The MUST-03 result does **not** confirm "DTM under-reads rover tilt" (medians 9.0 vs 8.6 deg at 5 m; weak correlation). I fixed that wording in B1-owned files only. Still using the old wording: AGENTS.md, ROADMAP.md, `.cursor/rules/data-and-map.mdc`, `skills/hud-3d`, `skills/map-ui`, `docs/JUDGING_CHECKLIST.md`, `docs/demo/*`, `docs/testing/must-checklist.md`, `docs/roles/tester-2.md`. Owners, please soften it, e.g. "DTM slope matches rover tilt only weakly; we keep a safety margin".
 - Please do next: Frontend 1 reads the RGB height PNG; testers and Doruk update the wording in their files; whoever owns AGENTS.md / ROADMAP.md edits those (shared files, ask first).
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive (see CHANGES.md)
-- Received: 2026-11-14 13:54 (CC / Backend 3 integration) — Wording updated across docs/demo, docs/testing, docs/roles, docs/JUDGING_CHECKLIST, skills/, AGENTS.md, ROADMAP.md; height-preview.png updated on main to 8-bit RGB + synced to data/demo/.
+- Received:
+ 2026-11-14 13:54 (CC / Backend 3 integration) — Wording updated across docs/demo, docs/testing, docs/roles, docs/JUDGING_CHECKLIST, skills/, AGENTS.md, ROADMAP.md; height-preview.png updated on main to 8-bit RGB + synced to data/demo/.
 
 ### HANDOFF-20261114-1355 — from Backend 3 (integration) to Frontend 1, Backend 1, Backend 2, Testers
 
@@ -174,4 +182,18 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - What is not done / known limits: `web/` (`BUG-01`) belongs to Frontend 1 and is untouched; `PRE-07` (`BUG-09`) still requires team stop lock so `stops.json`, `route.json`, and `dose.json` keep `is_example` / `status: example`.
 - Please do next: Frontend 1 can build `web/` directly against `data/processed/` and `?demo=1` offline `data/demo/` fixtures; Testers verify BUG-02..BUG-08 fixes; team locks `PRE-07` stops when ready.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive compatibility alignment documented in docs/contracts/CHANGES.md
+- Received:
+
+### HANDOFF-20261114-1409 — from Frontend 1 to Tester 1, Tester 2
+
+- Date (Europe/Istanbul): 2026-11-14 14:09
+- From (role, first name or nickname only, agent tool): Frontend 1, F1, Antigravity (Gemini)
+- To (role, name if known): Tester 1 (Asil), Tester 2 (Eymen)
+- Board task id: MUST-08, MUST-09, MUST-10, SHOULD-05, SHOULD-06, SHOULD-07
+- What is ready: Full 2D MapLibre planner + 3D three.js first-person Mount Sharp terrain + helmet HUD (`web/index.html`, `web/planner/planner.js`, `web/hud/hud3d.js`, `web/shared/data-loader.js`, `web/shared/route-bridge.js`, `web/styles.css`). Includes `mm:set-route`, 4 MUST HUD readouts, elevation profile, DONKI banner, RAD dose card, REMS weather, Curiosity POV lightbox, 15°/20° hazard toggle, THEMIS/CRISM toggles, Credits/Honesty modal, and `?demo=1` demo-safe mode.
+- Paths (files or folders): `web/`
+- How to try it: Run `python -m http.server 8000` from the repo root and open `http://localhost:8000/web/` or `http://localhost:8000/web/?demo=1`.
+- What is not done / known limits: MapLibre GL JS & Three.js load from CDN (`unpkg.com`); `data/` and `docs/` load locally. `ortho-preview.png` is read from `data/processed/terrain/` even in `?demo=1` because `data/demo/` does not bundle `ortho-preview.png`. Stops/route remain `example` until `PRE-07` locks.
+- Please do next: Verify `MUST-08`..`MUST-10` and `SHOULD-05`..`SHOULD-07` in the browser and sign off on `BOARD.md`.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no
 - Received:

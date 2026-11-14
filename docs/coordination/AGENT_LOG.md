@@ -526,3 +526,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Ran deep verification across `main` (`65c2e5e`): checked all 132 route vertices against `cost-map.json` blocked cells (0 hits, 0 out-of-bounds), verified `sum(legs) == 790.30 m`, checked all 8 HUD telemetry samples for `slope_class` / `O2` / distance sums, verified 28/28 `data/demo/science-manifest.json` files on disk, and checked all markdown relative links (0 broken). Logged `[BUG-11]` (missing GitHub usernames for B1–B3 and F1 in `docs/team/ROSTER.md`) and updated `POSSIBLE_BUGS.md`.
 - Commit: this commit
 - Next step: Await Frontend 1 `web/` scaffold (`BUG-01`), `BUG-10` demo path fix, and `PRE-07` stop lock.
+
+### 2026-11-14 14:09 Europe/Istanbul — PRE-02 / MUST-08..10 / SHOULD-05..07
+
+- Human: F1
+- Agent tool + model: Antigravity (Gemini)
+- Role: frontend-1
+- Task id: PRE-02, MUST-08, MUST-09, MUST-10, SHOULD-05, SHOULD-06, SHOULD-07
+- Files changed: docs/team/profiles/f1.md (new), docs/comms/intro-frontend-1.md, docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, web/index.html (new), web/styles.css (new), web/app.js (new), web/README.md, web/shared/data-loader.js (new), web/shared/route-bridge.js (new), web/planner/planner.js (new), web/hud/hud3d.js (new)
+- Why: Completed F1 onboarding profile (PRE-02) and built the full Frontend 1 static web app (2D MapLibre planner + `mm:set-route` bridge + 3D three.js heightmap from `height-preview.png` + helmet HUD with distance, slope/class, next stop, placeholder suit O2 + DONKI, RAD dose, REMS weather, Curiosity POV lightbox, 15°/20° toggle, THEMIS/CRISM toggles, Credits/Honesty modal, and `?demo=1` demo-safe mode). Verified all 27 local web and data URLs return HTTP 200 via `http.server`.
+- Commit: this commit
+- Next step: Testers 1 & 2 review `web/` in browser and sign off MUST-08..10 and SHOULD-05..07.
