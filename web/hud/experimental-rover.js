@@ -13,6 +13,8 @@
  *    with in-air pitch/roll attitude angular momentum & reaction-wheel trim.
  */
 
+import { mergeStaticMeshes } from "./merge-static.js";
+
 export const MARS_GRAVITY_MS2 = 3.71;
 export const ROVER_FLIGHT_G = 9.4;
 export const ROVER_COLLISION_RADIUS_M = 2.45;
@@ -638,6 +640,8 @@ function buildArticulatedDualWheelPods(THREE, axleLayout, trackHalfW, radius, po
         }
       }
 
+      // tyres, rims, hubs and cleats turn as one: one mesh per material (26 meshes -> 4 per wheel)
+      mergeStaticMeshes(THREE, spinner);
       wheels.push(spinner);
       pods.push({
         podRoot,
@@ -800,6 +804,9 @@ export function createExperimentalRover(THREE) {
       const wrapper = new THREE.Group();
       wrapper.rotation.y = Math.PI;
       wrapper.add(model);
+      wrapper.updateMatrixWorld(true);
+      // the body never moves relative to itself: merge its parts per material (fewer draw calls)
+      mergeStaticMeshes(THREE, wrapper);
 
       wrapper.traverse((o) => {
         if (!o.isMesh) return;

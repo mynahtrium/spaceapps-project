@@ -2327,3 +2327,20 @@ body.in-hud .arrival-flash {
     display: none;
   }
 }
+
+/* F3 performance readout */
+.perf-hud {
+  display: none;
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 60;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(77, 166, 255, 0.45);
+  color: #8cc8ff;
+  font: 10.5px/1.5 var(--mono);
+  letter-spacing: 0.05em;
+  white-space: pre;
+  pointer-events: none;
+}

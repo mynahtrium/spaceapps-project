@@ -1131,3 +1131,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Tests: `web/tests/rover-dynamics.test.mjs` (rest sag, gentle start about 2 km/h after 1 s and peak 0.9 m/s2, top speed near 20 km/h, braking dive, turning roll, ledge, rough terrain). All web tests pass. Checked in the browser: boarding, driving, dust, dashboard.
 - Commit: this commit
 - Next step: Cagan drives it on a real machine (frame rate was low in the hidden preview pane); tune `ROVER_PARAMS` in `rover-dynamics.js` if it feels too slow or too soft.
+
+### 2026-11-15 Europe/Istanbul — PERF-01 frame-rate work (target: the screen's refresh rate, 120 Hz)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PERF-01
+- Files changed: `web/hud/merge-static.js` (new), `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/hud/experimental-rover.js`, `web/hud/wind-dust.js`, `web/shared/dev-settings.js`, `web/app.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Cagan gets bad frame rates on 16 GB RAM / RTX 4060 and needs 120 fps. Measured with the new F3 readout (frame ms, CPU ms, draw calls, triangles): the scene submitted 1288 draw calls per frame (the five historic rovers alone were about 930 meshes, the MMSEV about 200, all drawn twice because they cast shadows), which made the CPU about 8.3 ms per frame, already the whole 120 Hz budget. Changes: (1) static parts merged per material (`merge-static.js`): 1288 -> about 300 draw calls, CPU 8.3 -> about 3-4.8 ms, same picture and still inspectable. (2) Adaptive resolution used to react only above 24 ms (it accepted 40 fps); it now aims at the display's refresh rate (found from the frame intervals, snapped to 60/75/90/120/144/165/240 Hz), drops in 5 % steps down to 50 % and comes back, and ignores load stalls and hidden tabs. (3) New "Graphics quality" setting in the dev menu, default "performance": 1 pixel per CSS pixel, no MSAA, 1024 px shadow map, 45 % of the wind-dust particles; "balanced" = MSAA 2 and 2048 px shadows; "quality" = the old 1.25x resolution. (4) The terrain shadow bake (about 5 s of frozen page at start and again every 10 min or when the sun mode changes) now runs at half resolution, with early exit, in 6 ms slices after the first frames. Start-up about 7.2 s -> about 2.6 s.
+- Not measured: GPU time. The preview pane is hidden and throttled, so absolute fps there means nothing; press F3 in the game on the real machine to see fps, CPU ms, draw calls and render scale.
+- Commit: this commit
+- Next step: Cagan checks F3 on the RTX 4060. If it is still under 120 fps with CPU under about 6 ms, the limit is the GPU (terrain shader / resolution); then lower the quality level or the render scale floor.

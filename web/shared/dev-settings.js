@@ -6,7 +6,11 @@
 const STORAGE_KEY = "mm-dev-settings";
 export const DEV_SETTINGS_EVENT = "mm:dev-settings";
 
+export const QUALITY_LEVELS = Object.freeze(["performance", "balanced", "quality"]);
+
 export const DEFAULT_DEV_SETTINGS = Object.freeze({
+  // graphics quality: "performance" aims at the screen's refresh rate (120 Hz+), see hud3d.js
+  quality: "performance",
   frameEffect: true,
   frameStrength: 0.2,
   speedMultiplier: 1.0,
@@ -42,6 +46,7 @@ function clampNum(v, min, max, fallback) {
 
 export function normalizeDevSettings(raw = {}) {
   return {
+    quality: QUALITY_LEVELS.includes(raw.quality) ? raw.quality : DEFAULT_DEV_SETTINGS.quality,
     frameEffect: raw.frameEffect !== undefined ? Boolean(raw.frameEffect) : DEFAULT_DEV_SETTINGS.frameEffect,
     frameStrength: clampNum(raw.frameStrength, 0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
     speedMultiplier: clampNum(raw.speedMultiplier, 0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),

@@ -493,6 +493,22 @@ async function boot() {
           <input class="dev-range" type="range" id="dev-rover-speed" min="0.3" max="4" step="0.1" value="${s.roverSpeedMultiplier}" />
         </div>
 
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Grafik kalitesi" : "Graphics quality"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Performans: ekranın yenileme hızını (120 Hz) hedefler; 1× çözünürlük, MSAA yok, 1024 px gölge, az toz. Dengeli: 2× MSAA, 2048 px gölge. Kalite: 1.25× çözünürlük. F3 ile FPS ve çizim sayısını gör."
+                : "Performance aims at the screen's refresh rate (120 Hz): 1× resolution, no MSAA, 1024 px shadows, less dust. Balanced: 2× MSAA, 2048 px shadows. Quality: 1.25× resolution. Press F3 for FPS and draw calls."
+            }</div>
+          </div>
+          <select id="dev-quality">
+            <option value="performance">${tr ? "Performans" : "Performance"}</option>
+            <option value="balanced">${tr ? "Dengeli" : "Balanced"}</option>
+            <option value="quality">${tr ? "Kalite" : "Quality"}</option>
+          </select>
+        </label>
+
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
@@ -640,6 +656,7 @@ async function boot() {
     const speedVal = document.getElementById("dev-speed-val");
     const roverSpeedRange = document.getElementById("dev-rover-speed");
     const roverSpeedVal = document.getElementById("dev-rover-speed-val");
+    const qualitySel = document.getElementById("dev-quality");
     const superToggle = document.getElementById("dev-super-gfx");
     const rtToggle = document.getElementById("dev-ray-tracing");
     const expRoverToggle = document.getElementById("dev-exp-rover");
@@ -667,6 +684,7 @@ async function boot() {
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
       if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
+      if (qualitySel) qualitySel.value = cfg.quality;
       if (superToggle) superToggle.checked = cfg.superGraphics;
       if (rtToggle) rtToggle.checked = cfg.rayTracing;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
@@ -697,6 +715,7 @@ async function boot() {
         syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
       );
     });
+    qualitySel?.addEventListener("change", () => syncUi(saveDevSettings({ quality: qualitySel.value })));
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
     rtToggle?.addEventListener("change", () => syncUi(saveDevSettings({ rayTracing: rtToggle.checked })));
     expRoverToggle?.addEventListener("change", () =>

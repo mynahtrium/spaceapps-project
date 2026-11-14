@@ -13,6 +13,8 @@
 
 import { resolveRoverObbCollision } from "./experimental-rover.js";
 
+import { mergeStaticMeshes } from "./merge-static.js";
+
 function createCanvasTex(THREE, w, h, drawFn, { linear = false } = {}) {
   if (typeof document === "undefined") return null;
   const c = document.createElement("canvas");
@@ -891,6 +893,10 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
       obj.receiveShadow = true;
     }
   });
+  // hundreds of small parts that never move: one draw call per material instead (see merge-static.js)
+  if (roverSpec.modelKind !== "perseverance-glb") {
+    mergeStaticMeshes(THREE, body, { tag: { historicRoverId: roverSpec.id } });
+  }
 
   if (roverSpec.modelKind === "perseverance-glb" && roverSpec.glbUrl && gltfLoader) {
     body.userData.isStandIn = true;
@@ -903,6 +909,8 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
         const real = normalizePerseveranceGltf(THREE, inst, roverSpec.id);
         outer.remove(body);
         outer.add(real);
+        outer.updateMatrixWorld(true);
+        mergeStaticMeshes(THREE, real, { tag: { historicRoverId: roverSpec.id } });
         outer.traverse((obj) => {
           obj.userData.historicRoverId = roverSpec.id;
         });

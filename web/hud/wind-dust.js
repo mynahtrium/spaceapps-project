@@ -10,8 +10,8 @@
  * Particles live in boxes that follow the camera and wrap, so the cost is constant.
  */
 
-const SALT_N = 700;
-const MOTE_N = 1100;
+const SALT_N = 500;
+const MOTE_N = 800;
 const SHEET_N = 14;
 const SALT_R = 9; // metres around the walker
 const MOTE_R = 26;
@@ -260,6 +260,8 @@ export function createWindDust({ THREE, scene, groundY, sunDir, atlasUrl = "./as
   const viewDir = new THREE.Vector3();
   const wrap = (v, r) => ((((v + r) % (2 * r)) + 2 * r) % (2 * r)) - r;
 
+  let saltCount = SALT_N;
+  let moteCount = MOTE_N;
   function update(dt, camera, strength = 1) {
     group.visible = enabled && strength > 0.01;
     if (!group.visible) return;
@@ -286,7 +288,7 @@ export function createWindDust({ THREE, scene, groundY, sunDir, atlasUrl = "./as
 
     // saltation: grains hop downwind, visible mostly during gusts
     const saltVis = Math.min(1, 0.35 + wind.gust * 1.6) * strength;
-    for (let i = 0; i < SALT_N; i++) {
+    for (let i = 0; i < saltCount; i++) {
       salt.ox[i] = wrap(salt.ox[i] + wind.x * k * salt.sp[i] * dt * 0.7, SALT_R);
       salt.oz[i] = wrap(salt.oz[i] + wind.z * k * salt.sp[i] * dt * 0.7, SALT_R);
       salt.hop[i] += dt / salt.hopLen[i];
@@ -305,7 +307,7 @@ export function createWindDust({ THREE, scene, groundY, sunDir, atlasUrl = "./as
     saltGeom.attributes.aAlpha.needsUpdate = true;
 
     // suspended motes: drift with the wind, slow turbulent wobble
-    for (let i = 0; i < MOTE_N; i++) {
+    for (let i = 0; i < moteCount; i++) {
       const ph = mote.ph[i];
       mote.ox[i] = wrap(mote.ox[i] + (wind.x * k * 0.55 + Math.sin(t * 0.7 + ph) * 0.15) * dt, MOTE_R);
       mote.oz[i] = wrap(mote.oz[i] + (wind.z * k * 0.55 + Math.cos(t * 0.6 + ph) * 0.15) * dt, MOTE_R);
@@ -355,6 +357,13 @@ export function createWindDust({ THREE, scene, groundY, sunDir, atlasUrl = "./as
     group,
     update,
     wind,
+    /** 0.4 .. 1: share of the saltation grains and airborne motes that are simulated and drawn. */
+    setDetail(f) {
+      saltCount = Math.max(40, Math.round(SALT_N * f));
+      moteCount = Math.max(60, Math.round(MOTE_N * f));
+      saltGeom.setDrawRange(0, saltCount);
+      moteGeom.setDrawRange(0, moteCount);
+    },
     setEnabled(on) {
       enabled = Boolean(on);
       group.visible = enabled;

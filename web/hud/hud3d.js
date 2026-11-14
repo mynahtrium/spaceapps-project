@@ -853,45 +853,69 @@ export async function initHud3D(
   // terrain cell towards the sun through the height grid and store how much of the sun is visible.
   // The mirrored terrain repeats every 2 tiles in world space, so one mask over that period, sampled
   // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
-  function bakeSunMask() {
+  // The old full-resolution bake froze the page for ~5 s at start-up and again at every re-bake
+  // (every 10 min, and when switching sun mode): 790 x 790 cells, each marching up to 700 m.
+  // Now: one texel per 2 x 2 DTM cells (the shadow edge is soft anyway), rays of 2-cell steps that
+  // stop as soon as they are above the highest point of the terrain, and the work is cut into
+  // ~6 ms slices between frames. The finished mask replaces the old one in one swap (no flicker).
+  const SUN_MASK_SLICE_MS = 6;
+  let sunBakeJob = null;
+  function startSunMaskBake(onDone) {
     const n = elevGrid ? imgW : 0;
     if (!n) return null;
-    const N = 2 * n; // cells across one mirror period
+    const N = 2 * n; // DTM cells across one mirror period
+    const M = Math.ceil(N / 2); // mask texels across the period
+    const out = new Uint8Array(M * M * 4);
+    const finish = () => {
+      const tex = new THREE.DataTexture(out, M, M, THREE.RGBAFormat);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.magFilter = THREE.LinearFilter;
+      tex.minFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
+      onDone(tex);
+    };
+    if (sunDir.y <= 0.0) {
+      // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
+      for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
+      finish();
+      return null;
+    }
+    if (sunDir.y > 0.995) {
+      out.fill(255); // sun at the zenith: no terrain shadows
+      finish();
+      return null;
+    }
     const cell = worldW / n;
     const H = new Float32Array(N * N);
+    let hMax = -Infinity;
     for (let r = 0; r < N; r++) {
       const sr = r < n ? r : 2 * n - 1 - r;
       for (let c = 0; c < N; c++) {
         const sc = c < n ? c : 2 * n - 1 - c;
-        H[r * N + c] = elevGrid[sr * imgW + sc];
+        const h = elevGrid[sr * imgW + sc];
+        H[r * N + c] = h;
+        if (h > hMax) hMax = h;
       }
     }
     const horiz = Math.max(1e-4, Math.hypot(sunDir.x, sunDir.z));
     const tanSun = sunDir.y / horiz;
-    const dx = sunDir.x / horiz; // cells per step towards the sun (x = columns, east)
-    const dz = sunDir.z / horiz; // z = rows, south
-    const maxSteps = Math.ceil(700 / cell);
+    const STEP = 2; // DTM cells per ray step
+    const dx = (sunDir.x / horiz) * STEP; // towards the sun (x = columns, east)
+    const dz = (sunDir.z / horiz) * STEP; // z = rows, south
+    const stepM = STEP * cell;
+    const maxSteps = Math.ceil(700 / stepM);
     const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
-    const out = new Uint8Array(N * N * 4);
-    if (sunDir.y <= 0.0) {
-      // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
-      for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
-      const dark = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
-      dark.needsUpdate = true;
-      return dark;
-    }
-    if (sunDir.y > 0.995) {
-      out.fill(255); // sun at the zenith: no terrain shadows
-      const lit = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
-      lit.needsUpdate = true;
-      return lit;
-    }
     const wrapN = (v) => ((v % N) + N) % N;
-    for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) {
+    let row = 0;
+    const job = { cancelled: false };
+    function bakeRow(mr) {
+      const r = Math.min(N - 1, mr * 2);
+      for (let mc = 0; mc < M; mc++) {
+        const c = Math.min(N - 1, mc * 2);
         const h0 = H[r * N + c];
         let worst = -1e9;
         for (let k = 1; k <= maxSteps; k++) {
+          if (h0 + (tanSun + SOFT) * k * stepM > hMax) break; // above every hill from here on
           const fx = c + dx * k;
           const fz = r + dz * k;
           const x0 = Math.floor(fx);
@@ -904,7 +928,7 @@ export async function initHud3D(
           const rb = wrapN(z0 + 1) * N;
           const h =
             (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
-          const t = (h - h0) / (k * cell);
+          const t = (h - h0) / (k * stepM);
           if (t > worst) {
             worst = t;
             if (worst > tanSun + SOFT) break; // fully in shadow
@@ -912,25 +936,45 @@ export async function initHud3D(
         }
         const lit = Math.min(1, Math.max(0, (tanSun - worst) / (2 * SOFT) + 0.5));
         // texture row 0 = smallest world z (north), matching the shader's lookup
-        const o = (r * N + c) * 4;
+        const o = (mr * M + mc) * 4;
         out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
         out[o + 3] = 255;
       }
     }
-    const tex = new THREE.DataTexture(out, N, N, THREE.RGBAFormat);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.magFilter = THREE.LinearFilter;
-    tex.minFilter = THREE.LinearFilter;
-    tex.needsUpdate = true;
-    return tex;
+    const slice = () => {
+      if (job.cancelled) return;
+      const t0 = performance.now();
+      while (row < M && performance.now() - t0 < SUN_MASK_SLICE_MS) bakeRow(row++);
+      if (row >= M) finish();
+      else setTimeout(slice, 0);
+    };
+    setTimeout(slice, 0);
+    return job;
   }
-  const bakeT0 = performance.now();
-  let sunMask = bakeSunMask();
-  if (sunMask) {
-    const d = sunMask.image.data;
-    let shade = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i] < 128) shade++;
-    console.info(`sun mask baked in ${Math.round(performance.now() - bakeT0)} ms, ${((100 * shade) / (d.length / 4)).toFixed(1)}% of ground in terrain shadow`);
+  function applySunMask(tex) {
+    const prev = sunMask;
+    sunMask = tex;
+    if (terrainShaderRef?.uniforms?.sunMask) terrainShaderRef.uniforms.sunMask.value = tex;
+    prev?.dispose?.();
+  }
+  /** Re-bake in the background for the current sun direction (cancels a bake still running). */
+  function rebakeSunMask() {
+    if (sunBakeJob) sunBakeJob.cancelled = true;
+    sunBakeJob = startSunMaskBake((tex) => {
+      sunBakeJob = null;
+      applySunMask(tex);
+    });
+  }
+  // until the first bake finishes the whole ground counts as lit
+  let sunMask = null;
+  if (elevGrid) {
+    const M0 = Math.ceil((2 * imgW) / 2);
+    const lit = new Uint8Array(M0 * M0 * 4).fill(255);
+    sunMask = new THREE.DataTexture(lit, M0, M0, THREE.RGBAFormat);
+    sunMask.wrapS = sunMask.wrapT = THREE.RepeatWrapping;
+    sunMask.magFilter = sunMask.minFilter = THREE.LinearFilter;
+    sunMask.needsUpdate = true;
+    setTimeout(rebakeSunMask, 400); // after the first frames are on screen
   }
 
   // ---------- terrain material ----------
@@ -2424,15 +2468,7 @@ export async function initHud3D(
     renderer.toneMappingExposure = (devCfg.superGraphics ? 1.06 : 1.0) * (1 + 0.55 * (1 - up));
     if (rebake) {
       rebuildEnvironment();
-      if (isGaleSite() && elevGrid) {
-        const next = bakeSunMask();
-        if (next) {
-          const prev = sunMask;
-          sunMask = next;
-          if (terrainShaderRef?.uniforms?.sunMask) terrainShaderRef.uniforms.sunMask.value = next;
-          prev?.dispose?.();
-        }
-      }
+      if (isGaleSite() && elevGrid) rebakeSunMask();
       lastSunBakeMs = performance.now();
     }
     if (terrainShaderRef?.uniforms?.sunMaskOn) {
@@ -2963,6 +2999,7 @@ export async function initHud3D(
   let renderScale = 1;
   let frameAvg = 16;
   let lastScaleChange = 0;
+  const perfStats = { fps: 0, frameMs: 0, cpuMs: 0, sceneMs: 0, updMs: 0, calls: 0, tris: 0, geoms: 0, tex: 0, refreshMs: 16.7 };
 
   function syncVisorSafeInsets(w, h, bezelScale) {
     const host = hudView || document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
@@ -3075,13 +3112,17 @@ export async function initHud3D(
 
     const wantSuper = Boolean(cfg.superGraphics);
     const wantRt = Boolean(cfg.rayTracing);
-    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : 1.25);
+    const q = cfg.quality || "performance";
+    // performance: 1 pixel per CSS pixel, no MSAA, 1024 px shadow map, lighter dust (aims at the
+    // monitor's refresh rate); balanced: MSAA 2 and 2048 px shadows; quality: 1.25x resolution
+    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : q === "quality" ? 1.25 : 1.0);
+    windDust.setDetail(q === "quality" ? 1 : q === "balanced" ? 0.7 : 0.45);
     renderer.setPixelRatio(targetPr);
     renderScale = wantSuper ? 1.25 : 1.0;
 
     // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
     // we switch to samples: 0 + DepthTexture (paired with FXAA + SSR/RTAO in LENS_FRAG).
-    const wantSamples = wantRt ? 0 : wantSuper ? 4 : 2;
+    const wantSamples = wantRt ? 0 : wantSuper ? 4 : q === "performance" ? 0 : 2;
     if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
       rtHasDepth = wantRt;
@@ -3103,7 +3144,7 @@ export async function initHud3D(
     }
     rtUniforms.uRtEnabled.value = wantRt ? 1 : 0;
 
-    const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
+    const wantShadowPx = wantSuper ? 4096 : q === "performance" ? 1024 : SHADOW_MAP_PX;
     const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
     const wantShadowType = wantSuper ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     if (shadowMapPx !== wantShadowPx || shadowHalfM !== wantShadowHalf || renderer.shadowMap.type !== wantShadowType) {
@@ -3191,13 +3232,38 @@ export async function initHud3D(
 
   // Adaptive resolution: the 3D scene renders into rt, so its size can drop when frames are slow
   // and come back when there is headroom. Disabled when Experimental Super Graphics is active.
+  // The target is the monitor's refresh rate, found from the shortest frame interval seen (about 8.3 ms
+  // on a 120 Hz screen, 16.7 ms on 60 Hz): if frames take clearly longer than that the render
+  // resolution drops in 5 % steps (floor 50 %), and it comes back when there is headroom. The old
+  // rule only reacted above 24 ms, i.e. it accepted anything under ~41 fps.
+  let refreshMs = 16.7;
+  let refreshWindowStart = 0;
+  const refreshSamples = [];
+  const COMMON_HZ = [240, 165, 144, 120, 100, 90, 75, 60, 50, 30];
   function adaptResolution(frameMs, now) {
+    // display refresh estimate: the 25th percentile of the frame intervals over rolling 4 s windows
+    // (a stutter followed by a catch-up frame must not look like a faster screen), snapped to a
+    // common refresh rate when it is within 7 %
+    if (frameMs > 2 && frameMs < 80 && refreshSamples.length < 2000) refreshSamples.push(frameMs);
+    if (now - refreshWindowStart > 4000) {
+      if (refreshSamples.length > 40) {
+        refreshSamples.sort((x, y) => x - y);
+        const q = refreshSamples[Math.floor(refreshSamples.length * 0.25)];
+        const hz = 1000 / q;
+        const near = COMMON_HZ.find((c) => Math.abs(hz - c) / c < 0.07);
+        refreshMs = Math.max(4.1, Math.min(34, near ? 1000 / near : q));
+      }
+      refreshSamples.length = 0;
+      refreshWindowStart = now;
+    }
+    perfStats.refreshMs = refreshMs;
+    if (frameMs > 70 || document.hidden) return; // a load stall or a background tab says nothing about the GPU
+    frameAvg += (frameMs - frameAvg) * 0.08;
     if (devCfg.superGraphics) return;
-    frameAvg += (frameMs - frameAvg) * 0.05;
-    if (now - lastScaleChange < 1200) return;
+    if (now - lastScaleChange < 700) return;
     let next = renderScale;
-    if (frameAvg > 24 && renderScale > 0.55) next = Math.max(0.55, renderScale - 0.1);
-    else if (frameAvg < 15 && renderScale < 1) next = Math.min(1, renderScale + 0.05);
+    if (frameAvg > refreshMs * 1.3 && renderScale > 0.5) next = Math.max(0.5, renderScale - 0.05);
+    else if (frameAvg < refreshMs * 1.12 && renderScale < 1) next = Math.min(1, renderScale + 0.025);
     if (next !== renderScale) {
       renderScale = next;
       lastScaleChange = now;
@@ -3238,9 +3304,27 @@ export async function initHud3D(
     }
   };
 
+  // F3: small readout of frame rate, CPU time, draw calls and triangles (to see what costs what)
+  let perfEl = null;
+  let perfOn = false;
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "F3") return;
+    e.preventDefault();
+    perfOn = !perfOn;
+    if (perfOn && !perfEl) {
+      perfEl = document.createElement("div");
+      perfEl.id = "perf-hud";
+      perfEl.className = "perf-hud";
+      document.body.appendChild(perfEl);
+    }
+    if (perfEl) perfEl.style.display = perfOn ? "block" : "none";
+  });
+  let perfLastDraw = 0;
+
   const lookDir = new THREE.Vector3();
   function animate(now) {
     requestAnimationFrame(animate);
+    const cpuStart = performance.now();
     const dt = Math.min(0.1, (now - prevT) / 1000);
     prevT = now;
     clockT += dt;
@@ -3990,10 +4074,28 @@ export async function initHud3D(
       lensMat.uniforms.uRtProj.value.copy(camera.projectionMatrix);
       lensMat.uniforms.uRtInvProj.value.copy(camera.projectionMatrixInverse);
     }
+    const renderStart = performance.now();
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
+    perfStats.sceneMs += (performance.now() - renderStart - perfStats.sceneMs) * 0.1;
+    perfStats.updMs += (renderStart - cpuStart - perfStats.updMs) * 0.1;
+    perfStats.calls = renderer.info.render.calls;
+    perfStats.tris = renderer.info.render.triangles;
+    perfStats.geoms = renderer.info.memory.geometries;
+    perfStats.tex = renderer.info.memory.textures;
     renderer.setRenderTarget(null);
     renderer.render(lensScene, lensCam);
+    perfStats.cpuMs += (performance.now() - cpuStart - perfStats.cpuMs) * 0.1;
+    perfStats.frameMs += (dt * 1000 - perfStats.frameMs) * 0.1;
+    if (perfOn && now - perfLastDraw > 250) {
+      perfLastDraw = now;
+      const fps = perfStats.frameMs > 0 ? 1000 / perfStats.frameMs : 0;
+      perfEl.textContent =
+        `${fps.toFixed(0)} FPS · frame ${perfStats.frameMs.toFixed(1)} ms · CPU ${perfStats.cpuMs.toFixed(1)} ms (update ${perfStats.updMs.toFixed(1)} + submit ${perfStats.sceneMs.toFixed(1)})\n` +
+        `target ${(1000 / perfStats.refreshMs).toFixed(0)} Hz · render scale ${(renderScale * 100).toFixed(0)}% · ` +
+        `pixel ratio ${renderer.getPixelRatio().toFixed(2)}\n` +
+        `draw calls ${perfStats.calls} · triangles ${(perfStats.tris / 1000).toFixed(0)}k · geoms ${perfStats.geoms} · textures ${perfStats.tex}`;
+    }
   }
   requestAnimationFrame(animate);
   loadingVeil?.classList.add("done");
@@ -4006,6 +4108,25 @@ export async function initHud3D(
     visitRoverSite,
     getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z) }),
     getActiveSiteId: () => activeSiteId,
+    perf: () => ({ ...perfStats, renderScale, pixelRatio: renderer.getPixelRatio() }),
+    /** Per top-level scene object: visible meshes, how many cast shadows, triangles (for tuning). */
+    perfBreakdown: () =>
+      scene.children.map((c, i) => {
+        let meshes = 0;
+        let casters = 0;
+        let tris = 0;
+        c.traverse((o) => {
+          if (!o.isMesh && !o.isPoints && !o.isLine) return;
+          let vis = true;
+          for (let q = o; q; q = q.parent) if (!q.visible) vis = false;
+          if (!vis) return;
+          meshes++;
+          if (o.castShadow) casters++;
+          const g = o.geometry;
+          tris += g?.index ? g.index.count / 3 : (g?.attributes?.position?.count || 0) / 3;
+        });
+        return { i, type: c.type, name: c.name || c.constructor.name, visible: c.visible, meshes, casters, tris: Math.round(tris) };
+      }),
     syncAlongM: (s) => {
       // Crew route sync: move this walker onto the shared route position (the route is at Gale).
       const target = Math.max(0, Math.min(totalDist, Number(s) || 0));
