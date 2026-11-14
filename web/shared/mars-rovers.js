@@ -353,10 +353,9 @@ export function buildHistoricRoversGeoJson() {
 }
 
 /**
- * Compute deterministic procedural elevation offset (meters) for off-Gale Mars sites
- * so Jezero Crater, Gusev Crater, Meridiani Planum, and Ares Vallis each have distinct,
- * navigable crater/plain relief while keeping a flat landing pad at local origin `(0, 0)`
- * for clean 6-wheel placement.
+ * Compute deterministic, smoothly transitioned site relief (meters) for off-Gale Mars sites
+ * (Jezero, Gusev, Meridiani, Ares Vallis, and custom Orbit landings): mixes gentle sandy basins
+ * with steeper stratified mesa/scarp shoulders while keeping a flat landing pad at local `(0, 0)`.
  */
 export function sampleProceduralSiteHeightM(roverIdOrSpec, x, z) {
   const rover = typeof roverIdOrSpec === "object" && roverIdOrSpec ? roverIdOrSpec : getHistoricRoverById(roverIdOrSpec);
@@ -364,15 +363,26 @@ export function sampleProceduralSiteHeightM(roverIdOrSpec, x, z) {
   const { seed, reliefM } = rover.terrainProfile;
   const s = seed * 0.0137;
   const r = Math.hypot(x, z);
-  // Keep a smooth ~7 m apron right around the rover landing spot so all 6 wheels sit naturally
-  const apron = Math.max(0, Math.min(1, (r - 3.5) / 14.0));
-  const w1 = Math.sin(x * 0.011 + s) * Math.cos(z * 0.009 - s * 0.7);
-  const w2 = Math.sin((x + z) * 0.029 - s * 1.3) * 0.45;
-  const w3 = Math.cos(x * 0.075 - z * 0.068 + s * 2.1) * 0.14;
-  // Distant crater rim rise around r ~ 450..850 m
-  const rim = Math.max(0, Math.min(1, (r - 340) / 480)) * 0.42;
-  const raw = (w1 * 0.62 + w2 * 0.28 + w3 * 0.1 + rim) * reliefM;
-  return raw * (0.12 + 0.88 * apron);
+  // Smooth C1 Hermite landing apron around (0, 0) so 6 wheels sit naturally
+  const tApron = Math.max(0, Math.min(1, (r - 4.0) / 16.0));
+  const apron = tApron * tApron * (3 - 2 * tApron);
+  // Gentle domain warp avoids straight checkerboard wave lines
+  const wx = x + 38 * Math.sin(z * 0.0085 + s * 1.1);
+  const wz = z + 38 * Math.cos(x * 0.0082 - s * 0.9);
+  const broad =
+    Math.sin(wx * 0.0092 + s) * Math.cos(wz * 0.0078 - s * 0.7) * 0.56 +
+    Math.sin((wx - wz) * 0.017 + s * 1.4) * 0.24;
+  // Selective smooth mesa shoulders: steeper rocky rises in some zones, broad flat basins in others
+  const scarpSignal = Math.sin(wx * 0.0061 - wz * 0.0054 + s * 2.3);
+  const scarpMask = 0.5 + 0.5 * Math.tanh(scarpSignal * 2.1);
+  const undul = 0.5 + 0.5 * Math.sin(wx * 0.022 + wz * 0.019 - s);
+  const mesa = scarpMask * (0.28 + 0.22 * undul);
+  const micro = Math.cos(wx * 0.052 - wz * 0.048 + s * 2.1) * 0.06;
+  // Smooth crater rim rise around r ~ 340..860 m (no linear crease at start)
+  const tRim = Math.max(0, Math.min(1, (r - 340) / 520));
+  const rim = tRim * tRim * (3 - 2 * tRim) * 0.45;
+  const raw = (broad + mesa + micro + rim) * reliefM;
+  return raw * (0.08 + 0.92 * apron);
 }
 
 /**

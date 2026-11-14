@@ -81,6 +81,11 @@ import {
   createRayTracerUniforms,
   patchObjectRayTracer,
 } from "./ray-tracer.js";
+import {
+  decodeAndConditionElevGrid,
+  mirrorWrap01,
+  sampleMirrorBicubicHeight,
+} from "./terrain-surface.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -113,10 +118,7 @@ function loadImage(url) {
 }
 
 // Mirror-wrap a tile coordinate (period 2) so heights match the mirrored copies.
-function mirrorWrap(t) {
-  const m = ((t % 2) + 2) % 2;
-  return m > 1 ? 2 - m : m;
-}
+const mirrorWrap = mirrorWrap01;
 
 // Small tileable value-noise texture for close-range ground detail (visual only).
 function makeDetailTexture(size = 512) {
@@ -708,17 +710,14 @@ export async function initHud3D(
     const ctx = c.getContext("2d");
     ctx.drawImage(hImg, 0, 0);
     const px = ctx.getImageData(0, 0, imgW, imgH).data;
-    elevGrid = new Float32Array(imgW * imgH);
-    for (let i = 0; i < imgW * imgH; i++) {
-      const val = px[i * 4] * 256 + px[i * 4 + 1];
-      elevGrid[i] = elevMin + (val / 65535) * (elevMax - elevMin);
-    }
+    ({ grid: elevGrid } = decodeAndConditionElevGrid(px, imgW, imgH, elevMin, elevMax));
   } catch {
     // Flat terrain if the height preview fails
   }
 
-  // Bilinear height (scene Y, metres above site base), mirror-wrapped beyond the tile.
-  // At Gale (Curiosity), samples real HiRISE DTM; at other rover sites, uses deterministic site relief.
+  // Smooth C1 bicubic height (scene Y, metres above site base), mirror-wrapped beyond the tile.
+  // At Gale (Curiosity), samples real HiRISE DTM (curvature-despeckled only on harsh needles);
+  // at other rover sites, uses deterministic stratified site relief.
   function sampleElevSceneY(x, z) {
     if (!isGaleSite()) {
       const mx = (mirrorWrap(x / worldW + 0.5) - 0.5) * worldW;
@@ -726,21 +725,7 @@ export async function initHud3D(
       return sampleProceduralSiteHeightM(activeSiteRover, mx, mz);
     }
     if (!elevGrid) return 0;
-    const fx = mirrorWrap(x / worldW + 0.5) * (imgW - 1);
-    const fy = mirrorWrap(z / worldH + 0.5) * (imgH - 1);
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const x1 = Math.min(imgW - 1, x0 + 1);
-    const y1 = Math.min(imgH - 1, y0 + 1);
-    const tx = fx - x0;
-    const ty = fy - y0;
-    const e00 = elevGrid[y0 * imgW + x0];
-    const e10 = elevGrid[y0 * imgW + x1];
-    const e01 = elevGrid[y1 * imgW + x0];
-    const e11 = elevGrid[y1 * imgW + x1];
-    const top = e00 + (e10 - e00) * tx;
-    const bot = e01 + (e11 - e01) * tx;
-    return top + (bot - top) * ty - elevMin;
+    return sampleMirrorBicubicHeight(elevGrid, imgW, imgH, x / worldW + 0.5, z / worldH + 0.5) - elevMin;
   }
 
   const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 192);
@@ -785,8 +770,14 @@ export async function initHud3D(
     const g = new THREE.PlaneGeometry(worldW, worldH, seg, seg);
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
-    for (let i = 0; i < pos.count; i++) pos.setY(i, sampleElevSceneY(pos.getX(i), pos.getZ(i)));
-    g.computeVertexNormals();
+    const nor = g.attributes.normal;
+    for (let i = 0; i < pos.count; i++) {
+      const vx = pos.getX(i);
+      const vz = pos.getZ(i);
+      pos.setY(i, sampleElevSceneY(vx, vz));
+      const nrm = sampleNormal(vx, vz);
+      nor.setXYZ(i, nrm.x, nrm.y, nrm.z);
+    }
     return addSkirt(g, seg, 40);
   }
 
@@ -843,10 +834,10 @@ export async function initHud3D(
     return out;
   }
 
-  const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
+  const fullSeg = elevGrid ? Math.min(520, Math.round((imgW - 1) * 1.32)) : 160;
   let terrainGeom = buildTerrainGeometry(fullSeg);
-  // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
-  let copyGeom = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
+  // mirrored copies carry smooth ridgelines out to the Mount Sharp / rim vista without faceted quads
+  let copyGeom = buildTerrainGeometry(Math.max(128, Math.floor(fullSeg / 3)));
 
   // ---------- far terrain shadows (baked) ----------
   // The real-time shadow map only covers the ground near the walker. For the rest, march from every
@@ -1181,14 +1172,16 @@ export async function initHud3D(
           vec3 mmDust = texture2D(pbrDust, vMapUv * mix(720.0, 1080.0, max(uSuperDetail, uRealisticTex))).rgb;
           vec3 mmRock = texture2D(pbrRock, vMapUv * mix(320.0, 520.0, max(uSuperDetail, uRealisticTex)) + 0.37).rgb;
           vec3 mmMicro = texture2D(pbrDust, vMapUv * mix(2200.0, 3200.0, max(uSuperDetail, uRealisticTex)) + 0.19).rgb;
-          float mmRockMask = clamp(max(smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r), mmSlopeMix * 0.62), 0.0, 1.0);
+          float mmRockMask = clamp(max(smoothstep(0.45, 0.68, texture2D(detailMap, vMapUv * 41.0 + 0.11).r), mmSlopeMix * 0.68), 0.0, 1.0);
           vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
           float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
           float mmMicroLum = dot(mmMicro, vec3(0.299, 0.587, 0.114)) / 0.40;
           float mmRichLum = mix(mmLum, pow(clamp(mmLum, 0.18, 2.1), 1.38), uRealisticTex);
+          float mmStrata = sin(vMmElev * 0.72 + dA * 2.2) * mmSlopeMix;
           float mmMineralGlint = uRealisticTex * smoothstep(0.92, 0.995, dB) * 0.18;
           diffuseColor.rgb *= mix(1.0, clamp(mmRichLum, 0.22, 1.95), mix(0.82, 0.98, max(uSuperDetail, uRealisticTex)));
           diffuseColor.rgb *= mix(1.0, clamp(mmMicroLum, 0.62, 1.42), 0.42);
+          diffuseColor.rgb *= 1.0 + mmStrata * vec3(0.055, 0.032, 0.012);
           diffuseColor.rgb += vec3(mmMineralGlint, mmMineralGlint * 0.72, mmMineralGlint * 0.48);
         #endif`
       );
@@ -2484,7 +2477,7 @@ export async function initHud3D(
     const gale = isGaleSite();
     galeStopsGroup.visible = gale;
     fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
-    galeVista.visible = Boolean(devCfg.superGraphics) && gale;
+    galeVista.visible = gale;
     const nextMain = buildTerrainGeometry(fullSeg);
     const nextCopy = buildTerrainGeometry(Math.max(1, Math.floor(fullSeg / 4)));
     terrainMesh.geometry = nextMain;
@@ -3147,7 +3140,7 @@ export async function initHud3D(
     hemiLight.intensity = (wantSuper ? 0.28 : 0.22) * (0.32 + 0.68 * upNow);
     renderer.toneMappingExposure = (wantSuper ? 1.06 : 1.0) * (1 + 0.55 * (1 - upNow));
     rockField.group.visible = wantSuper;
-    galeVista.visible = wantSuper && isGaleSite();
+    galeVista.visible = isGaleSite();
     fieldKits.visible = wantSuper && isGaleSite();
     const tau = cfg.dustTau ?? 0.5;
     sky.material.uniforms.uTau.value = tau;

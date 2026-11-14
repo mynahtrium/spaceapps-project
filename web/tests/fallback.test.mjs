@@ -35,6 +35,13 @@ import {
   buildHeightfieldRtData,
   createRayTracerUniforms,
 } from "../hud/ray-tracer.js";
+import {
+  decodeAndConditionElevGrid,
+  sampleMirrorBicubicHeight,
+  smoothHarshTerrainSpikes,
+} from "../hud/terrain-surface.js";
+import { createGaleVista } from "../hud/GaleVista.js";
+import * as THREE from "../vendor/three.module.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
 import { TerrainWorkerPool } from "../map/TerrainWorkerPool.js";
@@ -688,4 +695,81 @@ test("stepAdvancedRoverPhysics simulates acceleration, gearbox shifts, handbrake
   });
   assert.equal(airOut.drifting, false);
   assert.ok(s.airPitchVel !== 0 || s.airRollVel !== 0);
+});
+
+test("terrain-surface preserves steep NASA slopes while selectively smoothing harsh needles, filling voids, and keeping C1 mirror continuity", () => {
+  // 1. Planar 28-degree steep slope with one isolated +7.5m pointy stereo needle spike
+  const w = 13;
+  const h = 13;
+  const raw = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      raw[y * w + x] = -3600 + x * 2.65 + y * 0.6; // steady steep ~28 deg plane
+    }
+  }
+  const slopeBefore = raw[6 * w + 10] - raw[6 * w + 2];
+  raw[6 * w + 6] += 7.5; // harsh pointy needle spike
+  const cleaned = smoothHarshTerrainSpikes(raw, w, h);
+
+  // Away from the needle, steep NASA planar slope stays exact (< 1 cm change)
+  assert.ok(Math.abs(cleaned[6 * w + 2] - raw[6 * w + 2]) < 0.01);
+  assert.ok(Math.abs(cleaned[6 * w + 10] - raw[6 * w + 10]) < 0.01);
+  assert.ok(Math.abs((cleaned[6 * w + 10] - cleaned[6 * w + 2]) - slopeBefore) < 0.02);
+
+  // Needle spike is strongly relaxed toward local slope plane
+  const planeAtCenter = -3600 + 6 * 2.65 + 6 * 0.6;
+  assert.ok(Math.abs(cleaned[6 * w + 6] - planeAtCenter) < 1.25, `Spike delta too large: ${cleaned[6 * w + 6] - planeAtCenter}`);
+
+  // 2. NoData val=0 pixels in height-preview RGB buffer must fill from neighbors, never drop to elevMin
+  const rgba = new Uint8Array(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    rgba[i * 4] = 128; // midpoint (~0.5 of range)
+    rgba[i * 4 + 1] = 0;
+    rgba[i * 4 + 3] = 255;
+  }
+  rgba[(6 * w + 6) * 4] = 0; // NoData sentinel val=0
+  rgba[(6 * w + 6) * 4 + 1] = 0;
+  const decoded = decodeAndConditionElevGrid(rgba, w, h, -3850.6, -3369.3);
+  assert.equal(decoded.holeCountBefore, 1);
+  assert.equal(decoded.holeCountAfter, 0);
+  assert.ok(decoded.grid[6 * w + 6] > -3700, `Void hole dropped toward elevMin: ${decoded.grid[6 * w + 6]}`);
+
+  // 3. C1 mirror continuity across tile edge u = 1.0
+  const eps = 1e-4;
+  const hEdge = sampleMirrorBicubicHeight(cleaned, w, h, 1.0, 0.42);
+  const hLeft = sampleMirrorBicubicHeight(cleaned, w, h, 1.0 - eps, 0.42);
+  const hRight = sampleMirrorBicubicHeight(cleaned, w, h, 1.0 + eps, 0.42);
+  assert.ok(Math.abs(hLeft - hRight) < 1e-4, "Mirrored heights must be symmetric at tile boundary");
+  assert.ok(Math.abs((hEdge - hLeft) / eps) < 5, "C1 mirror boundary derivative must be smooth (no sharp V-crease)");
+});
+
+test("GaleVista builds smooth stratified Mount Sharp massif within camera far plane", () => {
+  const vista = createGaleVista(THREE);
+  assert.equal(vista.visible, true);
+  assert.equal(vista.material.flatShading, false);
+  assert.equal(vista.material.vertexColors, true);
+  const pos = vista.geometry.attributes.position;
+  const col = vista.geometry.attributes.color;
+  assert.ok(pos.count > 4000, "GaleVista must have sufficient mesh resolution for smooth ridgelines");
+  assert.equal(col.count, pos.count);
+  let maxR = 0;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    assert.ok(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z));
+    maxR = Math.max(maxR, Math.hypot(x, z));
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  assert.ok(maxR <= 13700, `GaleVista outer radius (${maxR.toFixed(0)} m) should fit inside 15 km camera.far`);
+  assert.ok(minY <= 0 && maxY > 1200, `Expected Mount Sharp massif relief (got ${minY.toFixed(1)}..${maxY.toFixed(1)} m)`);
+
+  // Verify off-Gale smooth landing pad & natural meso relief
+  assert.equal(sampleProceduralSiteHeightM("curiosity", 100, 100), 0);
+  const padCenter = sampleProceduralSiteHeightM("perseverance", 0, 0);
+  const padNear = sampleProceduralSiteHeightM("perseverance", 2.5, 1.5);
+  assert.ok(Math.abs(padCenter - padNear) < 0.25, "Landing pad around rover (0,0) should remain gently graded");
 });
