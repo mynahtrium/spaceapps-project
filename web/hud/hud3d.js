@@ -21,6 +21,7 @@ import {
   buildCumulativeDistances,
   classifySlope,
   onSetRoute,
+  resolveNextStopAlongRoute,
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
@@ -526,15 +527,19 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   let activeRoute = route;
   let routeCoords = activeRoute?.geometry?.coordinates || [];
   let cumDist = buildCumulativeDistances(routeCoords);
-  let totalDist = cumDist[cumDist.length - 1] || 1;
+  let geomTotalDist = cumDist[cumDist.length - 1] || 1;
+  let totalDist = Number(activeRoute?.totals?.distance_m) > 0 ? Number(activeRoute.totals.distance_m) : geomTotalDist;
   let alongM = 0;
+
+  const toGeomDist = (s) => (geomTotalDist > 0 && totalDist > 0 ? (s / totalDist) * geomTotalDist : s);
 
   function rebuildRouteRibbon(r) {
     if (routeLineMesh) scene.remove(routeLineMesh);
     activeRoute = r;
     routeCoords = r?.geometry?.coordinates || [];
     cumDist = buildCumulativeDistances(routeCoords);
-    totalDist = cumDist[cumDist.length - 1] || 1;
+    geomTotalDist = cumDist[cumDist.length - 1] || 1;
+    totalDist = Number(activeRoute?.totals?.distance_m) > 0 ? Number(activeRoute.totals.distance_m) : geomTotalDist;
     const pts = routeCoords.map(([lon, lat]) => {
       const x = lonToX(lon);
       const z = latToZ(lat);
@@ -556,7 +561,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
   if (activeRoute) rebuildRouteRibbon(activeRoute);
 
   function routePoint(s) {
-    const smp = sampleAlongRoute(routeCoords, cumDist, Math.max(0, Math.min(totalDist, s)));
+    const smp = sampleAlongRoute(routeCoords, cumDist, Math.max(0, Math.min(geomTotalDist, toGeomDist(s))));
     const x = lonToX(smp.lon);
     const z = latToZ(smp.lat);
     return { x, z, y: sampleElevSceneY(x, z), smp };
@@ -773,25 +778,19 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     }
     const slopeClass = classifySlope(slopeDeg, 20);
 
-    let nextStop = stops?.features?.[0];
-    let minStopDist = Infinity;
-    if (stops?.features?.length) {
-      for (const f of stops.features) {
-        const dx = lonToX(f.geometry.coordinates[0]) - lonToX(lon);
-        const dz = latToZ(f.geometry.coordinates[1]) - latToZ(lat);
-        const dd = Math.hypot(dx, dz);
-        if (dd < minStopDist) {
-          minStopDist = dd;
-          nextStop = f;
-        }
-      }
-    }
+    const { stop: nextStop, distanceM: nextStopDist, mode: nextMode } = resolveNextStopAlongRoute(
+      activeRoute,
+      stops,
+      sM,
+      [lon, lat]
+    );
 
     const o2Pct = Math.max(0, 100 * (1 - frac)); // illustrative linear placeholder
 
     document.getElementById("hud-dist").textContent = `${sM.toFixed(1)} m`;
-    document.getElementById("hud-dist-sub").textContent = `remaining ${rem.toFixed(1)} m · nearest stop ${
-      minStopDist < Infinity ? minStopDist.toFixed(0) + " m" : "—"
+    const stopDistLabel = nextMode === "leg" ? "next stop" : "nearest stop";
+    document.getElementById("hud-dist-sub").textContent = `remaining ${rem.toFixed(1)} m · ${stopDistLabel} ${
+      nextStopDist < Infinity ? nextStopDist.toFixed(0) + " m" : "—"
     }`;
     document.getElementById("hud-slope").textContent = `${Number(slopeDeg).toFixed(1)}°`;
     const badge = document.getElementById("hud-slope-badge");
@@ -856,7 +855,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
       if (scrubber) scrubber.value = alongM.toFixed(1);
     }
 
-    const sample = sampleAlongRoute(routeCoords, cumDist, alongM);
+    const sample = sampleAlongRoute(routeCoords, cumDist, toGeomDist(alongM));
     let px;
     let pz;
     if (freeRoam) {
@@ -969,7 +968,7 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
 
-    updateHudReadouts(sample.sM, sample.lon, sample.lat);
+    updateHudReadouts(alongM, sample.lon, sample.lat);
     followEndless(camera.position);
 
     lensMat.uniforms.uTime.value = clockT;

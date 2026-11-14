@@ -123,3 +123,49 @@ export function classifySlope(slopeDeg, strictLimitDeg = 20) {
   }
   return { id: "green", label: "≤10° Preferred" };
 }
+
+/**
+ * Resolve the upcoming stop along `route.legs` at walk distance `sM` (BUG-15),
+ * falling back to nearest-stop Mars spherical distance if `legs` are absent (BUG-16).
+ */
+export function resolveNextStopAlongRoute(route, stops, sM, lonLat) {
+  const features = stops?.features || [];
+  const legs = route?.legs || [];
+  if (legs.length > 0 && features.length > 0) {
+    let cumLegM = 0;
+    let chosenLeg = legs[legs.length - 1];
+    let targetCumM = 0;
+    for (const leg of legs) {
+      cumLegM += Number(leg.distance_m) || 0;
+      targetCumM = cumLegM;
+      if (sM < cumLegM - 0.05 || leg === legs[legs.length - 1]) {
+        chosenLeg = leg;
+        break;
+      }
+    }
+    const targetId = chosenLeg.to ?? chosenLeg.to_stop_id;
+    const stopFeature = features.find((f) => f.properties?.id === targetId || f.id === targetId);
+    if (stopFeature) {
+      return {
+        stop: stopFeature,
+        distanceM: Math.max(0, targetCumM - sM),
+        mode: "leg",
+      };
+    }
+  }
+
+  let nearest = features[0] || null;
+  let minStopDist = Infinity;
+  if (lonLat && features.length > 0) {
+    for (const f of features) {
+      const coords = f.geometry?.coordinates;
+      if (!coords) continue;
+      const d = marsDistanceM(lonLat, coords);
+      if (d < minStopDist) {
+        minStopDist = d;
+        nearest = f;
+      }
+    }
+  }
+  return { stop: nearest, distanceM: minStopDist, mode: "nearest" };
+}

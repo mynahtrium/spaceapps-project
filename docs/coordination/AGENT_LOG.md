@@ -693,3 +693,13 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Ran live browser verification on `2860d7e` (`http://localhost:8000/web/?demo=1`, 0 console errors), checked `node --check` on all 6 non-vendor JS files, verified `0` missing DOM IDs, `data/demo/science-manifest.json` completeness (`texture-relief.jpg` included), and `web/assets/nasa-3d/SOURCE.md` citation. Found and logged 2 HUD logic bugs in `web/hud/hud3d.js`: `BUG-15` (`NEXT` stop shows nearest Euclidean stop instead of upcoming `route.legs` target) and `BUG-16` (3D HUD `remaining` distance `824.7 m` vs `route.json` `790.3 m` due to planar `lonToX`/`latToZ` scaling).
 - Commit: this commit
 - Next step: Frontend 1 / Cagan fix `BUG-15` and `BUG-16` in `web/hud/hud3d.js`; team locks `PRE-07` (`BUG-09`).
+
+### 2026-11-14 16:53 Europe/Istanbul — Fix BUG-15 & BUG-16 in 3D HUD stop/distance tracking
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`main`)
+- Task id: BUG-15, BUG-16
+- Files changed: web/shared/route-bridge.js, web/hud/hud3d.js, web/tests/route-bridge.test.mjs, POSSIBLE_BUGS.md, docs/coordination/AGENT_LOG.md
+- Why: Fixed `BUG-15` (3D HUD `NEXT` stop showed nearest Euclidean stop instead of upcoming stop along `route.legs`) and `BUG-16` (3D HUD `totalDist`/`remaining` disagreed with `route.json` `totals.distance_m` `790.3 m`). Added `resolveNextStopAlongRoute()` in `web/shared/route-bridge.js` using `legs[].to` / `to_stop_id` and cumulative `distance_m` with `marsDistanceM` fallback, scaled `alongM` onto `geomTotalDist` in `web/hud/hud3d.js`, added `web/tests/route-bridge.test.mjs`, and marked `BUG-15` and `BUG-16` fixed in `POSSIBLE_BUGS.md`.
+- Commit: this commit
+- Next step: Reload `http://127.0.0.1:8765/web/?demo=1` in browser to verify `NEXT` stop and `790.3 m` readout.
