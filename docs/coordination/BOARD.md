@@ -36,7 +36,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | PRE-01 | GitHub account, collaborator access, practice PR on the roster | All | TBD | TBD | todo | before 14 Nov | [GITHUB_WORKFLOW.md](../GITHUB_WORKFLOW.md) |
 | PRE-02 | First-session onboarding interview; write `docs/team/profiles/<name>.md` | All | Doruk (B2), Cagan (B1), CC (B3), Asil (T1), Eymen (T2) | Grok (Cursor), Claude Code, Antigravity, Gemini | doing | first session | Profiles: [doruk.md](../team/profiles/doruk.md), [cagan.md](../team/profiles/cagan.md), [cc.md](../team/profiles/cc.md), [asil.md](../team/profiles/asil.md), [eymen.md](../team/profiles/eymen.md). F1 interview pending. No personal data; see [profiles/README.md](../team/profiles/README.md) |
 | PRE-03 | Installs (Git, Python 3, editor; GDAL for B1) | All / B1 | TBD | TBD | todo | before 14 Nov | No project pipeline yet |
-| PRE-04 | Personal `NASA_API_KEY` in a local gitignored `.env` only | B3 | TBD | TBD | todo | before 14 Nov | Never commit or paste the key |
+| PRE-04 | Personal `NASA_API_KEY` in a local gitignored `.env` only | B3 | CC | Grok (Cursor) | blocked | before 14 Nov | 2026-11-14: key not on this machine. Live DONKI skipped. Labelled example fixture shipped. Never commit `.env`. |
 | PRE-05 | Read 13 Nov Resources tab, submission guide, judging guide | All | TBD | TBD | todo | 13 Nov | **UNVERIFIED** until those pages can be read. Partial pass 13 Nov: the [2026 landing page](https://www.spaceappschallenge.org/2026/) and [official terms](https://www.spaceappschallenge.org/legal/) loaded; official challenge Details, Resources tab, and judging / submission guides were unreadable (certificate error / HTTP 500). Re-checked 14 Nov 11:19: TLS cert validation still fails (`curl` exit 60 / Windows Schannel). |
 | PRE-06 | Update [JUDGING_CHECKLIST.md](../JUDGING_CHECKLIST.md) from the official 13 Nov judging guide | T1, T2 | Eymen (T2) | Gemini (Antigravity) | doing | 13 Nov | Checklist is explicitly **UNVERIFIED** until this is done. Partial pass 13 Nov: a Status 2026-11-13 note was added; the 2026 judging guide itself could not be read with a valid TLS cert (re-checked 14 Nov 11:19, still failing TLS), so UNVERIFIED labels stay. |
 | PRE-07 | Lock route stops on paper / HiView (inside DTEEC_019698) | B2 + team | Doruk | Grok (Cursor) | blocked | before hour 0 | Needs Doruk/team lock of outcrop names+coords. Request: [pipeline/routing/PRE07_LOCK_REQUEST.md](../../pipeline/routing/PRE07_LOCK_REQUEST.md). Testers record ids in `docs/testing/` after lock. |
@@ -51,7 +51,7 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-04 | Write locked `stops.json` | B2 | Doruk | Grok (Cursor) | doing | hour 2 | Example scaffold on branch `backend-2/routing-must-scaffold` (cited Sol 4527/4534 + contract mudstones). Still `is_example`; clear only after PRE-07 lock. |
 | MUST-05 | A\* / Dijkstra route (or labelled hand-drawn fallback) + `route.json` | B2 | Doruk | Grok (Cursor) | doing | hour 10 | Example Dijkstra on contract cost grid (B1 crop does not cover stops yet). Static `data/processed/routing/route.json`. |
 | MUST-06 | `hud-telemetry.json` samples (distance, slope, next stop, placeholder O₂) | B2 | Doruk | Grok (Cursor) | doing | hour 16 | Example samples + `primary`; slope/elev null until covering DTM. |
-| MUST-07 | Background caches only (REMS, RAD, DONKI, images) — do not block MUST | B3 | CC | Antigravity (Gemini) | review | hour 16 | SHOULD products come later |
+| MUST-07 | Background caches only (REMS, RAD, DONKI, images) — do not block MUST | B3 | CC | Antigravity (Gemini) | review | hour 16 | Real DONKI cache kept. If `NASA_API_KEY` is missing, live DONKI is skipped and `donki-cache.example.json` is written. SHOULD products are on disk. |
 | MUST-08 | Scaffold planner + 3D scene; load contract JSON | F1 | TBD | TBD | todo | hour 2 | `web/planner/`, `web/hud/` |
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
@@ -62,9 +62,9 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
-| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | CC | Grok (Cursor) | doing | hour 22 | Claimed 2026-11-14 13:02 to refresh from example `route.json`. No NASA key on this machine; no spatial radiation map. |
-| SHOULD-02 | Cached DONKI / WSA-Enlil `alerts.json` + banner copy | B3 | CC | Antigravity (Gemini) | review | hour 22 | Cache only; personal key |
-| SHOULD-03 | POV stills for each stop, or honest empty state | B3 | CC | Antigravity (Gemini) | review | hour 28 | 4 JPEGs + JSONs in `data/processed/science/pov/`; re-run when `stops.json` locks |
+| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | CC | Grok (Cursor) | review | hour 22 | Example route 71 min placeholder → 0.0315 ± 0.0059 mSv (Hassler 2014 × duration). Status example until PRE-07. No spatial radiation map. |
+| SHOULD-02 | Cached DONKI / WSA-Enlil `alerts.json` + banner copy | B3 | CC | Antigravity (Gemini) | review | hour 22 | Real `alerts.json` cache kept (13 Mars impacts). `alerts.example.json` added when `NASA_API_KEY` is missing. |
+| SHOULD-03 | POV stills for each stop, or honest empty state | B3 | CC | Antigravity (Gemini) | review | hour 28 | 4 JPEGs reused, not re-downloaded. JSON relabelled from example `stops.json`; still `is_example` until PRE-07. |
 | SHOULD-04 | REMS weather window + THEMIS (CRISM if ready) layer metadata | B3 | CC | Antigravity (Gemini) | review | hour 32 | CAB/NASA REMS feed (4,745 sols) + THEMIS tiles + 9 CRISM MTRDR records |
 | SHOULD-05 | HUD / planner: dose card, DONKI banner, POV, weather/thermal toggles | F1 | TBD | TBD | todo | hour 32 | |
 | SHOULD-06 | Optional 15° / 20° mask and route toggle | B1, B2, F1 | TBD | TBD | todo | hour 32 | Nice, not required to pass SHOULD |
@@ -94,5 +94,6 @@ Add a row when you need an answer. Cross it out or mark `answered` when done. Fi
 | Date | From (role) | To (role) | Question | Status |
 |---|---|---|---|---|
 | 2026-11-14 | B2 (Doruk) | Doruk / team (+ T1/T2 record) | PRE-07: Lock habitat + two lake-sediment mudstone stops (official names + lat/lon inside DTEEC_019698) and confirm boxwork bonus (Sol 4534 candidate cited). Also: allow example-contract routing scaffold until then? See [PRE07_LOCK_REQUEST.md](../../pipeline/routing/PRE07_LOCK_REQUEST.md). | open |
+| 2026-11-14 | B3 (CC) | CC / team | PRE-04: this machine has no `NASA_API_KEY`. Live DONKI was skipped. Keep a personal key only in a local gitignored `.env` when refreshing DONKI. The example fixture is the 11 Nov planning-check arrival, not a live forecast. | open |
 
 When a question is about a **contract field change**, also add a line to [docs/contracts/CHANGES.md](../contracts/CHANGES.md) and a [handoff](./HANDOFFS.md) for the owning role, Frontend 1, and both testers.

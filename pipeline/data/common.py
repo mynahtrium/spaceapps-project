@@ -47,11 +47,22 @@ def load_dotenv(env_path: Path | None = None) -> dict[str, str]:
     return loaded
 
 
-def get_nasa_api_key() -> str:
-    """Return NASA_API_KEY from environment or .env; raise if missing."""
+def try_nasa_api_key() -> str | None:
+    """Return a personal NASA_API_KEY, or None when it is missing.
+
+    DEMO_KEY is treated as missing. This never invents a key.
+    """
     load_dotenv()
     key = os.environ.get("NASA_API_KEY", "").strip()
     if not key or key.upper() == "DEMO_KEY":
+        return None
+    return key
+
+
+def get_nasa_api_key() -> str:
+    """Return NASA_API_KEY from environment or .env; raise if missing."""
+    key = try_nasa_api_key()
+    if key is None:
         raise RuntimeError(
             "Personal NASA_API_KEY is required in environment or local .env (DEMO_KEY is not allowed)."
         )

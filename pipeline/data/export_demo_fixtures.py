@@ -16,6 +16,8 @@ DEMO_DIR = REPO_ROOT / "data" / "demo"
 
 SCIENCE_JSON_FILES = (
     "alerts.json",
+    "alerts.example.json",
+    "donki-cache.example.json",
     "dose.json",
     "weather.json",
     "layers-themis.json",

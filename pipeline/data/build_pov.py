@@ -14,15 +14,24 @@ from typing import Any
 from .common import DATA_SCIENCE, REPO_ROOT, http_get_bytes, utc_now_iso, write_json
 
 
+def _file_is_example(data: dict[str, Any], features: list[dict[str, Any]]) -> bool:
+    """True when the stops file or any feature is still an example."""
+    if str(data.get("status") or "").lower() == "example":
+        return True
+    return any(bool((feat.get("properties") or {}).get("is_example")) for feat in features)
+
+
 def _load_stops() -> tuple[list[dict[str, Any]], str, bool]:
     processed_stops = REPO_ROOT / "data" / "processed" / "routing" / "stops.json"
     contract_stops = REPO_ROOT / "docs" / "contracts" / "stops.json"
 
     if processed_stops.exists():
         data = json.loads(processed_stops.read_text(encoding="utf-8"))
-        return data.get("features") or [], "data/processed/routing/stops.json", False
+        features = data.get("features") or []
+        return features, "data/processed/routing/stops.json", _file_is_example(data, features)
     data = json.loads(contract_stops.read_text(encoding="utf-8"))
-    return data.get("features") or [], "docs/contracts/stops.json", True
+    features = data.get("features") or []
+    return features, "docs/contracts/stops.json", _file_is_example(data, features)
 
 
 def _pick_image(
@@ -52,8 +61,8 @@ def _pick_image(
     return None
 
 
-def build_pov() -> dict[str, Any]:
-    """Download compact Curiosity POV JPEGs for each stop and write pov/*.json."""
+def build_pov(allow_download: bool = True) -> dict[str, Any]:
+    """Write per-stop POV JSON. Download a JPEG only when allow_download is true and the file is missing."""
     cache_path = DATA_SCIENCE / "msl-raw-images-cache.json"
     if not cache_path.exists():
         raise FileNotFoundError(
@@ -101,36 +110,68 @@ def build_pov() -> dict[str, Any]:
         missing = False
         missing_label = ""
         byte_size = 0
+        image_bytes_source = "missing"
 
-        try:
-            img_bytes = http_get_bytes(img_url, timeout=30)
-            jpg_path.write_bytes(img_bytes)
-            byte_size = len(img_bytes)
-        except Exception as exc:
+        if jpg_path.exists() and jpg_path.stat().st_size > 0:
+            byte_size = jpg_path.stat().st_size
+            image_bytes_source = "existing-file"
+        elif not allow_download:
             missing = True
-            missing_label = f"Download failed ({exc}); image unavailable offline."
+            image_bytes_source = "skipped"
+            missing_label = "Live image download skipped. JPEG is not on disk."
+        else:
+            try:
+                img_bytes = http_get_bytes(img_url, timeout=30)
+                jpg_path.write_bytes(img_bytes)
+                byte_size = len(img_bytes)
+                image_bytes_source = "downloaded"
+            except Exception as exc:
+                missing = True
+                image_bytes_source = "download-failed"
+                missing_label = f"Download failed ({exc}); image unavailable offline."
+
+        link_note = (
+            "Linked to placeholder stops until PRE-07 locks real stops."
+            if is_example_stops
+            else "Linked to locked stops."
+        )
+        reuse_note = (
+            " JPEG reused from disk; not re-downloaded."
+            if image_bytes_source == "existing-file"
+            else ""
+        )
+
+        # Keep the image identity that belongs to the JPEG already on disk.
+        # Re-picking from the cache can select a different frame than that file.
+        prior: dict[str, Any] = {}
+        prior_path = pov_dir / f"{stop_id}.json"
+        if image_bytes_source == "existing-file" and prior_path.exists():
+            try:
+                loaded = json.loads(prior_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                loaded = None
+            if isinstance(loaded, dict) and loaded.get("imageid"):
+                prior = loaded
 
         entry = {
             "contract": "martian-mappers.pov.v1",
             "status": "cached" if not missing else "unavailable",
             "fetched_at": utc_now_iso(),
-            "note": (
-                "Cached Curiosity rover raw image still for offline demo. "
-                + ("Linked to placeholder stops until PRE-07 locks real stops." if is_example_stops else "Linked to locked stops.")
-            ),
+            "note": "Cached Curiosity rover raw image still for offline demo. " + link_note + reuse_note,
+            "image_bytes_source": image_bytes_source,
             "stop_id": stop_id,
             "stop_name": props.get("name"),
             "stops_source": stops_source,
             "is_example_stop": is_example_stops or bool(props.get("is_example")),
-            "imageid": picked.get("imageid"),
-            "sol": picked.get("sol"),
-            "camera": picked.get("camera"),
-            "title": picked.get("title"),
-            "date_taken_utc": picked.get("date_taken_utc"),
+            "imageid": prior.get("imageid") or picked.get("imageid"),
+            "sol": prior.get("sol") if prior else picked.get("sol"),
+            "camera": prior.get("camera") if prior else picked.get("camera"),
+            "title": prior.get("title") if prior else picked.get("title"),
+            "date_taken_utc": prior.get("date_taken_utc") if prior else picked.get("date_taken_utc"),
             "image_relpath": relpath if not missing else None,
             "bytes": byte_size,
-            "source_url": img_url,
-            "credit": picked.get("credit") or "NASA/JPL-Caltech",
+            "source_url": prior.get("source_url") or img_url,
+            "credit": prior.get("credit") or picked.get("credit") or "NASA/JPL-Caltech",
             "missing": missing,
             "missing_label": missing_label,
         }
@@ -141,6 +182,7 @@ def build_pov() -> dict[str, Any]:
         "contract": "martian-mappers.pov-index.v1",
         "fetched_at": utc_now_iso(),
         "stops_source": stops_source,
+        "is_example_stops": is_example_stops,
         "count": len(index_entries),
         "stops": index_entries,
     }

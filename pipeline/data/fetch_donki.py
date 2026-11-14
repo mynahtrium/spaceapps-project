@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from .common import DATA_RAW, DATA_SCIENCE, get_nasa_api_key, http_get_json, utc_now_iso, write_json
+from .common import DATA_RAW, DATA_SCIENCE, http_get_json, try_nasa_api_key, utc_now_iso, write_json
+from .example_fixtures import write_alerts_example, write_donki_example
 
 DONKI_BASE = "https://api.nasa.gov/DONKI"
 
@@ -39,8 +40,21 @@ def _extract_mars_impacts(enlil_runs: list[dict[str, Any]]) -> list[dict[str, An
 
 
 def fetch_donki(days_back: int = 30) -> dict[str, Any]:
-    """Fetch DONKI endpoints and write raw + compact processed cache."""
-    api_key = get_nasa_api_key()
+    """Fetch DONKI endpoints and write raw + compact processed cache.
+
+    When NASA_API_KEY is missing, skip api.nasa.gov and write labelled example
+    fixtures instead. A real donki-cache.json / alerts.json already on disk is kept.
+    """
+    api_key = try_nasa_api_key()
+    if api_key is None:
+        print(
+            "NASA_API_KEY missing; skipping live DONKI. "
+            "Writing labelled example fixtures (real cache left unchanged)."
+        )
+        summary = write_donki_example()
+        write_alerts_example()
+        return summary
+
     end_dt = datetime.now(timezone.utc).date()
     start_dt = end_dt - timedelta(days=days_back)
 

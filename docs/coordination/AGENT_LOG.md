@@ -339,3 +339,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Posted the Backend 3 note for this pass before editing science files. Claimed SHOULD-01. `NASA_API_KEY` is absent; live DONKI will be skipped; labelled example fixtures will be added without replacing the existing cache. No secrets.
 - Commit: this commit
 - Next step: Refresh dose from the example route, relabel POV JSON offline, write the labelled DONKI example, and tidy B3 board rows.
+
+### 2026-11-14 13:05 Europe/Istanbul — SHOULD-01 / SHOULD-02 / SHOULD-03 / PRE-04
+
+- Human: CC
+- Agent tool + model: Grok 4.7 (Cursor)
+- Role: backend-3
+- Task id: SHOULD-01, SHOULD-02, SHOULD-03, PRE-04
+- Files changed: pipeline/data/example_fixtures.py (new), pipeline/data/run_examples.py (new), pipeline/data/{common.py,fetch_donki.py,build_dose.py,build_pov.py,export_demo_fixtures.py,README.md}, data/processed/science/{dose.json,alerts.example.json,donki-cache.example.json,pov/*}, data/demo/ science copies of those files, docs/coordination/{BOARD.md,HANDOFFS.md,AGENT_LOG.md}, docs/comms/note-backend-3-science-leftovers.md, docs/AI_USE.md
+- Why: NASA_API_KEY is not on this machine. Skipped live DONKI and wrote labelled example fixtures (11 Nov 2026 planning-check arrival only). Left the real 13-impact cache in place. Refreshed dose from the example route (71 min placeholder, 0.0315 ± 0.0059 mSv, status example). Relabelled POV JSON from example stops and reused the four JPEGs. No .env. No contract field changes. Board rows for B3 only.
+- Commit: this commit
+- Next step: Tester review of backend/science. Re-run dose and POV after PRE-07 locks real stops. A personal NASA_API_KEY in a local gitignored .env is still needed before any live DONKI refresh.

@@ -16,8 +16,8 @@ BASELINE_RATE_MSV_PER_DAY = 0.64
 BASELINE_UNCERTAINTY_MSV_PER_DAY = 0.12
 
 
-def _read_duration_minutes() -> tuple[float, str, bool]:
-    """Return (duration_min, source_relpath, is_placeholder_route)."""
+def _read_duration_minutes() -> tuple[float, str, bool, str, str | None]:
+    """Return duration_min, source path, is_fallback, route status, route id."""
     processed_route = REPO_ROOT / "data" / "processed" / "routing" / "route.json"
     contract_route = REPO_ROOT / "docs" / "contracts" / "route.json"
 
@@ -30,12 +30,14 @@ def _read_duration_minutes() -> tuple[float, str, bool]:
         data = json.loads(candidate.read_text(encoding="utf-8"))
         totals = data.get("totals") or {}
         props = data.get("properties") or {}
+        route_status = str(data.get("status") or "unknown")
+        route_id = data.get("route_id") or props.get("id")
         for key in ("duration_min_placeholder", "duration_min", "estimated_duration_min"):
             val = totals.get(key) if totals.get(key) is not None else props.get(key)
             if isinstance(val, (int, float)) and val > 0:
-                return float(val), relpath, is_fallback
+                return float(val), relpath, is_fallback, route_status, route_id
 
-    return 96.0, "default-96min-fallback", True
+    return 96.0, "default-96min-fallback", True, "unknown", None
 
 
 def _rad_archive_status() -> str:
@@ -54,15 +56,24 @@ def _rad_archive_status() -> str:
 
 def build_dose() -> dict[str, Any]:
     """Compute EVA radiation dose budget and write data/processed/science/dose.json."""
-    duration_min, route_source, is_fallback = _read_duration_minutes()
+    duration_min, route_source, is_fallback, route_status, route_id = _read_duration_minutes()
     duration_h = round(duration_min / 60.0, 3)
 
     dose_msv = round(BASELINE_RATE_MSV_PER_DAY * (duration_h / 24.0), 4)
     dose_unc_msv = round(BASELINE_UNCERTAINTY_MSV_PER_DAY * (duration_h / 24.0), 4)
 
+    if route_status == "example":
+        dose_status = "example"
+    elif is_fallback:
+        dose_status = "placeholder-duration"
+    else:
+        dose_status = "computed"
+
+    example_clause = " PRE-07 has not locked this route." if route_status == "example" else ""
     payload = {
         "contract": "martian-mappers.dose.v1",
-        "status": "placeholder-duration" if is_fallback else "computed",
+        "status": dose_status,
+        "is_example": dose_status == "example",
         "computed_at": utc_now_iso(),
         "note": (
             "Galactic cosmic-ray dose rate hardly changes over a ~10 km walk; "
@@ -73,11 +84,14 @@ def build_dose() -> dict[str, Any]:
         "baseline_source": "Hassler et al., Science 2014, Curiosity RAD first ~300 sols, Gale elevation about -4.4 km MOLA",
         "baseline_url": "https://www.science.org/doi/10.1126/science.1244797",
         "route_source": route_source,
+        "route_status": route_status,
+        "route_id": route_id,
         "eva_duration_min_placeholder": round(duration_min, 1),
         "eva_duration_h_placeholder": duration_h,
         "duration_note": (
             "Walking duration uses a placeholder Earth-hiking assumption from "
-            f"{route_source}. Label as a placeholder in the UI."
+            f"{route_source} (route status: {route_status}). Label as a placeholder in the UI."
+            + example_clause
         ),
         "dose_estimate_mSv": dose_msv,
         "dose_uncertainty_mSv": dose_unc_msv,
