@@ -162,3 +162,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Completed Eymen's first-session onboarding interview (Bug tester 2, first name only, no personal data) and created Tester 2's full demo preparation suite in `docs/demo/` (2–3 min live demo script, ≤30 s English-subtitled video beat sheet with no under-18 voices/faces, 7-slide deck outline, and hours 40–48 submission & `?demo=1` rehearsal checklist). Also re-checked `www.spaceappschallenge.org` TLS status on 14 Nov 11:19 (still failing certificate validation; kept UNVERIFIED / provisionally official labels intact) and claimed MUST-12 for Tester 2 on `BOARD.md`.
 - Commit: this commit
 - Next step: Open/merge the `tester-2/onboarding-and-demo-docs` PR; review incoming `web/` and `pipeline/` PRs during MUST (hours 0–16) and run the hour-16 rough demo walk.
+
+### 2026-11-14 11:42 Europe/Istanbul — PRE-01 / PRE-02
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: PRE-01, PRE-02
+- Files changed: docs/team/ROSTER.md, docs/team/profiles/eymen.md, docs/comms/intro-tester-2.md, docs/coordination/AGENT_LOG.md
+- Why: Recorded Eymen's GitHub username (`ParongUs`) on the team roster, in his profile (`eymen.md`), and updated `docs/comms/intro-tester-2.md` with his human name and agent tool.
+- Commit: this commit
+- Next step: Watch for other teammates' PRs to review as Tester 2; support MUST milestones.

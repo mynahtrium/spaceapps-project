@@ -13,4 +13,4 @@ Team: six people, registered with a guardian, NASA Space Apps 2026, Martian Mapp
 | Backend 3 — data | [backend-3-data.md](../roles/backend-3-data.md) | |
 | Frontend 1 — planner + 3D HUD | [frontend-1-hud.md](../roles/frontend-1-hud.md) | |
 | Bug tester 1 — tests, merges, AI log | [tester-1.md](../roles/tester-1.md) | |
-| Bug tester 2 — demo, video, slides | [tester-2.md](../roles/tester-2.md) | |
+| Bug tester 2 — demo, video, slides | [tester-2.md](../roles/tester-2.md) | ParongUs |
