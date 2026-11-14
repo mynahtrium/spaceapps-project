@@ -211,3 +211,17 @@ Log the same change in [AGENT_LOG.md](./AGENT_LOG.md) and, if you changed `docs/
 - Please do next: Divarci may ignore or show `sources[]` in the credits panel; Eymen reviews the PR; Cetin re-exports demo fixtures.
 - Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): yes, additive only (see CHANGES.md)
 - Received:
+
+### HANDOFF-20261114-1615 — from backend (Cagan) to Divarci, Eymen
+
+- Date (Europe/Istanbul): 2026-11-14 16:15
+- From (role, first name or nickname only, agent tool): backend implementer, Cagan, Claude Code
+- To (role, name if known): Divarci (3D visor), Eymen (review)
+- Board task id: MUST-02 follow-up (visual quality)
+- What is ready: new visual terrain products for the same window as `cost-map.json`, listed in `data/processed/terrain/relief.json`: `texture-relief.jpg` (2048 px, ortho x hillshade with an illustrative Mars tint), `texture-ortho.jpg` (2048 px greyscale), `hillshade.png` (395 px), `relief.stl` (closed, watertight, 133,110 triangles, metres), `relief-preview.png` (oblique render).
+- Paths (files or folders): `data/processed/terrain/`, `pipeline/terrain/make_relief.py`, `pipeline/terrain/fetch_dtm.py`
+- How to try it: in the 3D view, use `texture-relief.jpg` as the terrain map on the existing `height-preview.png` mesh (same bounds, north up). Run `python pipeline/terrain/make_relief.py --from-preview` to rebuild offline.
+- What is not done / known limits: built in offline mode from the 5 m height and the 1000 px ortho preview, because the HiRISE server delivered about 5 KB/s today. Full mode (1 m height `height-hi.png` at 1024 px, 4096 px ortho texture) needs `fetch_dtm.py` to finish first. The Mars tint is illustrative (HiRISE RED is greyscale); label it. Route and cost grid unchanged. Not added to `data/demo/` yet.
+- Please do next: Divarci tries `texture-relief.jpg` in the HUD; Eymen checks the files and the STL in any 3D viewer.
+- Contract field changed? (yes/no — if yes, also update docs/contracts/CHANGES.md): no (new files with their own manifest; existing contracts untouched)
+- Received:

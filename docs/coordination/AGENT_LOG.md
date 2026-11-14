@@ -603,3 +603,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: BUG-13: re-ran the export so the four data/demo/ JSON copies match data/processed/ (all four byte-identical; they now carry sources[]). BUG-14: the export now also copies ortho-preview.png (560 KB) into data/demo/, and orthoPreviewUrl uses baseTerrainDir so ?demo=1 reads data/demo/ instead of data/processed/. Loader passes node --check. Not tested in a browser. BUG-12 (trek.nasa.gov and unpkg.com still loaded in ?demo=1) is Frontend 1's and was not touched.
 - Commit: this commit
 - Next step: Divarci and Eymen re-check ?demo=1 with the network off; Divarci fixes BUG-12; Cetin to know his export script gained one line.
+
+### 2026-11-14 16:15 Europe/Istanbul — MUST-02 follow-up (relief, textures, STL)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (terrain)
+- Task id: MUST-02 follow-up
+- Files changed: pipeline/terrain/make_relief.py (new), pipeline/terrain/fetch_dtm.py (new), pipeline/terrain/make_slope.py (uses a local DTM band if present), pipeline/terrain/README.md, data/processed/terrain/ (hillshade.png, texture-ortho.jpg, texture-relief.jpg, relief.stl, relief-preview.png, relief.json), docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked for a better map like a DEM relief model (reference: DEM -> triangulated surface -> STL). Added multi-directional hillshade, an ortho x hillshade texture with an illustrative Mars tint, a closed STL (checked: 0 non-manifold edges, consistent outward winding, positive volume) and an oblique 3D preview rendered without extra libraries. The HiRISE server gave about 5 KB/s, so the products were built offline from the 5 m height preview and the 1000 px ortho preview (same window as cost-map.json). fetch_dtm.py downloads the needed DTM rows in resumable chunks for a later full-resolution run. Fixed a fill bug found on the way: a mean fill of one no-data cell made a 250 m spike; now nearest-neighbour fill. Cost grid and route untouched.
+- Commit: this commit
+- Next step: When the network allows, run fetch_dtm.py then make_slope.py and make_relief.py (full mode) for 1 m height and 4096 px textures; Divarci wires texture-relief.jpg into the HUD.

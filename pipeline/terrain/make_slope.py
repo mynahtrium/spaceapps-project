@@ -78,7 +78,10 @@ def main():
     cx, cy, half = crop_xy(stops, min_half_m=a.min_half_km * 1000.0)
     centre_lon, centre_lat = xy_to_lonlat(cx, cy)
     covered = []
-    with rasterio.open("/vsicurl/" + DTM_URL) as ds:
+    # Prefer the local row band from fetch_dtm.py (the PDS server drops long range reads).
+    local_dtm = ROOT / "data/raw/terrain" / DTM_URL.rsplit("/", 1)[-1]
+    dtm_path = str(local_dtm) if local_dtm.exists() else "/vsicurl/" + DTM_URL
+    with rasterio.open(dtm_path) as ds:
         res = ds.res[0]
         west, north = cx - half, cy + half
         east, south = cx + half, cy - half
