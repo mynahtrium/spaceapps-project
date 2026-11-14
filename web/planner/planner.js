@@ -4,33 +4,10 @@
  * 15°/20° hazard toggle, CRISM footprints, stops, route, elevation profile, and science cards.
  */
 
+import { shouldUseHighResMap } from "../map/IMapAdapter.js";
+import { LegacyMapAdapter } from "../map/LegacyMapAdapter.js";
+import { MapLibreMarsAdapter } from "../map/MapLibreMarsAdapter.js";
 import { dispatchSetRoute } from "../shared/route-bridge.js";
-
-function buildRasterStyle(demoSafe) {
-  const sources = {};
-  const layers = [
-    { id: "bg", type: "background", paint: { "background-color": "#000000" } },
-  ];
-
-  if (!demoSafe) {
-    sources["trek-ctx"] = {
-      type: "raster",
-      tiles: [
-        "https://trek.nasa.gov/tiles/Mars/EQ/CTX_beta01_uncontrolled_5m_Caltech/1.0.0//default/default028mm/{z}/{y}/{x}.jpg",
-      ],
-      tileSize: 256,
-      maxzoom: 16,
-    };
-    layers.push({
-      id: "trek-ctx-layer",
-      type: "raster",
-      source: "trek-ctx",
-      paint: { "raster-opacity": 0.85 },
-    });
-  }
-
-  return { version: 8, sources, layers };
-}
 
 /**
  * Build an RGBA data URL from costMap.cost_row_major for the 15° strict vs 20° mask toggle.
@@ -68,7 +45,7 @@ function buildStrict15Canvas(costMap) {
   return canvas.toDataURL();
 }
 
-export function initPlanner(data, { onOpenPov, onStartEva }) {
+export function initPlanner(data, { onOpenPov, onStartEva, demSampler, registry }) {
   const { costMap, stops, route, alerts, dose, weather, povIndex, crism, demoSafe, assets } = data;
 
   const bounds = costMap?.bounds || {
@@ -88,194 +65,119 @@ export function initPlanner(data, { onOpenPov, onStartEva }) {
     [bounds.west_lon_deg, bounds.south_lat_deg],
   ];
 
-  let map = null;
-  if (window.maplibregl) {
-    map = new window.maplibregl.Map({
-      container: "map",
-      style: buildRasterStyle(demoSafe),
-      center,
-      zoom: 14.3,
-      attributionControl: false,
-    });
-    map.addControl(new window.maplibregl.NavigationControl(), "top-left");
+  // High-res Mars map (MapLibre + mars-eq:// Trek tiles + mars-dem:// HiRISE relief),
+  // or the legacy adapter with ?legacyMap=1. Both fall back to a 2D canvas without MapLibre.
+  const adapterOpts = {
+    demSampler,
+    registry,
+    demoSafe,
+    orthoPreviewUrl: assets?.orthoPreviewUrl,
+    slopePreviewUrl: assets?.slopePreviewUrl,
+  };
+  const adapter = shouldUseHighResMap() ? new MapLibreMarsAdapter(adapterOpts) : new LegacyMapAdapter(adapterOpts);
+  const container = document.getElementById("map");
+  const probeEl = document.getElementById("map-probe-readout");
 
-    map.on("load", () => {
-      // Local HiRISE Ortho
-      map.addSource("hirise-ortho", {
-        type: "image",
-        url: assets.orthoPreviewUrl,
-        coordinates: imgCoords,
-      });
-      map.addLayer({
-        id: "hirise-ortho-layer",
-        type: "raster",
-        source: "hirise-ortho",
-        paint: { "raster-opacity": 0.9 },
-      });
+  const ready = (async () => {
+    if (!container) return;
+    await adapter.mount(container, { center, zoom: 14.3, pitch: 0, bearing: 0 });
 
-      // Local Slope Preview
-      map.addSource("slope-preview", {
-        type: "image",
-        url: assets.slopePreviewUrl,
-        coordinates: imgCoords,
-      });
-      map.addLayer({
-        id: "slope-preview-layer",
-        type: "raster",
-        source: "slope-preview",
-        paint: { "raster-opacity": 0.58 },
-      });
-
-      // Strict 15° overlay (hidden until toggled)
-      if (costMap?.cost_row_major) {
-        map.addSource("strict-15", {
-          type: "image",
-          url: buildStrict15Canvas(costMap),
-          coordinates: imgCoords,
-        });
-        map.addLayer({
-          id: "strict-15-layer",
+    // Strict 15° overlay (raw MapLibre image layer; hidden until toggled)
+    if (adapter.map && costMap?.cost_row_major) {
+      adapter._runOrQueue(() => {
+        adapter.map.addSource("strict-15", { type: "image", url: buildStrict15Canvas(costMap), coordinates: imgCoords });
+        adapter.map.addLayer({
+          id: "strict-15",
           type: "raster",
           source: "strict-15",
           layout: { visibility: "none" },
           paint: { "raster-opacity": 0.75 },
         });
+      });
+    }
+
+    if (crism?.products?.length) {
+      adapter.addGeoJsonLayer(
+        "crism-pts",
+        {
+          type: "FeatureCollection",
+          features: crism.products
+            .filter((p) => p.center_lon != null && p.center_lat != null)
+            .map((p) => ({
+              type: "Feature",
+              properties: { pdsid: p.pdsid, name: p.pdsid || p.product_id },
+              geometry: { type: "Point", coordinates: [parseFloat(p.center_lon), parseFloat(p.center_lat)] },
+            })),
+        },
+        { type: "circle", radius: 6, color: "#c084fc", strokeWidth: 1.5, strokeColor: "#ffffff", visible: true }
+      );
+    }
+
+    if (route) {
+      adapter.addGeoJsonLayer(
+        "eva-route",
+        { type: "FeatureCollection", features: [route] },
+        { type: "line", color: "#ffffff", width: 2.5, visible: true }
+      );
+    }
+
+    if (stops) {
+      adapter.addGeoJsonLayer("eva-stops", stops, {
+        type: "circle",
+        radius: 8,
+        color: "#ffffff",
+        strokeWidth: 2,
+        strokeColor: "#000000",
+        visible: true,
+      });
+    }
+
+    adapter.on("click", (evt) => {
+      if (probeEl) {
+        const elev = evt.elevM != null ? `${evt.elevM.toFixed(1)} m` : "no data";
+        const slope = evt.slopeDeg != null ? `${evt.slopeDeg.toFixed(1)}°` : "—";
+        probeEl.textContent = `${evt.lat.toFixed(5)}°, ${evt.lon.toFixed(5)}° · ${elev} · slope ${slope}`;
       }
-
-      // THEMIS Day / Night IR
-      if (!demoSafe) {
-        map.addSource("themis-day", {
-          type: "raster",
-          tiles: [
-            "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/{z}/{y}/{x}.png",
-          ],
-          tileSize: 256,
-          maxzoom: 9,
-        });
-        map.addLayer({
-          id: "themis-day-layer",
-          type: "raster",
-          source: "themis-day",
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": 0.6 },
-        });
-
-        map.addSource("themis-night", {
-          type: "raster",
-          tiles: [
-            "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/{z}/{y}/{x}.png",
-          ],
-          tileSize: 256,
-          maxzoom: 9,
-        });
-        map.addLayer({
-          id: "themis-night-layer",
-          type: "raster",
-          source: "themis-night",
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": 0.6 },
-        });
+      // Clicked near a stop (~40 m on Mars): show its POV / popup.
+      let nearest = null;
+      let best = 40;
+      for (const f of stops?.features || []) {
+        const [lon, lat] = f.geometry.coordinates;
+        const d = Math.hypot((lon - evt.lon) * 59000, (lat - evt.lat) * 59150);
+        if (d < best) {
+          best = d;
+          nearest = f;
+        }
       }
-
-      // CRISM footprints
-      if (crism?.products?.length) {
-        const crismFeatures = crism.products.map((p) => ({
-          type: "Feature",
-          properties: {
-            pdsid: p.pdsid,
-            comment: p.comment,
-            scale: p.map_scale_m,
-          },
-          geometry: {
-            type: "Point",
-            coordinates: [parseFloat(p.center_lon), parseFloat(p.center_lat)],
-          },
-        }));
-        map.addSource("crism-pts", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: crismFeatures },
-        });
-        map.addLayer({
-          id: "crism-layer",
-          type: "circle",
-          source: "crism-pts",
-          paint: {
-            "circle-radius": 6,
-            "circle-color": "#c084fc",
-            "circle-stroke-width": 1.5,
-            "circle-stroke-color": "#ffffff",
-          },
-        });
-      }
-
-      // Route GeoJSON
-      if (route) {
-        map.addSource("eva-route", { type: "geojson", data: route });
-        map.addLayer({
-          id: "eva-route-glow",
-          type: "line",
-          source: "eva-route",
-          paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.18 },
-        });
-        map.addLayer({
-          id: "eva-route-line",
-          type: "line",
-          source: "eva-route",
-          paint: { "line-color": "#ffffff", "line-width": 2 },
-        });
-      }
-
-      // Science Stops
-      if (stops) {
-        map.addSource("eva-stops", { type: "geojson", data: stops });
-        map.addLayer({
-          id: "eva-stops-circle",
-          type: "circle",
-          source: "eva-stops",
-          paint: {
-            "circle-radius": 8,
-            "circle-color": [
-              "match",
-              ["get", "kind"],
-              "habitat", "#ffffff",
-              "boxwork_bonus", "#d4d4d4",
-              "#ffffff",
-            ],
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#000000",
-          },
-        });
-
-        map.on("click", "eva-stops-circle", (e) => {
-          const f = e.features?.[0];
-          if (!f) return;
-          new window.maplibregl.Popup()
-            .setLngLat(f.geometry.coordinates)
-            .setHTML(
-              `<div style="color:#0b0e14;font-size:12px;"><strong>${f.properties.name}</strong><br/><em>${f.properties.kind}</em></div>`
-            )
-            .addTo(map);
-        });
+      if (nearest && adapter.map && window.maplibregl) {
+        new window.maplibregl.Popup()
+          .setLngLat(nearest.geometry.coordinates)
+          .setHTML(
+            `<div style="color:#0b0e14;font-size:12px;"><strong>${nearest.properties.name}</strong><br/><em>${nearest.properties.kind}</em></div>`
+          )
+          .addTo(adapter.map);
       }
     });
-  }
+  })().catch((err) => console.warn("[planner] map mount failed:", err));
 
   // Layer checkboxes
   const bindToggle = (id, layerId) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener("change", () => {
-      if (map && map.getLayer(layerId)) {
-        map.setLayoutProperty(layerId, "visibility", el.checked ? "visible" : "none");
-      }
-    });
+    el.addEventListener("change", () => adapter.setLayerVisibility(layerId, el.checked));
   };
-  bindToggle("layer-ortho", "hirise-ortho-layer");
-  bindToggle("layer-slope", "slope-preview-layer");
-  bindToggle("layer-themis-day", "themis-day-layer");
-  bindToggle("layer-themis-night", "themis-night-layer");
-  bindToggle("layer-crism", "crism-layer");
-  bindToggle("layer-ctx", "trek-ctx-layer");
+  bindToggle("layer-ortho", "hirise-ortho");
+  bindToggle("layer-slope", "slope-preview");
+  bindToggle("layer-themis-day", "themis-day");
+  bindToggle("layer-themis-night", "themis-night");
+  bindToggle("layer-crism", "crism-pts");
+  bindToggle("layer-ctx", "onmars-ctx");
+  bindToggle("layer-mola", "mola-color");
+
+  const toggle3d = document.getElementById("toggle-3d-map");
+  if (toggle3d) {
+    toggle3d.addEventListener("change", () => adapter.setTerrain3D?.(toggle3d.checked));
+  }
 
   // Strict 15° toggle
   const strictToggle = document.getElementById("toggle-strict-15");
@@ -284,8 +186,8 @@ export function initPlanner(data, { onOpenPov, onStartEva }) {
     strictToggle.addEventListener("change", () => {
       const strict = strictToggle.checked;
       if (legendLimit) legendLimit.textContent = strict ? "15" : "20";
-      if (map && map.getLayer("strict-15-layer")) {
-        map.setLayoutProperty("strict-15-layer", "visibility", strict ? "visible" : "none");
+      if (adapter.map && adapter.map.getLayer("strict-15")) {
+        adapter.map.setLayoutProperty("strict-15", "visibility", strict ? "visible" : "none");
       }
     });
   }
@@ -330,7 +232,7 @@ export function initPlanner(data, { onOpenPov, onStartEva }) {
         </div>
       `;
       div.querySelector("[data-fly]")?.addEventListener("click", () => {
-        if (map) map.flyTo({ center: f.geometry.coordinates, zoom: 16 });
+        adapter.flyTo({ center: f.geometry.coordinates, zoom: 16 });
       });
       div.querySelector("[data-pov]")?.addEventListener("click", () => {
         if (povEntry) onOpenPov(povEntry);
@@ -363,7 +265,7 @@ export function initPlanner(data, { onOpenPov, onStartEva }) {
     doseEl.innerHTML = `<strong>Radiation Dose:</strong> ${dose.dose_estimate_mSv} ± ${dose.dose_uncertainty_mSv} mSv (${dose.baseline_rate_mSv_per_day} mSv/day RAD baseline × ${dose.eva_duration_min_placeholder} min placeholder walk). Time &amp; shielding problem — no spatial rock radiation map.`;
   }
 
-  return { map };
+  return { map: adapter, adapter, ready };
 }
 
 function renderProfileSvg(profile, onSelectDist) {

@@ -725,3 +725,29 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Eymen reported that free-roaming into the partner astronaut or turning back onto the route caused the player to clip inside the partner model. Added `PARTNER_COLLISION_R = 1.05` solid horizontal cylinder collision in `freeRoam` and an overlap guard on `partnerS` vs `alongM` in route mode in `web/hud/hud3d.js`, passed `node --check web/hud/hud3d.js`, and logged the cross-folder patch in `HANDOFFS.md`.
 - Commit: this commit
 - Next step: Divarci / Cagan review `web/hud/hud3d.js` collision patch; Eymen re-tests free-roam and route return collision in browser.
+### 2026-11-14 16:36 Europe/Istanbul — High-resolution Mars map & terrain visor replacement (`MAP-01`)
+- **Agent:** Gemini (Antigravity) acting for human teammate **Doruk** (`B2`, coordinator/branch override on `orchestrator/map-replacement`)
+- **Role / branch:** `orchestrator/map-replacement` (from `main` `a6a14e8`)
+- **Files:** `web/map/Geodesy.js`, `web/map/MarsDemSampler.js`, `web/map/IMapAdapter.js`, `web/map/LegacyMapAdapter.js`, `web/map/Fallback2DMap.js`, `web/map/TileSourceRegistry.js`, `web/map/TerrainMeshBuilder.js`, `web/map/terrain.worker.js`, `web/map/TerrainWorkerPool.js`, `web/map/MarsTerrainShader.js`, `web/map/HighResMarsTerrainEngine.js`, `web/map/MapLibreMarsAdapter.js`, `web/vendor/*`, `web/index.html`, `web/styles.css`, `web/app.js`, `web/planner/planner.js`, `web/hud/hud3d.js`, `web/shared/data-loader.js`, `web/shared/route-bridge.js`, `web/tests/geodesy.test.mjs`, `web/tests/fallback.test.mjs`, `docs/coordination/BOARD.md`, `docs/coordination/AGENT_LOG.md`
+- **Summary:** Implemented unified `IMapAdapter` + Strangler-Fig `LegacyMapAdapter` (`?legacyMap=1`), Mars geodesy (`3,389.5 km` mean / `3,396.19 km` equatorial, planetocentric ECEF <-> RTC, antimeridian unwrapping, Terrarium & HiRISE 16-bit codecs), multi-tier `TileSourceRegistry` (LRU byte cache, singleflight coalescing, per-provider circuit breaker, hard `?demo=1` network block), off-main-thread `TerrainWorkerPool` (1-px border-clamped analytical normal maps, skirted CDLOD quadtree meshes, `AbortSignal`), custom Martian PBR strata/regolith shader + sky dome, MapLibre `mars-eq://` + `mars-dem://` 2.5D Terrarium hillshade/terrain, unified collision-free astronaut visor UI, and local `web/vendor/` bundling (`BUG-12` + `BUG-14` fixed). Verified 13/13 tests pass (`node --test web/tests/*.test.mjs`) and initial browser verification passed with 0 console/page errors and 0 external requests in `?demo=1` (second pass halted on user browser takeover).
+- **Commit:** this commit
+
+### 2026-11-14 16:45 Europe/Istanbul — Offline Martian PBR textures, logdepthbuf shader chunks, and 2D/3D polish (`MAP-01`)
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`orchestrator/map-replacement`)
+- Task id: MAP-01
+- Files changed: web/map/MarsPbrTextures.js, web/map/MarsTerrainShader.js, web/map/HighResMarsTerrainEngine.js, web/map/MapLibreMarsAdapter.js, web/hud/hud3d.js, web/tests/fallback.test.mjs, docs/coordination/AGENT_LOG.md
+- Why: Fixed flat/missing 3D ground textures (especially offline in `?demo=1`), depth-buffer occlusion mismatch, and 2D CTX priority. Added zero-network `256×256` procedural Martian PBR albedo + normal synthesis (`MarsPbrTextures.js` with integer hashing and wind ripples, basalt gravel, Voronoi mudstone slabs, sulfate veins, and crevice AO), `#include <common>` + `#include <logdepthbuf_*>` vertex/fragment chunks in terrain & sky shaders, `520`-instance `InstancedMesh` boulder field, `_slopeTex` isolation from `Mars PBR` mode `0`, tilted default gaze (`-0.14 rad`), `0.09 m` AR route tube, NASA `mars-eq://trek-ctx/{z}/{x}/{y}` priority in `MapLibreMarsAdapter`, `0.36` slope overlay opacity, and regression unit tests in `web/tests/fallback.test.mjs`.
+- Commit: this commit
+- Next step: User reloads `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctl+Shift+R`) to visually confirm textures, boulders, and 2D hillshade/contours.
+
+### 2026-11-14 17:06 Europe/Istanbul — Merge `main` (415e3b9: NASA Mark III suit, physics, shadows, BUG-15/16) into `orchestrator/map-replacement`
+- Human: Doruk
+- Agent tool + model: Gemini (Antigravity)
+- Role: coordinator/implementer (`orchestrator/map-replacement`)
+- Task id: MAP-01, BUG-15, BUG-16
+- Files changed: web/app.js, web/index.html, web/styles.css, web/planner/planner.js, web/hud/hud3d.js, web/shared/data-loader.js, web/shared/route-bridge.js, web/map/MapLibreMarsAdapter.js, web/map/Fallback2DMap.js, web/map/HighResMarsTerrainEngine.js, web/tests/fallback.test.mjs, web/tests/route-bridge.test.mjs, docs/coordination/AGENT_LOG.md (plus merged `main` files)
+- Why: Merged `main` (`415e3b9`) into `orchestrator/map-replacement` combining `main`'s NASA Mark III rigged spacesuit, buddy EVA, Mars gravity/jump/Shift run, endless mirrored terrain + sun mask shadows, start menu (EN/TR), black UI, and `BUG-15`/`BUG-16` fixes with the map-branch's `MapLibreMarsAdapter` (`mars-eq://` Trek WMTS + `mars-dem://` HiRISE hillshade/3D tilt + click elevation/slope probe + offline demo shaded relief) and `MarsPbrTextures` close-range wind-rippled dust / fractured mudstone shader detail on the 3D terrain. Also enabled bundled `data/demo/ortho-preview.png` in `?demo=1` while keeping `demoSafe` 0-network isolation, unified `classifySlope()` `id`/`level` fields, and verified zero missing DOM IDs and 16/16 passing tests.
+- Commit: this commit
+- Next step: Visually verify `http://127.0.0.1:8765/web/` and `?demo=1` in browser tab (`Ctrl+Shift+R`), then decide whether to open a PR to `main`.

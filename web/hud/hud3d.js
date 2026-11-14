@@ -25,6 +25,7 @@ import {
   sampleAlongRoute,
 } from "../shared/route-bridge.js";
 import { createAstronaut, loadSuitRig } from "./astronaut-rig.js";
+import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -435,11 +436,23 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
     })
   );
   const detailTex = makeDetailTexture();
+  // Offline procedural Mars ground (map branch): wind-rippled regolith + fractured mudstone slabs.
+  const pbr = createMartianPbrTextureSets(THREE, 256);
+  for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
+  pbr.dustNormalTex.repeat.set(640, 640);
 
-  const terrainMat = new THREE.MeshStandardMaterial({ map: reliefTex, roughness: 0.96, metalness: 0.0 });
+  const terrainMat = new THREE.MeshStandardMaterial({
+    map: reliefTex,
+    normalMap: pbr.dustNormalTex,
+    normalScale: new THREE.Vector2(0.55, 0.55),
+    roughness: 0.96,
+    metalness: 0.0,
+  });
   terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
   terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.detailMap = { value: detailTex };
+    shader.uniforms.pbrDust = { value: pbr.dustAlbedoTex };
+    shader.uniforms.pbrRock = { value: pbr.rockAlbedoTex };
     shader.uniforms.sunMask = { value: sunMask };
     shader.uniforms.sunMaskOn = { value: sunMask ? 1 : 0 };
     shader.uniforms.sunMaskPeriod = { value: new THREE.Vector2(2 * worldW, 2 * worldH) };
@@ -464,14 +477,21 @@ export async function initHud3D(data, { onBackToPlanner, onOpenPov }) {
         "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
           sunChunk
       )
-      .replace("#include <map_pars_fragment>", "#include <map_pars_fragment>\nuniform sampler2D detailMap;")
+      .replace("#include <map_pars_fragment>", "#include <map_pars_fragment>\nuniform sampler2D detailMap;\nuniform sampler2D pbrDust;\nuniform sampler2D pbrRock;")
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
         #ifdef USE_MAP
           float dA = texture2D(detailMap, vMapUv * 173.0).r;
           float dB = texture2D(detailMap, vMapUv * 911.0).r;
-          diffuseColor.rgb *= 0.62 + 0.55 * dA * 0.6 + 0.55 * dB * 0.4;
+          diffuseColor.rgb *= 0.74 + 0.40 * dA * 0.6 + 0.40 * dB * 0.4;
+          // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches.
+          vec3 mmDust = texture2D(pbrDust, vMapUv * 640.0).rgb;
+          vec3 mmRock = texture2D(pbrRock, vMapUv * 290.0 + 0.37).rgb;
+          float mmRockMask = smoothstep(0.48, 0.66, texture2D(detailMap, vMapUv * 41.0 + 0.11).r);
+          vec3 mmGround = mix(mmDust, mmRock, mmRockMask);
+          float mmLum = dot(mmGround, vec3(0.299, 0.587, 0.114)) / 0.40;
+          diffuseColor.rgb *= mix(1.0, clamp(mmLum, 0.35, 1.6), 0.7);
         #endif`
       );
   };

@@ -4,7 +4,8 @@
  * and handles view switching and modals (Curiosity POV + Credits & Honesty).
  */
 
-import { loadAllProjectData } from "./shared/data-loader.js";
+import { loadAllProjectData, loadDemSamplerFromData } from "./shared/data-loader.js";
+import { TileSourceRegistry } from "./map/TileSourceRegistry.js";
 import { dispatchSetRoute } from "./shared/route-bridge.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
@@ -162,6 +163,13 @@ async function boot() {
   document.getElementById("btn-menu").onclick = () => start.show();
 
   const data = await loadAllProjectData();
+  // High-res Mars map stack: HiRISE DEM sampler + tile registry (demo-safe = zero network).
+  const demSampler = await loadDemSamplerFromData(data);
+  const registry = new TileSourceRegistry({
+    demoSafe: data.demoSafe,
+    themisMetadata: data.themis,
+    demoTileBaseUrl: data.assets?.themisTileBaseUrl,
+  });
 
   if (data.demoSafe) {
     document.getElementById("badge-demo").style.display = "inline-block";
@@ -220,7 +228,8 @@ async function boot() {
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
           <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head, shoulders) and drives a walk / run cycle from distance walked; the model's forward-reaching arms are lowered at the shoulders and swing opposite to the legs. Mars gravity (3.71 m/s²) is used for jumps and falls; walking pace (1.4 m/s) and a light run with Shift (2.5 m/s) are placeholders.</li><li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
-        <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data.</p>
+        <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
+        <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
       </div>
     `;
     modalBackdrop.classList.add("open");
@@ -229,6 +238,7 @@ async function boot() {
   btnCredits.onclick = openCreditsModal;
 
   let hudApi = null;
+  let plannerApi = null;
   function switchToHud() {
     plannerView.classList.remove("active");
     hudView.classList.add("active");
@@ -242,6 +252,7 @@ async function boot() {
     plannerView.classList.add("active");
     btnTabHud.classList.remove("active");
     btnTabPlanner.classList.add("active");
+    requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
   }
 
   btnTabPlanner.onclick = switchToPlanner;
@@ -253,11 +264,14 @@ async function boot() {
 
   resolveReady({ eva: () => btnStartEva.onclick(), planner: switchToPlanner, credits: openCreditsModal });
 
-  initPlanner(data, {
+  plannerApi = initPlanner(data, {
+    demSampler,
+    registry,
     onOpenPov: openPovModal,
     onStartEva: switchToHud,
   });
 
+  window.__MM_APP__ = { data, demSampler, registry, get plannerApi() { return plannerApi; } };
   hudApi = await initHud3D(data, {
     onBackToPlanner: switchToPlanner,
     onOpenPov: openPovModal,

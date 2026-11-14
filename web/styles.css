@@ -773,3 +773,17 @@ svg.profile-svg {
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* High-res Mars map probe readout (map branch merge) */
+.map-probe {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 5;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
