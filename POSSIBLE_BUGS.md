@@ -8,12 +8,9 @@
 
 ## 1. Critical / Blocking Issues
 
-### [BUG-12] `web/index.html` loads `maplibre-gl` and `three.js` from `unpkg.com` CDN (`SHOULD-07` offline risk)
-- **Where:** `web/index.html` (lines 7, 12, 193)
-- **What:**
-  - *(Verified OK)* `web/planner/planner.js` already guards `trek.nasa.gov` CTX and THEMIS WMTS tiles behind `if (!demoSafe)` (lines 15, 146).
-  - *(Still open)* `web/index.html` loads `maplibre-gl` CSS/JS and `three.js` from `https://unpkg.com/...` CDN. If stage Wi-Fi is off and the browser cache is cold, MapLibre and Three.js will fail to load even in `?demo=1` mode.
-- **Suggested fix (Frontend 1):** Vendor `maplibre-gl` and `three.js` locally under `web/vendor/` (or ensure browser cache is pre-warmed on the demo machine).
+### [FIXED] [BUG-12] `web/index.html` CDN dependencies vendored locally (`SHOULD-07`)
+- **Where:** `web/vendor/` (`maplibre-gl.css`, `maplibre-gl.js`, `three.module.js`) and `web/index.html`
+- **Status:** Fixed on 2026-11-14 15:33 — downloaded `maplibre-gl@4.7.1` and `three@0.170.0` (`2.18 MB` total) into `web/vendor/` and updated `web/index.html` to load them locally. `?demo=1` now makes **0** external network requests.
 
 ### [FIXED] [BUG-13] `data/demo/` synced with `data/processed/` (`20fc36f`)
 - Verified 1:1 match for `cost-map.json`, `stops.json`, `route.json`, `hud-telemetry.json`, `alerts.json`, and `dose.json`.

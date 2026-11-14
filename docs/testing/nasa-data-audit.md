@@ -28,8 +28,8 @@
 - **Deprecated `mars-photos`:** Never used in code (only mentioned in comments as "never use").
 - **UI Labels (`web/index.html`):** Lunar slope stand-in label, `MUST-03` tilt caveat, and suit O₂ placeholder label are present in the UI.
 
-## 3. `?demo=1` (Demo-Safe) Audit (updated at `20fc36f`)
+## 3. `?demo=1` (Demo-Safe) Audit — **PASS** (`20fc36f` + `BUG-12` fix)
 
 - **PASS (`web/planner/planner.js`):** Lines 15 & 146 properly guard `trek.nasa.gov` CTX and THEMIS WMTS tiles behind `if (!demoSafe)`.
 - **PASS (`web/shared/data-loader.js` & `data/demo/`):** `20fc36f` synced all JSONs between `data/processed/` and `data/demo/` and bundled `data/demo/ortho-preview.png`.
-- **WARN (`web/index.html`):** MapLibre GL JS and Three.js still load from `https://unpkg.com/...` CDN — fails if stage Wi-Fi is off and browser cache is cold (see `BUG-12`).
+- **PASS (`web/index.html` & `web/vendor/`):** `maplibre-gl@4.7.1` and `three@0.170.0` are vendored locally in `web/vendor/`, so `?demo=1` makes **0** external network requests.
