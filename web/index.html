@@ -22,6 +22,7 @@
     <div id="start-lines" class="start-lines"></div>
     <nav id="start-menu" class="start-menu" aria-label="Main menu">
       <button class="menu-item" data-action="eva" data-i18n="menu_eva">BEGIN EVA</button>
+      <button class="menu-item" data-action="orbit" data-i18n="menu_orbit">ORBIT VIEW</button>
       <button class="menu-item" data-action="planner" data-i18n="menu_planner">ROUTE PLANNER</button>
       <button class="menu-item" data-action="credits" data-i18n="menu_credits">SOURCES &amp; HONESTY</button>
     </nav>
@@ -47,6 +48,7 @@
     </div>
     <div class="topbar-actions">
       <button id="btn-tab-planner" class="btn active">Planner</button>
+      <button id="btn-tab-orbit" class="btn">Orbit</button>
       <button id="btn-tab-hud" class="btn">Bodycam</button>
       <button id="btn-crew" class="btn">Crew (1)</button>
       <button id="btn-credits" class="btn">Sources</button>
@@ -149,6 +151,52 @@
           <div id="dose-box" class="honesty-note"></div>
         </div>
       </aside>
+    </section>
+
+    <!-- Orbit view: Mars globe, real day/night, Phobos & Deimos, click to land -->
+    <section id="orbit-view" class="view">
+      <div id="orbit-canvas-wrap" class="orbit-canvas-wrap"></div>
+      <div id="orbit-labels" class="orbit-labels" aria-hidden="true"></div>
+      <div id="orbit-loading" class="loading-veil">LOADING MARS GLOBE · VIKING MDIM 2.1</div>
+
+      <div class="orbit-hud orbit-hud-tl">
+        <div class="orbit-title">MARS · ORBIT VIEW</div>
+        <div id="orbit-time" class="orbit-line">—</div>
+        <div id="orbit-subsolar" class="orbit-line dim">—</div>
+        <div id="orbit-moons" class="orbit-line dim">—</div>
+      </div>
+
+      <div class="orbit-hud orbit-hud-tr">
+        <div class="orbit-btn-row">
+          <button id="orbit-layer" class="btn" type="button">Layer: Viking colour</button>
+          <button id="orbit-home" class="btn" type="button">Find me</button>
+        </div>
+        <div class="orbit-btn-row">
+          <span class="orbit-k">TIME</span>
+          <button class="btn orbit-warp active" type="button" data-warp="1">Live</button>
+          <button class="btn orbit-warp" type="button" data-warp="600">×600</button>
+          <button class="btn orbit-warp" type="button" data-warp="6000">×6000</button>
+          <button class="btn orbit-warp" type="button" data-warp="40000">×40k</button>
+        </div>
+      </div>
+
+      <div id="orbit-hover" class="orbit-hud orbit-hover">DRAG TO ROTATE · SCROLL / PINCH TO ZOOM · CLICK THE SURFACE TO PICK A LANDING SITE</div>
+
+      <div id="orbit-confirm" class="orbit-confirm" hidden>
+        <div class="orbit-confirm-title" id="orbit-confirm-title">LANDING SITE</div>
+        <div class="orbit-confirm-meta" id="orbit-confirm-meta">—</div>
+        <label class="orbit-confirm-sun"><input type="checkbox" id="orbit-confirm-local" checked /> Use real local time (may be night)</label>
+        <div class="orbit-confirm-actions">
+          <button id="orbit-confirm-go" class="btn primary" type="button">Land here</button>
+          <button id="orbit-confirm-cancel" class="btn" type="button">Cancel</button>
+        </div>
+      </div>
+
+      <div id="orbit-descent" class="orbit-descent" aria-hidden="true">
+        <div class="orbit-descent-vignette"></div>
+        <div class="orbit-descent-alt" id="orbit-descent-alt"></div>
+        <div class="orbit-descent-flash"></div>
+      </div>
     </section>
 
     <!-- 3D bodycam view -->
@@ -268,11 +316,13 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:6px;">
-              CLICK TO LOCK MOUSE (ESC UNLOCK) · WASD MOVE · SHIFT BOOST · SPACE JUMP/DRIFT · F ROVER · G GOLD VISOR · Z ZOOM · M MAP
+              CLICK TO LOCK MOUSE (ESC UNLOCK) · WASD MOVE · SHIFT BOOST · SPACE JUMP/DRIFT · F ROVER · G GOLD VISOR · Z ZOOM · M MAP · O ORBIT
             </div>
           </div>
 
           <div class="hud-controls">
+            <button id="hud-orbit-btn" class="btn">Orbit (O)</button>
+            <button id="hud-sun-btn" class="btn">Sun: day</button>
             <button id="hud-fleet-btn" class="btn">Rovers (5)</button>
             <button id="hud-map-btn" class="btn">Map (M)</button>
             <button id="hud-tex" class="btn">Tex: relief</button>

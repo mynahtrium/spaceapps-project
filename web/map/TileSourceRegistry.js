@@ -83,7 +83,7 @@ export const DEFAULT_MARS_PROVIDERS = [
     fetchDate: "2026-11-11",
     projection: "mars-equirectangular",
     urlTemplate:
-      "https://trek.nasa.gov/tiles/Mars/EQ/Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/default/default028mm/{eqZ}/{row}/{col}.png",
+      "https://trek.nasa.gov/tiles/Mars/EQ/Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/default/default028mm/{eqZ}/{row}/{col}.jpg",
     minEqZ: 0,
     maxEqZ: 6,
     localOnly: false,
@@ -571,7 +571,9 @@ export class TileSourceRegistry {
    * Default Mars imagery cascade starting from a desired primary layer.
    */
   getImageryCascade(primaryId = "onmars-ctx") {
-    const base = ["onmars-ctx", "trek-ctx", "themis-day", "mola-color"];
+    // trek-ctx is kept as a provider record but left out of the cascade: its Trek WMTS path returns 404
+    // (verified 2026-11-14), so trying it first only delayed every CTX tile.
+    const base = ["onmars-ctx", "themis-day", "mola-color"];
     const ordered = [primaryId, ...base.filter((id) => id !== primaryId)];
     return ordered.filter((id) => this._providers.has(id));
   }

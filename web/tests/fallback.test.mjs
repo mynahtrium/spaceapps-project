@@ -66,17 +66,23 @@ test("TileSourceRegistry cascades 429/503 providers cleanly and trips circuit br
   });
 
   const chain = reg.getImageryCascade("onmars-ctx");
+  // The dead Trek CTX path (404) is no longer part of the default cascade.
+  assert.ok(!chain.includes("trek-ctx"));
   const res = await reg.fetchWithCascade(chain, { eqZ: 4, col: 28, row: 8 });
   assert.equal(res.providerId, "themis-day");
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 2);
 
-  // Immediately query neighbor tile: onmars-ctx & trek-ctx circuits are OPEN, so skipped without fetch!
+  // Immediately query neighbor tile: the onmars-ctx circuit is OPEN, so it is skipped without a fetch.
   assert.equal(reg.breaker.getState("onmars-ctx").state, "OPEN");
+
+  // An explicit trek-ctx cascade still trips its own breaker on 503.
+  await reg.fetchWithCascade(["trek-ctx", "themis-day"], { eqZ: 4, col: 30, row: 8 });
   assert.equal(reg.breaker.getState("trek-ctx").state, "OPEN");
+  const before = calls.length;
 
   const res2 = await reg.fetchWithCascade(chain, { eqZ: 4, col: 29, row: 8 });
   assert.equal(res2.providerId, "themis-day");
-  assert.equal(calls.length, 4); // Only 1 new call straight to themis-day!
+  assert.equal(calls.length, before + 1); // Only 1 new call straight to themis-day!
 
   // Advance clock past cooldown -> HALF_OPEN allows re-probing
   now += 20000;

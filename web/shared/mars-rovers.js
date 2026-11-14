@@ -243,6 +243,70 @@ export function getHistoricRoverById(id) {
   return MARS_HISTORIC_ROVERS.find((r) => r.id === key) || null;
 }
 
+/** Nearest catalogued rover site to a lon/lat, with its surface distance in km. */
+export function nearestHistoricRover(lon, lat) {
+  let best = null;
+  let bestKm = Infinity;
+  for (const r of MARS_HISTORIC_ROVERS) {
+    const km = marsDistanceM([lon, lat], [r.lon, r.lat], MARS_RADIUS_MEAN_M) / 1000;
+    if (km < bestKm) {
+      bestKm = km;
+      best = r;
+    }
+  }
+  return { rover: best, km: bestKm };
+}
+
+/** Small deterministic hash -> [0, 1). */
+function hash01(a, b) {
+  const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/**
+ * Site record for an arbitrary surface point picked in the Orbit view. Shaped like a rover entry so the
+ * 3D view can treat it as an active site. Relief is seeded procedural terrain, not mapped topography.
+ */
+export function makeCustomSiteSpec(lon, lat) {
+  const lonN = ((((Number(lon) + 180) % 360) + 360) % 360) - 180;
+  const latN = Math.max(-89.5, Math.min(89.5, Number(lat)));
+  const near = nearestHistoricRover(lonN, latN);
+  const r1 = hash01(lonN, latN);
+  const r2 = hash01(latN + 7.3, lonN - 3.1);
+  const polar = Math.abs(latN) > 70;
+  const dust = polar ? [196, 170, 150] : [150 + Math.round(r1 * 40), 88 + Math.round(r2 * 24), 58 + Math.round(r1 * 16)];
+  const nearName = near.km < 150 ? `NEAR ${near.rover.siteShortName}` : null;
+  return {
+    id: `site:${latN.toFixed(3)},${lonN.toFixed(3)}`,
+    name: "Surface site",
+    mission: "Orbit-view landing",
+    agency: "—",
+    status: "CUSTOM",
+    color: "#fbbf24",
+    lon: lonN,
+    lat: latN,
+    landingSite: nearName || formatMarsLonLat(lonN, latN, 2),
+    siteShortName: nearName || "MARS SURFACE",
+    siteElevM: null,
+    isHiRiseGaleSite: false,
+    isCustomSite: true,
+    nearRoverId: near.km < 150 ? near.rover.id : null,
+    nearRoverKm: near.km,
+    lengthM: 3,
+    terrainProfile: {
+      palette: {
+        dust,
+        rock: [Math.round(dust[0] * 0.55), Math.round(dust[1] * 0.6), Math.round(dust[2] * 0.7)],
+        skyHorizon: [0.6 + r2 * 0.08, 0.42 + r1 * 0.05, 0.3],
+        fogHex: 0xa06e50,
+      },
+      seed: Math.round(1000 + r1 * 8000),
+      reliefM: Math.round(14 + r2 * 46),
+      boulderDensity: 0.8 + r1 * 0.8,
+    },
+  };
+}
+
 /**
  * Format signed Mars lat/lon in clean hemisphere degrees (e.g. `18.44°N, 77.45°E`).
  */
@@ -294,8 +358,8 @@ export function buildHistoricRoversGeoJson() {
  * navigable crater/plain relief while keeping a flat landing pad at local origin `(0, 0)`
  * for clean 6-wheel placement.
  */
-export function sampleProceduralSiteHeightM(roverId, x, z) {
-  const rover = getHistoricRoverById(roverId);
+export function sampleProceduralSiteHeightM(roverIdOrSpec, x, z) {
+  const rover = typeof roverIdOrSpec === "object" && roverIdOrSpec ? roverIdOrSpec : getHistoricRoverById(roverIdOrSpec);
   if (!rover || rover.isHiRiseGaleSite || !rover.terrainProfile) return 0;
   const { seed, reliefM } = rover.terrainProfile;
   const s = seed * 0.0137;

@@ -1,9 +1,17 @@
 /**
  * Local star field plus Earth and the Moon, placed from MarsEphemeris.
- * Stars fade when the Sun is above about +3°.
+ * Stars fade when the Sun is above about +3°. Positions use the observer's latitude/longitude
+ * and the IAU Mars rotation for `sunState.date`, so they are consistent with the Sun.
  */
 
-import { BRIGHT_STARS, altAzToScene, earthFromGale, horizonOf, marsEquatorialRad } from "./MarsEphemeris.js";
+import {
+  BRIGHT_STARS,
+  altAzToScene,
+  bodyFixedToHorizon,
+  earthFromGale,
+  marsEquatorialRad,
+  marsRaDecToBodyFixed,
+} from "./MarsEphemeris.js";
 
 const DEG = Math.PI / 180;
 const R = 11800;
@@ -74,10 +82,12 @@ export function createCelestialSky(THREE) {
     moon.visible = stars.visible;
     if (!stars.visible) return;
 
+    const date = sunState.date || new Date();
+    const lat = sunState.latDeg ?? -4.8;
+    const lon = sunState.lonEastDeg ?? 137.4;
     for (let i = 0; i < marsStars.length; i++) {
       const s = marsStars[i];
-      const h = horizonOf(s.ra, s.dec, sunState.lstRad);
-      const d = altAzToScene(h.el, h.az);
+      const d = bodyFixedToHorizon(marsRaDecToBodyFixed(s.ra, s.dec, date), lat, lon);
       const bright = Math.min(1, 0.35 + 0.9 * Math.pow(10, -0.35 * Math.max(0, s.mag)));
       starPos[i * 3] = d.x * R;
       starPos[i * 3 + 1] = d.y * R;
@@ -89,7 +99,7 @@ export function createCelestialSky(THREE) {
     geo.attributes.position.needsUpdate = true;
     geo.attributes.color.needsUpdate = true;
 
-    const eh = earthFromGale(sunState.date || new Date(), sunState.lstRad);
+    const eh = earthFromGale(date, sunState.lstRad, lat, lon);
     const ed = altAzToScene(eh.el, eh.az);
     place(earth, ed, R - 20);
     // 0.07° Moon beside Earth, visible as a separate point once the visor zooms.
