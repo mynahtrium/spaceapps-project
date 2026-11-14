@@ -7,10 +7,11 @@
 import { loadAllProjectData, loadDemSamplerFromData } from "./shared/data-loader.js";
 import { TileSourceRegistry } from "./map/TileSourceRegistry.js";
 import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
-import { dispatchSetRoute, marsDistanceM } from "./shared/route-bridge.js";
+import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInfo } from "./shared/route-bridge.js";
+import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
 import { initPlanner } from "./planner/planner.js";
 import { initHud3D } from "./hud/hud3d.js";
-import { loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
 
 const I18N = {
   en: {
@@ -191,7 +192,6 @@ async function boot() {
   const hudView = document.getElementById("hud-view");
   const btnTabPlanner = document.getElementById("btn-tab-planner");
   const btnTabHud = document.getElementById("btn-tab-hud");
-  const btnStartEva = document.getElementById("btn-start-eva");
   const btnCredits = document.getElementById("btn-credits");
 
   const modalBackdrop = document.getElementById("modal-backdrop");
@@ -217,6 +217,94 @@ async function boot() {
     modalBackdrop.classList.add("open");
   }
 
+  function openHistoricRoverModal(roverOrId) {
+    if (document.pointerLockElement) {
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
+    const rover = typeof roverOrId === "string" ? getHistoricRoverById(roverOrId) : roverOrId;
+    if (!rover) return;
+    const tr = readLang() === "tr";
+    const statusTr = rover.status === "ACTIVE" ? (tr ? "AKTİF GÖREV" : "ACTIVE") : tr ? "TAMAMLANDI" : "COMPLETED";
+    const coordsText = formatMarsLonLat(rover.lon, rover.lat, 4);
+    modalTitle.textContent = `${rover.name.toUpperCase()} — ${rover.mission}`;
+    modalBody.innerHTML = `
+      <div style="font-size:12px;line-height:1.55;">
+        <div class="rover-modal-hero">
+          <div>
+            <div style="font-size:15px;color:#fff;letter-spacing:0.08em;"><strong>${rover.name}</strong> · ${rover.agency}</div>
+            <div style="color:var(--faint);font-size:11px;">${rover.landingSite}</div>
+            ${rover.landingCoordsNote ? `<div style="color:var(--muted);font-size:10px;margin-top:3px;">${rover.landingCoordsNote}</div>` : ""}
+          </div>
+          <span class="fleet-status ${rover.status === "ACTIVE" ? "active" : ""}">${statusTr}</span>
+        </div>
+
+        <div class="rover-modal-grid">
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "MARS KONUMU" : "MARS COORDINATES"}</div>
+            <div class="rover-stat-v">${coordsText}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "KATEDİLEN MESAFE" : "DISTANCE DRIVEN"}</div>
+            <div class="rover-stat-v">${rover.distanceLabel}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "FIRLATMA / İNİŞ" : "LAUNCH / LANDING"}</div>
+            <div class="rover-stat-v">${rover.launchDate} → ${rover.landingDate}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "GÖREV SÜRESİ" : "SOLS / LIFESPAN"}</div>
+            <div class="rover-stat-v">${rover.sols.toLocaleString()} sols${rover.endDate ? ` (ended ${rover.endDate})` : " (ongoing)"}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "KÜTLE & BOYUT" : "MASS & DIMENSIONS"}</div>
+            <div class="rover-stat-v">${rover.massKg} kg · ${rover.dimensionsM}</div>
+          </div>
+          <div class="rover-stat">
+            <div class="rover-stat-k">${tr ? "GÜÇ KAYNAĞI" : "POWER SOURCE"}</div>
+            <div class="rover-stat-v">${rover.powerSource}</div>
+          </div>
+        </div>
+
+        <p style="margin-bottom:8px;">
+          <strong>${tr ? "Bilimsel Keşifler:" : "Science Highlights:"}</strong>
+          ${tr ? rover.highlightsTr : rover.highlightsEn}
+        </p>
+        <p style="margin-bottom:8px;">
+          <strong>${tr ? "Ana Enstrümanlar:" : "Key Instruments:"}</strong>
+          ${rover.instruments.join(" · ")}
+        </p>
+        <div class="honesty-note">
+          <strong>3D Asset:</strong> ${rover.modelSourceNote}.
+          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;">NASA Mission Page ↗</a>
+        </div>
+
+        <div class="rover-modal-actions">
+          <button id="rover-modal-visit-3d" class="btn primary" type="button">
+            ${tr ? "3D Bölgeye Git (Aracın Yanına)" : "Visit 3D Site (Stand by Rover)"}
+          </button>
+          <button id="rover-modal-show-2d" class="btn" type="button">
+            ${tr ? "2D Haritada Göster" : "Locate on 2D Mars Map"}
+          </button>
+        </div>
+      </div>
+    `;
+    modalBody.querySelector("#rover-modal-visit-3d")?.addEventListener("click", () => {
+      modalBackdrop.classList.remove("open");
+      dispatchVisitRoverSite(rover.id);
+      switchToHud();
+    });
+    modalBody.querySelector("#rover-modal-show-2d")?.addEventListener("click", () => {
+      modalBackdrop.classList.remove("open");
+      switchToPlanner();
+      plannerApi?.flyToRover?.(rover.id);
+    });
+    modalBackdrop.classList.add("open");
+  }
+
+  onOpenRoverInfo((detail) => openHistoricRoverModal(detail?.roverId));
+
   function openCreditsModal() {
     modalTitle.textContent = "Data Sources, Citations & Honesty Notes";
     modalBody.innerHTML = `
@@ -225,7 +313,7 @@ async function boot() {
         <p><strong>Honesty &amp; Placeholders:</strong></p>
         <ul>
           <li><strong>Slope limits (20° / 15°):</strong> Illustrative lunar stand-ins (NASA Exploration EVA ConOps / LPSC 2023 #1413). DTM slope matches Curiosity rover tilt only weakly (5 m medians 9.0° vs 8.6° over 176 waypoints); keep a safety margin.</li>
-          <li><strong>Suit O₂ &amp; Walking Time:</strong> Illustrative linear / Earth-hiking placeholders, not validated Mars suit models. The visor also shows a Pandolf metabolic stand-in (watts and L/min). It does not replace the O₂ percentage.</li>
+          <li><strong>Suit O₂ &amp; Walking Time:</strong> Illustrative linear / Earth-hiking placeholders, not validated Mars suit models. The visor also shows a Pandolf metabolic stand-in (watts and L/min); it does not replace the O₂ percentage.</li>
           <li><strong>Walker physics:</strong> Suited mass is 180 kg; weight uses Gale crater gravity anchored at 3.717 m/s² (Lewis et al., Science 2019). Boot traction, facies friction, and sky-view shielding are illustrative stand-ins, not mapped geology or a radiation map.</li>
           <li><strong>Radiation Dose:</strong> Hassler et al. (Science 2014) Curiosity RAD baseline (0.64 ± 0.12 mSv/day) × EVA duration. No spatial rock radiation map.</li>
         </ul>
@@ -236,7 +324,10 @@ async function boot() {
           <li><strong>MRO CRISM:</strong> 9 MTRDR product records via PDS Geosciences ODE REST</li>
           <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
-          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Z2 Spacesuit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh (hips, knees, ankles, spine, head, shoulders) and drives a walk / run cycle from distance walked; the model's forward-reaching arms are lowered at the shoulders and swing opposite to the legs. Jumps and falls use Gale gravity (about 3.717 m/s²). Walking pace (1.4 m/s) and a light run with Shift (2.5 m/s) are placeholders. Horizontal speed has inertia: boots cannot steer in the air, and slopes steeper than the 20° (or strict 15°) lunar stand-in slip downhill.</li><li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
+          <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Advanced Crew Escape Suit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh with two-bone leg IK and procedural gait. Gale gravity (3.717 m/s²) drives jumps, falls, momentum, steep-slope slip, and dust settling.</li>
+          <li><strong>Pressurized Rover &amp; Environment:</strong> Official NASA 3D Resources <code>Space Exploration Vehicle</code> (MMSEV Draco GLB, fetched 2026-11-14) with 4-point DEM slope alignment &amp; spring-damper suspension, plus REMS-inspired dust haze and surface wind gust particles.</li>
+          <li><strong>Historic NASA Mars Rovers (5 sites):</strong> Perseverance (Jezero Crater, NASA 3D Resources <code>Mars 2020 Perseverance Rover.glb</code>, fetched 2026-11-14), Curiosity (Gale Crater Sol 4534 waypoint, MSL scale assembly), Spirit (Gusev Crater, MER-A assembly), Opportunity (Meridiani Planum, MER-B assembly), Sojourner (Ares Vallis, Pathfinder scale assembly). Off-Gale terrain sites use seeded procedural site relief rather than downloaded regional HiRISE tiles.</li>
+          <li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
         <p><strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery. Terrain beyond the real 2 km tile is a mirrored copy, not data. Close-range ground grain (wind ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture only; it is not mapped geology.</p>
         <p><strong>2D map:</strong> MapLibre with Mars Trek CTX / THEMIS / MOLA tiles reprojected from Mars equirectangular, and hillshade / optional 3D tilt from the HiRISE-derived height preview. In demo-safe mode no tiles are fetched; an offline shaded relief is drawn from the local height grid.</p>
@@ -256,18 +347,18 @@ async function boot() {
         <div class="dev-note">
           ${
             tr
-              ? "Değişiklikler anlık olarak kask görünümüne uygulanır ve tarayıcıda saklanır."
-              : "Changes apply live to the helmet view and persist locally in your browser."
+              ? "Değişiklikler anlık olarak 3D Bodycam görünümüne uygulanır ve tarayıcıda saklanır."
+              : "Changes apply live to the 3D Bodycam view and persist locally in your browser."
           }
         </div>
 
         <label class="dev-row">
           <div>
-            <div class="dev-label">${tr ? "Vizör lensi" : "Visor lens"}</div>
+            <div class="dev-label">${tr ? "Ekrandaki Çerçeve & Lens Efekti" : "Bodycam Frame & Lens Effect"}</div>
             <div class="dev-sub">${
               tr
-                ? "Polikarbonat eğrilik, kenar kararması ve hafif renk sapması. Altın vizör G, büyütme Z."
-                : "Polycarbonate curvature, helmet-rim darkening, and a little chromatic aberration. Gold visor is G, magnifier is Z."
+                ? "Kavisli kask vizörü çerçevesi, kenar karartması, kromatik sapma ve film greni. Altın vizör G, büyütme Z."
+                : "Curved visor bezel frame, edge vignette, barrel distortion, chromatic aberration & grain. Gold visor is G, magnifier is Z."
             }</div>
           </div>
           <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
@@ -296,6 +387,23 @@ async function boot() {
           <input class="dev-range" type="range" id="dev-speed" min="0.5" max="8" step="0.25" value="${s.speedMultiplier}" />
         </div>
 
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Araç (Rover) Sürüş Hızı" : "Rover Drive Speed Multiplier"}</div>
+            <div class="dev-sub">
+              <span id="dev-rover-speed-val">${s.roverSpeedMultiplier.toFixed(2)}×</span>
+              <span class="dev-presets">
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="0.5">0.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="1">1×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="1.5">1.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="2.5">2.5×</button>
+                <button class="btn dev-rover-preset" type="button" data-rover-speed="3.5">3.5×</button>
+              </span>
+            </div>
+          </div>
+          <input class="dev-range" type="range" id="dev-rover-speed" min="0.3" max="4" step="0.1" value="${s.roverSpeedMultiplier}" />
+        </div>
+
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
@@ -309,6 +417,71 @@ async function boot() {
             }</div>
           </div>
           <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
+              <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + F tuşuyla sürüş)."
+                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press F to drive)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Gerçekçi Dokular (PBR+)" : "Realistic Textures (PBR+)"}
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "512 px yüksek çözünürlüklü prosedürel regolit ve çatlak kiltaşı normal haritası, derin kırık kontrastı, mineral parıltısı ve uzay giysisi mikro dokusunu açar."
+                : "Upgrades terrain to 512 px procedural regolith & fractured mudstone normal maps, deep crack relief, mineral sheen & suit weave detail."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-tex" ${s.realisticTextures ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Toz Efektleri (Ayak, Tekerlek & Rüzgar)" : "Realistic Mars Dust FX (Boots, Wheels & Wind)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Rüzgarla sürüklenen Mars aerosol toz tanecikleri ile adım, iniş ve tekerlek toz bulutlarını açar."
+                : "Enables wind-drifted Martian aerosol dust grains plus bootstep, landing impact & wheel dust plumes."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-dust" ${s.realisticDust ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Slope Slide & Suspension)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Adım ataleti/momentumu, 24° üstü dik yokuşta regolit kayması, iniş tepkisi ve rover süspansiyon yaylanmasını uygular."
+                : "Applies walker inertia/momentum, steep >24° regolith slope slip, landing shock & rover spring-damper suspension."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-physics" ${s.realisticPhysics ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Gerçekçi Mars Havası (Atmosferik Pus & Rüzgar)" : "Realistic Mars Weather (Atmospheric Haze & Gusts)"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "REMS verisiyle kalibreli tereyağı-hardal Mars atmosfer pusu ve döngüsel toz fırtınası rüzgarlarını simüle eder."
+                : "Simulates REMS-calibrated butterscotch Martian dust haze fog and dynamic surface wind gust fronts."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-realistic-weather" ${s.realisticWeather ? "checked" : ""} />
         </label>
 
         <div class="dev-row">
@@ -350,6 +523,7 @@ async function boot() {
         </label>
 
         <div class="dev-actions">
+          <button class="btn primary" type="button" id="dev-full-realism">${tr ? "Tüm Gerçekçiliği Aç" : "Enable Full Realism"}</button>
           <button class="btn" type="button" id="dev-reset">${tr ? "Varsayılanlara Sıfırla" : "Reset Defaults"}</button>
         </div>
       </div>
@@ -360,13 +534,21 @@ async function boot() {
     const frameStrengthVal = document.getElementById("dev-frame-strength-val");
     const speedRange = document.getElementById("dev-speed");
     const speedVal = document.getElementById("dev-speed-val");
+    const roverSpeedRange = document.getElementById("dev-rover-speed");
+    const roverSpeedVal = document.getElementById("dev-rover-speed-val");
     const superToggle = document.getElementById("dev-super-gfx");
+    const expRoverToggle = document.getElementById("dev-exp-rover");
+    const realisticTexToggle = document.getElementById("dev-realistic-tex");
+    const realisticDustToggle = document.getElementById("dev-realistic-dust");
+    const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
+    const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
     const fovRange = document.getElementById("dev-fov");
     const fovVal = document.getElementById("dev-fov-val");
-    const cleanToggle = document.getElementById("dev-clean-hud");
     const tauRange = document.getElementById("dev-tau");
     const tauVal = document.getElementById("dev-tau-val");
     const devilToggle = document.getElementById("dev-devil");
+    const cleanToggle = document.getElementById("dev-clean-hud");
+    const fullRealismBtn = document.getElementById("dev-full-realism");
     const resetBtn = document.getElementById("dev-reset");
 
     const syncUi = (cfg) => {
@@ -378,13 +560,20 @@ async function boot() {
       if (frameStrengthVal) frameStrengthVal.textContent = `${Math.round(cfg.frameStrength * 100)}%`;
       if (speedRange) speedRange.value = String(cfg.speedMultiplier);
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
+      if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
+      if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
       if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
+      if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
+      if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
+      if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
+      if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
       if (fovRange) fovRange.value = String(cfg.fov);
       if (fovVal) fovVal.textContent = `${Math.round(cfg.fov)}°`;
-      if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
       if (tauRange) tauRange.value = String(cfg.dustTau);
       if (tauVal) tauVal.textContent = cfg.dustTau.toFixed(2);
       if (devilToggle) devilToggle.checked = cfg.dustDevil;
+      if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
     };
 
     syncUi(s);
@@ -394,11 +583,35 @@ async function boot() {
     modalBody.querySelectorAll(".dev-preset").forEach((btn) => {
       btn.addEventListener("click", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(btn.dataset.speed) })));
     });
+    roverSpeedRange?.addEventListener("input", () =>
+      syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(roverSpeedRange.value) }))
+    );
+    modalBody.querySelectorAll(".dev-rover-preset").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
+      );
+    });
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    expRoverToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
+    );
+    realisticTexToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticTextures: realisticTexToggle.checked }))
+    );
+    realisticDustToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticDust: realisticDustToggle.checked }))
+    );
+    realisticPhysicsToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticPhysics: realisticPhysicsToggle.checked }))
+    );
+    realisticWeatherToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ realisticWeather: realisticWeatherToggle.checked }))
+    );
     fovRange?.addEventListener("input", () => syncUi(saveDevSettings({ fov: parseFloat(fovRange.value) })));
-    cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
     tauRange?.addEventListener("input", () => syncUi(saveDevSettings({ dustTau: parseFloat(tauRange.value) })));
     devilToggle?.addEventListener("change", () => syncUi(saveDevSettings({ dustDevil: devilToggle.checked })));
+    cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
+    fullRealismBtn?.addEventListener("click", () => syncUi(saveDevSettings(FULL_REALISM_PRESET)));
     resetBtn?.addEventListener("click", () => syncUi(resetDevSettings()));
 
     modalBackdrop.classList.add("open");
@@ -606,7 +819,6 @@ async function boot() {
   });
 
   function switchToHud() {
-    document.body.classList.add("eva-live");
     plannerView.classList.remove("active");
     hudView.classList.add("active");
     btnTabPlanner.classList.remove("active");
@@ -616,7 +828,6 @@ async function boot() {
   }
 
   function switchToPlanner() {
-    document.body.classList.remove("eva-live");
     hudView.classList.remove("active");
     plannerView.classList.add("active");
     btnTabHud.classList.remove("active");
@@ -625,37 +836,32 @@ async function boot() {
     requestAnimationFrame(() => plannerApi?.adapter?.resize?.());
   }
 
+  const startEva = () => {
+    if (data.route) dispatchSetRoute(data.route, 0);
+    switchToHud();
+  };
+
+  btnTabPlanner.onclick = switchToPlanner;
+  btnTabHud.onclick = switchToHud;
+
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (document.pointerLockElement) return;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
-    if (!document.getElementById("start-screen")?.classList.contains("hidden")) return;
-    const modal = document.getElementById("modal-backdrop");
-    if (modal?.classList.contains("open")) {
+    if (modalBackdrop.classList.contains("open")) {
       e.preventDefault();
-      modal.classList.remove("open");
+      modalBackdrop.classList.remove("open");
       return;
     }
     if (crewDrawer?.classList.contains("open")) {
       e.preventDefault();
       crewDrawer.classList.remove("open");
-      return;
     }
-    if (document.getElementById("hud-map-overlay")?.classList.contains("open")) return;
-    e.preventDefault();
-    if (hudView.classList.contains("active")) switchToPlanner();
-    else switchToHud();
   });
 
-  btnTabPlanner.onclick = switchToPlanner;
-  btnTabHud.onclick = switchToHud;
-  btnStartEva.onclick = () => {
-    if (data.route) dispatchSetRoute(data.route, 0);
-    switchToHud();
-  };
-
   resolveReady({
-    eva: () => btnStartEva.onclick(),
+    eva: startEva,
     planner: switchToPlanner,
     credits: openCreditsModal,
     dev: openDevSettingsModal,
@@ -666,6 +872,8 @@ async function boot() {
     registry,
     mp,
     onOpenPov: openPovModal,
+    onOpenRoverInfo: openHistoricRoverModal,
+    onVisitRoverSite: (id) => dispatchVisitRoverSite(id),
     onStartEva: switchToHud,
   });
 
@@ -677,6 +885,7 @@ async function boot() {
     demSampler,
     registry,
     mp,
+    openHistoricRoverModal,
     get plannerApi() {
       return plannerApi;
     },
@@ -692,14 +901,8 @@ async function boot() {
     },
     onBackToPlanner: switchToPlanner,
     onOpenPov: openPovModal,
+    onOpenRoverInfo: openHistoricRoverModal,
   });
-  const missionTex = document.getElementById("mission-tex");
-  const missionPov = document.getElementById("mission-pov");
-  missionTex?.addEventListener("click", () => {
-    const label = hudApi?.cycleTex?.();
-    if (label && missionTex) missionTex.textContent = `Ground: ${label}`;
-  });
-  missionPov?.addEventListener("click", () => hudApi?.openRoverPov?.());
 }
 
 boot();

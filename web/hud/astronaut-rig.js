@@ -307,14 +307,20 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   }
   const qSwing = new THREE.Quaternion();
   const qOut = new THREE.Quaternion();
+  const qElbow = new THREE.Quaternion();
   const AX = new THREE.Vector3(1, 0, 0);
   const AZ = new THREE.Vector3(0, 0, 1);
-  function poseArm(bone, foreBone, side, swing, out) {
+  function poseArm(bone, foreBone, side, swing, out, elbowFlex = 0) {
     const r = armRest[side];
     qSwing.setFromAxisAngle(AX, swing);
     qOut.setFromAxisAngle(AZ, -r.sign * out);
     bone.quaternion.copy(qOut).multiply(qSwing).multiply(r.qS);
-    foreBone.quaternion.copy(r.qE);
+    if (elbowFlex !== 0) {
+      qElbow.setFromAxisAngle(AX, elbowFlex);
+      foreBone.quaternion.copy(r.qE).multiply(qElbow);
+    } else {
+      foreBone.quaternion.copy(r.qE);
+    }
   }
   poseArm(armL, foreL, "L", 0, 0);
   poseArm(armR, foreR, "R", 0, 0);
@@ -462,5 +468,11 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     prevStanceR = sR;
   }
 
-  return { group, bones: { root, pelvis, spine, chest, head, footL, footR }, update, get phase() { return phase; }, get amount() { return amount; } };
+  return {
+    group,
+    bones: { root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR },
+    update,
+    get phase() { return phase; },
+    get amount() { return amount; },
+  };
 }

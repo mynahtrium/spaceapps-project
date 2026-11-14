@@ -924,3 +924,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: The spherical Mars globe and orbital landing screen are not part of the visor. The walk stays a first-person helmet on Gale.
 - Commit: this commit
 - Next step: Helmet visor branch is merged onto main in this commit. No globe.
+
+### 2026-11-14 23:14 Europe/Istanbul — Port developermenu UI, Dev Menu, MMSEV 6x6, 5 historic rovers & mars-fx onto main
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: merger (`main`)
+- Task id: MUST-08 / MUST-09 / MUST-10 / UI + Dev Menu merge
+- Files changed: `web/app.js`, `web/index.html`, `web/styles.css`, `web/shared/dev-settings.js`, `web/shared/mars-rovers.js`, `web/shared/route-bridge.js`, `web/hud/hud3d.js`, `web/hud/astronaut-rig.js`, `web/hud/experimental-rover.js`, `web/hud/historic-rovers.js`, `web/hud/mars-fx.js`, `web/map/Fallback2DMap.js`, `web/map/MapLibreMarsAdapter.js`, `web/planner/planner.js`, `web/assets/nasa-3d/mmsev-rover.glb`, `web/assets/nasa-3d/mars-2020-perseverance.glb`, `web/assets/nasa-3d/SOURCE.md`, `web/tests/fallback.test.mjs`, `docs/coordination/AGENT_LOG.md`
+- Why: Ported `developermenu` (`c77c193` / `spaceapps-project-developermenu.zip` UI and Developer Menu) onto `main` (`b2b11f9`) while preserving `main`'s Mars physics and visor realism core. Restored persistent `.topbar`, Bodycam HUD bar (`.visor-top`, `.visor-bottom`, `.hud-controls`, `#hud-rover-target`, `.hud-reticle`), Developer Settings modal (`Enable Full Realism`, `roverSpeedMultiplier`, `experimentalRover`, `realisticTextures`, `realisticDust`, `realisticPhysics`, `realisticWeather`), MMSEV 6x6 drivable rover (`[F]`), 5 scattered historic NASA Mars rovers (`Sojourner`, `Spirit`, `Opportunity`, `Curiosity`, `Perseverance`) and planner fleet list, procedural 512 px PBR+ terrain/suit textures, `mars-fx` aeolian dust plumes/wind/fog, pointer-lock crosshair + drag fallback, and seamless edge wrapping, alongside `main`'s `web/physics/*` 120 Hz dynamics + Pandolf `#hud-metabolic`, ACES two-bone IK rig & `footsteps.js`, ephemeris/sky/rockfield/vista/kits/dust-devil, `G` gold visor, `Z` 3x/8x `#hud-zoom-reticle`, and `dustTau`/`dustDevil` dev controls. Verified `node --check` on non-vendor `web/` JS/MJS and `node --test web/tests/*.test.mjs` (`37/37` pass); kept `spaceapps-project-developermenu.zip` untracked; no secrets.
+- Commit: this commit
+- Next step: Pull `main` and test live at `http://localhost:8000/web/`.
+
