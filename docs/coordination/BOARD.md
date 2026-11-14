@@ -12,7 +12,8 @@ Related: [ROADMAP.md](../../ROADMAP.md), [HANDOFFS.md](./HANDOFFS.md), [AGENT_LO
 4. When you are blocked, set `blocked`, add a row in **Questions for other roles**, and write a [handoff](./HANDOFFS.md) if files are involved.
 5. When the work is ready for a tester (or for the next role), set `review` and link the PR. A tester moves it to `done` after sign-off (or the owner does, after the tester approves the PR).
 6. Stay in your owned folders ([ROADMAP.md](../../ROADMAP.md) §2). One person, one doing-task when you can; finish or split rather than sitting on five.
-7. After 14 November, work happens on a branch and a PR, not as silent edits to `main`.
+7. After 14 November, work happens on a **long-lived role branch** (and a PR when ready), not as silent edits to `main`. **Merge to `main` only when asked.** After every prompt: pull, then push your current branch (no force).
+8. **Backend pass (what is left):** Cagan → terrain + costmap (incl. HiRISE crop routing needs); Doruk → routing + stops (example until PRE-07); CC → science leftovers + small tidy. Frontend / testers: not this pass. See [AGENTS.md](../../AGENTS.md) § Standing branch and sync rules.
 
 ## Status words
 
@@ -47,10 +48,10 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 | MUST-01 | Download and crop DTM + ortho; first slope preview | B1 | Cagan | Claude Code | review | hour 6 | `pipeline/terrain/`, `data/processed/terrain/`. First pass done 14 Nov with a placeholder crop centre; re-crop after PRE-07. |
 | MUST-02 | Cost / hazard map + `cost-map.json` + height preview for 3D | B1 | Cagan | Claude Code | review | hour 10 | Contract: `docs/contracts/cost-map.json` |
 | MUST-03 | Tilt check vs Curiosity waypoints; freeze MUST raster | B1 | Cagan | Claude Code | doing | hour 16 | Tilt check done (first pass): no systematic under-read over 176 waypoints, weak correlation; see `data/processed/terrain/tilt-check.json`. Raster freeze waits for PRE-07. |
-| MUST-04 | Write locked `stops.json` | B2 | TBD | TBD | todo | hour 2 | Clear `is_example` on real stops |
-| MUST-05 | A\* / Dijkstra route (or labelled hand-drawn fallback) + `route.json` | B2 | TBD | TBD | todo | hour 10 | Static fallback required |
-| MUST-06 | `hud-telemetry.json` samples (distance, slope, next stop, placeholder O₂) | B2 | TBD | TBD | todo | hour 16 | |
-| MUST-07 | Background caches only (REMS, RAD, DONKI, images) — do not block MUST | B3 | TBD | TBD | todo | hour 16 | SHOULD products come later |
+| MUST-04 | Write locked `stops.json` | B2 | Doruk | Grok (Cursor) | doing | hour 2 | Example scaffold on branch `backend-2/routing-must-scaffold` (cited Sol 4527/4534 + contract mudstones). Still `is_example`; clear only after PRE-07 lock. |
+| MUST-05 | A\* / Dijkstra route (or labelled hand-drawn fallback) + `route.json` | B2 | Doruk | Grok (Cursor) | doing | hour 10 | Example Dijkstra on contract cost grid (B1 crop does not cover stops yet). Static `data/processed/routing/route.json`. |
+| MUST-06 | `hud-telemetry.json` samples (distance, slope, next stop, placeholder O₂) | B2 | Doruk | Grok (Cursor) | doing | hour 16 | Example samples + `primary`; slope/elev null until covering DTM. |
+| MUST-07 | Background caches only (REMS, RAD, DONKI, images) — do not block MUST | B3 | CC | Antigravity (Gemini) | review | hour 16 | SHOULD products come later |
 | MUST-08 | Scaffold planner + 3D scene; load contract JSON | F1 | TBD | TBD | todo | hour 2 | `web/planner/`, `web/hud/` |
 | MUST-09 | 3D first-person terrain from B1 preview; `mm:set-route` from planner | F1 | TBD | TBD | todo | hour 10 | |
 | MUST-10 | Basic HUD: distance, slope, next stop, suit O₂ (labelled placeholder) | F1 | TBD | TBD | todo | hour 16 | Fallback to `docs/contracts/` |
@@ -61,13 +62,13 @@ Seeded from [ROADMAP.md](../../ROADMAP.md). Humans and agent tools stay `TBD` un
 
 | ID | Task | Owner role | Human | Agent | Status | Due | Notes |
 |---|---|---|---|---|---|---|---|
-| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | TBD | TBD | todo | hour 22 | No spatial radiation map |
-| SHOULD-02 | Cached DONKI / WSA-Enlil `alerts.json` + banner copy | B3 | TBD | TBD | todo | hour 22 | Cache only; personal key |
-| SHOULD-03 | POV stills for each stop, or honest empty state | B3 | TBD | TBD | todo | hour 28 | |
-| SHOULD-04 | REMS weather window + THEMIS (CRISM if ready) layer metadata | B3 | TBD | TBD | todo | hour 32 | |
+| SHOULD-01 | Dose budget `dose.json` (RAD baseline × duration) | B3 | CC | Antigravity (Gemini) | review | hour 22 | No spatial radiation map; re-run when B2 locks `route.json` |
+| SHOULD-02 | Cached DONKI / WSA-Enlil `alerts.json` + banner copy | B3 | CC | Antigravity (Gemini) | review | hour 22 | Cache only; personal key |
+| SHOULD-03 | POV stills for each stop, or honest empty state | B3 | CC | Antigravity (Gemini) | review | hour 28 | 4 JPEGs + JSONs in `data/processed/science/pov/`; re-run when `stops.json` locks |
+| SHOULD-04 | REMS weather window + THEMIS (CRISM if ready) layer metadata | B3 | CC | Antigravity (Gemini) | review | hour 32 | CAB/NASA REMS feed (4,745 sols) + THEMIS tiles + 9 CRISM MTRDR records |
 | SHOULD-05 | HUD / planner: dose card, DONKI banner, POV, weather/thermal toggles | F1 | TBD | TBD | todo | hour 32 | |
 | SHOULD-06 | Optional 15° / 20° mask and route toggle | B1, B2, F1 | TBD | TBD | todo | hour 32 | Nice, not required to pass SHOULD |
-| SHOULD-07 | **Demo-safe mode** (must-have): `DEMO_SAFE=1` or `?demo=1` loads only `data/demo/` fixtures; no network, NASA, or DONKI calls | F1 (implement); B1–B3 (fixtures); T1 (verify) | TBD | TBD | todo | hour 32 | Spec: [ROADMAP.md](../../ROADMAP.md) § Demo-safe and [docs/contracts/README.md](../contracts/README.md). Implementation after 14 Nov. |
+| SHOULD-07 | **Demo-safe mode** (must-have): `DEMO_SAFE=1` or `?demo=1` loads only `data/demo/` fixtures; no network, NASA, or DONKI calls | F1 (implement); B1–B3 (fixtures); T1 (verify) | TBD | TBD | todo | hour 32 | B3 science fixtures copied to `data/demo/` (`science-manifest.json`). Spec: [ROADMAP.md](../../ROADMAP.md) § Demo-safe and [docs/contracts/README.md](../contracts/README.md). |
 | SHOULD-08 | SHOULD sign-off | T1, T2 | TBD | TBD | todo | hour 32 | Include the demo-safe tester check |
 
 ### STRETCH (hours 32–40) and submit

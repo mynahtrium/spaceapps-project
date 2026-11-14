@@ -1,0 +1,116 @@
+{
+  "contract": "martian-mappers.layer-themis.v1",
+  "status": "cached",
+  "fetched_at": "2026-11-14T09:15:56Z",
+  "note": "Parsed from Mars Trek WMTSCapabilities.xml with sample Gale crater tiles cached locally for offline demo fallback.",
+  "kind": "thermal",
+  "mission": "Odyssey THEMIS",
+  "day": {
+    "name": "THEMIS Day IR",
+    "capabilities_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml",
+    "approx_resolution_m": 100,
+    "identifier": "THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018",
+    "title": "THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018",
+    "style": "default",
+    "tile_matrix_set": "default028mm",
+    "format": "image/png",
+    "tile_url_template": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png",
+    "zoom_levels": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "wgs84_bbox": {
+      "lower": "-179.9999997 -65.0006576",
+      "upper": "179.9998849 65.0007535"
+    },
+    "cached_gale_sample_tiles": [
+      {
+        "z": "4",
+        "row": 8,
+        "col": 28,
+        "bytes": 65615,
+        "relpath": "data/processed/science/tiles/themis/day/z4_r8_c28.png",
+        "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/4/8/28.png"
+      },
+      {
+        "z": "6",
+        "row": 33,
+        "col": 112,
+        "bytes": 62641,
+        "relpath": "data/processed/science/tiles/themis/day/z6_r33_c112.png",
+        "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/6/33/112.png"
+      },
+      {
+        "z": "8",
+        "row": 134,
+        "col": 451,
+        "bytes": 52070,
+        "relpath": "data/processed/science/tiles/themis/day/z8_r134_c451.png",
+        "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/8/134/451.png"
+      }
+    ]
+  },
+  "night": {
+    "name": "THEMIS Night IR",
+    "capabilities_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0/WMTSCapabilities.xml",
+    "approx_resolution_m": 100,
+    "identifier": "THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018",
+    "title": "THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018",
+    "style": "default",
+    "tile_matrix_set": "default028mm",
+    "format": "image/png",
+    "tile_url_template": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png",
+    "zoom_levels": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "wgs84_bbox": {
+      "lower": "-179.9999997 -65.0006576",
+      "upper": "179.9998849 65.0007535"
+    },
+    "cached_gale_sample_tiles": [
+      {
+        "z": "4",
+        "row": 8,
+        "col": 28,
+        "bytes": 62290,
+        "relpath": "data/processed/science/tiles/themis/night/z4_r8_c28.png",
+        "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/4/8/28.png"
+      },
+      {
+        "z": "6",
+        "row": 33,
+        "col": 112,
+        "bytes": 64911,
+        "relpath": "data/processed/science/tiles/themis/night/z6_r33_c112.png",
+        "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/6/33/112.png"
+      },
+      {
+        "z": "8",
+        "row": 134,
+        "col": 451,
+        "bytes": 57168,
+        "relpath": "data/processed/science/tiles/themis/night/z8_r134_c451.png",
+        "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/8/134/451.png"
+      }
+    ]
+  },
+  "cached_tiles_relpath": "data/processed/science/tiles/themis/",
+  "legend_note": "Relative day/night infrared brightness. Do not over-claim surface mineralogy from THEMIS alone."
+}

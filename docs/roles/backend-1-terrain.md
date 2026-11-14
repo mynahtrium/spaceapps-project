@@ -9,7 +9,10 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [docs/
 
 ## Session start and end
 
-Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+Follow the checklist in [AGENTS.md](../../AGENTS.md): stay on your long-lived branch (`backend/terrain` and/or `backend/costmap`); **after every prompt** `git pull` then `git push` (no force; merge to `main` only when asked); read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+
+**This pass (Cagan — largest remaining backend):** own terrain **and** cost map, including the HiRISE crop that Backend 2 routing still needs so stops fall inside the cost grid. Do not start Doruk’s routing/stops or CC’s science trees.
+
 ## Responsibilities
 
 - Download (after kickoff) the HiRISE DTM and 25 cm ortho for the locked Mount Sharp walk, crop to ~2 km × 2 km, resample to 2–5 m, compute slope and roughness, build the cost / hazard map, write a small height or slope preview the frontend can load.
@@ -20,7 +23,8 @@ Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md
 
 ## Owned folders (do not edit other trees)
 
-- `pipeline/terrain/` — your GDAL / Python steps (from 14 Nov)
+- `pipeline/terrain/` — DTM crop, slope, ortho, tilt check (branch `backend/terrain`)
+- `pipeline/costmap/` — cost / hazard map + height preview (branch `backend/costmap`)
 - `data/processed/terrain/` — `cost-map.json`, preview PNG, tiny height mesh or raster the web app may fetch
 - `docs/contracts/cost-map.json` — field names you must honour
 

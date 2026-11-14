@@ -23,12 +23,12 @@ Her pull request (PR) merge edilmeden önce aşağıdaki kontroller Tester 1 tar
 Aşağıdaki 8 temel kriter sağlanmadan MUST aşaması tamamlanmış sayılamaz:
 
 ### 2.1. Arazi ve Eğim Maliyet Haritası (Backend 1)
-- [ ] Kırpılmış Mount Sharp DTM ve ortofoto hazırlandı mı? (`pipeline/terrain/`, `data/processed/terrain/`)
-- [ ] Eğim (slope) ve engebe (roughness) hesaplandı mı?
-- [ ] `cost-map.json` sözleşmeye (`docs/contracts/cost-map.json`) uygun mu?
-- [ ] Bilinen DTM eğim az okuma (under-read) uyarısı `cost-map.json` içinde belgelendi mi?
-- [ ] Önizleme yüksekliği (height preview) 3D bileşeni için üretildi mi?
-- [ ] *Fallback:* Raster üretilemezse statik görsel/harita önizlemesi devrede mi?
+- [x] Kırpılmış Mount Sharp DTM ve ortofoto hazırlandı mı? (`pipeline/terrain/`, `data/processed/terrain/`) — *Doğrulandı: 2x2 km DTEEC_019698 kırpması ve ortofoto mevcut.*
+- [x] Eğim (slope) ve engebe (roughness) hesaplandı mı? — *Doğrulandı: TRI tabanlı roughness ve slope hesaplandı.*
+- [x] `cost-map.json` sözleşmeye (`docs/contracts/cost-map.json`) uygun mu? — *Doğrulandı: Şema uyumlu, 395x395 hücreli gerçek maliyet haritası üretildi.*
+- [x] Bilinen DTM eğim az okuma (under-read) uyarısı `cost-map.json` içinde belgelendi mi? — *Doğrulandı: `tilt_validation_note` mevcut.*
+- [x] Önizleme yüksekliği (height preview) 3D bileşeni için üretildi mi? — *Doğrulandı: `height-preview.png` (16-bit) ve `height_preview_elevation_range_m` eklendi.*
+- [x] *Fallback:* Raster üretilemezse statik görsel/harita önizlemesi devrede mi? — *Doğrulandı: PNG önizlemeleri hazır.*
 
 ### 2.2. Güvenli Rota ve Duraklar (Backend 2)
 - [ ] Kilitli duraklar (`stops.json`) Mount Sharp göl çökelleri ve Altadena boxwork bonus durağını kapsıyor mu?
@@ -62,7 +62,7 @@ Aşağıdaki 8 temel kriter sağlanmadan MUST aşaması tamamlanmış sayılamaz
 
 | Madde | Durum (`PASS` / `FAIL` / `FALLBACK`) | Test Eden | Notlar |
 |---|---|---|---|
-| B1 Arazi / Maliyet Haritası | Henüz Test Edilmedi | Asil (T1) | |
+| B1 Arazi / Maliyet Haritası | PASS (İlk Sürüm) | Asil (T1) | MUST-01 & MUST-02 test edildi. Duraklar kilitlendikten sonra (PRE-07) yeniden kırpılacak. |
 | B2 Duraklar & Rota | Henüz Test Edilmedi | Asil (T1) | |
 | F1 2D Planlayıcı | Henüz Test Edilmedi | Asil (T1) | |
 | F1 3D HUD (4 alan) | Henüz Test Edilmedi | Asil (T1) | |

@@ -9,7 +9,10 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md) data-la
 
 ## Session start and end
 
-Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+Follow the checklist in [AGENTS.md](../../AGENTS.md): stay on your long-lived branch (`backend/science`); **after every prompt** `git pull` then `git push` (no force; merge to `main` only when asked); read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+
+**This pass (CC — small remaining backend):** science cache leftovers and small doc/board tidy in `pipeline/data/` only. Do not start Cagan’s terrain/costmap or Doruk’s routing/stops.
+
 ## Responsibilities
 
 - Cache small JSON and a few images so the demo works offline.

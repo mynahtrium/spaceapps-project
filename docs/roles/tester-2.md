@@ -9,7 +9,10 @@ Read first: [ROADMAP.md](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [docs/
 
 ## Session start and end
 
-Follow the checklist in [AGENTS.md](../../AGENTS.md): `git pull`; read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, work on a `ROLE/short-topic` branch, test, append the agent log in the same commit (`Commit: this commit`), update the board, and open a PR for a tester. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+Follow the checklist in [AGENTS.md](../../AGENTS.md): long-lived branch; **after every prompt** pull then push (merge to `main` only when asked); read [BOARD.md](../coordination/BOARD.md), [HANDOFFS.md](../coordination/HANDOFFS.md), the latest [AGENT_LOG.md](../coordination/AGENT_LOG.md) entries, and all [profiles](../team/profiles/). **First session:** run the [onboarding interview](../team/profiles/README.md) **before any other work**. Claim a board task, test, append the agent log in the same commit (`Commit: this commit`), update the board. At 6-hour marks, append [STANDUP.md](../coordination/STANDUP.md).
+
+**Not this backend pass** (Cagan / Doruk / CC). Demo/docs when your session runs.
+
 ## Responsibilities
 
 - Demo flow (about 2–3 minutes) and a 30-second video beat sheet, updated to the 12 November decisions: 3D HUD first, planner feeds the route, lake-sediment goal, boxwork as a bonus stop.

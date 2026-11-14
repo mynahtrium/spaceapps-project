@@ -163,6 +163,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Check local environment (.env / NASA_API_KEY / Python), claim MUST-07 on BOARD.md, and start background data caches (REMS, RAD, waypoints, DONKI, MSL raw images).
 
+### 2026-11-14 12:08 Europe/Istanbul — MUST-07 (initial caches)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen Medium)
+- Role: backend-3
+- Task id: MUST-07
+- Files changed: docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md, pipeline/data/__init__.py, pipeline/data/common.py, pipeline/data/fetch_donki.py, pipeline/data/fetch_waypoints.py, pipeline/data/fetch_pov_index.py, pipeline/data/fetch_pds_indexes.py, pipeline/data/run_must07.py, data/processed/science/donki-cache.json, data/processed/science/msl-waypoints-cache.json, data/processed/science/msl-raw-images-cache.json, data/processed/science/pds-archives-index.json
+- Why: Claimed MUST-07 and created Backend 3 background data-fetching scripts + initial processed caches (DONKI 30-day window with 13 Mars impacts, 1,389 MSL waypoints through Sol 5073, 30 latest + 30 boxwork MSL raw images). Recorded REMS (connection reset) and RAD (expired TLS cert) as unavailable without bypassing TLS.
+- Commit: this commit
+- Next step: Build SHOULD contract outputs (alerts.json, dose.json, weather.json, pov stills, THEMIS layers) once Backend 2 locks stops.json / route.json, or generate alerts.json from donki-cache.json next.
+
 ### 2026-11-14 11:32 Europe/Istanbul — MUST-11
 
 - Human: Asil
@@ -240,6 +251,39 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Tilt check vs MSL waypoints (MUST-03); re-run both scripts when stops are locked.
 
+### 2026-11-14 12:05 Europe/Istanbul — MUST-11 (B1 terrain validation)
+
+- Human: Asil
+- Agent tool + model: Gemini (Gemini 3.8 Flash)
+- Role: tester-1
+- Task id: MUST-11
+- Files changed: docs/testing/must-checklist.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Pulled latest team updates; verified and tested Backend 1 MUST-01 and MUST-02 outputs (crop, slope, TRI roughness, cost-map.json, height preview) against must-checklist.md; signed off section 2.1 as PASS (first pass); acknowledged handoffs from B1 and B2.
+- Commit: this commit
+- Next step: Wait for team decision on PRE-07 stop locking; review upcoming MUST-04 and routing PRs.
+
+### 2026-11-14 12:05 Europe/Istanbul — MUST-04/05/06 (example scaffold)
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2
+- Task id: MUST-04, MUST-05, MUST-06
+- Files changed: pipeline/routing/{write_stops.py,build_route.py,dijkstra_grid.py,mars_geo.py,requirements.txt,README.md}, data/processed/routing/{stops.json,route.json,hud-telemetry.json,README.md}, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md
+- Why: End-to-end Backend 2 example scaffold while PRE-07 is open. Habitat/boxwork use cited Sol 4527/4534 waypoints; mudstones use contract example points; all is_example. 8-neighbour Dijkstra with geodesic fallback; HUD samples with labelled O2 placeholder. No official outcrop names or mineral IDs invented. No secrets.
+- Commit: this commit
+- Next step: Stay on backend-2/routing-must-scaffold (long-lived; merge only at end). Re-run after PRE-07 lock and B1 re-crop; then clear is_example.
+
+### 2026-11-14 12:17 Europe/Istanbul — SHOULD-01, SHOULD-02, SHOULD-04 (Phase 2 science outputs)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: backend-3
+- Task id: SHOULD-01, SHOULD-02, SHOULD-04
+- Files changed: docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, pipeline/data/build_alerts.py, pipeline/data/build_dose.py, pipeline/data/build_layers_themis.py, pipeline/data/build_crism_index.py, pipeline/data/run_phase2.py, data/processed/science/alerts.json, data/processed/science/dose.json, data/processed/science/layers-themis.json, data/processed/science/layers-crism.json, data/processed/science/tiles/themis/{day,night}/z{4,6,8}_*.png
+- Why: Built Phase 2 science outputs from cached/live NASA & PDS sources: alerts.json (13 WSA-Enlil Mars impacts), dose.json (0.0427 +/- 0.008 mSv using Hassler et al. 2014 baseline and placeholder 96 min route duration), layers-themis.json + 6 cached Gale sample PNG tiles (Day/Night IR z4/z6/z8), and layers-crism.json (9 CRISM MTRDR products over Gale via ODE REST). Marked MUST-07 review on BOARD.md and logged handoff to F1/Testers/B1.
+- Commit: this commit
+- Next step: Once PRE-07/MUST-04 locks stops and Backend 2 produces route.json, re-run build_dose.py, build per-stop POV stills (SHOULD-03), resolve weather.json (SHOULD-04), and copy frozen fixtures into data/demo/ (SHOULD-07).
+
 ### 2026-11-14 12:20 Europe/Istanbul — MUST-03 (tilt check, first pass)
 
 - Human: Cagan
@@ -263,3 +307,47 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Open the PR for a tester; re-run the scripts once stops are locked (PRE-07).
 - Previous commit: 638e466
+
+### 2026-11-14 12:20 Europe/Istanbul — SHOULD-03, SHOULD-04, SHOULD-07 (B3 complete)
+
+- Human: CC
+- Agent tool + model: Antigravity (Gemini 4 Hydrogen High)
+- Role: backend-3
+- Task id: SHOULD-03, SHOULD-04, SHOULD-07
+- Files changed: docs/coordination/BOARD.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md, docs/AI_USE.md, pipeline/data/build_weather.py, pipeline/data/build_pov.py, pipeline/data/export_demo_fixtures.py, pipeline/data/run_phase3.py, data/processed/science/weather.json, data/processed/science/pov/*, data/demo/*
+- Why: Completed Backend 3 Phase 3 outputs: weather.json from official CAB/NASA REMS daily summary feed (4,745 sols through Sol 4995, no invented hourly curve), 4 cached Curiosity POV JPEGs + per-stop JSONs (marked example stops until PRE-07 locks), and exported 22 frozen science fixtures (789.7 KB) to data/demo/ for demo-safe mode. Marked SHOULD-01..04 review on BOARD.md, logged AI use in docs/AI_USE.md, and added final handoff in HANDOFFS.md.
+- Commit: this commit
+- Next step: Open PR for backend-3/must-07-data-cache; re-run build_dose, build_pov, and export_demo_fixtures once Backend 2 lands locked stops.json and route.json.
+
+### 2026-11-14 12:45 Europe/Istanbul — backend folder split
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: Backend 2 (repo integration pass)
+- Task id: n/a (merge-all + split)
+- Files changed: pipeline/README.md, pipeline/costmap/*, pipeline/stops/*, pipeline/routing/build_route.py, pipeline/terrain/README.md, docs/coordination/AGENT_LOG.md
+- Why: Merged all existing role branches into main; split backend pipeline into five folder-scoped long-lived branches (terrain, costmap, stops, routing, science). Did not merge those five back together. No secrets.
+- Commit: this commit
+- Next step: Later pass merges the five backend branches into the full project.
+
+### 2026-11-14 12:52 Europe/Istanbul — standing branch rules
+
+- Human: Doruk
+- Agent tool + model: Grok (Cursor)
+- Role: docs / Backend 2 (integration)
+- Task id: n/a
+- Files changed: AGENTS.md, docs/coordination/README.md, docs/coordination/BOARD.md, docs/coordination/AGENT_LOG.md, docs/roles/backend-1-terrain.md, backend-2-routing.md, backend-3-data.md, frontend-1-hud.md, tester-1.md, tester-2.md
+- Why: Document long-lived branches (merge to main only when asked), pull-then-push after every prompt, and remaining backend work split (Cagan terrain+costmap; Doruk routing+stops example until PRE-07; CC science leftovers). Frontend/testers marked not this pass. No application code for Cagan/CC; no secrets.
+- Commit: this commit
+- Next step: Each backend agent continues on its long-lived branch per the split.
+
+### 2026-11-14 13:34 Europe/Istanbul — MUST-12 (static analysis & POSSIBLE_BUGS.md)
+
+- Human: Eymen (ParongUs)
+- Agent tool + model: Gemini (Antigravity)
+- Role: tester-2
+- Task id: MUST-12
+- Files changed: POSSIBLE_BUGS.md (new), docs/coordination/AGENT_LOG.md
+- Why: Audited `main` (`pipeline/`, `data/processed/`, `data/demo/`, `web/`, `docs/contracts/`), verified all 24 Python files compile, checked for secrets/bulky files and `data/` size (3.23 MB), and documented 7 bugs/integration risks in `POSSIBLE_BUGS.md` (empty `web/`, `cost-map.json` vs `stops.json` bounds mismatch, `hud-telemetry.json` wrapper mismatch, `dose.json` stale duration, missing terrain/routing `data/demo/` fixtures, and `MUST-03` tilt wording update).
+- Commit: this commit
+- Next step: Share `POSSIBLE_BUGS.md` findings with Frontend 1 and Backends 1–3; update demo script/slides after `PRE-07` lock and `MUST-03` wording.
