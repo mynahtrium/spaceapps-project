@@ -135,3 +135,23 @@ test("walking off a 2 m ledge falls under Mars g and lands", () => {
   assert.ok(wasAirborne, "never left the ground");
   assert.ok(body.grounded && body.y < -1.9, `y ${body.y}`);
 });
+
+test("grounded walker lifts rather than trapping when ground under feet rises > STEP_UP_M", () => {
+  let chunkLoaded = false;
+  const env = {
+    sampleHeight: () => (chunkLoaded ? 0.85 : 0),
+    molaElevM: () => -4500,
+  };
+  const body = createMarsBody({ x: 0, y: 0, z: 0, grounded: true });
+  stepPhysicsWorld(body, FIXED_DT, { wishX: 1, latDeg: -4.8 }, env);
+  assert.ok(body.x > 0);
+
+  // Streamed terrain pops up 0.85 m directly under the walker (more than STEP_UP_M = 0.44 m)
+  chunkLoaded = true;
+  const xBefore = body.x;
+  for (let i = 0; i < 240; i++) {
+    stepPhysicsWorld(body, FIXED_DT, { wishX: 1, latDeg: -4.8 }, env);
+  }
+  assert.ok(body.y >= 0.84, `expected walker lifted to 0.85 m, got y ${body.y}`);
+  assert.ok(body.x > xBefore + 1.5, `walker stalled in slideAlongWall at x ${body.x}`);
+});

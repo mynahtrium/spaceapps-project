@@ -263,19 +263,75 @@ function hash01(a, b) {
   return s - Math.floor(s);
 }
 
+function wrapLon180(lon) {
+  return ((((Number(lon) || 0) + 180) % 360) + 360) % 360 - 180;
+}
+
+function gaussBump(lon, lat, cLon, cLat, rLon, rLat) {
+  const dl = wrapLon180(lon - cLon) / rLon;
+  const da = (lat - cLat) / rLat;
+  const d2 = dl * dl + da * da;
+  return Math.exp(-d2);
+}
+
+/**
+ * Deterministic Martian MOLA elevation estimator (metres above datum) for arbitrary coordinates,
+ * modelling the crustal dichotomy, major basins (Hellas, Argyre, Isidis), canyons (Valles Marineris),
+ * and volcanic rises (Tharsis, Olympus Mons, Elysium), refined by optional globe MOLA samples.
+ */
+export function estimateMarsMolaElevM(lon, lat, globeSample = null) {
+  const lonN = wrapLon180(lon);
+  const latN = Math.max(-89.5, Math.min(89.5, Number(lat) || 0));
+  // Global north-south dichotomy: southern highlands (~+1600 m) -> northern lowlands (~-3900 m)
+  const hemiT = 0.5 - 0.5 * Math.tanh((latN + 4) / 16);
+  let elev = -3900 + hemiT * 5400;
+  // Major basins and topographic domes
+  elev -= 5200 * gaussBump(lonN, latN, 70, -42.4, 22, 16); // Hellas Planitia (~ -6800 m)
+  elev -= 3400 * gaussBump(lonN, latN, -44, -49.7, 10, 8); // Argyre Planitia
+  elev -= 2100 * gaussBump(lonN, latN, 87, 12.9, 11, 9); // Isidis Planitia
+  elev -= 4600 * gaussBump(lonN, latN, -68, -13.5, 22, 3.2); // Valles Marineris trough
+  elev += 7200 * gaussBump(lonN, latN, -110, 0, 32, 24); // Tharsis bulge
+  elev += 14500 * gaussBump(lonN, latN, -133.8, 18.65, 5.5, 5.2); // Olympus Mons
+  elev += 6200 * gaussBump(lonN, latN, 147.2, 25.0, 9, 8); // Elysium Mons
+  if (Number.isFinite(globeSample?.molaNorm)) {
+    elev += (globeSample.molaNorm - 0.5) * 3200;
+  }
+  return Math.round(elev);
+}
+
 /**
  * Site record for an arbitrary surface point picked in the Orbit view. Shaped like a rover entry so the
- * 3D view can treat it as an active site. Relief is seeded procedural terrain, not mapped topography.
+ * 3D view can treat it as an active site. Uses local Viking/MOLA globe sampling when supplied plus seeded
+ * procedural fine relief (not mapped 1 m HiRISE topography).
  */
-export function makeCustomSiteSpec(lon, lat) {
-  const lonN = ((((Number(lon) + 180) % 360) + 360) % 360) - 180;
+export function makeCustomSiteSpec(lon, lat, globeSample = null) {
+  const lonN = wrapLon180(lon);
   const latN = Math.max(-89.5, Math.min(89.5, Number(lat)));
   const near = nearestHistoricRover(lonN, latN);
   const r1 = hash01(lonN, latN);
   const r2 = hash01(latN + 7.3, lonN - 3.1);
   const polar = Math.abs(latN) > 70;
-  const dust = polar ? [196, 170, 150] : [150 + Math.round(r1 * 40), 88 + Math.round(r2 * 24), 58 + Math.round(r1 * 16)];
+  const fallbackDust = polar
+    ? [196, 170, 150]
+    : [150 + Math.round(r1 * 40), 88 + Math.round(r2 * 24), 58 + Math.round(r1 * 16)];
+  const dust = Array.isArray(globeSample?.dust) && globeSample.dust.length === 3
+    ? globeSample.dust.map((c) => Math.max(25, Math.min(245, Math.round(c))))
+    : fallbackDust;
+  const rock = Array.isArray(globeSample?.rock) && globeSample.rock.length === 3
+    ? globeSample.rock.map((c) => Math.max(15, Math.min(220, Math.round(c))))
+    : [Math.round(dust[0] * 0.55), Math.round(dust[1] * 0.6), Math.round(dust[2] * 0.7)];
+  const skyHorizon = Array.isArray(globeSample?.skyHorizon) && globeSample.skyHorizon.length === 3
+    ? globeSample.skyHorizon
+    : [0.58 + (dust[0] / 255) * 0.14, 0.39 + (dust[1] / 255) * 0.1, 0.28 + (dust[2] / 255) * 0.08];
   const nearName = near.km < 150 ? `NEAR ${near.rover.siteShortName}` : null;
+  const roughness = Number.isFinite(globeSample?.roughness) ? globeSample.roughness : r2;
+  const reliefM = Number.isFinite(globeSample?.reliefM)
+    ? Math.max(10, Math.min(95, Math.round(globeSample.reliefM)))
+    : Math.round(14 + roughness * 48);
+  const skyFogHex =
+    ((Math.round(Math.min(1, skyHorizon[0]) * 255) & 0xff) << 16) |
+    ((Math.round(Math.min(1, skyHorizon[1]) * 255) & 0xff) << 8) |
+    (Math.round(Math.min(1, skyHorizon[2]) * 255) & 0xff);
   return {
     id: `site:${latN.toFixed(3)},${lonN.toFixed(3)}`,
     name: "Surface site",
@@ -287,22 +343,28 @@ export function makeCustomSiteSpec(lon, lat) {
     lat: latN,
     landingSite: nearName || formatMarsLonLat(lonN, latN, 2),
     siteShortName: nearName || "MARS SURFACE",
-    siteElevM: null,
+    siteElevM: estimateMarsMolaElevM(lonN, latN, globeSample),
     isHiRiseGaleSite: false,
     isCustomSite: true,
-    nearRoverId: near.km < 150 ? near.rover.id : null,
+    nearRoverId: null,
     nearRoverKm: near.km,
     lengthM: 3,
     terrainProfile: {
       palette: {
         dust,
-        rock: [Math.round(dust[0] * 0.55), Math.round(dust[1] * 0.6), Math.round(dust[2] * 0.7)],
-        skyHorizon: [0.6 + r2 * 0.08, 0.42 + r1 * 0.05, 0.3],
-        fogHex: 0xa06e50,
+        rock,
+        skyHorizon,
+        fogHex: skyFogHex || 0xa06e50,
       },
       seed: Math.round(1000 + r1 * 8000),
-      reliefM: Math.round(14 + r2 * 46),
-      boulderDensity: 0.8 + r1 * 0.8,
+      reliefM,
+      roughness,
+      slopeGradX: Number.isFinite(globeSample?.slopeGradX) ? globeSample.slopeGradX : 0,
+      slopeGradZ: Number.isFinite(globeSample?.slopeGradZ) ? globeSample.slopeGradZ : 0,
+      heightGrid: globeSample?.heightGrid || null,
+      gridN: globeSample?.gridN || 0,
+      gridSpanM: globeSample?.gridSpanM || 2400,
+      boulderDensity: 0.75 + Math.min(1.0, roughness) * 0.85,
     },
   };
 }
@@ -360,7 +422,7 @@ export function buildHistoricRoversGeoJson() {
 export function sampleProceduralSiteHeightM(roverIdOrSpec, x, z) {
   const rover = typeof roverIdOrSpec === "object" && roverIdOrSpec ? roverIdOrSpec : getHistoricRoverById(roverIdOrSpec);
   if (!rover || rover.isHiRiseGaleSite || !rover.terrainProfile) return 0;
-  const { seed, reliefM } = rover.terrainProfile;
+  const { seed, reliefM, heightGrid, gridN, gridSpanM = 2400, slopeGradX = 0, slopeGradZ = 0 } = rover.terrainProfile;
   const s = seed * 0.0137;
   const r = Math.hypot(x, z);
   // Smooth C1 Hermite landing apron around (0, 0) so 6 wheels sit naturally
@@ -381,7 +443,34 @@ export function sampleProceduralSiteHeightM(roverIdOrSpec, x, z) {
   // Smooth crater rim rise around r ~ 340..860 m (no linear crease at start)
   const tRim = Math.max(0, Math.min(1, (r - 340) / 520));
   const rim = tRim * tRim * (3 - 2 * tRim) * 0.45;
-  const raw = (broad + mesa + micro + rim) * reliefM;
+  let macroH = 0;
+  if (heightGrid && gridN >= 2 && heightGrid.length >= gridN * gridN) {
+    const span = Math.max(100, gridSpanM);
+    const fu = Math.max(0, Math.min(gridN - 1.0001, (x / span + 0.5) * (gridN - 1)));
+    const fv = Math.max(0, Math.min(gridN - 1.0001, (z / span + 0.5) * (gridN - 1)));
+    const u0 = Math.floor(fu);
+    const v0 = Math.floor(fv);
+    const u1 = Math.min(gridN - 1, u0 + 1);
+    const v1 = Math.min(gridN - 1, v0 + 1);
+    const tx = fu - u0;
+    const tz = fv - v0;
+    const sampleG = (c, row) => heightGrid[row * gridN + c];
+    const h00 = sampleG(u0, v0);
+    const h10 = sampleG(u1, v0);
+    const h01 = sampleG(u0, v1);
+    const h11 = sampleG(u1, v1);
+    const gx = h00 + (h10 - h00) * tx + ((h01 + (h11 - h01) * tx) - (h00 + (h10 - h00) * tx)) * tz;
+    const mid = Math.floor((gridN - 1) * 0.5);
+    const centerVal = heightGrid[mid * gridN + mid] || 0;
+    const edgeFade = Math.max(0, 1 - Math.max(0, (r - span * 0.38) / (span * 0.14)));
+    macroH += (gx - centerVal) * reliefM * 0.72 * edgeFade;
+  }
+  if (slopeGradX || slopeGradZ) {
+    const tiltFade = Math.max(0, 1 - Math.max(0, (r - 450) / 500));
+    macroH += (slopeGradX * x + slopeGradZ * z) * tiltFade;
+  }
+  const detailScale = heightGrid ? 0.58 : 1.0;
+  const raw = macroH + (broad + mesa + micro + rim) * reliefM * detailScale;
   return raw * (0.08 + 0.92 * apron);
 }
 

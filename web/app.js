@@ -1449,7 +1449,7 @@ async function boot() {
       demoSafe: data.demoSafe,
       isTr: () => readLang() === "tr",
       getPlayerLonLat: () => hudApi?.getLonLat?.() || (lastSelfPose?.lon != null ? lastSelfPose : null),
-      onLand: (lon, lat, { sunMode, roverId, hardwareId } = {}) => landFromOrbit(lon, lat, { sunMode, roverId, hardwareId }),
+      onLand: (lon, lat, opts = {}) => landFromOrbit(lon, lat, opts),
     });
     return orbitApi;
   }
@@ -1481,30 +1481,26 @@ async function boot() {
   };
 
   let pendingLanding = null;
-  function landFromOrbit(lon, lat, { sunMode = "local", roverId = null, hardwareId = null } = {}) {
+  function landFromOrbit(lon, lat, { sunMode = "local", roverId = null, hardwareId = null, siteId = null, stopId = null, globeSample = null } = {}) {
     if (!hudApi) {
       // The 3D view is still loading (suit / terrain); land as soon as it is ready.
-      pendingLanding = [lon, lat, { sunMode, roverId, hardwareId }];
+      pendingLanding = [lon, lat, { sunMode, roverId, hardwareId, siteId, stopId, globeSample }];
       switchView("hud");
       return;
     }
-    if (hardwareId && hudApi.deployToHardwareSite) {
+    if (siteId === "habitat" && hudApi.visitHabitatStation) {
+      hudApi.visitHabitatStation({ sun: sunMode });
+    } else if (hardwareId && hudApi.deployToHardwareSite) {
       // a lander marker: deploy to its hardware site (scale model + staging pad + return beacon)
       hudApi.deployToHardwareSite(hardwareId);
       hudApi.setSunMode?.(sunMode);
-    } else if (roverId && roverId !== "curiosity") {
+    } else if (roverId) {
       dispatchVisitRoverSite(roverId);
       hudApi.setSunMode?.(sunMode);
     } else {
-      hudApi.visitLocation(lon, lat, { keepYaw: true, sun: sunMode });
+      hudApi.visitLocation(lon, lat, { keepYaw: false, sun: sunMode, globeSample });
     }
     switchView("hud");
-    if (hudApi.playLanding) {
-      const ns = lat >= 0 ? "N" : "S";
-      const ew = lon >= 0 ? "E" : "W";
-      hudApi.playLanding({ site: `${Math.abs(lat).toFixed(2)}°${ns} · ${Math.abs(lon).toFixed(2)}°${ew}` });
-      return;
-    }
     hudApi.playArrivalDrop?.();
     const flash = document.createElement("div");
     flash.className = "arrival-flash";

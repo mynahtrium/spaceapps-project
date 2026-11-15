@@ -132,12 +132,12 @@ const SNAP_DOWN_M = 0.12;
 /** Mid-air steering, m/s². Small, so jumps keep their Mars arc. */
 const AIR_CONTROL_MS2 = 1.2;
 
-function slideAlongWall(body, oldX, oldZ, sampleHeight, maxRise) {
+function slideAlongWall(body, oldX, oldZ, sampleHeight, maxRise, refY = body.y) {
   // Try each axis on its own so the walker slides along a ledge it cannot climb.
   const hX = sampleHeight(body.x, oldZ);
   const hZ = sampleHeight(oldX, body.z);
-  const okX = hX - body.y <= maxRise;
-  const okZ = hZ - body.y <= maxRise;
+  const okX = hX - refY <= maxRise;
+  const okZ = hZ - refY <= maxRise;
   if (!okX) body.vx = 0;
   if (!okZ) body.vz = 0;
   body.x = okX ? body.x : oldX;
@@ -222,9 +222,11 @@ function substep(body, dt, input, env) {
     body.x += body.vx * dt;
     body.z += body.vz * dt;
     body.y += body.vy * dt;
-    // Hitting a wall mid-air: stop the horizontal motion into it.
-    if (sampleHeight(body.x, body.z) - body.y > STEP_UP_M) {
-      slideAlongWall(body, oldX, oldZ, sampleHeight, STEP_UP_M);
+    // Hitting a wall mid-air: stop the horizontal motion into it (use oldGround so rising streamed terrain doesn't trap).
+    const oldGround = sampleHeight(oldX, oldZ);
+    const airRefY = Math.max(body.y, oldGround);
+    if (sampleHeight(body.x, body.z) - airRefY > STEP_UP_M) {
+      slideAlongWall(body, oldX, oldZ, sampleHeight, STEP_UP_M, airRefY);
     }
     const ground = sampleHeight(body.x, body.z);
     if (body.y <= ground && body.vy <= 0) {
@@ -235,8 +237,8 @@ function substep(body, dt, input, env) {
       body.crouchT = 0;
       body.crouchDur = 0.35 + Math.min(0.4, body.impactSpeed * 0.08);
     } else if (body.y < ground) {
-      // Rising through a lip: lift onto it instead of clipping inside the terrain.
-      body.y = ground;
+      // Rising through a lip or streamed terrain: lift onto it instead of clipping inside the terrain.
+      body.y = ground - body.sinkM;
     }
   } else {
     const cap = frictionAccelMax(facies.muStatic, g, patch.ny);
@@ -267,10 +269,11 @@ function substep(body, dt, input, env) {
     body.x += body.vx * dt;
     body.z += body.vz * dt;
     let next = sampleHeight(body.x, body.z);
-    const footY = body.y + body.sinkM;
+    const footY = Math.max(body.y + body.sinkM, patch.height);
+    const refY = footY - body.sinkM;
     if (next - footY > STEP_UP_M) {
       // A ledge taller than a step: block, slide along it. Jump to get up.
-      slideAlongWall(body, oldX, oldZ, sampleHeight, STEP_UP_M + footY - body.y);
+      slideAlongWall(body, oldX, oldZ, sampleHeight, STEP_UP_M + body.sinkM, refY);
       next = sampleHeight(body.x, body.z);
     }
     if (footY - next > SNAP_DOWN_M + Math.hypot(body.vx, body.vz) * dt * 1.2) {

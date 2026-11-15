@@ -20,8 +20,10 @@ import {
   MARS_HISTORIC_ROVERS,
   buildHistoricRoversGeoJson,
   computeRoverSurfaceDistanceKm,
+  estimateMarsMolaElevM,
   formatMarsLonLat,
   getHistoricRoverById,
+  makeCustomSiteSpec,
   sampleProceduralSiteHeightM,
   scatterHistoricRoverCoords,
 } from "../shared/mars-rovers.js";
@@ -952,4 +954,67 @@ test("Inside-habitat detection excludes indoor floors/ramps while preserving spa
   assert.match(hudSrc, /if\s*\(\s*devCfg\.realisticDust\s*&&\s*!isInsideHabitat\(px,\s*pz\)\s*\)/);
   assert.match(hudSrc, /rs\.landingImpact\s*>\s*1\.0\s*&&\s*devCfg\.realisticDust\s*&&\s*!isInsideHabitat\(rs\.pos\.x,\s*rs\.pos\.z\)/);
   assert.match(hudSrc, /!isInsideHabitat\(rs\.pos\.x,\s*rs\.pos\.z\)\s*&&\s*devCfg\.realisticDust/);
+});
+
+test("Custom Orbit landing specs derive MOLA relief & surface tint without cloning Gale habitat", () => {
+  const heightGrid = Float32Array.from({ length: 25 }, (_, i) => ((i - 12) / 12));
+  const globeSample = {
+    dust: [212, 152, 114],
+    rock: [120, 82, 60],
+    molaNorm: 0.96,
+    slopeGradX: 0.08,
+    slopeGradZ: -0.05,
+    roughness: 0.9,
+    reliefM: 62,
+    heightGrid,
+    gridN: 5,
+    gridSpanM: 2400,
+  };
+  const spec = makeCustomSiteSpec(226.2, 18.65, globeSample);
+  assert.equal(spec.nearRoverId, null, "custom Orbit sites must never clone the Gale Habitat");
+  assert.ok(spec.siteElevM > 14000, `expected high Olympus MOLA elevation, got ${spec.siteElevM}`);
+  assert.ok(
+    estimateMarsMolaElevM(70, -42.4, { molaNorm: 0.08 }) < -4000,
+    "expected deep basin elevation in Hellas Planitia"
+  );
+  assert.ok(
+    estimateMarsMolaElevM(226.2, 18.65, { molaNorm: 0.96 }) >
+      estimateMarsMolaElevM(226.2, 18.65, { molaNorm: 0.2 }),
+    "globe MOLA sample shifts elevation upward"
+  );
+  assert.deepEqual(spec.terrainProfile.palette.dust, [212, 152, 114]);
+
+  const apronH = sampleProceduralSiteHeightM(spec, 0, 0);
+  const apronEdgeH = sampleProceduralSiteHeightM(spec, 2, 0);
+  assert.ok(Math.abs(apronEdgeH - apronH) < 0.25, `landing apron should stay smooth near (0, 0): ${apronH} vs ${apronEdgeH}`);
+
+  const plainSpec = makeCustomSiteSpec(226.2, 18.65, null);
+  const macroDelta = Math.max(
+    ...[
+      [320, 240],
+      [-320, -240],
+      [450, -300],
+      [-450, 350],
+    ].map(([x, z]) => Math.abs(sampleProceduralSiteHeightM(spec, x, z) - sampleProceduralSiteHeightM(plainSpec, x, z)))
+  );
+  assert.ok(macroDelta > 5, `expected MOLA heightGrid & tilt to shape relief (max delta ${macroDelta})`);
+
+  const hudSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "hud3d.js"), "utf8");
+  assert.match(hudSrc, /sampleHeight:\s*sampleRenderedSurfaceY/);
+  assert.match(hudSrc, /habitatStation\.group\.visible\s*=\s*gale/);
+  assert.match(hudSrc, /function visitHabitatStation\(/);
+  assert.match(hudSrc, /function buildCustomSiteTexture\(/);
+  assert.match(hudSrc, /camY\s*=\s*Math\.max\(camY,\s*sampleRenderedSurfaceY\(camX,\s*camZ\)\s*\+\s*0\.25\)/);
+
+  const appSrc = fs.readFileSync(path.join(WEB_DIR, "app.js"), "utf8");
+  assert.match(appSrc, /siteId\s*===\s*"habitat"/);
+  assert.match(appSrc, /hudApi\.visitHabitatStation/);
+  assert.match(appSrc, /hudApi\.playArrivalDrop/);
+
+  const orbitSrc = fs.readFileSync(path.join(WEB_DIR, "orbit", "orbit-view.js"), "utf8");
+  assert.match(orbitSrc, /corridor\/overview\.jpg/);
+  assert.match(orbitSrc, /function sampleGlobeSurface\(/);
+  assert.match(orbitSrc, /siteId:\s*"habitat"/);
+  assert.match(orbitSrc, /stopId:\s*"stop-mudstone-a"/);
+  assert.match(orbitSrc, /stopId:\s*"stop-mudstone-b"/);
 });

@@ -548,17 +548,12 @@ export async function initHud3D(
 
   // Convert [lon, lat] <-> local scene X, Z (metres, centred at 0,0) for active landing site
   const isGaleSite = () => Boolean(activeSiteRover?.isHiRiseGaleSite);
-  /** True when a lon/lat lies on (or within ~1 km of) the real HiRISE Gale tile. */
-  const insideGaleTile = (lon, lat) => {
-    const padLon = (bounds.east_lon_deg - bounds.west_lon_deg) * 0.5;
-    const padLat = (bounds.north_lat_deg - bounds.south_lat_deg) * 0.5;
-    return (
-      lon >= bounds.west_lon_deg - padLon &&
-      lon <= bounds.east_lon_deg + padLon &&
-      lat >= bounds.south_lat_deg - padLat &&
-      lat <= bounds.north_lat_deg + padLat
-    );
-  };
+  /** True when a lon/lat lies on the real HiRISE Gale corridor tile. */
+  const insideGaleTile = (lon, lat) =>
+    lon >= bounds.west_lon_deg &&
+    lon <= bounds.east_lon_deg &&
+    lat >= bounds.south_lat_deg &&
+    lat <= bounds.north_lat_deg;
   const cosLatClamped = (latDeg) => Math.max(0.2, Math.cos(latDeg * (Math.PI / 180)));
   const lonToX = (lon) => {
     if (isGaleSite()) {
@@ -578,7 +573,7 @@ export async function initHud3D(
   };
   const xToLon = (x) => {
     if (isGaleSite()) {
-      const u = mirrorWrap(x / worldW + 0.5);
+      const u = x / worldW + 0.5;
       return bounds.west_lon_deg + u * (bounds.east_lon_deg - bounds.west_lon_deg);
     }
     const rad = Math.PI / 180;
@@ -588,7 +583,7 @@ export async function initHud3D(
   };
   const zToLat = (z) => {
     if (isGaleSite()) {
-      const v = mirrorWrap(0.5 - z / worldH);
+      const v = 0.5 - z / worldH;
       return bounds.south_lat_deg + v * (bounds.north_lat_deg - bounds.south_lat_deg);
     }
     const mPerDeg = MARS_RADIUS_MEAN_M * (Math.PI / 180);
@@ -2752,9 +2747,10 @@ export async function initHud3D(
   let partnerYaw = userYaw;
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
   const phys = createMarsBody({ x: freePos.x, z: freePos.z, y: 0, grounded: true });
+  let eyeBaseY = null;
   const heightEnv = {
-    sampleHeight: sampleElevSceneY,
-    molaElevM: (x, z) => activeElevBaseM() + sampleElevSceneY(x, z),
+    sampleHeight: sampleRenderedSurfaceY,
+    molaElevM: (x, z) => activeElevBaseM() + sampleRenderedSurfaceY(x, z),
   };
   function syncPlayerFromPhys() {
     player.x = phys.x;
@@ -2777,8 +2773,9 @@ export async function initHud3D(
     phys.crouch = 0;
     phys.impactSpeed = 0;
     phys.accumulator = 0;
-    phys.y = sampleElevSceneY(x, z);
+    phys.y = sampleRenderedSurfaceY(x, z);
     syncPlayerFromPhys();
+    eyeBaseY = phys.y;
     justTeleportedOrWrapped = true;
     lastMoveYaw = null;
   }
@@ -2793,6 +2790,8 @@ export async function initHud3D(
     if (cell.a === chunk.a && cell.b === chunk.b && phys.grounded) {
       phys.y = sampleRenderedSurfaceY(phys.x, phys.z);
       syncPlayerFromPhys();
+      eyeBaseY = phys.y;
+      justTeleportedOrWrapped = true;
     }
     const checkRoverChunk = (drv) => {
       if (!drv?.group?.visible || !drv.sim?.setPosition) return;
@@ -3188,6 +3187,90 @@ export async function initHud3D(
   });
 
   // texture modes: relief (default), ortho, slope
+  let customSiteTex = null;
+  function buildCustomSiteTexture(spec) {
+    if (typeof document === "undefined") return null;
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const img = ctx.createImageData(size, size);
+    const data = img.data;
+    const prof = spec?.terrainProfile || {};
+    const pal = prof.palette || {};
+    const dust = pal.dust || [182, 118, 82];
+    const rock = pal.rock || [110, 74, 56];
+    const sand = pal.sand || dust;
+    const highlight = [
+      Math.min(255, Math.round(dust[0] * 1.12 + 8)),
+      Math.min(255, Math.round(dust[1] * 1.1 + 6)),
+      Math.min(255, Math.round(dust[2] * 1.08 + 4)),
+    ];
+    const rough = Math.max(0.2, Math.min(1.6, Number(prof.roughness) || 0.75));
+    const seed =
+      Math.floor(Math.abs(((spec?.lon ?? 0) * 73856093) ^ ((spec?.lat ?? 0) * 19349663))) >>> 0;
+    const hash = (ix, iz) => {
+      let h = (ix * 374761393 + iz * 668265263 + seed) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+    };
+    const vnoise = (u, v, period) => {
+      const gx = u * period;
+      const gz = v * period;
+      const x0 = Math.floor(gx);
+      const z0 = Math.floor(gz);
+      const fx = gx - x0;
+      const fz = gz - z0;
+      const sx = fx * fx * (3 - 2 * fx);
+      const sz = fz * fz * (3 - 2 * fz);
+      const i0 = ((x0 % period) + period) % period;
+      const i1 = (i0 + 1) % period;
+      const j0 = ((z0 % period) + period) % period;
+      const j1 = (j0 + 1) % period;
+      const a = hash(i0, j0);
+      const b = hash(i1, j0);
+      const c = hash(i0, j1);
+      const d = hash(i1, j1);
+      return (a + (b - a) * sx) * (1 - sz) + (c + (d - c) * sx) * sz;
+    };
+    for (let y = 0; y < size; y++) {
+      const v = y / size;
+      for (let x = 0; x < size; x++) {
+        const u = x / size;
+        const n0 = vnoise(u, v, 4);
+        const n1 = vnoise(u, v, 12);
+        const n2 = vnoise(u, v, 32);
+        const n3 = vnoise(u, v, 64);
+        const dune = 0.5 + 0.5 * Math.sin((u * 4 + v * 1.5 + n0 * 0.9) * Math.PI * 2);
+        const rockW = Math.max(0, Math.min(1, (n1 * 0.55 + n2 * 0.35 + n3 * 0.25 - 0.38) * (1.2 + rough * 0.6)));
+        const dustW = Math.max(0, Math.min(1, (dune * 0.5 + n0 * 0.5 - 0.45) * 1.3));
+        let r = sand[0] * (1 - rockW) + rock[0] * rockW;
+        let g = sand[1] * (1 - rockW) + rock[1] * rockW;
+        let b = sand[2] * (1 - rockW) + rock[2] * rockW;
+        r = r * (1 - dustW * 0.45) + highlight[0] * (dustW * 0.45);
+        g = g * (1 - dustW * 0.45) + highlight[1] * (dustW * 0.45);
+        b = b * (1 - dustW * 0.45) + highlight[2] * (dustW * 0.45);
+        const micro = 0.92 + n3 * 0.16;
+        const idx = (y * size + x) * 4;
+        data[idx] = Math.max(0, Math.min(255, Math.round(r * micro)));
+        data[idx + 1] = Math.max(0, Math.min(255, Math.round(g * micro)));
+        data[idx + 2] = Math.max(0, Math.min(255, Math.round(b * micro)));
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    if (customSiteTex) customSiteTex.dispose();
+    customSiteTex = new THREE.CanvasTexture(canvas);
+    customSiteTex.wrapS = THREE.MirroredRepeatWrapping;
+    customSiteTex.wrapT = THREE.MirroredRepeatWrapping;
+    customSiteTex.repeat.set(12, 36);
+    customSiteTex.colorSpace = THREE.SRGBColorSpace;
+    customSiteTex.needsUpdate = true;
+    return customSiteTex;
+  }
+
   const TEX = [
     { tex: reliefTex, label: "relief" },
     { tex: orthoTex, label: "ortho" },
@@ -3199,11 +3282,11 @@ export async function initHud3D(
     if (texMode === 1) upscaleWithFillers(orthoTex);
     else if (texMode === 2) upscaleWithFillers(slopeTex);
     else upscaleWithFillers(reliefTex);
-    terrainMat.map = TEX[texMode].tex;
+    terrainMat.map = isGaleSite() || !customSiteTex ? TEX[texMode].tex : customSiteTex;
     terrainMat.needsUpdate = true;
     syncChunkMaterials();
     const b = document.getElementById("hud-tex");
-    if (b) b.textContent = `Tex: ${TEX[texMode].label}`;
+    if (b) b.textContent = isGaleSite() ? `Tex: ${TEX[texMode].label}` : "Tex: globe";
     return TEX[texMode].label;
   }
   btnTex?.addEventListener("click", () => setTexMode((texMode + 1) % TEX.length));
@@ -3353,6 +3436,7 @@ export async function initHud3D(
       footsteps.clear();
     }
 
+    followEndless({ x: wx, y: 0, z: wz });
     snapPhys(wx, wz);
 
     autoYaw = 0;
@@ -3371,8 +3455,10 @@ export async function initHud3D(
         warmCorridorAt(wx, wz).then(() => {
           if (seq !== teleportSeq || !isGaleSite()) return;
           if (phys.grounded && Math.hypot(phys.x - wx, phys.z - wz) < 8) {
-            phys.y = sampleElevSceneY(phys.x, phys.z);
+            phys.y = sampleRenderedSurfaceY(phys.x, phys.z);
             syncPlayerFromPhys();
+            eyeBaseY = phys.y;
+            justTeleportedOrWrapped = true;
           }
           footsteps.reprojectAll(sampleRenderedSurfaceY, sampleNormal);
         });
@@ -3616,28 +3702,31 @@ export async function initHud3D(
   updateSunButton();
 
   /** Swap the active terrain site (Gale HiRISE tile, a rover site, or an arbitrary orbit landing). */
+  let landerWasVisibleAtGale = false;
   function switchSite(spec) {
     if (!spec || spec.id === activeSiteId) return false;
+    if (isGaleSite()) landerWasVisibleAtGale = Boolean(landing.lander?.visible);
     clearHardwareSite();
     footsteps.clear();
     activeSiteRover = spec;
     activeSiteId = spec.id;
     historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
     const gale = isGaleSite();
-    const showRovers = !spec.isCustomSite || Boolean(spec.nearRoverId);
-    habitatStation.group.visible = showRovers;
-    if (showRovers) {
-      const habX = gale ? initRouteOriginX : 0;
-      const habZ = gale ? initRouteOriginZ - ENTRY_OFFSET_Z : -ENTRY_OFFSET_Z;
-      habitatStation.setBasePose(habX, habZ, rawSampleElevSceneY);
+    // Spawn Station (Habitat), its NPC crew, and the Gale landing pod stay strictly at Gale's spawn.
+    habitatStation.group.visible = gale;
+    npcManager.npcGroup.visible = gale;
+    chunkGroup.visible = gale;
+    if (gale) {
+      habitatStation.setBasePose(initRouteOriginX, initRouteOriginZ - ENTRY_OFFSET_Z, rawSampleElevSceneY);
       invalidateCorridorChunks(); // detail meshes carry the habitat pad; rebuild them
+      if (landing.lander) landing.lander.visible = landerWasVisibleAtGale;
+    } else if (landing.lander) {
+      landing.lander.visible = false;
     }
-    for (const r of drivableRovers) r.group.visible = showRovers;
-    npcManager.npcGroup.visible = showRovers;
     galeStopsGroup.visible = gale;
     fieldKits.visible = gfx.sceneDetail && gale;
     galeVista.visible = gfx.sceneDetail && gale;
-    const nextMain = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: true });
+    const nextMain = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: gale });
     const nextRingCopy = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: false });
     const nextCopy = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
     terrainMesh.geometry = nextMain;
@@ -3654,32 +3743,57 @@ export async function initHud3D(
     copyGeom = nextCopy;
 
     if (gale) {
+      terrainMat.map = TEX[texMode].tex;
       terrainMat.color.setHex(0xffffff);
+      terrainMat.needsUpdate = true;
+      syncChunkMaterials();
+      const b = document.getElementById("hud-tex");
+      if (b) b.textContent = `Tex: ${TEX[texMode].label}`;
       HORIZON.setRGB(0.62, 0.43, 0.3);
       scene.fog.color.copy(HORIZON);
     } else {
+      const gTex = buildCustomSiteTexture(spec);
+      if (gTex) terrainMat.map = gTex;
+      terrainMat.color.setHex(0xffffff);
+      terrainMat.needsUpdate = true;
+      syncChunkMaterials();
+      const b = document.getElementById("hud-tex");
+      if (b) b.textContent = "Tex: globe";
       const pal = spec.terrainProfile?.palette;
-      if (pal?.dust) {
-        terrainMat.color.setRGB(
-          Math.min(1, pal.dust[0] / 155),
-          Math.min(1, pal.dust[1] / 100),
-          Math.min(1, pal.dust[2] / 72)
-        );
-      }
       if (pal?.skyHorizon) {
         HORIZON.setRGB(pal.skyHorizon[0], pal.skyHorizon[1], pal.skyHorizon[2]);
         scene.fog.color.copy(HORIZON);
       }
     }
-    // At Gale and NASA rover sites, station the 5-Bay Habitat Garage & 7 vehicles on the terrain.
-    if (showRovers) stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
-    else historicRovers.clearAll();
-    if (fleetBtnEl) fleetBtnEl.textContent = showRovers ? `Rovers: ${spec.name} (7)` : "Rovers (7)";
 
     sunSite.lat = spec.lat;
     sunSite.lon = spec.lon;
     refreshSun({ rebake: true });
     refreshRtHeightfield();
+
+    if (gale) {
+      for (const r of drivableRovers) r.group.visible = true;
+      stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
+    } else {
+      for (const r of drivableRovers) r.group.visible = false;
+      historicRovers.clearAll();
+      if (!spec.isCustomSite && !spec.isHardwareSite) {
+        historicRovers.spawnForSite(spec, {
+          x: 0,
+          z: 0,
+          yaw: -0.35,
+          sampleElevY: sampleRenderedSurfaceY,
+        });
+        historicRovers.setFocusId(spec.id);
+      }
+      if (!spec.isHardwareSite && devCfg.experimentalRover && activeDriveRover?.group) {
+        activeDriveRover.group.visible = true;
+        activeDriveRover.spawnBeside(3.0, 2.4, Math.PI * 0.5, sampleRenderedSurfaceY);
+        roverDynState.yaw = activeDriveRover.group.rotation.y;
+        stationedAtHabitat = false;
+      }
+    }
+    if (fleetBtnEl) fleetBtnEl.textContent = gale ? `Rovers: ${spec.name} (7)` : `Site: ${spec.name}`;
     return true;
   }
 
@@ -3687,7 +3801,7 @@ export async function initHud3D(
    * Put the walker at any lat/lon on Mars. Inside the Gale HiRISE tile this is a precise teleport onto the
    * real DTM; anywhere else the site switches to seeded procedural relief centred on that point.
    */
-  function visitLocation(lon, lat, { keepYaw = true, sun = null } = {}) {
+  function visitLocation(lon, lat, { keepYaw = true, sun = null, globeSample = null } = {}) {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
     if (sun === "local" || sun === "day") sunMode = sun;
     if (drivingRover) {
@@ -3706,11 +3820,15 @@ export async function initHud3D(
       }
       teleportToLocal(lonToX(lon), latToZ(lat), { keepYaw });
     } else {
-      const spec = makeCustomSiteSpec(lon, lat);
+      const spec = makeCustomSiteSpec(lon, lat, globeSample);
       // Force a rebuild even when landing twice on the same rounded point.
       if (spec.id === activeSiteId) activeSiteId = null;
       switchSite(spec);
       teleportToLocal(0, 0, { keepYaw: true });
+      if (!keepYaw) {
+        autoYaw = 0;
+        pitch = -0.06;
+      }
     }
     renderHudFleetPanel();
     const tr = isTrLang();
@@ -3736,7 +3854,16 @@ export async function initHud3D(
 
     let entry = historicRovers.getEntry(spec.id);
     if (!entry) {
-      reScatterHistoricRovers(freePos.x, freePos.z);
+      if (isGaleSite()) {
+        reScatterHistoricRovers(freePos.x, freePos.z);
+      } else {
+        historicRovers.spawnForSite(spec, {
+          x: 0,
+          z: 0,
+          yaw: -0.35,
+          sampleElevY: sampleRenderedSurfaceY,
+        });
+      }
       entry = historicRovers.getEntry(spec.id);
     }
     const rx = entry?.group?.position?.x ?? 0;
@@ -3770,7 +3897,7 @@ export async function initHud3D(
       }
     }
 
-    if (fleetBtnEl) fleetBtnEl.textContent = `Rovers: ${spec.name} (7)`;
+    if (fleetBtnEl) fleetBtnEl.textContent = isGaleSite() ? `Rovers: ${spec.name} (7)` : `Site: ${spec.name}`;
     renderHudFleetPanel();
     const tr = isTrLang();
     showWrapNotice(
@@ -3890,6 +4017,25 @@ export async function initHud3D(
     renderHudFleetPanel();
     if (fleetBtnEl) fleetBtnEl.textContent = "Rovers (7)";
     showWrapNotice(isTrLang() ? "MARS ÜSSÜ · PEMBE KORİDOR · TRANSİT TERMİNALİ" : "MARS HABITAT · PINK CORRIDOR · TRANSIT TERMINAL");
+  }
+
+  function visitHabitatStation() {
+    closeTransitPanel();
+    leaveRoverForTransit();
+    if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
+    const gale = getHistoricRoverById("curiosity");
+    if (activeSiteId !== gale.id) switchSite(gale);
+    else clearHardwareSite();
+    const ep = habitatStation.getBayPlacements().entryPoint;
+    teleportToLocal(ep.x, ep.z, { keepYaw: true });
+    autoYaw = 0;
+    userYaw = ep.yaw;
+    pitch = -0.05;
+    thirdCamInit = false;
+    stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
+    renderHudFleetPanel();
+    if (fleetBtnEl) fleetBtnEl.textContent = "Rovers (7)";
+    showWrapNotice(isTrLang() ? "MARS ÜSSÜ · BAŞLANGIÇ İSTASYONU" : "MARS HABITAT · SPAWN STATION");
   }
 
   // Site Deployment Selector / site info card (DOM panel over the visor)
@@ -4017,6 +4163,11 @@ export async function initHud3D(
           freePos.z *= minD / d;
           phys.x = freePos.x;
           phys.z = freePos.z;
+          if (phys.grounded) {
+            phys.y = sampleRenderedSurfaceY(phys.x, phys.z);
+            freePos.y = phys.y;
+          }
+          syncPlayerFromPhys();
         }
       }
     }
@@ -4816,7 +4967,6 @@ export async function initHud3D(
   let lastMpSendMs = 0;
   let lastSentPose = null;
   let hudTimer = 1;
-  let eyeBaseY = null;
   let groundSpeedSm = 0;
 
   const pushApart = (targetPos, minRadius = PARTNER_COLLISION_R) => {
@@ -5199,11 +5349,11 @@ export async function initHud3D(
           );
         } else {
           const run = keys.has("shift") || padRun;
-          const here = sampleElevSceneY(phys.x, phys.z);
+          const here = sampleRenderedSurfaceY(phys.x, phys.z);
           let desiredVx = 0;
           let desiredVz = 0;
           if (moveDir.lengthSq() > 0) {
-            const ahead = sampleElevSceneY(phys.x + moveDir.x * 1.5, phys.z + moveDir.z * 1.5);
+            const ahead = sampleRenderedSurfaceY(phys.x + moveDir.x * 1.5, phys.z + moveDir.z * 1.5);
             // Signed grade (+ uphill), same curve as the realistic walker.
             const slowdown = gradeSpeedScale(Math.atan2(ahead - here, 1.5) * (180 / Math.PI));
             const v =
@@ -5219,7 +5369,7 @@ export async function initHud3D(
           phys.vz = desiredVz;
           phys.x += desiredVx * dt;
           phys.z += desiredVz * dt;
-          const groundSimple = sampleElevSceneY(phys.x, phys.z);
+          const groundSimple = sampleRenderedSurfaceY(phys.x, phys.z);
           if (phys.grounded && phys.y - groundSimple > 0.25) phys.grounded = false;
           if (!phys.grounded) {
             phys.vy -= surfaceG * dt;
@@ -5341,6 +5491,7 @@ export async function initHud3D(
         phys.z = freePos.z;
         phys.vx *= 0.2;
         phys.vz *= 0.2;
+        if (phys.grounded) phys.y = sampleRenderedSurfaceY(phys.x, phys.z);
       }
       syncPlayerFromPhys();
       px = phys.x;
@@ -5382,7 +5533,7 @@ export async function initHud3D(
       let diff = target - autoYaw;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       autoYaw += diff * Math.min(1, dt * 1.6);
-      const ground = sampleElevSceneY(px, pz);
+      const ground = sampleRenderedSurfaceY(px, pz);
       if (!player.grounded) {
         player.vy -= surfaceG * dt;
         player.y += player.vy * dt;
@@ -5557,7 +5708,7 @@ export async function initHud3D(
         const ceil = habitatStation.ceilingAt(camX, camZ);
         if (ceil != null) camY = Math.min(camY, ceil - 0.25);
       }
-      camY = Math.max(camY, sampleElevSceneY(camX, camZ) + 0.35);
+      camY = Math.max(camY, sampleRenderedSurfaceY(camX, camZ) + 0.35);
       if (!thirdCamInit || snappedThisFrame) {
         thirdCamPos.set(camX, camY, camZ);
         thirdCamInit = true;
@@ -5581,11 +5732,25 @@ export async function initHud3D(
       const eyeFwd = EYE_FORWARD_M + tip * 0.1;
       if (eyeBaseY == null || snappedThisFrame || Math.abs(player.y - eyeBaseY) > 0.8) eyeBaseY = player.y;
       else eyeBaseY += (player.y - eyeBaseY) * Math.min(1, dt * 14);
-      camera.position.set(
-        px + fwd.x * eyeFwd + right.x * swayX,
-        eyeBaseY + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
-        pz + fwd.z * eyeFwd + right.z * swayX
-      );
+      const headX = px;
+      const headY = Math.max(player.y, eyeBaseY) + EYE_HEIGHT_M - phys.crouch;
+      const headZ = pz;
+      let camX = px + fwd.x * eyeFwd + right.x * swayX;
+      let camY = headY - tip * 0.07 + swayY;
+      let camZ = pz + fwd.z * eyeFwd + right.z * swayX;
+      if (habitatStation.group.visible) {
+        const t = habitatStation.clipCameraSegment(headX, headY, headZ, camX, camY, camZ);
+        if (t < 1) {
+          const k = Math.max(0, t - 0.05);
+          camX = headX + (camX - headX) * k;
+          camY = headY + (camY - headY) * k;
+          camZ = headZ + (camZ - headZ) * k;
+        }
+        const ceil = habitatStation.ceilingAt(camX, camZ);
+        if (ceil != null) camY = Math.min(camY, ceil - 0.18);
+      }
+      camY = Math.max(camY, sampleRenderedSurfaceY(camX, camZ) + 0.25);
+      camera.position.set(camX, camY, camZ);
       camera.rotation.order = "YXZ";
       camera.rotation.y = yaw + micro(0.6, 0.0007);
       camera.rotation.x = pitch + micro(0.9, 0.0006);
@@ -5990,6 +6155,7 @@ export async function initHud3D(
     visitRoverSite,
     deployToHardwareSite,
     returnToHabitat,
+    visitHabitatStation,
     getActiveSiteId: () => activeSiteId,
     syncAlongM: (s) => {
       // Crew route sync: move this walker onto the shared route position (the route is at Gale).

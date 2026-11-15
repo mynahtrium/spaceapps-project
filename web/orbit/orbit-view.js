@@ -42,10 +42,18 @@ import {
 
 const DEG = Math.PI / 180;
 const MOON_SIZE_EXAGGERATION = 8;
-const MIN_DIST = 1.0022; // ≈ 7.5 km altitude
+const MIN_DIST = 1.00035; // ≈ 1.2 km altitude (allows zooming into the Gale HiRISE corridor)
 const MAX_DIST = 24;
 const HOME_DIST = 3.4;
 const R_KM = MARS_MEAN_RADIUS_KM;
+
+// Registered Gale HiRISE corridor bounds (matches data/demo/corridor/manifest.json)
+const GALE_CORRIDOR_BOUNDS = {
+  west: 137.37117705900792,
+  east: 137.40613392124214,
+  south: -4.817449904706224,
+  north: -4.725688141341328,
+};
 
 const GLOBE_LAYERS = [
   { id: "viking", label: "Viking colour", url: "./assets/mars-globe/mars-viking-color-4k.jpg" },
@@ -95,6 +103,9 @@ const GLOBE_FRAG = /* glsl */ `
   uniform sampler2D uPatch;
   uniform vec4 uPatchRect; // u0, v0, u1, v1
   uniform float uPatchOn;
+  uniform sampler2D uGaleTex;
+  uniform vec4 uGaleRect; // u0, v0, u1, v1
+  uniform float uGaleOn;
   uniform vec3 uSunDir;
   uniform float uHasTex;
   uniform float uDetail;
@@ -117,6 +128,13 @@ const GLOBE_FRAG = /* glsl */ `
       vec2 edge = min(pu, 1.0 - pu);
       float w = smoothstep(0.0, 0.08, min(edge.x, edge.y));
       albedo = mix(albedo, texture2D(uPatch, pu).rgb, w);
+    }
+    if (uGaleOn > 0.5 && vUv.x > uGaleRect.x && vUv.x < uGaleRect.z && vUv.y > uGaleRect.y && vUv.y < uGaleRect.w) {
+      vec2 gu = (vUv - uGaleRect.xy) / (uGaleRect.zw - uGaleRect.xy);
+      vec2 edge = min(gu, 1.0 - gu);
+      float gw = smoothstep(0.0, 0.06, min(edge.x, edge.y));
+      vec3 galeCol = texture2D(uGaleTex, gu).rgb * vec3(1.06, 0.86, 0.72);
+      albedo = mix(albedo, galeCol, gw * 0.92);
     }
     // Close to the ground, add fine procedural grain so the 5 km texels don't read as flat blur
     // (decorative texture only, not mapped geology).
@@ -249,6 +267,16 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     uPatch: { value: null },
     uPatchRect: { value: new THREE.Vector4(0, 0, 0, 0) },
     uPatchOn: { value: 0 },
+    uGaleTex: { value: null },
+    uGaleRect: {
+      value: new THREE.Vector4(
+        (GALE_CORRIDOR_BOUNDS.west + 180) / 360,
+        (GALE_CORRIDOR_BOUNDS.south + 90) / 180,
+        (GALE_CORRIDOR_BOUNDS.east + 180) / 360,
+        (GALE_CORRIDOR_BOUNDS.north + 90) / 180
+      ),
+    },
+    uGaleOn: { value: 0 },
     uSunDir: { value: sunDir },
     uDetail: { value: 0 },
   };
@@ -273,7 +301,158 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
 
   const texLoader = new THREE.TextureLoader();
   const layerTex = new Map();
+  const layerPixels = new Map();
   let layerIdx = 0;
+
+  function captureLayerPixels(id, img) {
+    if (!img || layerPixels.has(id)) return;
+    try {
+      const w = 1024;
+      const h = 512;
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
+      layerPixels.set(id, { w, h, data });
+    } catch {
+      /* ignore pixel capture errors in non-DOM/blocked environments */
+    }
+  }
+
+  function sampleLayerRgb(buf, uNorm, vTopDown) {
+    const u = ((uNorm % 1) + 1) % 1;
+    const v = Math.max(0, Math.min(1, vTopDown));
+    const fx = u * (buf.w - 1);
+    const fy = v * (buf.h - 1);
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const x1 = (x0 + 1) % buf.w;
+    const y1 = Math.min(buf.h - 1, y0 + 1);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const idx = (x, y) => (y * buf.w + x) * 4;
+    const i00 = idx(x0, y0);
+    const i10 = idx(x1, y0);
+    const i01 = idx(x0, y1);
+    const i11 = idx(x1, y1);
+    const b = (k) => {
+      const top = buf.data[i00 + k] + (buf.data[i10 + k] - buf.data[i00 + k]) * tx;
+      const bot = buf.data[i01 + k] + (buf.data[i11 + k] - buf.data[i01 + k]) * tx;
+      return top + (bot - top) * ty;
+    };
+    return [b(0), b(1), b(2)];
+  }
+
+  function sampleGlobeSurface(lon, lat) {
+    const u = ((((Number(lon) || 0) + 180) % 360) + 360) % 360 / 360;
+    const latC = Math.max(-89.5, Math.min(89.5, Number(lat) || 0));
+    const v = (90 - latC) / 180;
+    const vik = layerPixels.get("viking");
+    const mola = layerPixels.get("mola");
+    const colorSrc = vik || mola;
+    const reliefSrc = mola || vik;
+    if (!colorSrc && !reliefSrc) return null;
+
+    let dust = [168, 98, 66];
+    let rock = [92, 54, 42];
+    if (colorSrc) {
+      let rSum = 0;
+      let gSum = 0;
+      let bSum = 0;
+      let minLum = Infinity;
+      let dark = null;
+      const stepU = 1 / colorSrc.w;
+      const stepV = 1 / colorSrc.h;
+      let n = 0;
+      for (let oy = -2; oy <= 2; oy++) {
+        for (let ox = -2; ox <= 2; ox++) {
+          const rgb = sampleLayerRgb(colorSrc, u + ox * stepU * 0.6, v + oy * stepV * 0.6);
+          rSum += rgb[0];
+          gSum += rgb[1];
+          bSum += rgb[2];
+          const lum = rgb[0] * 0.3 + rgb[1] * 0.59 + rgb[2] * 0.11;
+          if (lum < minLum) {
+            minLum = lum;
+            dark = rgb;
+          }
+          n++;
+        }
+      }
+      dust = [Math.round(rSum / n), Math.round(gSum / n), Math.round(bSum / n)];
+      rock = dark
+        ? [Math.round(dark[0] * 0.72), Math.round(dark[1] * 0.72), Math.round(dark[2] * 0.75)]
+        : [Math.round(dust[0] * 0.56), Math.round(dust[1] * 0.6), Math.round(dust[2] * 0.68)];
+    }
+
+    const skyHorizon = [
+      Math.min(0.76, Math.max(0.42, 0.44 + (dust[0] / 255) * 0.32)),
+      Math.min(0.56, Math.max(0.28, 0.28 + (dust[1] / 255) * 0.24)),
+      Math.min(0.42, Math.max(0.18, 0.18 + (dust[2] / 255) * 0.18)),
+    ];
+
+    const gridN = 16;
+    const heightGrid = new Float32Array(gridN * gridN);
+    let molaNorm = 0.5;
+    let roughness = 0.45;
+    let slopeGradX = 0;
+    let slopeGradZ = 0;
+
+    if (reliefSrc) {
+      const spanDeg = 0.08;
+      const halfSpanU = spanDeg / 360;
+      const halfSpanV = spanDeg / 180;
+      const lum = (rgb) => (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255;
+      const cRgb = sampleLayerRgb(reliefSrc, u, v);
+      molaNorm = mola
+        ? Math.max(0, Math.min(1, 0.25 + 0.5 * ((cRgb[0] - cRgb[2]) / 255 + 0.5) * 0.7 + lum(cRgb) * 0.3))
+        : lum(cRgb);
+
+      let sum = 0;
+      let minV = Infinity;
+      let maxV = -Infinity;
+      for (let row = 0; row < gridN; row++) {
+        const vv = v + (row / (gridN - 1) - 0.5) * 2 * halfSpanV;
+        for (let col = 0; col < gridN; col++) {
+          const uu = u + (col / (gridN - 1) - 0.5) * 2 * halfSpanU;
+          const rgb = sampleLayerRgb(reliefSrc, uu, vv);
+          const val = lum(rgb);
+          heightGrid[row * gridN + col] = val;
+          sum += val;
+          if (val < minV) minV = val;
+          if (val > maxV) maxV = val;
+        }
+      }
+      const mean = sum / (gridN * gridN);
+      const span = Math.max(0.02, maxV - minV);
+      for (let i = 0; i < heightGrid.length; i++) {
+        heightGrid[i] = Math.max(-1, Math.min(1, ((heightGrid[i] - mean) / span) * 2));
+      }
+      roughness = Math.max(0.18, Math.min(1.0, span * 5.2));
+      const eL = lum(sampleLayerRgb(reliefSrc, u - halfSpanU, v));
+      const eR = lum(sampleLayerRgb(reliefSrc, u + halfSpanU, v));
+      const eN = lum(sampleLayerRgb(reliefSrc, u, v - halfSpanV));
+      const eS = lum(sampleLayerRgb(reliefSrc, u, v + halfSpanV));
+      slopeGradX = (eR - eL) * 0.04;
+      slopeGradZ = (eS - eN) * 0.04;
+    }
+
+    return {
+      dust,
+      rock,
+      skyHorizon,
+      molaNorm,
+      roughness,
+      reliefM: Math.round(14 + roughness * 48),
+      slopeGradX,
+      slopeGradZ,
+      heightGrid,
+      gridN,
+      gridSpanM: 2400,
+    };
+  }
+
   function loadLayer(idx) {
     const layer = GLOBE_LAYERS[idx];
     if (layerTex.has(layer.id)) {
@@ -288,6 +467,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
         t.anisotropy = renderer.capabilities.getMaxAnisotropy();
         t.wrapS = THREE.RepeatWrapping;
         layerTex.set(layer.id, t);
+        captureLayerPixels(layer.id, t.image);
         if (GLOBE_LAYERS[layerIdx].id === layer.id) {
           globeUniforms.uTex.value = t;
           globeUniforms.uHasTex.value = 1;
@@ -302,6 +482,23 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     );
   }
   loadLayer(0);
+  // Preload MOLA shaded-relief pixels quietly for accurate site relief sampling on any Orbit pick
+  const molaPreload = new Image();
+  molaPreload.crossOrigin = "anonymous";
+  molaPreload.onload = () => captureLayerPixels("mola", molaPreload);
+  molaPreload.src = GLOBE_LAYERS[1].url;
+  // Local Gale HiRISE corridor overview overlay (works offline/demo-safe)
+  texLoader.load(
+    "../data/demo/corridor/overview.jpg",
+    (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      globeUniforms.uGaleTex.value = t;
+      globeUniforms.uGaleOn.value = 1;
+    },
+    undefined,
+    () => {}
+  );
   function syncLayerBtn() {
     if (layerBtn) layerBtn.textContent = `${isTr() ? "Katman" : "Layer"}: ${GLOBE_LAYERS[layerIdx].label}`;
   }
@@ -425,9 +622,49 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     id: `rover-${r.id}`,
     lon: r.lon,
     lat: r.lat,
-    html: `<span class="dot" style="background:${r.color}"></span>${r.name}${r.isHiRiseGaleSite ? " · HiRISE" : ""}`,
+    getHtml: () => `<span class="dot" style="background:${r.color}"></span>${r.name}${r.isHiRiseGaleSite ? " · HiRISE" : ""}`,
     rover: r,
   }));
+  // Mars Habitat Station (Spawn) + Gale EVA Corridor stops (aligned with data/processed/routing/stops.json)
+  sites.push(
+    {
+      id: "gale-habitat",
+      siteId: "habitat",
+      lon: 137.3875065,
+      lat: -4.79721368,
+      getHtml: () =>
+        `<span class="dot" style="background:#38bdf8"></span>${isTr() ? "Mars Üssü · Başlangıç" : "Mars Habitat · Spawn"}`,
+      rover: {
+        name: "Mars Habitat Station",
+        siteShortName: "MARS HABITAT · GALE CRATER",
+        isHiRiseGaleSite: true,
+      },
+    },
+    {
+      id: "gale-glen-etive",
+      stopId: "stop-mudstone-a",
+      lon: 137.3835412,
+      lat: -4.73030915,
+      getHtml: () => `<span class="dot" style="background:#f472b6"></span>Glen Etive 1 · Sol 2486`,
+      rover: {
+        name: "Glen Etive 1",
+        siteShortName: "GLEN ETIVE 1 · GALE HiRISE",
+        isHiRiseGaleSite: true,
+      },
+    },
+    {
+      id: "gale-mary-anning",
+      stopId: "stop-mudstone-b",
+      lon: 137.3911375,
+      lat: -4.72930656,
+      getHtml: () => `<span class="dot" style="background:#a78bfa"></span>Mary Anning 3 · Sol 2870`,
+      rover: {
+        name: "Mary Anning 3",
+        siteShortName: "MARY ANNING 3 · GALE HiRISE",
+        isHiRiseGaleSite: true,
+      },
+    }
+  );
   // The three landers (Viking 1, Phoenix, InSight) at their listed coordinates.
   for (const h of MARS_SURFACE_HARDWARE) {
     if (h.kind !== "lander") continue;
@@ -435,7 +672,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       id: `hw-${h.id}`,
       lon: h.lon,
       lat: h.lat,
-      html: `<span class="dot" style="background:#fbbf24"></span>${h.name}`,
+      getHtml: () => `<span class="dot" style="background:#fbbf24"></span>${h.name}`,
       rover: { name: h.name, siteShortName: h.site.split("·")[0].trim().toUpperCase(), isHiRiseGaleSite: false },
       hardwareId: h.id,
     });
@@ -481,17 +718,11 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   function placeCamera() {
     lonLatToVec3(cam.lon, cam.lat, cam.dist, camera.position);
     camera.up.set(0, 1, 0);
-    // Near the surface, tilt the view from nadir toward the northern horizon (up to ~45°) for a sense of altitude.
+    // Keep camera aimed straight at nadir (globe center) so screen center matches (cam.lon, cam.lat)
+    // and cardinal orientation matches the 3D HUD map (+X east, -Z north).
+    camera.lookAt(0, 0, 0);
     const alt = cam.dist - 1;
-    const tilt = alt < 0.03 ? 1 - alt / 0.03 : 0;
-    if (tilt > 0) {
-      const aheadDeg = (alt * Math.tan(tilt * 45 * DEG)) / DEG;
-      lonLatToVec3(cam.lon, cam.lat + aheadDeg * (cam.lat > 80 ? -1 : 1), 1, tmpV);
-      camera.lookAt(tmpV);
-    } else {
-      camera.lookAt(0, 0, 0);
-    }
-    camera.near = Math.max(0.00005, alt * 0.25);
+    camera.near = Math.max(0.00001, alt * 0.25);
     camera.far = 2000;
     camera.updateProjectionMatrix();
   }
@@ -598,7 +829,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   function siteNear(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     let best = null;
-    let bestD = 14;
+    let bestD = cam.dist < 1.008 ? 8 : 13;
     for (const s of sites) {
       const v = lonLatToVec3(s.lon, s.lat, 1, new THREE.Vector3());
       if (!surfaceVisible(v)) continue;
@@ -669,6 +900,9 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       sunMode: confirmLocalEl?.checked === false ? "day" : "local",
       roverId: pick.site?.rover?.id || null,
       hardwareId: pick.site?.hardwareId || null,
+      siteId: pick.site?.siteId || null,
+      stopId: pick.site?.stopId || null,
+      globeSample: sampleGlobeSurface(pick.lon, pick.lat),
     });
   });
   homeBtn?.addEventListener("click", () => {
@@ -967,7 +1201,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       labelUsed.add(id);
     };
     if (!descent || descent.stepIdx < 1) {
-      for (const s of sites) put(s.id, lonLatToVec3(s.lon, s.lat, 1, labelScratch), s.html, "", true);
+      for (const s of sites) put(s.id, lonLatToVec3(s.lon, s.lat, 1, labelScratch), s.getHtml ? s.getHtml() : s.html, "", true);
       const p = getPlayerLonLat?.();
       if (p && Number.isFinite(p.lon)) {
         put("you", lonLatToVec3(p.lon, p.lat, 1, labelScratch), `<span class="dot"></span>${isTr() ? "SEN" : "YOU"}`, "you", true);
@@ -1070,11 +1304,17 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       onResize();
       descentEl.classList.remove("on", "flash", "whoosh");
       if (from && Number.isFinite(from.lon) && Number.isFinite(from.lat)) {
-        cam.lon = cam.tLon = from.lon;
+        const fLon = wrap180(from.lon);
+        cam.lon = cam.tLon = fLon;
         cam.lat = cam.tLat = Math.max(-89, Math.min(89, from.lat));
+        const inGaleRegion =
+          fLon >= GALE_CORRIDOR_BOUNDS.west - 0.25 &&
+          fLon <= GALE_CORRIDOR_BOUNDS.east + 0.25 &&
+          from.lat >= GALE_CORRIDOR_BOUNDS.south - 0.25 &&
+          from.lat <= GALE_CORRIDOR_BOUNDS.north + 0.25;
         cam.dist = 1 + 6 / R_KM;
-        cam.tDist = reducedMotion() ? HOME_DIST : 2.6;
-        if (reducedMotion()) cam.dist = HOME_DIST;
+        cam.tDist = inGaleRegion ? (reducedMotion() ? 1.015 : 1.012) : reducedMotion() ? HOME_DIST : 2.6;
+        if (reducedMotion() && !inGaleRegion) cam.dist = HOME_DIST;
       }
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(frame);
