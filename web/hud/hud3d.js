@@ -3648,7 +3648,7 @@ export async function initHud3D(
       }
       return;
     }
-    if ((k === "m" || k === "o") && !e.repeat) {
+    if (k === "o" && !e.repeat) {
       e.preventDefault();
       releasePointerLock();
       onOpenOrbit?.();
@@ -3742,11 +3742,14 @@ export async function initHud3D(
       }
 
       const drivableHit = findNearestDrivableEntry(freePos.x, freePos.z, 5.8);
-      const nearNpc = npcManager.npcGroup.visible
+      const nearNpcHit = npcManager.npcGroup.visible
         ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
         : null;
+      const nearNpc = nearNpcHit?.npc || null;
       if (nearNpc) {
-        const npcDist = Math.hypot(freePos.x - nearNpc.x, freePos.z - nearNpc.z);
+        const npcDist = Number.isFinite(nearNpcHit.distance)
+          ? nearNpcHit.distance
+          : Math.hypot(freePos.x - nearNpc.x, freePos.z - nearNpc.z);
         if (!drivableHit || npcDist <= drivableHit.dist) {
           openNpcDialogueSafe(nearNpc);
           return;
@@ -4981,6 +4984,17 @@ export async function initHud3D(
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
     sun.castShadow = sunUpNow > 0.01;
+    window.MartianWeather?.update?.({
+      THREE,
+      scene,
+      camera,
+      sun,
+      hemiLight,
+      player: { x: px, y: player.y, z: pz },
+      groundY,
+      dt,
+      sampleElevY: sampleElevSceneY,
+    });
     // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
     if (now - sunStateStampMs > 30000) {
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });
@@ -5030,7 +5044,7 @@ export async function initHud3D(
         const hitNpc = pickTargetNpc(aimX, aimY);
         const nearNpc =
           !hitNpc && !drivingRover && npcManager.npcGroup.visible
-            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
+            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)?.npc || null
             : null;
         const activeTargetNpc = hitNpc || nearNpc;
         const hitSpec = activeTargetNpc ? null : pickHistoricRover(aimX, aimY);
@@ -5042,8 +5056,8 @@ export async function initHud3D(
             const tr = isTrLang();
             if (activeTargetNpc) {
               const s = activeTargetNpc.spec;
-              const roleText = tr ? s.roleTr || s.roleEn : s.roleEn;
-              roverTargetEl.textContent = `${s.name.toUpperCase()} (${roleText}) · ${
+              const roleText = (tr ? s.role?.tr || s.role?.en : s.role?.en) || s.tagText || "";
+              roverTargetEl.textContent = `${s.name.toUpperCase()}${roleText ? ` (${roleText})` : ""} · ${
                 tr ? "KONUŞ [E] / TIKLA" : "TALK [E] / CLICK"
               }`;
               roverTargetEl.classList.add("visible");
@@ -5124,7 +5138,6 @@ export async function initHud3D(
     visitRoverSite,
     deployToHardwareSite,
     returnToHabitat,
-    getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z) }),
     getActiveSiteId: () => activeSiteId,
     syncAlongM: (s) => {
       // Crew route sync: move this walker onto the shared route position (the route is at Gale).

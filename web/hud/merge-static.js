@@ -126,6 +126,16 @@ export function mergeStaticMeshes(THREE, subtree, { castShadow = true, receiveSh
     subtree.add(mesh);
     after++;
   }
-  for (const o of victims) o.parent?.remove(o);
+  const victimSet = new Set(victims);
+  const keptGeoms = new Set();
+  subtree.traverse((c) => {
+    if (c.isMesh && !victimSet.has(c) && c.geometry) keptGeoms.add(c.geometry);
+  });
+  for (const o of victims) {
+    o.parent?.remove(o);
+    if (o.geometry && !keptGeoms.has(o.geometry)) {
+      o.geometry.dispose?.();
+    }
+  }
   return { before, after };
 }

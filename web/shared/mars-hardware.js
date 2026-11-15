@@ -201,18 +201,27 @@ export function getSurfaceHardwareById(id) {
 
 /** East-positive 0..360 longitude. */
 export function lonEast360(lon) {
-  return ((Number(lon) % 360) + 360) % 360;
+  const n = Number(lon);
+  if (!Number.isFinite(n)) return 0;
+  return ((n % 360) + 360) % 360;
 }
 
 /** "19.13°N, 326.78°E" */
 export function formatHardwareLatLon(hw, decimals = 4) {
+  const lat = Number(hw?.lat);
+  const lon = Number(hw?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "—";
   const trim = (v) => String(Number(v.toFixed(decimals)));
-  return `${trim(Math.abs(hw.lat))}°${hw.lat >= 0 ? "N" : "S"}, ${trim(lonEast360(hw.lon))}°E`;
+  return `${trim(Math.abs(lat))}°${lat >= 0 ? "N" : "S"}, ${trim(lonEast360(lon))}°E`;
 }
 
 /** "3.00 × 2.70 × 2.20 m" (length × width × height) */
 export function formatHardwareDims(hw) {
-  return `${hw.lengthM.toFixed(2)} × ${hw.widthM.toFixed(2)} × ${hw.heightM.toFixed(2)} m`;
+  const l = Number(hw?.lengthM);
+  const w = Number(hw?.widthM);
+  const h = Number(hw?.heightM);
+  if (!Number.isFinite(l) || !Number.isFinite(w) || !Number.isFinite(h)) return "—";
+  return `${l.toFixed(2)} × ${w.toFixed(2)} × ${h.toFixed(2)} m`;
 }
 
 /**
@@ -380,6 +389,8 @@ export function orbiterPositionAtAnomaly(o, M) {
 /** Position (km, Mars-equatorial inertial) at a time in seconds since an arbitrary epoch. */
 export function orbiterPositionKm(o, tSeconds) {
   const { periodS } = orbiterElements(o);
-  const M = (o.phaseDeg * Math.PI) / 180 + (2 * Math.PI * tSeconds) / periodS;
+  const twoPi = 2 * Math.PI;
+  const rawM = (o.phaseDeg * Math.PI) / 180 + (twoPi * tSeconds) / periodS;
+  const M = ((rawM % twoPi) + twoPi) % twoPi;
   return orbiterPositionAtAnomaly(o, M);
 }
