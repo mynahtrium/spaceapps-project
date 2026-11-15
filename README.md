@@ -1,6 +1,6 @@
 # nasathingamajig — Martian Mappers
 
-Private repo for team **Martian Mappers** at [NASA Space Apps Challenge 2026](https://www.spaceappschallenge.org/) (hackathon 14–15 November 2026).
+Public repo for team **Martian Mappers** at [NASA Space Apps Challenge 2026](https://www.spaceappschallenge.org/) (hackathon 14–15 November 2026).
 
 We are building a Gale crater / Mount Sharp **Marswalk** for the official challenge [Interplanetary Survival Guide: Martian Map](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/).
 
@@ -48,7 +48,7 @@ docs/GITHUB_WORKFLOW.md   docs/AI_USE.md   docs/AI_USE_LOG.md   docs/DECISIONS.m
 - Note AI use in [docs/AI_USE.md](./docs/AI_USE.md). The FAQ requires the submission to describe "SI tools". The older detailed agent log is in [docs/AI_USE_LOG.md](./docs/AI_USE_LOG.md).
 - No photos, video, voices, or likenesses of under-18s in the demo or submission.
 - Cite data sources. Do not invent facts; mark gaps **UNVERIFIED**.
-- Keep this repository private. Do not connect Vercel or other hosting integrations.
+- The repository is public: never commit secrets, API keys or personal data about team members (they are minors). Do not connect Vercel or other hosting integrations.
 - Never force-push `main`.
 
 ## Sources

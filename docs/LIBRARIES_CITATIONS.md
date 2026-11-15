@@ -58,7 +58,7 @@ All libraries are open source and used under their own licences (MIT, BSD, Apach
 | Node.js | Static server and automated tests (`node --test`) | https://nodejs.org/ |
 | Vite | Dev server and build | https://github.com/vitejs/vite |
 | Playwright | End-to-end browser tests | https://github.com/microsoft/playwright |
-| Git and GitHub | Version control (private repository) | https://github.com/ |
+| Git and GitHub | Version control (public repository) | https://github.com/ |
 
 ## Non-NASA data and papers
 

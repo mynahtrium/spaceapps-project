@@ -16,7 +16,7 @@ Challenge: NASA Space Apps 2026, [Interplanetary Survival Guide: Martian Map](ht
 
 ## 2. The two branches: what each one is
 
-The project was built in two stages. Both are in the private repository.
+The project was built in two stages. Both are in the public repository.
 
 ### `main`: the 48-hour immersive EVA simulator (a72e39f)
 
@@ -455,7 +455,7 @@ Rules from the team's earlier notes: English only, 7 slides including the title,
 - **Does it need the internet?**
   - No. `?demo=1` runs from bundled data; live layers add CTX and THEMIS online.
 - **Is the code open?**
-  - The repository is private during the challenge. All libraries used are open source (see SUBMISSION.md).
+  - Yes. The repository is public at https://github.com/mynahtrium/spaceapps-project, and all libraries used are open source (see LIBRARIES_CITATIONS.md).
 
 ---
 

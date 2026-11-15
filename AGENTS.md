@@ -24,7 +24,7 @@ For a file-by-file map see [docs/CODEBASE_INDEX.md](./docs/CODEBASE_INDEX.md). P
 1. **No secrets.** The NASA API key lives only in `NASA_API_KEY` (environment or a gitignored `.env`). `.env.example` holds placeholder names only. Never commit `.env` or a real key. Do not use NASA's shared `DEMO_KEY`.
 2. **Team members are minors.** No photos, video, voices or likenesses of under-18s in the demo or submission. Any file that names a team member uses a first name or nickname only, with no contact details, school or other personal data.
 3. **Cite data sources** in the product (Sources & Honesty modal) and the submission, with fetch dates. Do not invent facts, outcrop IDs or mineral detections. Mark gaps **UNVERIFIED**.
-4. **Keep the repository private.** Do not make it public or add hosting, billing or deployment integrations.
+4. **The repository is public.** Never commit secrets, API keys or personal data about team members (they are minors). Do not add hosting, billing or deployment integrations.
 5. **Git:** never force-push `main`. Commit or push only when the person you are working with asks.
 6. **`?demo=1` makes zero network requests.** Everything a live API provides needs a static JSON fallback. A live API must never be required on stage.
 7. **AI use:** the submission must describe how AI tools were used. Keep [docs/AI_USE.md](./docs/AI_USE.md) accurate when asked.

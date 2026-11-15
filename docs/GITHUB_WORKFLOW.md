@@ -1,13 +1,13 @@
 # GitHub workflow (beginner guide)
 
-This team is new to GitHub. Follow this page exactly during the 48 hours. The repo is **private**: [mynahtrium/nasathingamajig](https://github.com/mynahtrium/nasathingamajig). Do not make it public and do not connect Vercel or other hosting.
+This team is new to GitHub. Follow this page exactly during the 48 hours. The repo is **public**: [mynahtrium/nasathingamajig](https://github.com/mynahtrium/nasathingamajig). Never commit secrets or personal data, and do not connect Vercel or other hosting.
 
 If you have never used Git, pair with a teammate for the first clone.
 
 ## 1. Get an account and access
 
 1. Create a GitHub account if you do not have one (use an email you can open during the event).
-2. Ask a repo admin to add you as a collaborator on this private repo.
+2. Ask a repo admin to add you as a collaborator on this repo.
 3. Install [Git](https://git-scm.com/downloads). Optional: the [GitHub CLI](https://cli.github.com/).
 4. Set your name and email (use the email on your GitHub account):
 

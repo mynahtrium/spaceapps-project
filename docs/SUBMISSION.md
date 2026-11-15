@@ -115,7 +115,7 @@ Format for both resource fields: **Link Text → Link URL**. All links were chec
 | OWSLib (WMTS capabilities) | https://github.com/geopython/OWSLib |
 | pyproj | https://github.com/pyproj4/pyproj |
 | HTTPX | https://www.python-httpx.org/ |
-| Git and GitHub (private repository) | https://github.com/ |
+| Git and GitHub (public repository) | https://github.com/ |
 | Claude Code (AI coding assistant) | https://www.claude.com/product/claude-code |
 | Google Antigravity and Gemini (AI coding assistants) | https://antigravity.google/ |
 | Cursor, with the Grok model (AI coding assistant) | https://cursor.com/ |
