@@ -97,7 +97,7 @@ import {
 import { createHistoricRoverManager } from "./historic-rovers.js";
 import { createNpcManager } from "./npc-system.js";
 import { initNpcDialogueUi } from "./npc-dialogue-ui.js";
-import { GaleCorridor, buildCorridorCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
+import { GaleCorridor, buildCorridorSubCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
 import {
   RT_HEIGHT_GLSL,
   RT_INTERNAL_RESOLUTION_SCALE,
@@ -115,17 +115,17 @@ const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
 const EYE_FORWARD_M = 0.36; // at the visor, ahead of the suit's deep chest so the legs show when looking down
 const PARTNER_AHEAD_M = 6;
 const PARTNER_COLLISION_R = 1.05; // solid suit + backpack + 0.36 m visor clearance
-const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
+const TILE_RING = 1; // mirrored copies out to 1 tile in every direction (3x3 = >6km x 16km, well past fog horizon)
 
 // NASA 3D Resources models, tried in order (first one that loads wins). The Z2 suit
 // (16.9 MB, NASA's Mars-oriented prototype) can be added in front of this list once downloaded
 // to ./assets/nasa-3d/z2-spacesuit.glb.
 const SUIT_MODELS = [
+  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III SUIT" },
   {
     url: "./assets/nasa-3d/advanced-crew-escape-suit.glb",
     label: "NASA ACES · LAUNCH/ENTRY MESH · PROCEDURAL GAIT",
   },
-  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III · PROCEDURAL GAIT" },
 ];
 
 function loadImage(url) {
@@ -578,6 +578,8 @@ export async function initHud3D(
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap; // PCF: crisp enough, far cheaper than PCFSoft
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
   wrap.appendChild(renderer.domElement);
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
@@ -594,8 +596,8 @@ export async function initHud3D(
   let sunTransit = 1;
   // Mars sees a small sun disc (about 0.35 deg), so near shadows are crisp; the thin dusty sky
   // fills them with a weak reddish light rather than washing them out.
-  const SHADOW_HALF_M = 20; // about 2 cm per shadow texel around the walker
-  const SHADOW_MAP_PX = 2048;
+  const SHADOW_HALF_M = 18; // crisp texel density around the walker at lower GPU fill cost
+  const SHADOW_MAP_PX = 1024;
   let shadowHalfM = SHADOW_HALF_M;
   let shadowMapPx = SHADOW_MAP_PX;
   const sun = new THREE.DirectionalLight(0xfff0de, 3.6);
@@ -939,11 +941,11 @@ export async function initHud3D(
     return out;
   }
 
-  // Corridor: one vertex per overview sample (~8 m). Single tile: up to 394 x 394 (~5 m).
-  const fullSeg = elevGrid ? Math.min(imgW - 1, 394) : 1;
-  const fullSegZ = corridor ? imgH - 1 : fullSeg;
-  const copySeg = Math.max(1, Math.floor(fullSeg / 4));
-  const copySegZ = Math.max(1, Math.floor(fullSegZ / 4));
+  // Corridor: high-res 1 m chunks cover 720 m around player, so ~16 m base overview grid suffices; single tile caps at ~192x192.
+  const fullSeg = elevGrid ? (corridor ? Math.max(1, Math.floor((imgW - 1) / 2)) : Math.min(imgW - 1, 192)) : 1;
+  const fullSegZ = corridor ? Math.max(1, Math.floor((imgH - 1) / 2)) : fullSeg;
+  const copySeg = Math.max(1, Math.floor(fullSeg / 3));
+  const copySegZ = Math.max(1, Math.floor(fullSegZ / 3));
   let terrainGeom = buildTerrainGeometry(fullSeg, fullSegZ);
   // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
   let copyGeom = buildTerrainGeometry(copySeg, copySegZ);
@@ -958,8 +960,32 @@ export async function initHud3D(
   // cut-scene from the Orbit view hit it). Now: one texel per 2 x 2 height cells (the edge is soft
   // anyway), rays of 2-cell steps that stop once they are above the highest point, and the work is
   // done in ~6 ms slices between frames. The new mask replaces the old one in one swap.
-  const SUN_MASK_SLICE_MS = 6;
+  const SUN_MASK_SLICE_MS = 2;
+  const SUN_MASK_WORKER_SRC = `self.onmessage=function(e){var d=e.data,H=new Float32Array(d.H),NX=d.NX,NZ=d.NZ,MX=d.MX,MZ=d.MZ,stepM=d.stepM,dx=d.dx,dz=d.dz,maxSteps=d.maxSteps,tanSun=d.tanSun,SOFT=d.SOFT,hMax=d.hMax,out=new Uint8Array(MX*MZ*4),lim=tanSun+SOFT,inv2S=1/(2*SOFT);for(var mr=0;mr<MZ;mr++){var r=mr*2;if(r>=NZ)r=NZ-1;for(var mc=0;mc<MX;mc++){var c=mc*2;if(c>=NX)c=NX-1;var h0=H[r*NX+c],worst=-1e9;for(var k=1;k<=maxSteps;k++){var ks=k*stepM;if(h0+lim*ks>hMax)break;var fx=c+dx*k,fz=r+dz*k,x0=fx|0;if(fx<x0)x0--;var z0=fz|0;if(fz<z0)z0--;var tx=fx-x0,tz=fz-z0,a=x0%NX;if(a<0)a+=NX;var b=a+1;if(b>=NX)b-=NX;var rz0=z0%NZ;if(rz0<0)rz0+=NZ;var rz1=rz0+1;if(rz1>=NZ)rz1-=NZ;var ra=rz0*NX,rb=rz1*NX,h=(H[ra+a]*(1-tx)+H[ra+b]*tx)*(1-tz)+(H[rb+a]*(1-tx)+H[rb+b]*tx)*tz,t=(h-h0)/ks;if(t>worst){worst=t;if(worst>lim)break;}}var lit=(tanSun-worst)*inv2S+0.5;lit=lit<0?0:lit>1?1:lit;var o=(mr*MX+mc)*4;out[o]=out[o+1]=out[o+2]=(lit*255+0.5)|0;out[o+3]=255;}}self.postMessage(out.buffer,[out.buffer]);};`;
   let sunBakeJob = null;
+  let cachedMirrorGrid = null;
+  function getSunBakeMirrorGrid(n, m) {
+    if (cachedMirrorGrid && cachedMirrorGrid.n === n && cachedMirrorGrid.m === m && cachedMirrorGrid.gridRef === elevGrid) {
+      return cachedMirrorGrid;
+    }
+    const NX = 2 * n;
+    const NZ = 2 * m;
+    const H = new Float32Array(NX * NZ);
+    let hMax = -Infinity;
+    for (let r = 0; r < NZ; r++) {
+      const sr = r < m ? r : 2 * m - 1 - r;
+      const srcRow = sr * imgW;
+      const dstRow = r * NX;
+      for (let c = 0; c < NX; c++) {
+        const sc = c < n ? c : 2 * n - 1 - c;
+        const h = elevGrid[srcRow + sc];
+        H[dstRow + c] = h;
+        if (h > hMax) hMax = h;
+      }
+    }
+    cachedMirrorGrid = { n, m, gridRef: elevGrid, NX, NZ, H, hMax };
+    return cachedMirrorGrid;
+  }
   function startSunMaskBake(onDone) {
     const n = elevGrid ? imgW : 0;
     const m = elevGrid ? imgH : 0;
@@ -968,9 +994,8 @@ export async function initHud3D(
     const NZ = 2 * m; // (north-south); the corridor is not square
     const MX = Math.ceil(NX / 2); // mask texels
     const MZ = Math.ceil(NZ / 2);
-    const out = new Uint8Array(MX * MZ * 4);
-    const finish = () => {
-      const tex = new THREE.DataTexture(out, MX, MZ, THREE.RGBAFormat);
+    const uploadMask = (bytes) => {
+      const tex = new THREE.DataTexture(bytes, MX, MZ, THREE.RGBAFormat);
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       tex.magFilter = THREE.LinearFilter;
       tex.minFilter = THREE.LinearFilter;
@@ -979,28 +1004,20 @@ export async function initHud3D(
     };
     if (sunDir.y <= 0.0) {
       // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
+      const out = new Uint8Array(MX * MZ * 4);
       for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
-      finish();
+      uploadMask(out);
       return null;
     }
     if (sunDir.y > 0.995) {
+      const out = new Uint8Array(MX * MZ * 4);
       out.fill(255); // sun at the zenith: no terrain shadows
-      finish();
+      uploadMask(out);
       return null;
     }
     const cellX = worldW / n;
     const cellZ = worldH / m;
-    const H = new Float32Array(NX * NZ);
-    let hMax = -Infinity;
-    for (let r = 0; r < NZ; r++) {
-      const sr = r < m ? r : 2 * m - 1 - r;
-      for (let c = 0; c < NX; c++) {
-        const sc = c < n ? c : 2 * n - 1 - c;
-        const h = elevGrid[sr * imgW + sc];
-        H[r * NX + c] = h;
-        if (h > hMax) hMax = h;
-      }
-    }
+    const { H, hMax } = getSunBakeMirrorGrid(n, m);
     const horiz = Math.max(1e-4, Math.hypot(sunDir.x, sunDir.z));
     const tanSun = sunDir.y / horiz;
     const stepM = 2 * Math.min(cellX, cellZ);
@@ -1008,38 +1025,79 @@ export async function initHud3D(
     const dz = ((sunDir.z / horiz) * stepM) / cellZ; // z = rows, south
     const maxSteps = Math.ceil(700 / stepM);
     const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
-    const wrapX = (v) => ((v % NX) + NX) % NX;
-    const wrapZ = (v) => ((v % NZ) + NZ) % NZ;
-    const job = { cancelled: false };
+
+    if (typeof Worker === "function" && typeof Blob === "function" && typeof URL?.createObjectURL === "function") {
+      try {
+        const blobUrl = URL.createObjectURL(new Blob([SUN_MASK_WORKER_SRC], { type: "text/javascript" }));
+        const worker = new Worker(blobUrl);
+        const hCopy = new Float32Array(H);
+        const job = {
+          cancelled: false,
+          cancel() {
+            if (job.cancelled) return;
+            job.cancelled = true;
+            worker.terminate();
+            URL.revokeObjectURL(blobUrl);
+          },
+        };
+        worker.onmessage = (ev) => {
+          worker.terminate();
+          URL.revokeObjectURL(blobUrl);
+          if (job.cancelled) return;
+          uploadMask(new Uint8Array(ev.data));
+        };
+        worker.onerror = () => {
+          worker.terminate();
+          URL.revokeObjectURL(blobUrl);
+        };
+        worker.postMessage(
+          { NX, NZ, MX, MZ, stepM, dx, dz, maxSteps, tanSun, SOFT, hMax, H: hCopy.buffer },
+          [hCopy.buffer]
+        );
+        return job;
+      } catch {
+        /* fallback to sliced main-thread bake below */
+      }
+    }
+
+    const out = new Uint8Array(MX * MZ * 4);
+    const lim = tanSun + SOFT;
+    const inv2S = 1 / (2 * SOFT);
+    const job = { cancelled: false, cancel() { job.cancelled = true; } };
     let row = 0;
     function bakeRow(mr) {
-      const r = Math.min(NZ - 1, mr * 2);
+      const r = mr * 2 < NZ ? mr * 2 : NZ - 1;
       for (let mc = 0; mc < MX; mc++) {
-        const c = Math.min(NX - 1, mc * 2);
+        const c = mc * 2 < NX ? mc * 2 : NX - 1;
         const h0 = H[r * NX + c];
         let worst = -1e9;
         for (let k = 1; k <= maxSteps; k++) {
-          if (h0 + (tanSun + SOFT) * k * stepM > hMax) break; // above every hill from here on
+          const ks = k * stepM;
+          if (h0 + lim * ks > hMax) break;
           const fx = c + dx * k;
           const fz = r + dz * k;
           const x0 = Math.floor(fx);
           const z0 = Math.floor(fz);
           const tx = fx - x0;
           const tz = fz - z0;
-          const a = wrapX(x0);
-          const b = wrapX(x0 + 1);
-          const ra = wrapZ(z0) * NX;
-          const rb = wrapZ(z0 + 1) * NX;
-          const h =
-            (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
-          const t = (h - h0) / (k * stepM);
+          let a = x0 % NX;
+          if (a < 0) a += NX;
+          let b = a + 1;
+          if (b >= NX) b -= NX;
+          let rz0 = z0 % NZ;
+          if (rz0 < 0) rz0 += NZ;
+          let rz1 = rz0 + 1;
+          if (rz1 >= NZ) rz1 -= NZ;
+          const ra = rz0 * NX;
+          const rb = rz1 * NX;
+          const h = (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
+          const t = (h - h0) / ks;
           if (t > worst) {
             worst = t;
-            if (worst > tanSun + SOFT) break; // fully in shadow
+            if (worst > lim) break;
           }
         }
-        const lit = Math.min(1, Math.max(0, (tanSun - worst) / (2 * SOFT) + 0.5));
-        // texture row 0 = smallest world z (north), matching the shader's lookup
+        const lit = Math.min(1, Math.max(0, (tanSun - worst) * inv2S + 0.5));
         const o = (mr * MX + mc) * 4;
         out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
         out[o + 3] = 255;
@@ -1049,7 +1107,7 @@ export async function initHud3D(
       if (job.cancelled) return;
       const t0 = performance.now();
       while (row < MZ && performance.now() - t0 < SUN_MASK_SLICE_MS) bakeRow(row++);
-      if (row >= MZ) finish();
+      if (row >= MZ) uploadMask(out);
       else setTimeout(slice, 0);
     };
     setTimeout(slice, 0);
@@ -1057,7 +1115,7 @@ export async function initHud3D(
   }
   /** Re-bake in the background for the current sun (cancels a bake still running). */
   function rebakeSunMask() {
-    if (sunBakeJob) sunBakeJob.cancelled = true;
+    if (sunBakeJob) sunBakeJob.cancel ? sunBakeJob.cancel() : (sunBakeJob.cancelled = true);
     const t0 = performance.now();
     sunBakeJob = startSunMaskBake((tex) => {
       sunBakeJob = null;
@@ -1093,12 +1151,16 @@ export async function initHud3D(
     t.anisotropy = maxAniso;
     return t;
   };
-  const maxTexDim = Math.min(4096, renderer?.capabilities?.maxTextureSize || 4096);
+  const maxTexDim = Math.min(2048, renderer?.capabilities?.maxTextureSize || 2048);
+  const upscaledTexSet = new WeakSet();
   function upscaleWithFillers(tex) {
+    if (!tex || upscaledTexSet.has(tex)) return tex;
     const img = tex?.image;
     const sw = img?.naturalWidth || img?.width || 0;
     const sh = img?.naturalHeight || img?.height || 0;
-    if (!sw || !sh || Math.max(sw, sh) >= maxTexDim) return tex;
+    if (!sw || !sh) return tex;
+    upscaledTexSet.add(tex);
+    if (Math.max(sw, sh) >= maxTexDim) return tex;
     const maxScale = Math.floor(maxTexDim / Math.max(sw, sh));
     if (maxScale < 2) return tex;
     const dw = sw * maxScale;
@@ -1106,6 +1168,7 @@ export async function initHud3D(
 
     // Progressive 2x steps preserve smooth diagonal contours & structure without single-pass blur/ringing.
     let curSrc = img;
+    let prevStepCanvas = null;
     let cw = sw;
     let ch = sh;
     while (cw * 2 < dw && ch * 2 < dh) {
@@ -1119,6 +1182,8 @@ export async function initHud3D(
       sctx.imageSmoothingEnabled = true;
       sctx.imageSmoothingQuality = "high";
       sctx.drawImage(curSrc, 0, 0, cw, ch);
+      if (prevStepCanvas) prevStepCanvas.width = prevStepCanvas.height = 0;
+      prevStepCanvas = stepCanvas;
       curSrc = stepCanvas;
     }
 
@@ -1130,6 +1195,7 @@ export async function initHud3D(
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(curSrc, 0, 0, dw, dh);
+    if (prevStepCanvas) prevStepCanvas.width = prevStepCanvas.height = 0;
 
     // Multi-scale (1 px + upscale-radius) luminance-only unsharp sharpening + zero-mean micro filler pixels.
     // Produces visibly crisp ridges & features while keeping RGB color balance, shapes, and smoothness exact.
@@ -1174,8 +1240,16 @@ export async function initHud3D(
     tex.needsUpdate = true;
     return tex;
   }
-  const orthoTex = prepTex(texLoader.load(assets.orthoPreviewUrl, upscaleWithFillers));
-  const slopeTex = prepTex(texLoader.load(assets.slopePreviewUrl, upscaleWithFillers));
+  const orthoTex = prepTex(
+    texLoader.load(assets.orthoPreviewUrl, (t) => {
+      if (texMode === 1) upscaleWithFillers(t);
+    })
+  );
+  const slopeTex = prepTex(
+    texLoader.load(assets.slopePreviewUrl, (t) => {
+      if (texMode === 2) upscaleWithFillers(t);
+    })
+  );
   const reliefUrl = corridor
     ? corridor.overviewTextureUrl()
     : assets.reliefTextureUrl || assets.heightPreviewUrl.replace(/height-preview\.png$/, "texture-relief.jpg");
@@ -1186,6 +1260,7 @@ export async function initHud3D(
       reliefOk = false;
       if (texMode === 0) {
         texMode = 1;
+        upscaleWithFillers(orthoTex);
         terrainMat.map = orthoTex;
         terrainMat.needsUpdate = true;
         const b = document.getElementById("hud-tex");
@@ -1256,6 +1331,7 @@ export async function initHud3D(
     metalness: 0.0,
   });
   terrainMat.envMapIntensity = 0.7; // ground in shade stays dark; the suit keeps the full sky light
+  terrainMat.customProgramCacheKey = () => "mm-terrain";
   const superDetailUniform = { value: 0 };
   const realisticTexUniform = { value: 0 };
   // Shared by every terrain material (base mesh, mirrored copies, streamed detail chunks).
@@ -1276,7 +1352,11 @@ export async function initHud3D(
   covTex.needsUpdate = true;
   const covTexU = { value: covTex };
   const covOriginU = { value: new THREE.Vector2() };
-  const covCellU = { value: new THREE.Vector2(corridor ? corridor.chunkW : 1, corridor ? corridor.chunkH : 1) };
+  const CHUNK_SUBDIV = 2; // split 256x256 corridor data blocks into 128x128 px (~129 m) terrain chunks
+  const CHUNK_TARGET_COUNT = 32; // load the 32 nearest 128x128 chunks around the explorer
+  const covCellU = {
+    value: new THREE.Vector2(corridor ? corridor.chunkW / CHUNK_SUBDIV : 1, corridor ? corridor.chunkH / CHUNK_SUBDIV : 1),
+  };
 
   /** Per-material uniforms: detail tiling scale and whether this mesh is cut under detail chunks. */
   function makeTerrainMmUniforms(spanXM, spanZM, coverageCut) {
@@ -1428,17 +1508,20 @@ export async function initHud3D(
   }
 
   // ---------- streamed 1 m detail chunks (Gale corridor) ----------
-  // Each ~259 m scene cell near the walker gets its own mesh built from the real 1 m DTM chunk
-  // (mirrored copies reuse the same data, flipped). Level of detail by distance; far cells are
-  // dropped and the overview mesh shows again there.
+  // Each ~129 m (128x128 px) scene sub-cell near the walker gets its own mesh built from the real
+  // 1 m DTM chunk (mirrored copies reuse the same data, flipped). Always keeps the 32 nearest
+  // 128x128 chunks loaded; far cells are dropped and the overview mesh shows again there.
   const chunkGroup = new THREE.Group();
   scene.add(chunkGroup);
   const chunkMeshes = new Map(); // "a,b" -> { a, b, ci, cj, seg, mesh, ready, disposed }
   const chunkTexEntries = new Map(); // data-chunk index -> { tex, slope, refs, loaded, failed, waiters }
   const chunkNormalClones = new Map(); // shared normal map -> clone tiled for one chunk
-  const DETAIL_RADIUS_M = 850;
-  const DATA_RADIUS_M = 1050;
-  const chunkLodSeg = (d) => (d < 150 ? 256 : d < 450 ? 128 : 64); // 1 m, 2 m, 4 m vertex spacing
+  const DATA_RADIUS_M = 520;
+  const chunkLodSeg = (d) => {
+    if (devCfg.superGraphics || devCfg.quality === "quality") return d < 160 ? 128 : d < 280 ? 64 : 32;
+    if (devCfg.quality === "balanced") return d < 90 ? 128 : d < 220 ? 64 : 32;
+    return d < 65 ? 128 : d < 180 ? 64 : 32;
+  };
   let chunkPlanT = 0;
   let chunkPlanCell = "";
   let chunkBuildQueue = [];
@@ -1504,29 +1587,44 @@ export async function initHud3D(
     return texMode === 2 ? chunkSlopeTex(e) : e.tex;
   }
 
+  const chunkMatPool = [];
   function makeChunkMaterial(e) {
+    const map = chunkMapFor(e);
+    const normalMap = chunkNormalFor(terrainMat.normalMap);
+    if (chunkMatPool.length > 0) {
+      const m = chunkMatPool.pop();
+      m.map = map;
+      m.normalMap = normalMap;
+      m.normalScale.copy(terrainMat.normalScale);
+      m.roughness = terrainMat.roughness;
+      m.envMapIntensity = terrainMat.envMapIntensity;
+      m.userData.mm.uMmUvScale.value.set(corridor.chunkW / UV_REF_M, corridor.chunkH / UV_REF_M);
+      m.userData.mm.uCovOn.value = 0;
+      return m;
+    }
     const m = new THREE.MeshStandardMaterial({
-      map: chunkMapFor(e),
-      normalMap: chunkNormalFor(terrainMat.normalMap),
+      map,
+      normalMap,
       normalScale: terrainMat.normalScale.clone(),
       roughness: terrainMat.roughness,
       metalness: 0.0,
     });
     m.envMapIntensity = terrainMat.envMapIntensity;
     m.userData.mm = makeTerrainMmUniforms(corridor.chunkW, corridor.chunkH, false);
+    m.customProgramCacheKey = () => "mm-terrain";
     m.onBeforeCompile = patchTerrainShader;
     return m;
   }
 
   /** Keep chunk materials in step with the base terrain material (dev settings, texture mode). */
   function syncChunkMaterials() {
+    const norm = chunkNormalFor(terrainMat.normalMap);
     for (const c of chunkMeshes.values()) {
       const m = c.mesh.material;
       m.map = chunkMapFor(c.texEntry);
-      m.normalMap = chunkNormalFor(terrainMat.normalMap);
+      m.normalMap = norm;
       m.normalScale.copy(terrainMat.normalScale);
       m.roughness = terrainMat.roughness;
-      m.needsUpdate = true;
     }
   }
 
@@ -1534,7 +1632,12 @@ export async function initHud3D(
     c.disposed = true;
     chunkGroup.remove(c.mesh);
     c.mesh.geometry.dispose();
-    c.mesh.material.dispose();
+    if (chunkMatPool.length < 64) {
+      c.mesh.material.map = null;
+      chunkMatPool.push(c.mesh.material);
+    } else {
+      c.mesh.material.dispose();
+    }
     releaseChunkTex(c.texEntry);
     chunkMeshes.delete(key);
     covDirty = true;
@@ -1542,16 +1645,10 @@ export async function initHud3D(
 
   function planCorridorChunks(px, pz) {
     corridor.update(px, pz, DATA_RADIUS_M);
-    const { a, b } = corridor.sceneCellOf(px, pz);
-    const ra = Math.ceil(DETAIL_RADIUS_M / corridor.chunkW) + 1;
-    const rb = Math.ceil(DETAIL_RADIUS_M / corridor.chunkH) + 1;
+    const nearest = corridor.selectNearestSubCells(px, pz, CHUNK_TARGET_COUNT, CHUNK_SUBDIV);
     const want = new Map();
-    for (let db = -rb; db <= rb; db++) {
-      for (let da = -ra; da <= ra; da++) {
-        const d = corridor.cellDistance(a + da, b + db, px, pz);
-        if (d > DETAIL_RADIUS_M) continue;
-        want.set(`${a + da},${b + db}`, { a: a + da, b: b + db, d, seg: chunkLodSeg(d) });
-      }
+    for (const item of nearest) {
+      want.set(`${item.a},${item.b}`, { a: item.a, b: item.b, d: item.d, seg: chunkLodSeg(item.d) });
     }
     for (const [key, c] of chunkMeshes) if (!want.has(key)) disposeChunk(key, c);
     chunkBuildQueue = [...want.entries()]
@@ -1566,7 +1663,7 @@ export async function initHud3D(
     while (chunkBuildQueue.length && (built === 0 || performance.now() - t0 < budgetMs)) {
       const w = chunkBuildQueue.shift();
       const key = `${w.a},${w.b}`;
-      const g = buildCorridorCellGeometry(THREE, corridor, w.a, w.b, w.seg, elevMin, 30, withHabitat);
+      const g = buildCorridorSubCellGeometry(THREE, corridor, w.a, w.b, w.seg, elevMin, 30, withHabitat, CHUNK_SUBDIV);
       if (!g) continue; // data still on its way; the next plan queues it again
       built++;
       const existing = chunkMeshes.get(key);
@@ -1576,7 +1673,7 @@ export async function initHud3D(
         existing.seg = w.seg;
         continue;
       }
-      const { ci, cj } = corridor.dataChunkForCell(w.a, w.b);
+      const { ci, cj } = corridor.dataChunkForSubCell(w.a, w.b, CHUNK_SUBDIV);
       const e = chunkTexEntry(ci, cj);
       e.refs++;
       const c = { a: w.a, b: w.b, ci, cj, seg: w.seg, texEntry: e, ready: false, disposed: false };
@@ -1613,7 +1710,8 @@ export async function initHud3D(
       covData[(ib * COV_N + ia) * 4] = 255;
     }
     covTex.needsUpdate = true;
-    covOriginU.value.set(-corridor.worldW / 2 + a0 * corridor.chunkW, -corridor.worldH / 2 + b0 * corridor.chunkH);
+    const { chunkW: subW, chunkH: subH } = corridor.subCellSize(CHUNK_SUBDIV);
+    covOriginU.value.set(-corridor.worldW / 2 + a0 * subW, -corridor.worldH / 2 + b0 * subH);
   }
 
   /** Per frame: stream data, (re)build a few meshes within a time budget, keep the cut-out mask current. */
@@ -1623,7 +1721,7 @@ export async function initHud3D(
     chunkGroup.visible = on;
     terrainMat.userData.mm.uCovOn.value = on ? 1 : 0;
     if (!on) return;
-    const { a, b } = corridor.sceneCellOf(px, pz);
+    const { a, b } = corridor.subSceneCellOf(px, pz, CHUNK_SUBDIV);
     const cellKey = `${a},${b}`;
     chunkPlanT -= dt;
     if (chunkPlanT <= 0 || cellKey !== chunkPlanCell) {
@@ -1631,7 +1729,7 @@ export async function initHud3D(
       chunkPlanCell = cellKey;
       planCorridorChunks(px, pz);
     }
-    buildQueuedChunks(6);
+    buildQueuedChunks(4);
     updateCoverage(a, b);
   }
 
@@ -1644,7 +1742,7 @@ export async function initHud3D(
   /** Load the data around a point and build its meshes now (start of the EVA, teleports). */
   async function warmCorridorAt(px, pz) {
     if (!corridor || !isGaleSite()) return;
-    await corridor.warmup(px, pz, 450, 6000);
+    await corridor.warmup(px, pz, DATA_RADIUS_M, 6000);
     planCorridorChunks(px, pz);
     buildQueuedChunks(250);
     chunkPlanT = 0;
@@ -1830,8 +1928,8 @@ export async function initHud3D(
     }
   }
 
-  const roverMmsev = createExperimentalRover(THREE, "mmsev");
-  const roverConcept = createExperimentalRover(THREE, "nasa_concept");
+  const roverMmsev = createExperimentalRover(THREE, "mmsev", { withLights: false });
+  const roverConcept = createExperimentalRover(THREE, "nasa_concept", { withLights: false });
   const drivableRovers = [roverMmsev, roverConcept];
   let activeDriveRover = roverConcept;
   for (const r of drivableRovers) {
@@ -1934,9 +2032,13 @@ export async function initHud3D(
   const roverDash = createRoverDash(
     document.getElementById("visor-overlay") || document.querySelector(".visor-overlay") || hudView
   );
-  roverMmsev.attachRealModel(sharedGltfLoader).then((ok) => {
-    if (ok) patchObjectRayTracer(THREE, roverMmsev.group, rtUniforms, { reflectScale: 1.18 });
-  });
+  roverMmsev
+    .attachRealModel(sharedGltfLoader, "./assets/nasa-3d/mmsev-rover.glb", {
+      castShadow: (devCfg.quality || "performance") !== "performance",
+    })
+    .then((ok) => {
+      if (ok) patchObjectRayTracer(THREE, roverMmsev.group, rtUniforms, { reflectScale: 1.18 });
+    });
 
   const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
     onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
@@ -2316,8 +2418,8 @@ export async function initHud3D(
 
   const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
   dummyDepthTex.needsUpdate = true;
-  let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
-  let rtSamples = 2;
+  let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 0 });
+  let rtSamples = 0;
   let rtHasDepth = false;
   let lastRtW = 1;
   let lastRtH = 1;
@@ -2619,7 +2721,9 @@ export async function initHud3D(
 
   const raycaster = new THREE.Raycaster();
   const rayNdc = new THREE.Vector2();
+  const pickHistoricGroups = [];
   const lastMouseClient = { x: 0, y: 0, valid: false };
+  let cachedCanvasRect = null;
   let hoveredRoverSpec = null;
   let hoveredNpcEntry = null;
 
@@ -2627,7 +2731,7 @@ export async function initHud3D(
     if (isPointerLocked() || clientX == null || clientY == null) {
       rayNdc.set(0, 0);
     } else {
-      const rect = renderer.domElement.getBoundingClientRect();
+      const rect = cachedCanvasRect && cachedCanvasRect.width > 0 ? cachedCanvasRect : (cachedCanvasRect = renderer.domElement.getBoundingClientRect());
       if (rect.width <= 0 || rect.height <= 0) return false;
       rayNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       rayNdc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
@@ -2646,7 +2750,19 @@ export async function initHud3D(
     const groups = historicRovers.getInteractiveGroups();
     if (!groups || groups.length === 0) return null;
     if (!setRaycasterFromView(clientX, clientY)) return null;
-    const hits = raycaster.intersectObjects(groups, true);
+    pickHistoricGroups.length = 0;
+    const ro = raycaster.ray.origin;
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      const dx = g.position.x - ro.x;
+      const dz = g.position.z - ro.z;
+      if (dx * dx + dz * dz > 118 * 118) continue;
+      if (raycaster.ray.distanceSqToPoint(g.position) <= 12.25) {
+        pickHistoricGroups.push(g);
+      }
+    }
+    if (pickHistoricGroups.length === 0) return null;
+    const hits = raycaster.intersectObjects(pickHistoricGroups, true);
     if (hits.length > 0 && hits[0].distance <= 115) {
       let obj = hits[0].object;
       while (obj && !obj.userData?.historicRoverId) obj = obj.parent;
@@ -2880,6 +2996,9 @@ export async function initHud3D(
   function setTexMode(i) {
     texMode = i;
     if (texMode === 0 && !reliefOk) texMode = 1;
+    if (texMode === 1) upscaleWithFillers(orthoTex);
+    else if (texMode === 2) upscaleWithFillers(slopeTex);
+    else upscaleWithFillers(reliefTex);
     terrainMat.map = TEX[texMode].tex;
     terrainMat.needsUpdate = true;
     syncChunkMaterials();
@@ -4181,13 +4300,12 @@ export async function initHud3D(
     host.style.setProperty("--visor-compass-lift", `${compassLift}px`);
   }
 
-  const onResize = () => {
-    const w = wrap.clientWidth || window.innerWidth;
-    const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
-    const h = wrap.clientHeight || window.innerHeight - topOff;
-    camera.aspect = w / Math.max(1, h);
-    camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+  let viewW = 1;
+  let viewH = 1;
+  let maxRenderScale = 1.0;
+  let lastQualityKey = "";
+
+  const resizeRenderTarget = () => {
     const rtPreset = getRayTracingPreset(devCfg);
     const wantRt = rtPreset.enabled > 0;
     const basePr = wantRt
@@ -4196,14 +4314,27 @@ export async function initHud3D(
         : Math.min(1.0, renderer.getPixelRatio())
       : renderer.getPixelRatio();
     const pr = basePr * (wantRt ? rtPreset.resolutionScale : renderScale);
-    const nextW = Math.max(1, Math.floor(w * pr));
-    const nextH = Math.max(1, Math.floor(h * pr));
+    const nextW = Math.max(1, Math.floor(viewW * pr));
+    const nextH = Math.max(1, Math.floor(viewH * pr));
     if (nextW !== lastRtW || nextH !== lastRtH) {
       lastRtW = nextW;
       lastRtH = nextH;
       rt.setSize(nextW, nextH);
     }
     lensMat.uniforms.uResolution.value.set(nextW, nextH);
+  };
+
+  const onResize = () => {
+    const w = wrap.clientWidth || window.innerWidth;
+    const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
+    const h = wrap.clientHeight || window.innerHeight - topOff;
+    viewW = w;
+    viewH = h;
+    camera.aspect = w / Math.max(1, h);
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    cachedCanvasRect = renderer.domElement.getBoundingClientRect();
+    resizeRenderTarget();
     const activeScale = devCfg.frameEffect ? Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2)) : 0;
     syncVisorSafeInsets(w, h, activeScale);
   };
@@ -4262,15 +4393,25 @@ export async function initHud3D(
     }
 
     const wantSuper = Boolean(cfg.superGraphics);
+    const qLevel = cfg.quality || "performance";
+    const isPerf = qLevel === "performance";
+    if (roverMmsev?.nasaModelRoot) {
+      roverMmsev.nasaModelRoot.traverse((o) => {
+        if (o.isMesh) o.castShadow = !isPerf;
+      });
+    }
     const rtPreset = applyRayTracerTierUniforms(rtUniforms, cfg);
     const wantRt = rtPreset.enabled > 0;
-    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper || rtPreset.tier >= 4 ? 2.0 : 1.25);
+    const dprCap = rtPreset.tier >= 4 ? 1.5 : isPerf ? 1.0 : wantSuper || qLevel === "quality" ? 1.25 : 1.1;
+    const targetPr = Math.min(window.devicePixelRatio || 1, dprCap);
     renderer.setPixelRatio(targetPr);
-    renderScale = wantRt ? rtPreset.resolutionScale : wantSuper ? 1.25 : 1.0;
+    maxRenderScale = wantRt ? rtPreset.resolutionScale : wantSuper && qLevel === "quality" ? 1.15 : 1.0;
+    renderScale = maxRenderScale;
 
     // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
     // we switch to samples: 0 + DepthTexture (paired with FXAA + CAS + SSR/RTAO in LENS_FRAG).
-    const wantSamples = wantRt ? 0 : wantSuper ? 4 : 2;
+    // In "performance" quality, skip MSAA resolve overhead completely to preserve >=90 FPS headroom.
+    const wantSamples = wantRt || isPerf ? 0 : 2;
     if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
       rtHasDepth = wantRt;
@@ -4294,9 +4435,9 @@ export async function initHud3D(
     }
     syncOpticsOverlayUi();
 
-    const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
-    const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
-    const wantShadowType = wantSuper ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    const wantShadowPx = wantSuper ? (qLevel === "quality" ? 2048 : 1536) : isPerf ? SHADOW_MAP_PX : 1536;
+    const wantShadowHalf = wantSuper && qLevel === "quality" ? 24 : SHADOW_HALF_M;
+    const wantShadowType = wantSuper && qLevel === "quality" ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     if (shadowMapPx !== wantShadowPx || shadowHalfM !== wantShadowHalf || renderer.shadowMap.type !== wantShadowType) {
       shadowMapPx = wantShadowPx;
       shadowHalfM = wantShadowHalf;
@@ -4377,22 +4518,31 @@ export async function initHud3D(
       if (self?.group) self.group.visible = suitRig != null;
     }
     roverWasOn = wantRover;
+    const qualityKey = `${qLevel}|${wantSuper}`;
+    if (lastQualityKey && lastQualityKey !== qualityKey) {
+      chunkPlanT = 0;
+      chunkPlanCell = "";
+    }
+    lastQualityKey = qualityKey;
     onResize();
   }
 
-  // Adaptive resolution: the 3D scene renders into rt, so its size can drop when frames are slow
-  // and come back when there is headroom. Disabled when Experimental Super Graphics is active.
+  // Adaptive resolution: scales only the internal rt size toward steady 90 FPS (11.1 ms) without
+  // resizing the host DOM canvas or triggering shader churn.
   function adaptResolution(frameMs, now) {
-    if (devCfg.rayTracing || devCfg.superGraphics) return;
-    frameAvg += (frameMs - frameAvg) * 0.05;
-    if (now - lastScaleChange < 1200) return;
+    if (devCfg.rayTracing) return;
+    frameAvg += (frameMs - frameAvg) * 0.08;
+    if (now - lastScaleChange < 1600) return;
+    const ceiling = devCfg.superGraphics && devCfg.quality === "quality" ? maxRenderScale : Math.min(1, maxRenderScale);
+    const highMs = devCfg.quality === "performance" ? 12.2 : 16.5;
+    const lowMs = devCfg.quality === "performance" ? 9.0 : 12.5;
     let next = renderScale;
-    if (frameAvg > 24 && renderScale > 0.55) next = Math.max(0.55, renderScale - 0.1);
-    else if (frameAvg < 15 && renderScale < 1) next = Math.min(1, renderScale + 0.05);
-    if (next !== renderScale) {
+    if (frameAvg > highMs && renderScale > 0.7) next = Math.max(0.7, renderScale - 0.08);
+    else if (frameAvg < lowMs && renderScale < ceiling) next = Math.min(ceiling, renderScale + 0.05);
+    if (Math.abs(next - renderScale) > 0.005) {
       renderScale = next;
       lastScaleChange = now;
-      onResize();
+      resizeRenderTarget();
     }
   }
   window.addEventListener("resize", onResize);
@@ -4430,13 +4580,54 @@ export async function initHud3D(
   };
 
   const lookDir = new THREE.Vector3();
+  const perfEnabled =
+    typeof window !== "undefined" &&
+    (/(?:[?&])perf=1(?:&|$)/.test(window.location.search || "") ||
+      (() => {
+        try {
+          return window.localStorage?.getItem("mm-perf") === "1";
+        } catch {
+          return false;
+        }
+      })());
+  const perfEl = perfEnabled && typeof document !== "undefined" ? document.createElement("div") : null;
+  const perfSamples = perfEnabled ? new Float32Array(120) : null;
+  const perfScratch = perfEnabled ? new Float32Array(120) : null;
+  let perfCursor = 0;
+  let perfFilled = 0;
+  let perfLastUiMs = 0;
+  let perfLastStamp = 0;
+  if (perfEl) {
+    perfEl.id = "hud-perf-readout";
+    perfEl.style.cssText =
+      "position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none;font:600 11px/1.35 ui-monospace,Consolas,monospace;color:#7ef9ff;background:rgba(4,10,16,0.82);border:1px solid rgba(126,249,255,0.45);border-radius:6px;padding:4px 9px;white-space:pre;letter-spacing:0.02em;";
+    perfEl.textContent = "PERF: warming up...";
+    document.body.appendChild(perfEl);
+  }
+  let wasHudHidden = false;
+  let lastShadowMs = 0;
+  let lastShadowSunX = NaN;
+  let lastShadowSunZ = NaN;
+  let svfLastX = NaN;
+  let svfLastZ = NaN;
+  let cachedSvf = 0.75;
+  const remotePoseScratch = { lx: 0, ly: 0, lz: 0, rx: 0, ry: 0, rz: 0, lean: 0.08 };
+  const activeBeamDir = new THREE.Vector3();
+
   function animate(now) {
     requestAnimationFrame(animate);
-    const dt = Math.min(0.1, (now - prevT) / 1000);
+    const rawDtMs = now - prevT;
+    const dt = Math.min(0.1, rawDtMs / 1000);
     prevT = now;
-    syncStableLights();
     clockT += dt;
-    if (!hudView.classList.contains("active")) return; // do not render while hidden
+    if (!hudView.classList.contains("active")) {
+      wasHudHidden = true;
+      return; // do not render while hidden
+    }
+    const resumedFromHide = wasHudHidden || rawDtMs > 250;
+    wasHudHidden = false;
+    const perfT0 = perfEl ? performance.now() : 0;
+    syncStableLights();
 
     // habitat: bay doors / airlock doors open for the walker and the driven rover
     if (habitatStation.group.visible) {
@@ -4777,13 +4968,28 @@ export async function initHud3D(
             phys.vz -= col.nz * vn;
           }
         }
-        // parked: the suspension model holds it on its springs (re-seated if it was moved/spawned)
+        // parked: settle briefly on its springs, then sleep until moved/re-seeded
         const rsP = drvR.sim.state;
+        const movedFromSettle =
+          !Number.isFinite(drvR._settledX) ||
+          Math.hypot(drvR.group.position.x - drvR._settledX, drvR.group.position.z - drvR._settledZ) > 0.05;
         if (Math.hypot(rsP.pos.x - drvR.group.position.x, rsP.pos.z - drvR.group.position.z) > 0.5) {
           drvR.sim.reset(drvR.group.position.x, drvR.group.position.z, drvR.group.rotation.y, sampleElevSceneY);
+          drvR._settleLeft = 36;
+        } else if (movedFromSettle || Math.abs(rsP.speed || 0) > 0.02) {
+          drvR._settleLeft = Math.max(drvR._settleLeft || 0, 24);
         }
-        drvR.sim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
-        drvR.rig.sync();
+        if ((drvR._settleLeft ?? 36) > 0) {
+          drvR._settleLeft = (drvR._settleLeft ?? 36) - 1;
+          drvR.sim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
+          drvR.rig.sync();
+          if (drvR._settleLeft <= 0 && Math.abs(rsP.speed || 0) <= 0.02) {
+            drvR._settledX = drvR.group.position.x;
+            drvR._settledZ = drvR.group.position.z;
+          } else {
+            drvR._settledX = NaN;
+          }
+        }
         const distR = Math.hypot(freePos.x - drvR.group.position.x, freePos.z - drvR.group.position.z);
         if (distR < minDistR) {
           minDistR = distR;
@@ -5156,10 +5362,14 @@ export async function initHud3D(
       remote.group.position.set(remote.cur.x, remote.cur.y, remote.cur.z);
       remote.group.rotation.y = remote.cur.yaw;
       const remoteFeet = footSample(remote.cur.x, remote.cur.z, remote.cur.yaw, remote.cur.y);
-      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne, null, {
-        ...remoteFeet,
-        lean: 0.08,
-      });
+      remotePoseScratch.lx = remoteFeet.lx;
+      remotePoseScratch.ly = remoteFeet.ly;
+      remotePoseScratch.lz = remoteFeet.lz;
+      remotePoseScratch.rx = remoteFeet.rx;
+      remotePoseScratch.ry = remoteFeet.ry;
+      remotePoseScratch.rz = remoteFeet.rz;
+      remotePoseScratch.lean = 0.08;
+      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne, null, remotePoseScratch);
     }
 
     // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
@@ -5207,22 +5417,33 @@ export async function initHud3D(
       scene.fog.color.copy(HORIZON).multiplyScalar(0.025 + 0.975 * tw * tw * (3 - 2 * tw));
     }
 
-    // sun, moons and shadow box follow the walker
+    // sun, moons and shadow box follow the walker; shadow map updates at <=30 Hz moving / ~6 Hz idle
     const texel = (2 * shadowHalfM) / shadowMapPx;
     const groundY = sampleElevSceneY(px, pz);
-    sun.target.position.set(Math.round(px / texel) * texel, Math.round(groundY / texel) * texel, Math.round(pz / texel) * texel);
+    const snapX = Math.round(px / texel) * texel;
+    const snapY = Math.round(groundY / texel) * texel;
+    const snapZ = Math.round(pz / texel) * texel;
+    sun.target.position.set(snapX, snapY, snapZ);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
     skyMoons.position.copy(camera.position);
     celestial.group.position.copy(camera.position);
     updateMoons(camera.position);
     footsteps.update(dt, phys.g || surfaceG);
-    rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
+    rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics), habitatStation?.isOnFootprint);
     historicRovers.update(dt, { sampleElevY: sampleElevSceneY, observerPos: camera.position, clockT });
+    const qNow = devCfg.quality || "performance";
+    const detailLodR = qNow === "performance" ? 16 : 26;
+    if (roverMmsev?.nasaModelRoot) {
+      const dxM = roverMmsev.group.position.x - camera.position.x;
+      const dzM = roverMmsev.group.position.z - camera.position.z;
+      roverMmsev.setDetailLod(activeDriveRover === roverMmsev || dxM * dxM + dzM * dzM <= detailLodR * detailLodR);
+    }
     if (npcManager.npcGroup.visible) {
       npcManager.update(dt, { x: px, z: pz, y: player.y }, clockT, {
         activeNpcId: npcDialogueUi.getActiveNpc()?.id || null,
         terrainSampler: sampleElevSceneY,
+        detailDistM: detailLodR,
       });
     }
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
@@ -5230,6 +5451,20 @@ export async function initHud3D(
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
     sun.castShadow = sunUpNow > 0.01;
+    if (sun.castShadow) {
+      const movedShadow =
+        !Number.isFinite(lastShadowSunX) ||
+        Math.abs(snapX - lastShadowSunX) >= texel * 1.5 ||
+        Math.abs(snapZ - lastShadowSunZ) >= texel * 1.5;
+      const elapsedShadowMs = now - lastShadowMs;
+      const minIntervalMs = movedShadow || landing.active ? 32 : 160;
+      if (elapsedShadowMs >= minIntervalMs) {
+        lastShadowMs = now;
+        lastShadowSunX = snapX;
+        lastShadowSunZ = snapZ;
+        renderer.shadowMap.needsUpdate = true;
+      }
+    }
     // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
     if (now - sunStateStampMs > 30000) {
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });
@@ -5247,8 +5482,12 @@ export async function initHud3D(
       });
       const metEl = document.getElementById("hud-metabolic");
       if (metEl) {
-        const svf = skyViewFactor(sampleElevSceneY, px, pz);
-        metEl.textContent = `METABOLIC: ${metW.toFixed(0)} W · ${oxygenLitresPerMin(metW).toFixed(2)} L/min O₂ (Pandolf stand-in) · SVF ${svf.toFixed(2)} illustrative`;
+        if (!Number.isFinite(svfLastX) || Math.hypot(px - svfLastX, pz - svfLastZ) >= 0.75) {
+          svfLastX = px;
+          svfLastZ = pz;
+          cachedSvf = skyViewFactor(sampleElevSceneY, px, pz);
+        }
+        metEl.textContent = `METABOLIC: ${metW.toFixed(0)} W · ${oxygenLitresPerMin(metW).toFixed(2)} L/min O₂ (Pandolf stand-in) · SVF ${cachedSvf.toFixed(2)} illustrative`;
       }
       updateCrewHudSummary();
       if (freeRoam) {
@@ -5321,10 +5560,19 @@ export async function initHud3D(
     if (Math.abs(goldVisor - goldSlide) < 0.002) goldSlide = goldVisor;
 
     camera.getWorldDirection(lookDir);
-    if (evaLampOn && !drivingRover) {
+    if (drivingRover && activeDriveRover && (evaLampOn || sunState.elevationRad < 0.22)) {
+      const autoBoost = sunState.elevationRad < 0.25 ? 1.45 : 1.0;
+      evaLamp.intensity = 18.0 * autoBoost;
+      const rp = activeDriveRover.group.position;
+      const rYaw = activeDriveRover.group.rotation.y;
+      activeBeamDir.set(-Math.sin(rYaw), -0.09, -Math.cos(rYaw)).normalize();
+      evaLamp.position.set(rp.x + activeBeamDir.x * 2.2, rp.y + 1.25, rp.z + activeBeamDir.z * 2.2);
+      evaLamp.target.position.copy(evaLamp.position).addScaledVector(activeBeamDir, 18);
+      evaLamp.target.updateMatrixWorld();
+    } else if (evaLampOn && !drivingRover) {
       const autoBoost = sunState.elevationRad < 0.25 ? 1.55 : 1.0;
       evaLamp.intensity = 28.0 * autoBoost;
-      evaLamp.position.copy(camera.position).add(new THREE.Vector3(0, 0.14, 0));
+      evaLamp.position.set(camera.position.x, camera.position.y + 0.14, camera.position.z);
       evaLamp.target.position.copy(camera.position).addScaledVector(lookDir, 12);
       evaLamp.target.updateMatrixWorld();
     } else {
@@ -5341,7 +5589,7 @@ export async function initHud3D(
     const sunBearingDeg = (((Math.atan2(sunDir.x, -sunDir.z) * 180) / Math.PI) % 360 + 360) % 360;
     updateWaveguideOptics(headingDeg, pitchDeg, heightEnv.molaElevM(px, pz), stopBearingDeg, sunBearingDeg);
 
-    adaptResolution(dt * 1000, now);
+    if (!resumedFromHide) adaptResolution(rawDtMs, now);
     lensMat.uniforms.uTime.value = clockT;
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uGoldSlide.value = goldSlide;
@@ -5354,10 +5602,44 @@ export async function initHud3D(
       lensMat.uniforms.uRtProj.value.copy(camera.projectionMatrix);
       lensMat.uniforms.uRtInvProj.value.copy(camera.projectionMatrixInverse);
     }
+    const perfRenderT0 = perfEl ? performance.now() : 0;
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
+    const sceneCalls = perfEl ? renderer.info.render.calls : 0;
+    const sceneTris = perfEl ? renderer.info.render.triangles : 0;
     renderer.setRenderTarget(null);
     renderer.render(lensScene, lensCam);
+    if (perfEl) {
+      const renderMs = performance.now() - perfRenderT0;
+      const simMs = perfRenderT0 - perfT0;
+      if (!resumedFromHide && perfLastStamp > 0) {
+        const frameIntervalMs = Math.min(250, Math.max(0.1, now - perfLastStamp));
+        perfSamples[perfCursor] = frameIntervalMs;
+        perfCursor = (perfCursor + 1) % perfSamples.length;
+        if (perfFilled < perfSamples.length) perfFilled++;
+      }
+      perfLastStamp = now;
+      if (now - perfLastUiMs >= 300 && perfFilled > 0) {
+        perfLastUiMs = now;
+        let sum = 0;
+        for (let i = 0; i < perfFilled; i++) {
+          const v = perfSamples[i];
+          perfScratch[i] = v;
+          sum += v;
+        }
+        const sorted = perfScratch.subarray(0, perfFilled).sort();
+        const avgMs = sum / perfFilled;
+        const p95Ms = sorted[Math.min(perfFilled - 1, Math.floor(perfFilled * 0.95))];
+        const fps = avgMs > 0 ? 1000 / avgMs : 0;
+        const mem = performance.memory;
+        const heapStr = mem ? `${(mem.usedJSHeapSize / 1048576).toFixed(1)}/${(mem.jsHeapSizeLimit / 1048576).toFixed(0)}MB` : "n/a";
+        const mInfo = renderer.info.memory;
+        const pCount = renderer.info.programs ? renderer.info.programs.length : 0;
+        perfEl.textContent =
+          `FPS ${fps.toFixed(1)} | avg ${avgMs.toFixed(1)}ms p95 ${p95Ms.toFixed(1)}ms sim ${simMs.toFixed(1)}ms ren ${renderMs.toFixed(1)}ms\n` +
+          `calls ${sceneCalls} tris ${Math.round(sceneTris / 1000)}k ch ${chunkMeshes.size} | geo ${mInfo.geometries} tex ${mInfo.textures} prog ${pCount} | rt ${rt.width}x${rt.height} s=${rtSamples} sc=${renderScale.toFixed(2)} q=${devCfg.quality} | heap ${heapStr}`;
+      }
+    }
   }
   // Stream in the 1 m terrain where the EVA starts before the first frame (veil still up).
   if (routeCoords.length > 1) await warmCorridorAt(lonToX(routeCoords[0][0]), latToZ(routeCoords[0][1]));

@@ -5,7 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as THREE from "../vendor/three.module.js";
-import { GaleCorridor, buildCorridorCellGeometry, chunkSlopeRgba, mirrorWrap } from "../map/GaleCorridor.js";
+import {
+  GaleCorridor,
+  buildCorridorCellGeometry,
+  buildCorridorSubCellGeometry,
+  chunkSlopeRgba,
+  mirrorWrap,
+} from "../map/GaleCorridor.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const BASE = "data/demo/corridor";
@@ -152,4 +158,35 @@ test("streaming loads nearest chunks first and evicts beyond the budget", async 
   assert.ok(loaded <= 12 + 4, `loaded ${loaded} stays near the budget`);
   assert.ok(c.sampleDetail(0, -2600) !== null, "new position has detail");
   assert.ok(fetchCount > 2);
+});
+
+test("128x128 sub-chunks select exact 32 nearest cells and match detail ground across seams", async () => {
+  const c = await GaleCorridor.load(BASE, { fetchFn: fileFetch });
+  const sub = c.subCellSize(2);
+  assert.equal(sub.px, 128);
+  assert.ok(Math.abs(sub.chunkW - c.chunkW / 2) < 1e-6);
+  const nearest = c.selectNearestSubCells(40, 25, 32, 2);
+  assert.equal(nearest.length, 32);
+  assert.equal(nearest[0].d, 0);
+  for (let i = 1; i < nearest.length; i++) {
+    assert.ok(nearest[i].d >= nearest[i - 1].d, "selected 32 chunks must be ordered nearest-first");
+  }
+  await c.warmup(40, 25, 520);
+  await c.warmup(c.worldW / 2 - 10, 0, 200);
+  await c.warmup(-c.worldW / 2 + 10, 0, 200);
+  for (const [sa, sb] of [
+    [nearest[0].a, nearest[0].b],
+    [16, 20],
+    [-1, 20],
+    [15, 20],
+  ]) {
+    const g = buildCorridorSubCellGeometry(THREE, c, sa, sb, 64, c.elevMin, 30, null, 2);
+    assert.ok(g, `expected 128x128 sub-cell (${sa}, ${sb}) geometry`);
+    assert.equal(g.userData.corridorCell.subDiv, 2);
+    const pos = g.attributes.position;
+    const mid = Math.floor(pos.count / 2);
+    const expect = c.sampleDetail(pos.getX(mid), pos.getZ(mid)) - c.elevMin;
+    assert.ok(Math.abs(pos.getY(mid) - expect) < 0.05);
+    g.dispose();
+  }
 });

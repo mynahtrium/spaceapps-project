@@ -386,9 +386,8 @@ function buildLander(THREE) {
       flames.push(f);
     }
   }
-  const glow = new THREE.PointLight(0xffa04a, 0, 120, 1.5);
-  glow.position.set(0, -1.5, 0);
-  g.add(glow);
+  // Keep lander glow lightweight (no permanent hardware PointLight compiled into every scene shader).
+  const glow = { intensity: 0, distance: 120, decay: 1.5 };
 
   // cold-gas puffs (sprites: soft white points) at the thruster clusters
   const puffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });

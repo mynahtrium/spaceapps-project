@@ -35,7 +35,7 @@ export function createRockField(THREE) {
   let anchorX = Infinity;
   let anchorZ = Infinity;
 
-  function rebuild(px, pz, sampleY) {
+  function rebuild(px, pz, sampleY, exclude) {
     anchorX = px;
     anchorZ = pz;
     const cursors = [0, 0, 0, 0];
@@ -53,6 +53,7 @@ export function createRockField(THREE) {
         const x = ix * CELL + jx;
         const z = iz * CELL + jz;
         if (Math.hypot(x - px, z - pz) > RADIUS) continue;
+        if (exclude && exclude(x, z)) continue;
         const kind = Math.floor(hash01(ix, iz, 4) * 4) % 4;
         const slot = cursors[kind];
         if (slot >= PER_MESH) continue;
@@ -72,11 +73,11 @@ export function createRockField(THREE) {
     }
   }
 
-  function update(px, pz, sampleY, visible) {
+  function update(px, pz, sampleY, visible, exclude = null) {
     group.visible = visible;
     if (!visible) return;
     if (Math.hypot(px - anchorX, pz - anchorZ) < 14) return;
-    rebuild(px, pz, sampleY);
+    rebuild(px, pz, sampleY, exclude);
   }
 
   return { group, update };

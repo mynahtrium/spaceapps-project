@@ -13,6 +13,8 @@
  *    with in-air pitch/roll attitude angular momentum & reaction-wheel trim.
  */
 
+import { mergeStaticMeshes } from "./merge-static.js";
+
 export const MARS_GRAVITY_MS2 = 3.71;
 export const ROVER_FLIGHT_G = 9.4;
 export const ROVER_COLLISION_RADIUS_M = 2.45;
@@ -683,10 +685,10 @@ function buildArticulatedDualWheelPods(THREE, axleLayout, trackHalfW, radius, po
           const cleat = new THREE.Mesh(cleatGeom, sidewallMat);
           cleat.position.set(dualOff, Math.sin(ang) * (radius - 0.004), Math.cos(ang) * (radius - 0.004));
           cleat.rotation.x = ang;
-          cleat.castShadow = true;
           spinner.add(cleat);
         }
       }
+      mergeStaticMeshes(THREE, spinner, { castShadow: true, receiveShadow: true });
 
       wheels.push(spinner);
       pods.push({
@@ -1149,9 +1151,9 @@ function buildConceptHollowWheels(THREE, axleLayout, trackHalfW, radius) {
         const slat = new THREE.Mesh(slatGeom, slatMat);
         slat.position.set(0, Math.sin(ang) * (radius * 0.85), Math.cos(ang) * (radius * 0.85));
         slat.rotation.x = -ang;
-        slat.castShadow = true;
         spinner.add(slat);
       }
+      mergeStaticMeshes(THREE, spinner, { castShadow: true, receiveShadow: true });
 
       wheels.push(spinner);
       pods.push({
@@ -1294,7 +1296,7 @@ function buildNasaConceptRoverVisuals(THREE) {
   return { procGroup };
 }
 
-export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
+export function createExperimentalRover(THREE, initialVehicleType = "mmsev", { withLights = true } = {}) {
   const group = new THREE.Group();
   const bodyRoot = new THREE.Group();
   group.add(bodyRoot);
@@ -1308,6 +1310,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
   const mmsevContainer = new THREE.Group();
   bodyRoot.add(mmsevContainer);
   const mmsevFallback = buildProceduralMmsevVisuals(THREE);
+  mergeStaticMeshes(THREE, mmsevFallback.procGroup, { castShadow: true, receiveShadow: true });
   mmsevContainer.add(mmsevFallback.procGroup);
 
   const mmsevWheels = buildArticulatedDualWheelPods(
@@ -1327,6 +1330,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
   const conceptContainer = new THREE.Group();
   bodyRoot.add(conceptContainer);
   const conceptVisuals = buildNasaConceptRoverVisuals(THREE);
+  mergeStaticMeshes(THREE, conceptVisuals.procGroup, { castShadow: true, receiveShadow: true });
   conceptContainer.add(conceptVisuals.procGroup);
   const conceptWheels = buildConceptHollowWheels(
     THREE,
@@ -1351,15 +1355,21 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     bodyRoot.add(lamp);
     headLamps.push(lamp);
   }
-  const headlight = new THREE.PointLight(0xffdfb3, 2.0, 26, 1.5);
-  headlight.position.set(0, 1.15, -2.6);
-  bodyRoot.add(headlight);
+  let headlight;
+  let highBeam = null;
+  if (withLights) {
+    headlight = new THREE.PointLight(0xffdfb3, 2.0, 26, 1.5);
+    headlight.position.set(0, 1.15, -2.6);
+    bodyRoot.add(headlight);
 
-  const highBeam = new THREE.SpotLight(0xffe7c2, 5.4, 52, 0.58, 0.65, 1.3);
-  highBeam.position.set(0, 1.22, -2.18);
-  highBeam.target.position.set(0, 0.1, -20);
-  bodyRoot.add(highBeam);
-  bodyRoot.add(highBeam.target);
+    highBeam = new THREE.SpotLight(0xffe7c2, 5.4, 52, 0.58, 0.65, 1.3);
+    highBeam.position.set(0, 1.22, -2.18);
+    highBeam.target.position.set(0, 0.1, -20);
+    bodyRoot.add(highBeam);
+    bodyRoot.add(highBeam.target);
+  } else {
+    headlight = { position: new THREE.Vector3(0, 1.15, -2.6), intensity: 0, distance: 26, decay: 1.5 };
+  }
 
   const tailBarMat = new THREE.MeshStandardMaterial({
     color: 0xff4938,
@@ -1377,10 +1387,13 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     tailBars.push(bar);
   }
 
+  let detailLodFar = false;
+
   function applyVehicleVisibility() {
     const isConcept = isConceptType(activeVehicleType);
     mmsevContainer.visible = !isConcept;
-    mmsevFallback.procGroup.visible = !isConcept && !hasRealMmsevModel;
+    mmsevFallback.procGroup.visible = !isConcept && (!hasRealMmsevModel || detailLodFar);
+    if (nasaModelRoot) nasaModelRoot.visible = !isConcept && !detailLodFar;
     conceptContainer.visible = isConcept;
 
     const lampY = isConcept ? 1.18 : 0.9;
@@ -1390,7 +1403,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
       lamp.position.z = lampZ;
     }
     headlight.position.set(0, isConcept ? 1.28 : 1.15, isConcept ? -3.45 : -2.6);
-    highBeam.position.set(0, isConcept ? 1.32 : 1.22, isConcept ? -3.02 : -2.18);
+    if (highBeam) highBeam.position.set(0, isConcept ? 1.32 : 1.22, isConcept ? -3.02 : -2.18);
     const tailY = isConcept ? 1.22 : 1.05;
     const tailZ = isConcept ? 3.04 : 1.98;
     for (const bar of tailBars) {
@@ -1415,7 +1428,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     return isConceptType(activeVehicleType) ? conceptWheels : mmsevWheels;
   }
 
-  async function attachRealModel(gltfLoader, url = "./assets/nasa-3d/mmsev-rover.glb") {
+  async function attachRealModel(gltfLoader, url = "./assets/nasa-3d/mmsev-rover.glb", { castShadow = true } = {}) {
     if (hasRealMmsevModel || !gltfLoader) return false;
     try {
       const gltf = await gltfLoader.loadAsync(url);
@@ -1442,7 +1455,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
 
       wrapper.traverse((o) => {
         if (!o.isMesh) return;
-        o.castShadow = true;
+        o.castShadow = Boolean(castShadow);
         o.receiveShadow = true;
         if (o.material) {
           o.material.envMapIntensity = 0.85;
@@ -1452,6 +1465,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
           o.material.needsUpdate = true;
         }
       });
+      mergeStaticMeshes(THREE, wrapper, { castShadow: Boolean(castShadow), receiveShadow: true });
 
       mmsevFallback.procGroup.visible = false;
       mmsevContainer.add(wrapper);
@@ -1727,6 +1741,12 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     },
     get nasaModelRoot() {
       return nasaModelRoot;
+    },
+    setDetailLod(near = true) {
+      const wantFar = !near;
+      if (detailLodFar === wantFar) return;
+      detailLodFar = wantFar;
+      applyVehicleVisibility();
     },
     setVehicleType,
     getActiveSpec,

@@ -184,40 +184,49 @@ float rtDecodeTexel(vec2 texelCoord) {
 }
 
 float rtSampleHeightFast(vec2 worldXZ) {
-  if (uRtHeightOn < 0.5) return 0.0;
-  vec2 uv = fract((worldXZ - uRtOrigin) / uRtPeriod);
-  vec4 c = texture2D(uRtHeightTex, uv);
-  float val16 = (c.r * 255.0 * 256.0 + c.g * 255.0) / 65535.0;
-  return uRtElevMin + val16 * uRtElevSpan;
+  float h = 0.0;
+  if (uRtHeightOn >= 0.5) {
+    vec2 uv = fract((worldXZ - uRtOrigin) / uRtPeriod);
+    vec4 c = texture2D(uRtHeightTex, uv);
+    float val16 = (c.r * 255.0 * 256.0 + c.g * 255.0) / 65535.0;
+    h = uRtElevMin + val16 * uRtElevSpan;
+  }
+  return h;
 }
 
 float rtSampleHeight(vec2 worldXZ) {
-  if (uRtHeightOn < 0.5) return 0.0;
-  vec2 uv = fract((worldXZ - uRtOrigin) / uRtPeriod);
-  vec2 px = uv * uRtHeightSize - 0.5;
-  vec2 i0 = floor(px);
-  vec2 f = px - i0;
-  float h00 = rtDecodeTexel(mod(i0, uRtHeightSize));
-  float h10 = rtDecodeTexel(mod(i0 + vec2(1.0, 0.0), uRtHeightSize));
-  float h01 = rtDecodeTexel(mod(i0 + vec2(0.0, 1.0), uRtHeightSize));
-  float h11 = rtDecodeTexel(mod(i0 + vec2(1.0, 1.0), uRtHeightSize));
-  return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+  float h = 0.0;
+  if (uRtHeightOn >= 0.5) {
+    vec2 uv = fract((worldXZ - uRtOrigin) / uRtPeriod);
+    vec2 px = uv * uRtHeightSize - 0.5;
+    vec2 i0 = floor(px);
+    vec2 f = px - i0;
+    float h00 = rtDecodeTexel(mod(i0, uRtHeightSize));
+    float h10 = rtDecodeTexel(mod(i0 + vec2(1.0, 0.0), uRtHeightSize));
+    float h01 = rtDecodeTexel(mod(i0 + vec2(0.0, 1.0), uRtHeightSize));
+    float h11 = rtDecodeTexel(mod(i0 + vec2(1.0, 1.0), uRtHeightSize));
+    h = mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+  }
+  return h;
 }
 
 vec3 rtSampleNormal(vec2 worldXZ) {
+  vec3 outN = vec3(0.0, 1.0, 0.0);
   if (uRtQuality >= 3.5) {
     float eps = 1.4;
     float hL = rtSampleHeight(worldXZ - vec2(eps, 0.0));
     float hR = rtSampleHeight(worldXZ + vec2(eps, 0.0));
     float hD = rtSampleHeight(worldXZ - vec2(0.0, eps));
     float hU = rtSampleHeight(worldXZ + vec2(0.0, eps));
-    return normalize(vec3(hL - hR, 2.0 * eps, hD - hU));
+    outN = normalize(vec3(hL - hR, 2.0 * eps, hD - hU));
+  } else {
+    float eps = 1.9;
+    float hC = rtSampleHeightFast(worldXZ);
+    float hR = rtSampleHeightFast(worldXZ + vec2(eps, 0.0));
+    float hU = rtSampleHeightFast(worldXZ + vec2(0.0, eps));
+    outN = normalize(vec3(hC - hR, eps, hC - hU));
   }
-  float eps = 1.9;
-  float hC = rtSampleHeightFast(worldXZ);
-  float hR = rtSampleHeightFast(worldXZ + vec2(eps, 0.0));
-  float hU = rtSampleHeightFast(worldXZ + vec2(0.0, eps));
-  return normalize(vec3(hC - hR, eps, hC - hU));
+  return outN;
 }
 
 vec3 rtMarsSky(vec3 dir, vec3 sunDir) {
@@ -232,29 +241,36 @@ vec3 rtMarsSky(vec3 dir, vec3 sunDir) {
 }
 
 float rtTraceShadow(vec3 worldPos, vec3 sunDir, float maxDist, float jitter) {
-  if (uRtHeightOn < 0.5 || sunDir.y <= 0.02) return 1.0;
-  int maxSteps = int(clamp(uRtShadowSteps, 8.0, 128.0));
-  bool ultraQ = (uRtQuality >= 3.5);
-  bool highQ = (uRtQuality >= 2.5);
-  float stepGrow = ultraQ ? 0.08 : (highQ ? 0.14 : ((uRtQuality >= 1.5) ? 0.24 : 0.38));
-  float minStep = ultraQ ? 0.55 : (highQ ? 0.8 : ((uRtQuality >= 1.5) ? 1.15 : 1.65));
-  float earlyTerm = (uRtQuality < 1.5) ? 0.04 : 0.008;
   float res = 1.0;
-  float t = 0.65 + jitter * minStep;
-  for (int i = 0; i < RT_HARD_MAX_STEPS; i++) {
-    if (i >= maxSteps) break;
-    vec3 p = worldPos + sunDir * t;
-    float h = ultraQ ? rtSampleHeight(p.xz) : rtSampleHeightFast(p.xz);
-    float diff = p.y - h;
-    if (!ultraQ && diff < 1.6) {
-      h = rtSampleHeight(p.xz);
-      diff = p.y - h;
+  if (uRtHeightOn >= 0.5 && sunDir.y > 0.02) {
+    int maxSteps = int(clamp(uRtShadowSteps, 8.0, 128.0));
+    bool ultraQ = (uRtQuality >= 3.5);
+    bool highQ = (uRtQuality >= 2.5);
+    float stepGrow = ultraQ ? 0.08 : (highQ ? 0.14 : ((uRtQuality >= 1.5) ? 0.24 : 0.38));
+    float minStep = ultraQ ? 0.55 : (highQ ? 0.8 : ((uRtQuality >= 1.5) ? 1.15 : 1.65));
+    float earlyTerm = (uRtQuality < 1.5) ? 0.04 : 0.008;
+    float t = 0.65 + jitter * minStep;
+    for (int i = 0; i < RT_HARD_MAX_STEPS; i++) {
+      if (i >= maxSteps) break;
+      vec3 p = worldPos + sunDir * t;
+      float h = ultraQ ? rtSampleHeight(p.xz) : rtSampleHeightFast(p.xz);
+      float diff = p.y - h;
+      if (!ultraQ && diff < 1.6) {
+        h = rtSampleHeight(p.xz);
+        diff = p.y - h;
+      }
+      if (diff < 0.0) {
+        res = 0.0;
+        break;
+      }
+      res = min(res, clamp(6.8 * diff / max(t, 0.75), 0.0, 1.0));
+      if (res < earlyTerm) {
+        res = 0.0;
+        break;
+      }
+      t += max(minStep, t * stepGrow);
+      if (t > maxDist) break;
     }
-    if (diff < 0.0) return 0.0;
-    res = min(res, clamp(6.8 * diff / max(t, 0.75), 0.0, 1.0));
-    if (res < earlyTerm) return 0.0;
-    t += max(minStep, t * stepGrow);
-    if (t > maxDist) break;
   }
   return clamp(res, 0.0, 1.0);
 }
@@ -311,6 +327,7 @@ void rtTraceGI(vec3 worldPos, vec3 normal, vec3 sunDir, float jitter, out float 
 }
 
 vec3 rtTraceReflectionRay(vec3 origin, vec3 rayDir, vec3 sunDir, float jitter) {
+  vec3 outCol = rtMarsSky(rayDir, sunDir);
   if (uRtHeightOn > 0.5 && rayDir.y < 0.30) {
     int maxSteps = int(clamp(uRtReflSteps, 8.0, 128.0));
     bool ultraQ = (uRtQuality >= 3.5);
@@ -351,14 +368,15 @@ vec3 rtTraceReflectionRay(vec3 origin, vec3 rayDir, vec3 sunDir, float jitter) {
         vec3 ambientBounce = (uRtMaxBounces >= 2.5) ? vec3(0.24, 0.14, 0.10) : vec3(0.18, 0.11, 0.09);
         vec3 litTerrain = regolith * (ambientBounce + vec3(1.25, 0.96, 0.78) * ndl * sh);
         float fog = 1.0 - exp(-midT * 0.0045);
-        return mix(litTerrain, rtMarsSky(rayDir, sunDir), fog);
+        outCol = mix(litTerrain, outCol, fog);
+        break;
       }
       prevT = t;
       t += max(minStep, t * stepGrow);
       if (t > maxReflDist) break;
     }
   }
-  return rtMarsSky(rayDir, sunDir);
+  return outCol;
 }
 `;
 

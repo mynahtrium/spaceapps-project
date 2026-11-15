@@ -14,6 +14,7 @@
  */
 
 import { MARS_STATION_NPCS, CORRIDOR_SCREEN_NPC_SPECS } from "./npc-knowledge.js";
+import { mergeStaticMeshes } from "./merge-static.js";
 
 const NPC_COLLISION_RADIUS_M = 0.48;
 const NPC_HEIGHT_M = 1.85;
@@ -146,6 +147,22 @@ function buildProceduralSuitStandIn(THREE, accentHex = "#38bdf8") {
   visor.rotation.y = Math.PI;
   head.add(visor);
 
+  // Merge static sub-meshes per articulated level while keeping head and chest animation pivots intact.
+  const markNoMerge = (node, flag) => {
+    node.traverse((o) => {
+      if (!o.userData) o.userData = {};
+      if (flag) o.userData.noMerge = true;
+      else delete o.userData.noMerge;
+    });
+  };
+  markNoMerge(chest, true);
+  mergeStaticMeshes(THREE, root, { castShadow: true, receiveShadow: true });
+  markNoMerge(chest, false);
+  markNoMerge(head, true);
+  mergeStaticMeshes(THREE, chest, { castShadow: true, receiveShadow: true });
+  markNoMerge(head, false);
+  mergeStaticMeshes(THREE, head, { castShadow: true, receiveShadow: true });
+
   return {
     group: root,
     bones: { head, chest, spine: chest },
@@ -233,30 +250,55 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
   const tmpOrigin = new THREE.Vector3();
   const tmpDir = new THREE.Vector3();
 
+  function setEntryAvatarLod(entry, useHiRes) {
+    if (!entry.hiResAvatar) {
+      entry.avatar = entry.loResAvatar;
+      if (entry.loResAvatar?.group) entry.loResAvatar.group.visible = true;
+      entry.avatarGroup = entry.loResAvatar?.group || null;
+      return;
+    }
+    const wantHi = Boolean(useHiRes);
+    if (entry.isHiRes === wantHi) return;
+    entry.isHiRes = wantHi;
+    entry.hiResAvatar.group.visible = wantHi;
+    if (entry.loResAvatar?.group) entry.loResAvatar.group.visible = !wantHi;
+    entry.avatar = wantHi ? entry.hiResAvatar : entry.loResAvatar;
+    entry.avatarGroup = entry.avatar.group;
+  }
+
   function attachAvatarVisuals(entry) {
-    if (entry.avatarGroup && entry.group) {
-      entry.group.remove(entry.avatarGroup);
+    if (entry.loResAvatar?.group && entry.group) {
+      entry.group.remove(entry.loResAvatar.group);
+    }
+    if (entry.hiResAvatar?.group && entry.group) {
+      entry.group.remove(entry.hiResAvatar.group);
     }
 
-    let avatar;
+    const addBeacon = (targetGroup) => {
+      const beacon = new THREE.Mesh(
+        new THREE.SphereGeometry(0.055, 8, 6),
+        new THREE.MeshBasicMaterial({ color: entry.spec.accentHex || "#38bdf8" })
+      );
+      beacon.position.set(0.18, 1.54, 0.08);
+      targetGroup.add(beacon);
+    };
+
+    const loRes = buildProceduralSuitStandIn(THREE, entry.spec.accentHex);
+    addBeacon(loRes.group);
+    tagNpcHierarchy(loRes.group, entry.spec.id);
+    entry.loResAvatar = loRes;
+    entry.group.add(loRes.group);
+
+    let hiRes = null;
     if (currentSuitRig && currentSuitRig.parts && currentSuitRig.J && typeof createAstronautFn === "function") {
-      avatar = createAstronautFn(currentSuitRig, { hideHead: false });
-    } else {
-      avatar = buildProceduralSuitStandIn(THREE, entry.spec.accentHex);
+      hiRes = createAstronautFn(currentSuitRig, { hideHead: false });
+      addBeacon(hiRes.group);
+      tagNpcHierarchy(hiRes.group, entry.spec.id);
+      entry.group.add(hiRes.group);
     }
-
-    // Shoulder / collar role beacon
-    const beacon = new THREE.Mesh(
-      new THREE.SphereGeometry(0.055, 10, 8),
-      new THREE.MeshBasicMaterial({ color: entry.spec.accentHex || "#38bdf8" })
-    );
-    beacon.position.set(0.18, 1.54, 0.08);
-    avatar.group.add(beacon);
-
-    tagNpcHierarchy(avatar.group, entry.spec.id);
-    entry.avatar = avatar;
-    entry.avatarGroup = avatar.group;
-    entry.group.add(avatar.group);
+    entry.hiResAvatar = hiRes;
+    entry.isHiRes = null;
+    setEntryAvatarLod(entry, Boolean(hiRes));
   }
 
   function createNpcEntry(spec, index) {
@@ -446,7 +488,7 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
     }
   }
 
-  function update(dt, playerPos, clockT = 0, { activeNpcId = null, terrainSampler = null } = {}) {
+  function update(dt, playerPos, clockT = 0, { activeNpcId = null, terrainSampler = null, detailDistM = 18 } = {}) {
     const safeDt = Math.max(0.001, Math.min(0.1, Number(dt) || 0.016));
     const sampler = terrainSampler || sampleElevY;
 
@@ -457,33 +499,59 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
         entry.z = entry.anchorZ;
       }
 
-      if (sampler) {
+      if (sampler && (entry.lastSampleX !== entry.x || entry.lastSampleZ !== entry.z || !Number.isFinite(entry.y))) {
         entry.y = sampler(entry.x, entry.z);
+        entry.lastSampleX = entry.x;
+        entry.lastSampleZ = entry.z;
       }
       entry.group.position.set(entry.x, entry.y, entry.z);
 
       // Determine whether NPC should turn to face the player (near or actively conversing)
       let wantsPlayerFace = false;
       let targetYaw = entry.baseYaw;
+      let playerDist = Infinity;
+      const isSpeaking = activeNpcId === entry.id;
       if (playerPos && Number.isFinite(playerPos.x) && Number.isFinite(playerPos.z)) {
         const dx = playerPos.x - entry.x;
         const dz = playerPos.z - entry.z;
-        const dist = Math.hypot(dx, dz);
-        const isSpeaking = activeNpcId === entry.id;
-        if ((isSpeaking || dist <= NPC_FACE_PLAYER_DIST_M) && dist > 0.15) {
+        playerDist = Math.hypot(dx, dz);
+        if ((isSpeaking || playerDist <= NPC_FACE_PLAYER_DIST_M) && playerDist > 0.15) {
           wantsPlayerFace = true;
           // Local forward of NASA suit & stand-in is -Z -> yaw = atan2(-dx, -dz)
           targetYaw = Math.atan2(-dx, -dz);
         }
       }
 
+      // Swap 88k-tri NASA GLB suit down to 600-tri procedural stand-in beyond detailDistM to save GPU skinning/tris.
+      setEntryAvatarLod(entry, isSpeaking || playerDist <= detailDistM);
+
+      // Skip full skeleton breathing/matrix recursion for distant out-of-range NPCs; throttle mid-range NPCs.
+      if (!isSpeaking && playerDist > 55) {
+        entry.currentYaw = targetYaw;
+        entry.group.rotation.y = targetYaw;
+        continue;
+      }
+      let animDt = safeDt;
+      if (!isSpeaking && playerDist > 18) {
+        entry.lodAccum = (entry.lodAccum || 0) + safeDt;
+        if (entry.lodAccum < 0.05) {
+          entry.currentYaw = lerpAngleRad(entry.currentYaw, targetYaw, safeDt * (wantsPlayerFace ? 5.2 : 2.0));
+          entry.group.rotation.y = entry.currentYaw;
+          continue;
+        }
+        animDt = entry.lodAccum;
+        entry.lodAccum = 0;
+      } else {
+        entry.lodAccum = 0;
+      }
+
       const turnRate = wantsPlayerFace ? 5.2 : 2.0;
-      entry.currentYaw = lerpAngleRad(entry.currentYaw, targetYaw, safeDt * turnRate);
+      entry.currentYaw = lerpAngleRad(entry.currentYaw, targetYaw, animDt * turnRate);
       entry.group.rotation.y = entry.currentYaw;
 
       // Update suit breathing cycle cleanly (speed = 0 -> idlePhase drives chest & pelvis breathing)
       if (entry.avatar && typeof entry.avatar.update === "function") {
-        entry.avatar.update(safeDt, 0, 0, false, null);
+        entry.avatar.update(animDt, 0, 0, false, null);
       }
 
       // Layer subtle looking-around & chest idle cadence
@@ -509,12 +577,25 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
     }
   }
 
+  const pickScratch = [];
   /**
    * Raycast interaction picker (click-to-interact / crosshair aim).
    */
   function pickNpc(raycaster, maxDist = 9.0) {
     if (!raycaster || npcGroup.children.length === 0) return null;
-    const hits = raycaster.intersectObjects(npcGroup.children, true);
+    pickScratch.length = 0;
+    const ro = raycaster.ray?.origin;
+    const maxR2 = (maxDist + 2.2) * (maxDist + 2.2);
+    for (const entry of npcs.values()) {
+      if (ro) {
+        const dx = entry.x - ro.x;
+        const dz = entry.z - ro.z;
+        if (dx * dx + dz * dz > maxR2) continue;
+      }
+      pickScratch.push(entry.group);
+    }
+    if (pickScratch.length === 0) return null;
+    const hits = raycaster.intersectObjects(pickScratch, true);
     if (hits.length > 0 && hits[0].distance <= maxDist) {
       let obj = hits[0].object;
       while (obj && !obj.userData?.npcId) obj = obj.parent;

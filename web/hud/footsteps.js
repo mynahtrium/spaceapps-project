@@ -118,6 +118,7 @@ export function createFootsteps(THREE, scene) {
   dustMesh.frustumCulled = false;
   dustMesh.renderOrder = 2;
   for (let i = 0; i < N_DUST; i++) dustMesh.setMatrixAt(i, hidden);
+  dustMesh.visible = false;
   scene.add(dustMesh);
 
   const motes = Array.from({ length: N_DUST }, () => ({
@@ -145,6 +146,35 @@ export function createFootsteps(THREE, scene) {
     return ctx;
   }
 
+  let noiseCtx = null;
+  let noiseDustyBuf = null;
+  let noiseFirmBuf = null;
+  function getNoiseBuffer(ac, dusty) {
+    if (noiseCtx !== ac) {
+      noiseCtx = ac;
+      noiseDustyBuf = null;
+      noiseFirmBuf = null;
+    }
+    let buf = dusty ? noiseDustyBuf : noiseFirmBuf;
+    if (buf) return buf;
+    const dur = dusty ? 0.18 : 0.09;
+    const rate = ac.sampleRate;
+    buf = ac.createBuffer(1, Math.max(1, Math.floor(rate * dur)), rate);
+    const data = buf.getChannelData(0);
+    let smooth = 0;
+    for (let i = 0; i < data.length; i++) {
+      const t = i / data.length;
+      const attack = Math.min(1, t / 0.22);
+      const decay = 1 - t;
+      const env = attack * decay * decay;
+      smooth = smooth * 0.78 + (Math.random() * 2 - 1) * 0.22;
+      data[i] = smooth * env;
+    }
+    if (dusty) noiseDustyBuf = buf;
+    else noiseFirmBuf = buf;
+    return buf;
+  }
+
   function play(side, faciesId) {
     if (!enabled || document.hidden) return;
     const ac = audio();
@@ -166,23 +196,10 @@ export function createFootsteps(THREE, scene) {
     osc.start(now);
     osc.stop(now + 0.15);
 
-    // Gentle, muffled regolith brush (warmed noise + smooth bell envelope).
+    // Gentle, muffled regolith brush (reused pre-generated noise buffer + smooth bell envelope).
     const dusty = DUSTY.has(faciesId);
-    const dur = dusty ? 0.18 : 0.09;
-    const rate = ac.sampleRate;
-    const buffer = ac.createBuffer(1, Math.max(1, Math.floor(rate * dur)), rate);
-    const data = buffer.getChannelData(0);
-    let smooth = 0;
-    for (let i = 0; i < data.length; i++) {
-      const t = i / data.length;
-      const attack = Math.min(1, t / 0.22);
-      const decay = 1 - t;
-      const env = attack * decay * decay;
-      smooth = smooth * 0.78 + (Math.random() * 2 - 1) * 0.22;
-      data[i] = smooth * env;
-    }
     const src = ac.createBufferSource();
-    src.buffer = buffer;
+    src.buffer = getNoiseBuffer(ac, dusty);
     const filter = ac.createBiquadFilter();
     filter.type = "lowpass";
     filter.Q.value = 0.5;
@@ -196,6 +213,7 @@ export function createFootsteps(THREE, scene) {
     src.start(now);
   }
 
+  let dustActive = false;
   function stamp(x, y, z, normal, yaw, faciesId, side = "L") {
     if (!enabled) return;
     nrm.set(normal?.x ?? 0, normal?.y ?? 1, normal?.z ?? 0);
@@ -213,6 +231,8 @@ export function createFootsteps(THREE, scene) {
     decals.instanceMatrix.needsUpdate = true;
 
     if (!DUSTY.has(faciesId)) return;
+    dustActive = true;
+    dustMesh.visible = enabled;
     for (let k = 0; k < 4; k++) {
       const m = motes[dustCursor];
       m.life = 0.7 + Math.random() * 0.5;
@@ -227,15 +247,21 @@ export function createFootsteps(THREE, scene) {
   }
 
   function update(dt, g = 3.72) {
-    if (!enabled) return;
+    if (!enabled || !dustActive) return;
     const step = Math.min(0.05, dt);
+    let anyAlive = false;
+    let dirty = false;
     for (let i = 0; i < N_DUST; i++) {
       const m = motes[i];
+      if (m.life <= 0) continue;
+      dirty = true;
+      m.life -= step;
       if (m.life <= 0) {
+        m.life = 0;
         dustMesh.setMatrixAt(i, hidden);
         continue;
       }
-      m.life -= step;
+      anyAlive = true;
       m.vy -= g * step;
       m.x += m.vx * step;
       m.y += m.vy * step;
@@ -247,13 +273,15 @@ export function createFootsteps(THREE, scene) {
       dummy.updateMatrix();
       dustMesh.setMatrixAt(i, dummy.matrix);
     }
-    dustMesh.instanceMatrix.needsUpdate = true;
+    dustActive = anyAlive;
+    dustMesh.visible = enabled && dustActive;
+    if (dirty) dustMesh.instanceMatrix.needsUpdate = true;
   }
 
   function setEnabled(on) {
     enabled = Boolean(on);
     decals.visible = enabled;
-    dustMesh.visible = enabled;
+    dustMesh.visible = enabled && dustActive;
   }
 
   return { play, stamp, update, setEnabled, setSuitProfile, resume: () => audio()?.resume?.() };

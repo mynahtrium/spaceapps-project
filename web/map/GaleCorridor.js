@@ -145,11 +145,45 @@ export class GaleCorridor {
     };
   }
 
+  /** Scene chunk dimensions when split into `subDiv x subDiv` sub-chunks (`subDiv=2` -> 128x128 px). */
+  subCellSize(subDiv = 1) {
+    const d = Math.max(1, Math.floor(subDiv));
+    return {
+      chunkW: this.chunkW / d,
+      chunkH: this.chunkH / d,
+      px: Math.round(this.chunkPx / d),
+    };
+  }
+
+  /** Scene chunk cell (any integers, mirrored copies included) containing a scene point. */
+  subSceneCellOf(x, z, subDiv = 1) {
+    const { chunkW, chunkH } = this.subCellSize(subDiv);
+    return {
+      a: Math.floor((x + this.worldW / 2) / chunkW),
+      b: Math.floor((z + this.worldH / 2) / chunkH),
+    };
+  }
+
   /** Scene chunk cell (any integers, mirrored copies included) containing a scene point. */
   sceneCellOf(x, z) {
+    return this.subSceneCellOf(x, z, 1);
+  }
+
+  /** Data chunk + local sub-quadrant `(qx, qz)` behind a scene sub-cell, with mirror flips. */
+  dataChunkForSubCell(sa, sb, subDiv = 1) {
+    const d = Math.max(1, Math.floor(subDiv));
+    const a = Math.floor(sa / d);
+    const b = Math.floor(sb / d);
+    const { ci, cj, flipX, flipZ } = this.dataChunkForCell(a, b);
+    const la = ((sa % d) + d) % d;
+    const lb = ((sb % d) + d) % d;
     return {
-      a: Math.floor((x + this.worldW / 2) / this.chunkW),
-      b: Math.floor((z + this.worldH / 2) / this.chunkH),
+      ci,
+      cj,
+      flipX,
+      flipZ,
+      qx: flipX ? d - 1 - la : la,
+      qz: flipZ ? d - 1 - lb : lb,
     };
   }
 
@@ -341,13 +375,37 @@ export class GaleCorridor {
     return wanted;
   }
 
+  /**
+   * Select the `count` nearest scene sub-cells (`subDiv=2` -> 128x128 px) around `(x, z)`, sorted closest-first.
+   */
+  selectNearestSubCells(x, z, count = 32, subDiv = 2) {
+    const { a, b } = this.subSceneCellOf(x, z, subDiv);
+    const ring = Math.max(2, Math.ceil(Math.sqrt(Math.max(1, count)) / 2) + 1);
+    const list = [];
+    for (let db = -ring; db <= ring; db++) {
+      for (let da = -ring; da <= ring; da++) {
+        const sa = a + da;
+        const sb = b + db;
+        list.push({ a: sa, b: sb, d: this.subCellDistance(sa, sb, x, z, subDiv) });
+      }
+    }
+    list.sort((p, q) => p.d - q.d);
+    return list.slice(0, Math.max(0, count));
+  }
+
+  /** Distance from a scene point to the nearest point of a scene sub-cell (0 inside). */
+  subCellDistance(a, b, x, z, subDiv = 1) {
+    const { chunkW, chunkH } = this.subCellSize(subDiv);
+    const x0 = -this.worldW / 2 + a * chunkW;
+    const z0 = -this.worldH / 2 + b * chunkH;
+    const dx = Math.max(x0 - x, 0, x - (x0 + chunkW));
+    const dz = Math.max(z0 - z, 0, z - (z0 + chunkH));
+    return Math.hypot(dx, dz);
+  }
+
   /** Distance from a scene point to the nearest point of a scene cell (0 inside). */
   cellDistance(a, b, x, z) {
-    const x0 = -this.worldW / 2 + a * this.chunkW;
-    const z0 = -this.worldH / 2 + b * this.chunkH;
-    const dx = Math.max(x0 - x, 0, x - (x0 + this.chunkW));
-    const dz = Math.max(z0 - z, 0, z - (z0 + this.chunkH));
-    return Math.hypot(dx, dz);
+    return this.subCellDistance(a, b, x, z, 1);
   }
 
   /** Wait until all chunks within `radiusM` are loaded (or `timeoutMs` passes). */
@@ -364,26 +422,39 @@ export class GaleCorridor {
 }
 
 /**
- * Build the mesh of one scene cell from its (possibly mirrored) data chunk.
- * Positions are absolute scene coordinates; y = elevation - `elevBase`, optionally passed through
- * `adjustY(x, z, y)` (e.g. a levelled habitat pad) so the mesh matches the walkable height.
- * UVs address the data chunk's own texture (u west->east, v north at 1), so mirrored copies
- * show the same imagery flipped, matching their heights.
+ * Build the mesh of one scene sub-cell (`subDiv=2` splits each 256x256 tile into 128x128 chunks)
+ * from its (possibly mirrored) data chunk.
  *
  * @returns {import('three').BufferGeometry | null} null when the data chunk is not loaded
  */
-export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, skirtDepth = 30, adjustY = null) {
-  const { ci, cj, flipX, flipZ } = corridor.dataChunkForCell(a, b);
+export function buildCorridorSubCellGeometry(
+  THREE,
+  corridor,
+  a,
+  b,
+  seg,
+  elevBase,
+  skirtDepth = 30,
+  adjustY = null,
+  subDiv = 2
+) {
+  const div = Math.max(1, Math.floor(subDiv));
+  const { ci, cj, flipX, flipZ, qx, qz } = corridor.dataChunkForSubCell(a, b, div);
   const arr = corridor.chunkHeights(ci, cj);
   if (!arr) return null;
   const n = corridor.chunkPx;
+  const subPx = n / div;
   const s = n + 1;
-  const step = n / seg;
+  const step = subPx / seg;
   const nv = seg + 1;
-  const x0 = -corridor.worldW / 2 + a * corridor.chunkW;
-  const z0 = -corridor.worldH / 2 + b * corridor.chunkH;
-  const dxv = corridor.chunkW / seg;
-  const dzv = corridor.chunkH / seg;
+  const colOff = qx * subPx;
+  const rowOff = qz * subPx;
+  const cellW = corridor.chunkW / div;
+  const cellH = corridor.chunkH / div;
+  const x0 = -corridor.worldW / 2 + a * cellW;
+  const z0 = -corridor.worldH / 2 + b * cellH;
+  const dxv = cellW / seg;
+  const dzv = cellH / seg;
 
   const ring = [];
   for (let p = 0; p < nv; p++) ring.push(p); // north edge
@@ -398,9 +469,9 @@ export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, 
   // heights on this chunk's own grid
   const H = new Float32Array(nv * nv);
   for (let q = 0; q < nv; q++) {
-    const row = Math.round(flipZ ? n - q * step : q * step);
+    const row = Math.round(rowOff + (flipZ ? subPx - q * step : q * step));
     for (let p = 0; p < nv; p++) {
-      const col = Math.round(flipX ? n - p * step : p * step);
+      const col = Math.round(colOff + (flipX ? subPx - p * step : p * step));
       const y = arr[row * s + col] - elevBase;
       H[q * nv + p] = adjustY ? adjustY(x0 + p * dxv, z0 + q * dzv, y) : y;
     }
@@ -425,8 +496,8 @@ export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, 
       N[k * 3] = -gx * inv;
       N[k * 3 + 1] = inv;
       N[k * 3 + 2] = -gz * inv;
-      const col = flipX ? n - p * step : p * step;
-      const row = flipZ ? n - q * step : q * step;
+      const col = colOff + (flipX ? subPx - p * step : p * step);
+      const row = rowOff + (flipZ ? subPx - q * step : q * step);
       U[k * 2] = col / n;
       U[k * 2 + 1] = 1 - row / n;
     }
@@ -480,8 +551,15 @@ export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, 
   g.setIndex(new THREE.BufferAttribute(idx, 1));
   g.computeBoundingBox();
   g.computeBoundingSphere();
-  g.userData.corridorCell = { a, b, ci, cj, flipX, flipZ, seg };
+  g.userData.corridorCell = { a, b, ci, cj, flipX, flipZ, qx, qz, subDiv: div, seg };
   return g;
+}
+
+/**
+ * Build the mesh of one 256x256 corridor scene cell (wrapper around `buildCorridorSubCellGeometry` with `subDiv = 1`).
+ */
+export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, skirtDepth = 30, adjustY = null) {
+  return buildCorridorSubCellGeometry(THREE, corridor, a, b, seg, elevBase, skirtDepth, adjustY, 1);
 }
 
 /** Slope-class colours for one data chunk (same classes as the cost map), as RGBA bytes. */

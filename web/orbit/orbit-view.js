@@ -944,8 +944,11 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     }
   }
 
+  const labelPosCache = new Map();
+  const labelScratch = new THREE.Vector3();
+  const labelUsed = new Set();
   function updateLabels(sub) {
-    const used = new Set();
+    labelUsed.clear();
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     const put = (id, v, html, cls, surface) => {
@@ -953,37 +956,45 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       const sp = projectToScreen(v);
       if (!sp.front || sp.x < -40 || sp.y < -20 || sp.x > w + 40 || sp.y > h + 20) return;
       const el = label(id, html, cls);
-      el.style.transform = `translate(${(sp.x - 4).toFixed(1)}px, ${(sp.y - 6).toFixed(1)}px)`;
-      el.style.display = "";
-      used.add(id);
+      const tx = Math.round((sp.x - 4) * 10) * 0.1;
+      const ty = Math.round((sp.y - 6) * 10) * 0.1;
+      const prev = labelPosCache.get(id);
+      if (!prev || prev.tx !== tx || prev.ty !== ty) {
+        labelPosCache.set(id, { tx, ty });
+        el.style.transform = `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px)`;
+      }
+      if (el.style.display !== "") el.style.display = "";
+      labelUsed.add(id);
     };
     if (!descent || descent.stepIdx < 1) {
-      for (const s of sites) put(s.id, lonLatToVec3(s.lon, s.lat), s.html, "", true);
+      for (const s of sites) put(s.id, lonLatToVec3(s.lon, s.lat, 1, labelScratch), s.html, "", true);
       const p = getPlayerLonLat?.();
       if (p && Number.isFinite(p.lon)) {
-        put("you", lonLatToVec3(p.lon, p.lat), `<span class="dot"></span>${isTr() ? "SEN" : "YOU"}`, "you", true);
+        put("you", lonLatToVec3(p.lon, p.lat, 1, labelScratch), `<span class="dot"></span>${isTr() ? "SEN" : "YOU"}`, "you", true);
       }
       for (const m of moons) {
-        tmpV.copy(m.mesh.position);
-        put(m.name, tmpV.clone(), `${m.label} <span style="opacity:.55">×${MOON_SIZE_EXAGGERATION} size</span>`, "moon", false);
+        labelScratch.copy(m.mesh.position);
+        put(m.name, labelScratch, `${m.label} <span style="opacity:.55">×${MOON_SIZE_EXAGGERATION} size</span>`, "moon", false);
       }
       for (const o of orbiters) {
         const alt = o.periKm === o.apoKm ? `${o.periKm} km` : `${o.periKm.toLocaleString()} × ${o.apoKm.toLocaleString()} km`;
         put(
           `orb-${o.id}`,
-          o.marker.position.clone(),
+          o.marker.position,
           `<span class="dot" style="background:${o.color}"></span>${o.name} <span style="opacity:.55">${alt} · ${isTr() ? "temsili konum" : "illustrative position"}</span>`,
           "moon",
           false
         );
       }
-      put("sun", sunSprite.position.clone().add(skyGroup.position), "Sun", "moon", false);
-      put("earth", earthSprite.position.clone().add(skyGroup.position), "Earth", "moon", false);
+      put("sun", labelScratch.copy(sunSprite.position).add(skyGroup.position), "Sun", "moon", false);
+      put("earth", labelScratch.copy(earthSprite.position).add(skyGroup.position), "Earth", "moon", false);
       // subsolar marker
-      put("subsolar", lonLatToVec3(sub.lonEastDeg, sub.latDeg), "☀ noon", "", true);
+      put("subsolar", lonLatToVec3(sub.lonEastDeg, sub.latDeg, 1, labelScratch), "☀ noon", "", true);
     }
-    if (pick && !confirmEl.hidden) put("pick", lonLatToVec3(pick.lon, pick.lat), `<span class="dot"></span>`, "pick", true);
-    for (const [id, el] of labelEls) if (!used.has(id)) el.style.display = "none";
+    if (pick && !confirmEl.hidden) put("pick", lonLatToVec3(pick.lon, pick.lat, 1, labelScratch), `<span class="dot"></span>`, "pick", true);
+    for (const [id, el] of labelEls) {
+      if (!labelUsed.has(id) && el.style.display !== "none") el.style.display = "none";
+    }
   }
 
   function occludedByGlobe(v) {

@@ -17,6 +17,7 @@
  */
 
 import { resolveRoverObbCollision } from "./experimental-rover.js";
+import { mergeStaticMeshes } from "./merge-static.js";
 
 function createCanvasTex(THREE, w, h, drawFn, { linear = false } = {}) {
   if (typeof document === "undefined") return null;
@@ -1829,11 +1830,116 @@ export function stepRoverRigKinematics(
   }
 }
 
+/**
+ * Merge static sub-primitives inside a historic rover (`body` or cached GLB) while keeping every
+ * articulated rig node (`rocker*`, `bogie*`, `mast*`, `hga*`, `arm.*`, `steerKnuckles`, `wheels`)
+ * intact and independently animatable.
+ */
+function compactHistoricRoverMeshes(THREE, root, rig) {
+  if (!root || typeof THREE?.BufferGeometry !== "function") return;
+  const articulated = [];
+  const pushNode = (node) => {
+    if (node && node !== root && !articulated.includes(node)) articulated.push(node);
+  };
+  if (rig) {
+    if (rig.chassis && rig.chassis !== root) pushNode(rig.chassis);
+    for (const node of [
+      rig.rockerL,
+      rig.rockerR,
+      rig.bogieL,
+      rig.bogieR,
+      rig.diffBar,
+      rig.mastYaw,
+      rig.mastPitch,
+      rig.hgaYaw,
+      rig.hgaPitch,
+      rig.arm?.shoulderYaw,
+      rig.arm?.shoulderPitch,
+      rig.arm?.elbowPitch,
+      rig.arm?.wristPitch,
+      rig.arm?.turretRoll,
+      rig.arm?.toolSpin,
+    ]) {
+      pushNode(node);
+    }
+    for (const node of rig.steerKnuckles || []) pushNode(node);
+    for (const node of rig.wheels || []) pushNode(node);
+  }
+
+  const lockNoMerge = (nodes) => {
+    const saved = [];
+    for (const sub of nodes) {
+      sub.traverse((o) => {
+        saved.push([o, o.userData?.noMerge]);
+        if (!o.userData) o.userData = {};
+        o.userData.noMerge = true;
+      });
+    }
+    return () => {
+      for (const [o, prev] of saved) {
+        if (prev === undefined) delete o.userData.noMerge;
+        else o.userData.noMerge = prev;
+      }
+    };
+  };
+
+  // Merge non-articulated hull/chassis/solar parts attached to root
+  const unlockAll = lockNoMerge(articulated);
+  mergeStaticMeshes(THREE, root);
+  unlockAll();
+
+  // Merge static children inside each articulated node while protecting nested articulated subtrees
+  for (let i = 0; i < articulated.length; i++) {
+    const node = articulated[i];
+    if (!node.parent || !node.children?.length) continue;
+    const nested = [];
+    for (let j = 0; j < articulated.length; j++) {
+      if (i === j) continue;
+      let p = articulated[j].parent;
+      while (p) {
+        if (p === node) {
+          nested.push(articulated[j]);
+          break;
+        }
+        p = p.parent;
+      }
+    }
+    const unlockNested = lockNoMerge(nested);
+    mergeStaticMeshes(THREE, node);
+    unlockNested();
+  }
+}
+
+function stripTransmissiveMaterials(root) {
+  root.traverse((obj) => {
+    if (!obj.isMesh) return;
+    const mats = Array.isArray(obj.material) ? obj.material : obj.material ? [obj.material] : [];
+    for (const m of mats) {
+      // Clear KHR_materials_transmission: even a single visible lens with transmission > 0 forces
+      // Three.js WebGLRenderer into a full second opaque scene render + mipmap pre-pass every frame.
+      if (m && "transmission" in m && m.transmission > 0) {
+        m.transmission = 0;
+        m.transparent = true;
+        m.opacity = 0.72;
+        m.roughness = 0.08;
+        m.needsUpdate = true;
+      }
+    }
+  });
+}
+
 // One download per GLB url for the whole session (rescatter / site switches reuse it).
 const gltfCache = new Map();
-function loadGltfCached(loader, url) {
+function loadGltfCached(THREE, loader, url) {
   if (!gltfCache.has(url)) {
-    const p = loader.loadAsync(url);
+    const p = loader.loadAsync(url).then((gltf) => {
+      if (gltf?.scene) {
+        stripTransmissiveMaterials(gltf.scene);
+        const rig = bindPerseveranceGltfRig(gltf.scene);
+        compactHistoricRoverMeshes(THREE, gltf.scene, rig);
+      }
+      return gltf;
+    });
     p.catch(() => gltfCache.delete(url));
     gltfCache.set(url, p);
   }
@@ -1877,9 +1983,12 @@ function normalizePerseveranceGltf(THREE, gltfScene, roverId) {
   seatedBox.getCenter(seatedCenter);
   gltfScene.position.set(-seatedCenter.x, -seatedBox.min.y, -seatedCenter.z);
 
+  stripTransmissiveMaterials(gltfScene);
   gltfScene.traverse((obj) => {
     if (obj.isMesh) {
-      obj.castShadow = true;
+      if (obj.geometry && !obj.geometry.boundingSphere) obj.geometry.computeBoundingSphere();
+      const r = (obj.geometry?.boundingSphere?.radius ?? 0.5) * s;
+      obj.castShadow = r > 0.16;
       obj.receiveShadow = true;
       obj.userData.historicRoverId = roverId;
     }
@@ -1893,7 +2002,14 @@ function normalizePerseveranceGltf(THREE, gltfScene, roverId) {
  * for raycast inspection (`userData.historicRoverId = roverSpec.id`) and an attached
  * hierarchical `userData.rig`.
  */
-export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex = null, onModelLoaded = null) {
+export function createHistoricRoverGroup(
+  THREE,
+  gltfLoader,
+  roverSpec,
+  sharedTex = null,
+  onModelLoaded = null,
+  sharedTexSet = null
+) {
   const tex = sharedTex || makeSharedTextures(THREE);
   const outer = new THREE.Group();
   outer.name = `historic-rover-${roverSpec.id}`;
@@ -1909,6 +2025,7 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
   } else {
     body = buildCuriosityMesh(THREE, tex);
   }
+  compactHistoricRoverMeshes(THREE, body, body.userData.rig);
   outer.add(body);
   outer.userData.rig = body.userData.rig;
 
@@ -1935,20 +2052,25 @@ export function createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex
   outer.traverse((obj) => {
     obj.userData.historicRoverId = roverSpec.id;
     if (obj.isMesh && !obj.userData.isLocator) {
-      obj.castShadow = true;
+      if (obj.geometry && !obj.geometry.boundingSphere) obj.geometry.computeBoundingSphere();
+      const r = obj.geometry?.boundingSphere?.radius ?? 0.4;
+      obj.castShadow = r > 0.14;
       obj.receiveShadow = true;
     }
   });
 
   if (roverSpec.modelKind === "perseverance-glb" && roverSpec.glbUrl && gltfLoader) {
     body.userData.isStandIn = true;
-    loadGltfCached(gltfLoader, roverSpec.glbUrl)
+    loadGltfCached(THREE, gltfLoader, roverSpec.glbUrl)
       .then((gltf) => {
         if (!gltf?.scene || !outer.parent) return;
         const inst = gltf.scene.clone(true);
         inst.traverse((o) => (o.userData.sharedAsset = true));
         const real = normalizePerseveranceGltf(THREE, inst, roverSpec.id);
         outer.remove(body);
+        const texSet =
+          sharedTexSet || new Set(Object.values(tex || {}).filter((t) => t?.isTexture));
+        disposeRoverGroup(body, texSet);
         outer.add(real);
         outer.userData.rig = real.userData.rig || body.userData.rig;
         outer.traverse((obj) => {
@@ -1969,6 +2091,8 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
   const sharedTex = makeSharedTextures(THREE);
   const sharedTexSet = new Set(Object.values(sharedTex).filter((t) => t?.isTexture));
   const roster = new Map();
+  let interactiveGroupsCache = null;
+  let allEntriesCache = null;
   let focusedId = "curiosity";
   const modelLoadedCb = typeof onModelLoaded === "function" ? onModelLoaded : null;
 
@@ -1978,6 +2102,8 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
       if (entry.group) disposeRoverGroup(entry.group, sharedTexSet);
     }
     roster.clear();
+    interactiveGroupsCache = null;
+    allEntriesCache = null;
   }
 
   function groundEntry(entry, sampleElevY) {
@@ -2033,6 +2159,8 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
         const dx = observerPos.x - group.position.x;
         const dy = observerPos.y - (group.position.y + 1.2);
         const dz = observerPos.z - group.position.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > 55 * 55 && !(entry.driveSpeed > 0)) continue;
         const cosY = Math.cos(group.rotation.y);
         const sinY = Math.sin(group.rotation.y);
         relX = dx * cosY - dz * sinY;
@@ -2091,13 +2219,22 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
       return existing.group;
     }
     let group = null;
-    group = createHistoricRoverGroup(THREE, gltfLoader, roverSpec, sharedTex, () => modelLoadedCb?.(group));
+    group = createHistoricRoverGroup(
+      THREE,
+      gltfLoader,
+      roverSpec,
+      sharedTex,
+      () => modelLoadedCb?.(group),
+      sharedTexSet
+    );
     group.position.set(x, sampleElevY ? sampleElevY(x, z) : 0, z);
     group.rotation.y = yaw;
     const entry = { id: roverSpec.id, spec: roverSpec, group, baseX: x, baseZ: z, yaw, wheelDeltaHeights: null };
     if (sampleElevY) groundEntry(entry, sampleElevY);
     if (scene) scene.add(group);
     roster.set(roverSpec.id, entry);
+    interactiveGroupsCache = null;
+    allEntriesCache = null;
     if (modelLoadedCb) modelLoadedCb(group);
     return group;
   }
@@ -2118,6 +2255,10 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
     let cz = entityZ;
     for (const entry of roster.values()) {
       const { group, spec } = entry;
+      const maxR = Math.max(spec.halfW || 1.25, spec.halfL || 1.4) + entityRadius + 0.5;
+      const dx = cx - group.position.x;
+      const dz = cz - group.position.z;
+      if (dx * dx + dz * dz > maxR * maxR) continue;
       const col = resolveRoverObbCollision(
         group.position.x,
         group.position.z,
@@ -2164,8 +2305,8 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
     resolveCollision,
     setFocusId,
     getEntry,
-    getInteractiveGroups: () => Array.from(roster.values(), (e) => e.group),
-    getAllEntries: () => Array.from(roster.values()),
+    getInteractiveGroups: () => (interactiveGroupsCache ||= Array.from(roster.values(), (e) => e.group)),
+    getAllEntries: () => (allEntriesCache ||= Array.from(roster.values())),
     getActiveSpec: () => roster.get(focusedId)?.spec || roster.values().next().value?.spec || null,
     getActiveGroup: () => roster.get(focusedId)?.group || roster.values().next().value?.group || null,
   };

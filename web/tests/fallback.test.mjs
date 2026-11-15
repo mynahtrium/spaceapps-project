@@ -36,6 +36,7 @@ import {
   stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
 import { HABITAT_LAYOUT, HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
+import { createRockField } from "../hud/MarsRockField.js";
 import {
   RT_HEIGHT_GLSL,
   RT_INTERNAL_RESOLUTION_SCALE,
@@ -899,4 +900,35 @@ test("Mars Habitat Station follows the blueprint layout: 5 zones, raised decks, 
   const t = hab.clipCameraSegment(-15, 2.5, 0, -22, 2.5, 0);
   assert.ok(t > 0.2 && t < 0.5, `camera clip t=${t}`);
   assert.equal(hab.clipCameraSegment(0, 2.5, 40, 0, 2.5, 50), 1);
+
+  // New colliders for cafeteria stools, chamber bench, and garage dock cradles
+  assert.equal(hab.resolveCollision(-8, -5.8 + 0.95, 0.2, y).hit, true); // cafeteria stool
+  assert.equal(hab.resolveCollision(25, 4.54, 0.2, y).hit, true); // airlock stabilization bench
+  assert.equal(hab.resolveCollision(0 + 1.95, 13.25, 0.2, y).hit, true); // bay 3 dock cradle
+
+  // Habitat footprint exclusion blocks rocks on interior, aprons, and jack pad
+  assert.equal(hab.isOnFootprint(0, 7), true); // corridor
+  assert.equal(hab.isOnFootprint(0, 40), true); // garage apron
+  assert.equal(hab.isOnFootprint(38, 7), true); // airlock apron
+  assert.equal(hab.isOnFootprint(120, 120), false); // open Mars regolith
+
+  const rf = createRockField(THREE);
+  rf.update(0, 16, () => 0, true, hab.isOnFootprint);
+  const mat = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  let overlapCount = 0;
+  let activeCount = 0;
+  for (const inst of rf.group.children) {
+    for (let i = 0; i < inst.count; i++) {
+      inst.getMatrixAt(i, mat);
+      pos.setFromMatrixPosition(mat);
+      scale.setFromMatrixScale(mat);
+      if (scale.lengthSq() < 1e-6) continue;
+      activeCount++;
+      if (hab.isOnFootprint(pos.x, pos.z)) overlapCount++;
+    }
+  }
+  assert.ok(activeCount > 0, "expected rocks outside the habitat footprint");
+  assert.equal(overlapCount, 0, `expected 0 rocks inside habitat footprint, got ${overlapCount}`);
 });

@@ -243,73 +243,73 @@ export function makeHabitatTextures(THREE) {
   };
 }
 
+function drawSignOnCtx(g, ox, oy, w, h, lines, accentHex, bg = "#0b111b") {
+  const list = Array.isArray(lines) ? lines : [lines];
+  g.save();
+  g.translate(ox, oy);
+  g.fillStyle = bg;
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = accentHex;
+  g.lineWidth = 8;
+  g.strokeRect(6, 6, w - 12, h - 12);
+  g.fillStyle = accentHex;
+  g.fillRect(6, 6, 22, h - 12);
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  const n = list.length;
+  list.forEach((line, i) => {
+    const size = i === 0 ? Math.floor(h * (n > 1 ? 0.3 : 0.42)) : Math.floor(h * 0.2);
+    g.font = `bold ${size}px monospace`;
+    g.fillStyle = i === 0 ? "#f8fafc" : "#94a3b8";
+    g.fillText(line, w / 2 + 10, h * ((i + 0.5) / n) + (n > 1 ? (i === 0 ? 6 : -4) : 0));
+  });
+  g.restore();
+}
+
 /** A sign: light text on a dark plate with a coloured border (non-repeating). */
 export function makeSignTexture(THREE, lines, accentHex, { w = 512, h = 160, bg = "#0b111b" } = {}) {
-  const list = Array.isArray(lines) ? lines : [lines];
-  return canvasTexture(
-    THREE,
-    w,
-    h,
-    (g) => {
-      g.fillStyle = bg;
-      g.fillRect(0, 0, w, h);
-      g.strokeStyle = accentHex;
-      g.lineWidth = 8;
-      g.strokeRect(6, 6, w - 12, h - 12);
-      g.fillStyle = accentHex;
-      g.fillRect(6, 6, 22, h - 12);
-      g.fillStyle = "#f8fafc";
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      const n = list.length;
-      list.forEach((line, i) => {
-        const size = i === 0 ? Math.floor(h * (n > 1 ? 0.3 : 0.42)) : Math.floor(h * 0.2);
-        g.font = `bold ${size}px monospace`;
-        g.fillStyle = i === 0 ? "#f8fafc" : "#94a3b8";
-        g.fillText(line, w / 2 + 10, h * ((i + 0.5) / n) + (n > 1 ? (i === 0 ? 6 : -4) : 0));
-      });
-    },
-    { repeat: false }
-  );
+  return canvasTexture(THREE, w, h, (g) => drawSignOnCtx(g, 0, 0, w, h, lines, accentHex, bg), { repeat: false });
+}
+
+function drawFloorDecalOnCtx(g, ox, oy, w, h, text, colorHex) {
+  g.save();
+  g.translate(ox, oy);
+  g.beginPath();
+  g.rect(0, 0, w, h);
+  g.clip();
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = colorHex;
+  g.globalAlpha = 0.85;
+  g.font = `bold ${Math.round(h * 0.58)}px monospace`;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(text, w / 2, h / 2 + 4);
+  const r = rng(text.length * 97 + text.charCodeAt(text.length - 1));
+  g.globalCompositeOperation = "destination-out";
+  const sx = w / 512;
+  const sy = h / 256;
+  for (let i = 0; i < 650; i++) {
+    g.globalAlpha = 0.25 + r() * 0.5;
+    g.fillRect(r() * w, r() * h, (2 + r() * 6) * sx, (1 + r() * 2) * sy);
+  }
+  g.restore();
 }
 
 /** Painted floor marking (transparent background). */
 export function makeFloorDecalTexture(THREE, text, colorHex) {
-  return canvasTexture(
-    THREE,
-    512,
-    256,
-    (g, w, h) => {
-      g.clearRect(0, 0, w, h);
-      g.fillStyle = colorHex;
-      g.globalAlpha = 0.85;
-      g.font = "bold 150px monospace";
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      g.fillText(text, w / 2, h / 2 + 8);
-      // scuffs
-      const r = rng(text.length * 97);
-      g.globalCompositeOperation = "destination-out";
-      for (let i = 0; i < 900; i++) {
-        g.globalAlpha = 0.25 + r() * 0.5;
-        g.fillRect(r() * w, r() * h, 2 + r() * 6, 1 + r() * 2);
-      }
-    },
-    { repeat: false }
-  );
+  return canvasTexture(THREE, 512, 256, (g, w, h) => drawFloorDecalOnCtx(g, 0, 0, w, h, text, colorHex), { repeat: false });
 }
 
-/**
- * Telemetry wall screens. `spec.kind` is one of "graph", "bars", "map", "text".
- * `spec.footer` must carry the honesty note (source or "illustrative").
- */
-export function makeTelemetryScreenTexture(THREE, spec, accentHex = "#f472b6") {
-  return canvasTexture(
-    THREE,
-    768,
-    432,
-    (g, W, H) => {
-      const bg = g.createLinearGradient(0, 0, 0, H);
+function drawTelemetryScreenOnCtx(g, ox, oy, destW, destH, spec, accentHex = "#f472b6") {
+  const W = 768;
+  const H = 432;
+  g.save();
+  g.translate(ox, oy);
+  g.scale(destW / W, destH / H);
+  g.beginPath();
+  g.rect(0, 0, W, H);
+  g.clip();
+  const bg = g.createLinearGradient(0, 0, 0, H);
       bg.addColorStop(0, "#071425");
       bg.addColorStop(1, "#02060e");
       g.fillStyle = bg;
@@ -442,7 +442,80 @@ export function makeTelemetryScreenTexture(THREE, spec, accentHex = "#f472b6") {
       // scanlines
       g.fillStyle = "rgba(255,255,255,0.025)";
       for (let y = 0; y < H; y += 4) g.fillRect(0, y, W, 1);
-    },
-    { repeat: false }
-  );
+  g.restore();
+}
+
+export { drawSignOnCtx, drawFloorDecalOnCtx, drawTelemetryScreenOnCtx };
+
+/**
+ * Telemetry wall screens. `spec.kind` is one of "graph", "bars", "map", "text".
+ * `spec.footer` must carry the honesty note (source or "illustrative").
+ */
+export function makeTelemetryScreenTexture(THREE, spec, accentHex = "#f472b6") {
+  return canvasTexture(THREE, 768, 432, (g, w, h) => drawTelemetryScreenOnCtx(g, 0, 0, w, h, spec, accentHex), { repeat: false });
+}
+
+/**
+ * Dynamic shelf-packed canvas atlas so many signs/screens/decals share one texture and merge
+ * into one draw call per zone. Works offline; in Node (no DOM) returns `texture: null` + valid UVs.
+ */
+export function createShelfAtlas(THREE, width = 2048, height = 1024, { pad = 4, bg = null } = {}) {
+  const hasDom = typeof document !== "undefined";
+  const canvas = hasDom ? document.createElement("canvas") : null;
+  const g = canvas ? canvas.getContext("2d") : null;
+  let texture = null;
+  if (canvas) {
+    canvas.width = width;
+    canvas.height = height;
+    if (bg) {
+      g.fillStyle = bg;
+      g.fillRect(0, 0, width, height);
+    } else {
+      g.clearRect(0, 0, width, height);
+    }
+    texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+  }
+  let cx = pad;
+  let cy = pad;
+  let rowH = 0;
+  function alloc(w, h, drawFn) {
+    if (cx + w + pad > width) {
+      cx = pad;
+      cy += rowH + pad;
+      rowH = 0;
+    }
+    if (cy + h + pad > height) {
+      return null;
+    }
+    const px = cx;
+    const py = cy;
+    cx += w + pad;
+    if (h > rowH) rowH = h;
+    if (g && drawFn) drawFn(g, px, py, w, h);
+    return {
+      u0: (px + 1) / width,
+      u1: (px + w - 1) / width,
+      v0: 1 - (py + h - 1) / height,
+      v1: 1 - (py + 1) / height,
+    };
+  }
+  function finalize() {
+    if (texture) texture.needsUpdate = true;
+  }
+  return { texture, alloc, finalize };
+}
+
+/** Remap a PlaneGeometry's [0,1] UVs into a packed atlas sub-rectangle. */
+export function remapPlaneUV(geo, rect) {
+  if (!rect) return geo;
+  const uv = geo.attributes.uv;
+  const du = rect.u1 - rect.u0;
+  const dv = rect.v1 - rect.v0;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, rect.u0 + uv.getX(i) * du, rect.v0 + uv.getY(i) * dv);
+  }
+  uv.needsUpdate = true;
+  return geo;
 }
