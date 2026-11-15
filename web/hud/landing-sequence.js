@@ -26,111 +26,392 @@ const GLIDE_S = 2.4;
 
 const FLAME_VERT = /* glsl */ `
   varying vec2 vUv;
+  varying vec3 vN;
+  varying vec3 vV;
   void main() {
     vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vN = normalize(normalMatrix * normal);
+    vV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
   }
 `;
 const FLAME_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uThrottle;
+  uniform float uOuter;
   varying vec2 vUv;
+  varying vec3 vN;
+  varying vec3 vV;
   float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+  }
   void main() {
-    // vUv.y: 1 at the nozzle, 0 at the tip of the plume
+    // vUv.y: 1 at the nozzle, 0 at the tip of the plume; vUv.x runs round the cone
     float along = vUv.y;
-    float flick = 0.82 + 0.18 * hash(vec2(floor(uTime * 40.0), vUv.x * 7.0));
-    float core = smoothstep(0.0, 0.85, along);
-    vec3 hot = vec3(1.0, 0.93, 0.78);
-    vec3 warm = vec3(1.0, 0.55, 0.18);
-    vec3 col = mix(warm, hot, pow(core, 2.0));
-    // shock diamonds: bright bands near the nozzle
-    float diamonds = 0.5 + 0.5 * sin(along * 38.0 - uTime * 6.0);
-    col += vec3(0.35, 0.3, 0.25) * diamonds * smoothstep(0.55, 1.0, along);
-    float a = core * flick * uThrottle;
-    gl_FragColor = vec4(col * a, a);
+    // soft silhouette: bright where the surface faces the camera, fading at the rim
+    float facing = pow(abs(dot(normalize(vN), normalize(vV))), 1.4);
+    float turb = noise(vec2(vUv.x * 14.0, along * 9.0 - uTime * 26.0));
+    float turb2 = noise(vec2(vUv.x * 31.0 + 7.0, along * 17.0 - uTime * 41.0));
+    float body = smoothstep(0.0, 0.92, along) * (0.72 + 0.5 * turb * turb2 + 0.12 * turb);
+    // raw engine light: white-blue core at the throat, yellow-orange body, red-brown tail
+    vec3 core = vec3(0.92, 0.95, 1.0);
+    vec3 mid = vec3(1.0, 0.72, 0.32);
+    vec3 tail = vec3(0.85, 0.3, 0.1);
+    vec3 col = mix(tail, mid, smoothstep(0.1, 0.55, along));
+    col = mix(col, core, pow(smoothstep(0.6, 1.0, along), 1.6));
+    // shock diamonds: stationary bright rings in the exhaust column
+    float dia = pow(0.5 + 0.5 * sin(along * 46.0), 6.0) * smoothstep(0.35, 0.95, along);
+    col += vec3(1.0, 0.85, 0.65) * dia * 0.8 * (1.0 - 0.4 * uOuter);
+    float a = body * facing * uThrottle * mix(1.0, 0.32, uOuter);
+    gl_FragColor = vec4(col * a * 1.5, a);
   }
 `;
+
+/** Canvas texture for the hull: weld seams, panel lines, rivets, scorching and lettering. */
+function makeHullTextures(THREE) {
+  const W = 1024;
+  const H = 1024;
+  const make = (draw) => {
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    draw(c.getContext("2d"));
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+    return t;
+  };
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rings = [0.1, 0.27, 0.45, 0.63, 0.79, 0.92];
+  const map = make((g) => {
+    g.fillStyle = "#d9d6cf";
+    g.fillRect(0, 0, W, H);
+    // brushed / painted panel mottling
+    for (let i = 0; i < 2600; i++) {
+      g.fillStyle = `rgba(${rnd() < 0.5 ? "255,255,255" : "90,86,80"},${0.015 + rnd() * 0.03})`;
+      g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 70, 1 + rnd() * 3);
+    }
+    // vertical panel lines and horizontal welds, rivets along the welds
+    g.strokeStyle = "rgba(60,58,54,0.55)";
+    g.lineWidth = 1.2;
+    for (let i = 0; i < 12; i++) {
+      g.beginPath();
+      g.moveTo((i / 12) * W, 0);
+      g.lineTo((i / 12) * W, H);
+      g.stroke();
+    }
+    g.lineWidth = 2.2;
+    for (const r of rings) {
+      g.beginPath();
+      g.moveTo(0, r * H);
+      g.lineTo(W, r * H);
+      g.stroke();
+      g.fillStyle = "rgba(70,66,60,0.7)";
+      for (let x = 0; x < W; x += 14) g.fillRect(x, r * H - 7, 2.4, 2.4);
+    }
+    // team stripe and lettering (upright on the texture: v runs up the body)
+    g.fillStyle = "#1f3f73";
+    g.fillRect(0, H * 0.36, W, 22);
+    g.fillStyle = "#c8452b";
+    g.fillRect(0, H * 0.36 + 26, W, 6);
+    g.save();
+    g.translate(W * 0.25, H * 0.52);
+    g.rotate(-Math.PI / 2);
+    g.fillStyle = "#1c1c1c";
+    g.font = "700 74px sans-serif";
+    g.textAlign = "center";
+    g.fillText("MARTIAN MAPPERS", 0, 0);
+    g.font = "500 30px sans-serif";
+    g.fillText("EDL-01  ·  CREW LANDER", 0, 46);
+    g.restore();
+    // scorch: heat and engine soot darken the lower body, streaks climb up
+    const grad = g.createLinearGradient(0, H, 0, H * 0.45);
+    grad.addColorStop(0, "rgba(18,12,8,0.85)");
+    grad.addColorStop(0.5, "rgba(40,28,18,0.35)");
+    grad.addColorStop(1, "rgba(40,28,18,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, H * 0.45, W, H * 0.55);
+    for (let i = 0; i < 90; i++) {
+      const x = rnd() * W;
+      g.strokeStyle = `rgba(25,18,12,${0.1 + rnd() * 0.25})`;
+      g.lineWidth = 1 + rnd() * 4;
+      g.beginPath();
+      g.moveTo(x, H);
+      g.lineTo(x + (rnd() - 0.5) * 20, H * (0.45 + rnd() * 0.4));
+      g.stroke();
+    }
+    // wind-blown rust-coloured dust on the lower hull
+    for (let i = 0; i < 1400; i++) {
+      g.fillStyle = `rgba(170,105,64,${rnd() * 0.07})`;
+      g.fillRect(rnd() * W, H * (0.5 + rnd() * 0.5), 1 + rnd() * 8, 1 + rnd() * 3);
+    }
+  });
+  map.colorSpace = THREE.SRGBColorSpace;
+  const bump = make((g) => {
+    g.fillStyle = "#808080";
+    g.fillRect(0, 0, W, H);
+    g.strokeStyle = "#202020";
+    g.lineWidth = 2;
+    for (let i = 0; i < 12; i++) {
+      g.beginPath();
+      g.moveTo((i / 12) * W, 0);
+      g.lineTo((i / 12) * W, H);
+      g.stroke();
+    }
+    g.lineWidth = 5;
+    for (const r of rings) {
+      g.beginPath();
+      g.moveTo(0, r * H);
+      g.lineTo(W, r * H);
+      g.stroke();
+      g.fillStyle = "#e0e0e0";
+      for (let x = 0; x < W; x += 14) g.fillRect(x, r * H - 7, 3, 3);
+    }
+  });
+  return { map, bump };
+}
 
 function buildLander(THREE) {
   const g = new THREE.Group();
   g.name = "crew-lander";
-  const hull = new THREE.MeshStandardMaterial({ color: 0xdedcd6, roughness: 0.42, metalness: 0.35 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x24272c, roughness: 0.6, metalness: 0.5 });
-  const shield = new THREE.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.85, metalness: 0.1 });
+  const tex = makeHullTextures(THREE);
+  const hull = new THREE.MeshStandardMaterial({
+    map: tex.map,
+    bumpMap: tex.bump,
+    bumpScale: 2.2,
+    color: 0xffffff,
+    roughness: 0.55,
+    metalness: 0.22,
+    envMapIntensity: 1.1,
+  });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1d2025, roughness: 0.6, metalness: 0.6 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.28, metalness: 0.92 });
+  const scorched = new THREE.MeshStandardMaterial({ color: 0x2c2118, roughness: 0.82, metalness: 0.25 });
   const gold = new THREE.MeshStandardMaterial({ color: 0xc89b3c, roughness: 0.3, metalness: 0.9 });
-  const add = (geom, mat, x, y, z) => {
+  const glass = new THREE.MeshStandardMaterial({ color: 0x0c1118, roughness: 0.08, metalness: 0.9, envMapIntensity: 1.6 });
+  const add = (parent, geom, mat, x = 0, y = 0, z = 0, cast = true) => {
     const m = new THREE.Mesh(geom, mat);
     m.position.set(x, y, z);
-    m.castShadow = true;
+    m.castShadow = cast;
     m.receiveShadow = true;
-    g.add(m);
+    parent.add(m);
     return m;
   };
   const R = 2.1;
-  // engine section, tank, crew cabin, nose
-  add(new THREE.CylinderGeometry(R, R * 1.06, 2.2, 40), shield, 0, 2.6, 0);
-  add(new THREE.CylinderGeometry(R, R, 7.5, 40), hull, 0, 7.45, 0);
-  add(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.35, 40), dark, 0, 11.3, 0);
-  add(new THREE.CylinderGeometry(R * 0.92, R, 2.6, 40), hull, 0, 12.75, 0);
-  add(new THREE.ConeGeometry(R * 0.92, 3.4, 40), hull, 0, 15.75, 0);
-  // cabin windows (dark band) and a hatch
-  add(new THREE.CylinderGeometry(R * 0.935, R * 0.935, 0.42, 40, 1, true, -0.6, 1.2), dark, 0, 13.1, 0);
-  add(new THREE.BoxGeometry(1.1, 1.8, 0.12), dark, 0, 9.0, -R - 0.02);
-  // engine bells
-  const bells = [];
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    const bell = add(new THREE.CylinderGeometry(0.34, 0.7, 1.3, 24, 1, true), dark, Math.cos(a) * 0.95, 0.95, Math.sin(a) * 0.95);
-    bell.material = new THREE.MeshStandardMaterial({ color: 0x2b2420, roughness: 0.45, metalness: 0.8, side: THREE.DoubleSide, emissive: 0x000000 });
-    bells.push(bell);
-  }
-  // gold thermal blanket ring
-  add(new THREE.CylinderGeometry(R * 1.07, R * 1.07, 0.3, 40), gold, 0, 1.6, 0);
 
-  // landing legs: hinge at the skirt, swing out and down when deployed
+  // main hull as one smooth profile: skirt, barrel, shoulder, ogive nose (lathe, u = round, v = up)
+  const prof = [
+    [R * 1.06, 1.7],
+    [R * 1.06, 2.5],
+    [R * 1.0, 2.9],
+    [R, 11.4],
+    [R * 0.99, 12.0],
+    [R * 0.94, 13.0],
+    [R * 0.84, 14.3],
+    [R * 0.66, 15.7],
+    [R * 0.44, 16.9],
+    [R * 0.2, 17.7],
+    [0.0, 18.0],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+  const body = add(g, new THREE.LatheGeometry(prof, 64), hull);
+  // lathe v follows the profile length: stretch it so the texture seams land where drawn
+  const uv = body.geometry.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * 1.0);
+
+  // heat-scorched engine skirt, a gold thermal band, interstage ring
+  add(g, new THREE.CylinderGeometry(R * 1.04, R * 1.1, 1.5, 64, 1, true), scorched, 0, 2.2, 0);
+  add(g, new THREE.CylinderGeometry(R * 1.08, R * 1.08, 0.28, 64), gold, 0, 3.05, 0);
+  add(g, new THREE.TorusGeometry(R * 1.01, 0.07, 8, 64), steel, 0, 11.4, 0).rotation.x = Math.PI / 2;
+
+  // crew windows: a row of dark panes with frames
+  for (let i = 0; i < 6; i++) {
+    const a = -0.9 + (i / 5) * 1.8;
+    const x = Math.sin(a) * (R * 0.93);
+    const z = -Math.cos(a) * (R * 0.93);
+    const frame = add(g, new THREE.BoxGeometry(0.42, 0.5, 0.1), dark, x, 13.0, z, false);
+    frame.rotation.y = -a;
+    const pane = add(g, new THREE.BoxGeometry(0.3, 0.38, 0.06), glass, x * 1.012, 13.0, z * 1.012, false);
+    pane.rotation.y = -a;
+  }
+
+  // side hatch with a frame, a handle and a short ladder
+  const hatchA = Math.PI * 0.5;
+  const hx = Math.cos(hatchA) * R;
+  const hz = Math.sin(hatchA) * R;
+  const hatch = new THREE.Group();
+  hatch.position.set(hx, 8.6, hz);
+  hatch.rotation.y = -hatchA + Math.PI / 2;
+  g.add(hatch);
+  add(hatch, new THREE.BoxGeometry(1.5, 2.2, 0.1), dark, 0, 0, 0.0, false);
+  add(hatch, new THREE.BoxGeometry(1.25, 1.95, 0.06), hull, 0, 0, 0.06, false);
+  add(hatch, new THREE.BoxGeometry(0.28, 0.07, 0.07), steel, 0.4, 0, 0.12, false);
+  for (let i = 0; i < 6; i++) add(hatch, new THREE.CylinderGeometry(0.035, 0.035, 0.7, 8), steel, 0, -2.4 - i * 0.5, 0.18, false).rotation.z = Math.PI / 2;
+  for (const sx of [-0.35, 0.35]) add(hatch, new THREE.CylinderGeometry(0.04, 0.04, 3.2, 8), steel, sx, -3.7, 0.18, false);
+
+  // cold-gas attitude thrusters: four clusters near the shoulder (they puff during the fall)
+  const rcs = [];
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+    const cluster = new THREE.Group();
+    cluster.position.set(Math.cos(a) * R * 0.97, 12.2, Math.sin(a) * R * 0.97);
+    cluster.rotation.y = -a;
+    g.add(cluster);
+    add(cluster, new THREE.BoxGeometry(0.22, 0.5, 0.3), dark, 0, 0, 0.1, false);
+    for (const dy of [-0.18, 0.18]) {
+      const n = add(cluster, new THREE.CylinderGeometry(0.03, 0.07, 0.16, 10), steel, 0.14, dy, 0.1, false);
+      n.rotation.z = -Math.PI / 2;
+    }
+    rcs.push({ cluster, a });
+  }
+
+  // engines: four gimballed bells (lathe), turbopump boxes and feed lines
+  const bellProf = [
+    [0.2, 0.0],
+    [0.16, 0.18],
+    [0.24, 0.55],
+    [0.4, 0.95],
+    [0.58, 1.3],
+    [0.68, 1.55],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+  const bellGeom = new THREE.LatheGeometry(bellProf, 28);
+  const bellMat = new THREE.MeshStandardMaterial({
+    color: 0x3b332c,
+    roughness: 0.4,
+    metalness: 0.9,
+    side: THREE.DoubleSide,
+  });
+  const bellPos = [
+    [0, 0],
+    [1.15, 0],
+    [-0.575, 1.0],
+    [-0.575, -1.0],
+  ];
+  const nozzle = [];
+  for (const [bx, bz] of bellPos) {
+    const eng = new THREE.Group();
+    eng.position.set(bx, 3.2, bz);
+    g.add(eng);
+    // bell hangs below the skirt: flip so the wide mouth points down
+    const bell = add(eng, bellGeom, bellMat, 0, 0, 0);
+    bell.rotation.x = Math.PI;
+    bell.position.y = 0;
+    add(eng, new THREE.CylinderGeometry(0.24, 0.3, 0.5, 16), steel, 0, 0.2, 0, false);
+    add(eng, new THREE.BoxGeometry(0.35, 0.3, 0.3), dark, 0.32, 0.45, 0, false);
+    add(eng, new THREE.TorusGeometry(0.43, 0.03, 8, 28), steel, 0, -0.95, 0, false).rotation.x = Math.PI / 2;
+    nozzle.push({ x: bx, z: bz, y: 3.2 - 1.55 });
+  }
+
+  // landing legs: a main strut with a telescoping piston and a crush-core foot, plus a brace
   const legs = [];
+  const braceGeom = new THREE.CylinderGeometry(0.06, 0.06, 1, 10);
+  braceGeom.translate(0, 0.5, 0);
+  const strutGeom = new THREE.CylinderGeometry(0.13, 0.16, 2.9, 14);
+  const pistonGeom = new THREE.CylinderGeometry(0.075, 0.075, 2.6, 12);
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     const hinge = new THREE.Group();
-    hinge.position.set(Math.cos(a) * R * 0.95, 3.82, Math.sin(a) * R * 0.95); // feet reach the ground when deployed
+    hinge.position.set(Math.cos(a) * R * 0.98, 3.9, Math.sin(a) * R * 0.98);
     hinge.rotation.y = -a;
     g.add(hinge);
-    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.22, 4.2, 0.3), dark);
-    strut.position.y = -2.1;
-    strut.castShadow = true;
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.16, 20), dark);
-    pad.position.y = -4.2;
-    pad.castShadow = true;
-    hinge.add(strut, pad);
-    legs.push({ hinge, a });
+    add(hinge, new THREE.BoxGeometry(0.4, 0.5, 0.5), dark, -0.05, 0, 0, false); // hinge block
+    add(hinge, strutGeom, dark, 0, -1.45, 0);
+    const piston = add(hinge, pistonGeom, steel, 0, -3.0, 0);
+    const foot = new THREE.Group();
+    foot.position.set(0, -4.35, 0);
+    hinge.add(foot);
+    add(foot, new THREE.CylinderGeometry(0.62, 0.74, 0.14, 24), dark, 0, 0, 0);
+    add(foot, new THREE.CylinderGeometry(0.5, 0.5, 0.2, 24), gold, 0, 0.16, 0); // crush honeycomb
+    const brace = add(g, braceGeom, steel, 0, 0, 0);
+    legs.push({ hinge, a, brace, piston, foot, anchor: new THREE.Vector3(Math.cos(a) * R * 0.99, 7.4, Math.sin(a) * R * 0.99) });
   }
+  const _u = new THREE.Vector3(0, 1, 0);
+  const _d = new THREE.Vector3();
+  const _m = new THREE.Vector3();
+  function setDeploy(d) {
+    const th = 0.04 + 0.44 * d;
+    const ext = 0.72 + 0.28 * d; // the piston extends as the leg opens
+    for (const leg of legs) {
+      leg.hinge.rotation.z = th;
+      leg.piston.position.y = -2.2 - 0.8 * ext;
+      leg.foot.position.y = -3.55 - 0.8 * ext;
+      // brace: from a hull anchor to a point on the main strut
+      const sx = Math.sin(th) * 2.3;
+      const sy = -Math.cos(th) * 2.3;
+      _m.set(leg.hinge.position.x + sx * Math.cos(leg.a), leg.hinge.position.y + sy, leg.hinge.position.z + sx * Math.sin(leg.a));
+      _d.copy(_m).sub(leg.anchor);
+      const len = _d.length();
+      leg.brace.position.copy(leg.anchor);
+      leg.brace.quaternion.setFromUnitVectors(_u, _d.divideScalar(len || 1));
+      leg.brace.scale.set(1, len, 1);
+    }
+  }
+  setDeploy(0);
 
-  // three engine plumes (open cones pointing down) + a glow light
-  const flameMat = new THREE.ShaderMaterial({
-    vertexShader: FLAME_VERT,
-    fragmentShader: FLAME_FRAG,
-    uniforms: { uTime: { value: 0 }, uThrottle: { value: 0 } },
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-  });
+  // exhaust plumes: an inner bright cone and a wide faint one per engine (shader), plus engine glow
+  const mkFlame = (outer) =>
+    new THREE.ShaderMaterial({
+      vertexShader: FLAME_VERT,
+      fragmentShader: FLAME_FRAG,
+      uniforms: { uTime: { value: 0 }, uThrottle: { value: 0 }, uOuter: { value: outer } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+  const flameMat = mkFlame(0);
+  const flameOuterMat = mkFlame(1);
   const flames = [];
-  for (const bell of bells) {
-    const geom = new THREE.ConeGeometry(0.62, 7, 20, 1, true);
-    geom.rotateX(Math.PI); // tip down
-    const f = new THREE.Mesh(geom, flameMat);
-    f.position.set(bell.position.x, bell.position.y - 0.65 - 3.5, bell.position.z);
-    f.frustumCulled = false;
-    f.renderOrder = 5;
-    g.add(f);
-    flames.push(f);
+  for (const n of nozzle) {
+    const inner = new THREE.ConeGeometry(0.55, 8.5, 28, 1, true);
+    inner.rotateX(Math.PI); // tip down
+    inner.translate(0, -4.25, 0);
+    const outer = new THREE.ConeGeometry(0.95, 6.5, 28, 1, true);
+    outer.rotateX(Math.PI);
+    outer.translate(0, -3.25, 0);
+    for (const [geom, mat] of [
+      [inner, flameMat],
+      [outer, flameOuterMat],
+    ]) {
+      const f = new THREE.Mesh(geom, mat);
+      f.position.set(n.x, n.y + 0.05, n.z);
+      f.frustumCulled = false;
+      f.renderOrder = 5;
+      g.add(f);
+      flames.push(f);
+    }
   }
-  const glow = new THREE.PointLight(0xffa04a, 0, 90, 1.6);
-  glow.position.set(0, -2, 0);
+  const glow = new THREE.PointLight(0xffa04a, 0, 120, 1.5);
+  glow.position.set(0, -1.5, 0);
   g.add(glow);
-  return { group: g, legs, flames, flameMat, glow };
+
+  // cold-gas puffs (sprites: soft white points) at the thruster clusters
+  const puffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+  const puffs = rcs.map((r) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), puffMat.clone());
+    m.position.set(Math.cos(r.a) * (R + 0.5), 12.2, Math.sin(r.a) * (R + 0.5));
+    m.visible = false;
+    g.add(m);
+    return m;
+  });
+  function updateRcs(t, active) {
+    puffs.forEach((m, i) => {
+      const phase = (t * 1.7 + i * 0.37) % 1;
+      const on = active && phase < 0.16 && Math.sin(t * 2.3 + i * 5.1) > 0.2;
+      m.visible = on;
+      if (on) {
+        const k = phase / 0.16;
+        m.material.opacity = 0.7 * (1 - k);
+        m.scale.setScalar(0.5 + k * 2.2);
+      }
+    });
+  }
+  return { group: g, legs, flames, flameMat, flameOuterMat, glow, setDeploy, updateRcs };
 }
 
 export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) {
@@ -183,9 +464,8 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     return { h: 0, v: 0, throttle: Math.max(0, 0.45 * (1 - after / 0.6)) };
   }
 
-  // each hinge's local +X points radially outwards; turning it about local Z swings the foot out
   function placeLegs(deploy) {
-    for (const leg of L.legs) leg.hinge.rotation.z = 0.04 + 0.44 * deploy;
+    L.setDeploy(deploy);
   }
 
   function setFade(a) {
@@ -219,6 +499,8 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     document.body.classList.remove("landing-active");
     setFade(0);
     L.flameMat.uniforms.uThrottle.value = 0;
+    L.flameOuterMat.uniforms.uThrottle.value = 0;
+    L.updateRcs(0, false);
     L.glow.intensity = 0;
     // the lander stays where it landed
     L.group.position.y = sampleY(pad.x, pad.z);
@@ -259,7 +541,11 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     placeLegs(Math.max(0, Math.min(1, (40 - p.h) / 25)));
     L.flameMat.uniforms.uTime.value = clockT;
     L.flameMat.uniforms.uThrottle.value = p.throttle;
-    for (const f of L.flames) f.scale.set(1, 0.6 + p.throttle * 0.9, 1);
+    L.flameOuterMat.uniforms.uTime.value = clockT;
+    L.flameOuterMat.uniforms.uThrottle.value = p.throttle;
+    const flick = 1 + 0.06 * Math.sin(clockT * 47) + 0.04 * Math.sin(clockT * 83);
+    for (const f of L.flames) f.scale.set(1, (0.55 + p.throttle * 0.95) * flick, 1);
+    L.updateRcs(clockT, p.h > 12);
     L.glow.intensity = p.throttle * 260;
 
     // blasted regolith: the closer the engines get to the ground, the more and faster the dust

@@ -1850,6 +1850,7 @@ export async function initHud3D(
   const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
   // rocket landing cinematic at the start of an EVA (landing-sequence.js); the lander stays as a landmark
   const landing = createLandingSequence(THREE, scene, { marsFx, sampleY: sampleElevSceneY });
+  let landingHidNpcs = false;
 
   // ---------- contact shadows under the boots ----------
   // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
@@ -4599,7 +4600,7 @@ export async function initHud3D(
 
       freePos.set(phys.x, phys.y, phys.z);
       if (partner && partner.group.visible) pushApart(partner.group.position);
-      if (landing.lander.visible && !landing.active) pushApart(landing.lander.position, 3.4);
+      if (landing.lander.visible && !landing.active) pushApart(landing.lander.position, 4.6);
       let nearestR = null;
       let minDistR = Infinity;
       for (const drvR of drivableRovers) {
@@ -4974,7 +4975,13 @@ export async function initHud3D(
     // Rocket landing cinematic: no characters on screen, the camera belongs to the sequence
     if (landing.active) {
       if (self?.group) self.group.visible = false;
+      // no characters on screen: the station crew stays out of sight until the landing is over
+      npcManager.npcGroup.visible = false;
+      landingHidNpcs = true;
       landing.update(dt, camera, clockT);
+    } else if (landingHidNpcs) {
+      landingHidNpcs = false;
+      npcManager.npcGroup.visible = habitatStation.group.visible;
     }
 
     // Smoothly animate live multiplayer crewmates
@@ -5225,15 +5232,16 @@ export async function initHud3D(
     visitLocation,
     /**
      * Rocket landing cinematic, then the EVA starts beside the lander. `site` is the caption.
-     * The lander touches down ~22 m ahead and to the right of where you will stand.
+     * The lander touches down about 47 m south-east of where you will stand.
      */
     playLanding: ({ site = null } = {}) => {
       keys.clear();
       dragging = false;
       const yaw = autoYaw + userYaw;
-      const a = yaw + 0.55;
-      const padX = freePos.x - Math.sin(a) * 22;
-      const padZ = freePos.z - Math.cos(a) * 22;
+      // the lander touches down on open ground: the habitat station lies north of the entry point,
+      // so the pad is to the south-east of where you will stand (about 47 m away)
+      const padX = freePos.x + 30;
+      const padZ = freePos.z + 36;
       landing.start({ x: freePos.x, z: freePos.z, yaw, padX, padZ, site: site || undefined });
     },
     isLandingActive: () => landing.active,
