@@ -1,0 +1,74 @@
+{
+  "sites": {
+    "perseverance": {
+      "description": "Jezero crater, Octavia E. Butler landing site",
+      "width": 990,
+      "height": 990,
+      "spacingM": 2.0193266537422,
+      "centerLat": 18.4447,
+      "centerLonE": 77.4508,
+      "bounds": {
+        "south": 18.42782999845807,
+        "north": 18.461570001541933,
+        "west": 77.43301644787967,
+        "east": 77.46858355212034
+      }
+    },
+    "spirit": {
+      "description": "Gusev crater, Columbia Hills",
+      "width": 989,
+      "height": 989,
+      "spacingM": 2.021082480195,
+      "centerLat": -14.5684,
+      "centerLonE": 175.4726,
+      "bounds": {
+        "south": -14.585263938076148,
+        "north": -14.551536061923853,
+        "west": 175.45517584116362,
+        "east": 175.49002415883638
+      }
+    },
+    "opportunity": {
+      "description": "Meridiani Planum, Victoria crater DTM",
+      "width": 794,
+      "height": 882,
+      "spacingM": 2.023705701365,
+      "centerLat": -1.9462,
+      "centerLonE": 354.4734,
+      "bounds": {
+        "south": -1.961256242403448,
+        "north": -1.9311437575965518,
+        "west": 354.45983814465643,
+        "east": 354.4869618553436
+      }
+    },
+    "insight": {
+      "description": "Elysium Planitia, InSight landing ellipse",
+      "width": 988,
+      "height": 988,
+      "spacingM": 2.023580170771,
+      "centerLat": 4.5024,
+      "centerLonE": 135.6234,
+      "bounds": {
+        "south": 4.485535323398861,
+        "north": 4.519264676601138,
+        "west": 135.6064831186876,
+        "east": 135.6403168813124
+      }
+    },
+    "sojourner": {
+      "description": "Ares Vallis, Mars Pathfinder site",
+      "width": 990,
+      "height": 990,
+      "spacingM": 2.0190595299216,
+      "centerLat": 19.13,
+      "centerLonE": 326.78,
+      "bounds": {
+        "south": 19.11313223008278,
+        "north": 19.14686776991722,
+        "west": 326.76214630346425,
+        "east": 326.7978536965357
+      }
+    }
+  }
+}

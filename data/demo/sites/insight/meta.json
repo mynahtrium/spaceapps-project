@@ -1,0 +1,27 @@
+{
+  "site": "insight",
+  "description": "Elysium Planitia, InSight landing ellipse",
+  "width": 988,
+  "height": 988,
+  "spacingM": 2.023580170771,
+  "heightOffsetM": -2629.552978515625,
+  "heightScaleM": 0.01,
+  "minHeightM": -2629.552978515625,
+  "maxHeightM": -2594.8792724609375,
+  "centerLat": 4.5024,
+  "centerLonE": 135.6234,
+  "bounds": {
+    "south": 4.485535323398861,
+    "north": 4.519264676601138,
+    "west": 135.6064831186876,
+    "east": 135.6403168813124
+  },
+  "validFraction": 1.0,
+  "source": {
+    "product": "DTEEC_037262_1845_036761_1845_U01",
+    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_037200_037299/ESP_037262_1845_ESP_036761_1845/DTEEC_037262_1845_036761_1845_U01.IMG",
+    "provider": "HiRISE DTM, University of Arizona / NASA MRO",
+    "fetched": "2026-11-15",
+    "nativeScaleM": 1.0117900853855
+  }
+}

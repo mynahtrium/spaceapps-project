@@ -1,0 +1,27 @@
+{
+  "site": "sojourner",
+  "description": "Ares Vallis, Mars Pathfinder site",
+  "width": 990,
+  "height": 990,
+  "spacingM": 2.0190595299216,
+  "heightOffsetM": -3702.3658447265625,
+  "heightScaleM": 0.01,
+  "minHeightM": -3702.3658447265625,
+  "maxHeightM": -3680.6061401367188,
+  "centerLat": 19.13,
+  "centerLonE": 326.78,
+  "bounds": {
+    "south": 19.11313223008278,
+    "north": 19.14686776991722,
+    "west": 326.76214630346425,
+    "east": 326.7978536965357
+  },
+  "validFraction": 0.677,
+  "source": {
+    "product": "DTEEC_002391_1995_001890_1995_A01",
+    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/PSP/ORB_002300_002399/PSP_002391_1995_PSP_001890_1995/DTEEC_002391_1995_001890_1995_A01.IMG",
+    "provider": "HiRISE DTM, University of Arizona / NASA MRO",
+    "fetched": "2026-11-15",
+    "nativeScaleM": 1.0095297649608
+  }
+}

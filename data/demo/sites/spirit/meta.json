@@ -1,0 +1,27 @@
+{
+  "site": "spirit",
+  "description": "Gusev crater, Columbia Hills",
+  "width": 989,
+  "height": 989,
+  "spacingM": 2.021082480195,
+  "heightOffsetM": -1953.9305114746094,
+  "heightScaleM": 0.01,
+  "minHeightM": -1953.9305114746094,
+  "maxHeightM": -1934.251220703125,
+  "centerLat": -14.5684,
+  "centerLonE": 175.4726,
+  "bounds": {
+    "south": -14.585263938076148,
+    "north": -14.551536061923853,
+    "west": 175.45517584116362,
+    "east": 175.49002415883638
+  },
+  "validFraction": 1.0,
+  "source": {
+    "product": "DTEEC_001513_1655_001777_1650_U01",
+    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/PSP/ORB_001500_001599/PSP_001513_1655_PSP_001777_1650/DTEEC_001513_1655_001777_1650_U01.IMG",
+    "provider": "HiRISE DTM, University of Arizona / NASA MRO",
+    "fetched": "2026-11-15",
+    "nativeScaleM": 1.0105412400975
+  }
+}

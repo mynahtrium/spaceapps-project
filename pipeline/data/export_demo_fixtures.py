@@ -101,7 +101,7 @@ def export_demo_fixtures() -> dict[str, Any]:
     # Preserve pre-bundled global Mars assets in data/demo/ inside the manifest.
     for global_name in (
         "mars-global-sources.json",
-        "mars-mola-dem.png",
+        "globe/mola-8ppd.png",
         "mars-mola-shaded.jpg",
         "mars-viking-global.jpg",
     ):

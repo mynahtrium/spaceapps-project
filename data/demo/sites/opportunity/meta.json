@@ -1,0 +1,27 @@
+{
+  "site": "opportunity",
+  "description": "Meridiani Planum, Victoria crater DTM",
+  "width": 794,
+  "height": 882,
+  "spacingM": 2.023705701365,
+  "heightOffsetM": -1401.746337890625,
+  "heightScaleM": 0.01,
+  "minHeightM": -1401.746337890625,
+  "maxHeightM": -1379.85107421875,
+  "centerLat": -1.9462,
+  "centerLonE": 354.4734,
+  "bounds": {
+    "south": -1.961256242403448,
+    "north": -1.9311437575965518,
+    "west": 354.45983814465643,
+    "east": 354.4869618553436
+  },
+  "validFraction": 0.563,
+  "source": {
+    "product": "DTEEC_021747_1780_022380_1780_U01",
+    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_021700_021799/ESP_021747_1780_ESP_022380_1780/DTEEC_021747_1780_022380_1780_U01.IMG",
+    "provider": "HiRISE DTM, University of Arizona / NASA MRO",
+    "fetched": "2026-11-15",
+    "nativeScaleM": 1.0118528506825
+  }
+}

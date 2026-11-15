@@ -1,0 +1,27 @@
+{
+  "site": "perseverance",
+  "description": "Jezero crater, Octavia E. Butler landing site",
+  "width": 990,
+  "height": 990,
+  "spacingM": 2.0193266537422,
+  "heightOffsetM": -2611.5438842773438,
+  "heightScaleM": 0.01,
+  "minHeightM": -2611.5438842773438,
+  "maxHeightM": -2543.3829345703125,
+  "centerLat": 18.4447,
+  "centerLonE": 77.4508,
+  "bounds": {
+    "south": 18.42782999845807,
+    "north": 18.461570001541933,
+    "west": 77.43301644787967,
+    "east": 77.46858355212034
+  },
+  "validFraction": 1.0,
+  "source": {
+    "product": "DTEEC_045994_1985_046060_1985_U01",
+    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_045900_045999/ESP_045994_1985_ESP_046060_1985/DTEEC_045994_1985_046060_1985_U01.IMG",
+    "provider": "HiRISE DTM, University of Arizona / NASA MRO",
+    "fetched": "2026-11-15",
+    "nativeScaleM": 1.0096633268711
+  }
+}

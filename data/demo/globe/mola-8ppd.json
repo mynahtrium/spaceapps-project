@@ -1,0 +1,16 @@
+{
+  "width": 2880,
+  "height": 1440,
+  "pixelsPerDegree": 8,
+  "west": 0,
+  "north": 90,
+  "encoding": "height_m = R*256 + G - 32768",
+  "minHeightM": -8135.0,
+  "maxHeightM": 21159.25,
+  "source": {
+    "product": "MGS MOLA MEGDR megt90n000eb (16 ppd, averaged to 8 ppd)",
+    "url": "https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg016/megt90n000eb.img",
+    "provider": "NASA / GSFC MOLA team, PDS Geosciences Node",
+    "fetched": "2026-11-15"
+  }
+}

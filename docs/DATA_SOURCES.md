@@ -18,7 +18,7 @@ These files came from the `demo-1` branch (Cinar D.); full source list in `data/
 
 | File | What it is | Source |
 |---|---|---|
-| `data/demo/mars-mola-dem.png` | NASA MGS MOLA MEGDR global elevation, 2880 x 1440 (8 px/deg), R/G = (elev + 12000) as 16 bits | [PDS MOLA MEGDR](https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg016/megt90n000eb.lbl) |
+| `data/demo/globe/mola-8ppd.png` | NASA MGS MOLA MEGDR global elevation (megt90n000eb, 16 px/deg averaged to 8), 2880 x 1440, height = R*256 + G - 32768; built by `pipeline/globe/build_mola_grid.py`, fetched 2026-11-15 | [PDS MOLA MEGDR](https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg016/megt90n000eb.lbl) |
 | `data/demo/mars-viking-global.jpg` | Viking MDIM 2.1 colourised global mosaic, stitched from Mars Trek zoom-3 tiles | [Mars Trek WMTS](https://trek.nasa.gov/tiles/Mars/EQ/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/WMTSCapabilities.xml) |
 | `data/demo/mars-mola-shaded.jpg` | MOLA colour shaded relief, stitched from Mars Trek zoom-3 tiles | [Mars Trek WMTS](https://trek.nasa.gov/tiles/Mars/EQ/Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/WMTSCapabilities.xml) |
 

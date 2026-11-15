@@ -4,8 +4,19 @@
     {
       "name": "app",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["scripts/server.mjs"],
+      "runtimeArgs": [
+        "scripts/server.mjs"
+      ],
       "port": 8000
+    },
+    {
+      "name": "app-8011",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/server.mjs",
+        "8011"
+      ],
+      "port": 8011
     }
   ]
 }
