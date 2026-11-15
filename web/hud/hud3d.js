@@ -43,6 +43,7 @@ import { createCelestialSky } from "./MarsCelestialSky.js";
 import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
 import { createDustDevil } from "./DustDevil.js";
+import { createLandingSequence } from "./landing-sequence.js";
 import { gamepad } from "../shared/gamepad.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
@@ -1855,6 +1856,9 @@ export async function initHud3D(
   stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
 
   const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
+  // rocket landing cinematic at the start of an EVA (landing-sequence.js); the lander stays as a landmark
+  const landing = createLandingSequence(THREE, scene, { marsFx, sampleY: sampleElevSceneY });
+  let landingHidNpcs = false;
 
   // ---------- contact shadows under the boots ----------
   // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
@@ -2595,6 +2599,7 @@ export async function initHud3D(
     lastMouseClient.valid = true;
     const locked = isPointerLocked();
     if (!locked && !dragging) return;
+    if (landing.active) return;
     if (isMapOpen() || !isHudActive()) {
       dragging = false;
       if (locked) releasePointerLock();
@@ -3594,6 +3599,12 @@ export async function initHud3D(
 
   window.addEventListener("keydown", (e) => {
     if (!hudView.classList.contains("active")) return;
+    if (landing.active) {
+      // any key skips the landing cinematic; the others do nothing meanwhile
+      e.preventDefault();
+      if (!e.repeat) landing.skip();
+      return;
+    }
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
     const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
@@ -3625,7 +3636,7 @@ export async function initHud3D(
       }
       return;
     }
-    if ((k === "m" || k === "o") && !e.repeat) {
+    if (k === "o" && !e.repeat) {
       e.preventDefault();
       releasePointerLock();
       onOpenOrbit?.();
@@ -3799,6 +3810,7 @@ export async function initHud3D(
     !document.getElementById("start-screen")?.classList.contains("hidden") ||
     hasOpenModalOverlay();
   gamepad.onPress(({ actions }) => {
+    if (landing.active) return landing.skip();
     if (!isHudActive() || padBlocked() || drivingRover) return;
     for (const a of actions) {
       if (a === "jump") {
@@ -4643,6 +4655,7 @@ export async function initHud3D(
 
       freePos.set(phys.x, phys.y, phys.z);
       if (partner && partner.group.visible) pushApart(partner.group.position);
+      if (landing.lander.visible && !landing.active) pushApart(landing.lander.position, 4.6);
       let nearestR = null;
       let minDistR = Infinity;
       for (const drvR of drivableRovers) {
@@ -5014,6 +5027,18 @@ export async function initHud3D(
       }
     }
 
+    // Rocket landing cinematic: no characters on screen, the camera belongs to the sequence
+    if (landing.active) {
+      if (self?.group) self.group.visible = false;
+      // no characters on screen: the station crew stays out of sight until the landing is over
+      npcManager.npcGroup.visible = false;
+      landingHidNpcs = true;
+      landing.update(dt, camera, clockT);
+    } else if (landingHidNpcs) {
+      landingHidNpcs = false;
+      npcManager.npcGroup.visible = habitatStation.group.visible;
+    }
+
     // Smoothly animate live multiplayer crewmates
     const lerpAlpha = Math.min(1, dt * 12);
     for (const remote of remoteAvatars.values()) {
@@ -5102,6 +5127,17 @@ export async function initHud3D(
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
     sun.castShadow = sunUpNow > 0.01;
+    window.MartianWeather?.update?.({
+      THREE,
+      scene,
+      camera,
+      sun,
+      hemiLight,
+      player: { x: px, y: player.y, z: pz },
+      groundY,
+      dt,
+      sampleElevY: sampleElevSceneY,
+    });
     // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
     if (now - sunStateStampMs > 30000) {
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });
@@ -5259,6 +5295,22 @@ export async function initHud3D(
     /** Teleport to a lon/lat anywhere on Mars (HiRISE at Gale, procedural relief elsewhere). */
     teleportTo: (lon, lat) => visitLocation(lon, lat, { keepYaw: true }),
     visitLocation,
+    /**
+     * Rocket landing cinematic, then the EVA starts beside the lander. `site` is the caption.
+     * The lander touches down about 47 m south-east of where you will stand.
+     */
+    playLanding: ({ site = null } = {}) => {
+      keys.clear();
+      dragging = false;
+      const yaw = autoYaw + userYaw;
+      // the lander touches down on open ground: the habitat station lies north of the entry point,
+      // so the pad is to the south-east of where you will stand (about 47 m away)
+      const padX = freePos.x + 30;
+      const padZ = freePos.z + 36;
+      landing.start({ x: freePos.x, z: freePos.z, yaw, padX, padZ, site: site || undefined });
+    },
+    isLandingActive: () => landing.active,
+    seekLanding: (t) => landing.seek(t),
     /** Camera drop from ~240 m to the visor after an Orbit-view descent. */
     playArrivalDrop: () => {
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;

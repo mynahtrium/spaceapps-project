@@ -1166,6 +1166,17 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Cagan checks F3 with Super Graphics on; if the render scale sits at 60 % and fps is still low, turn off Ray Tracing or Realistic Textures, or use Balanced quality.
 
+### 2026-11-15 Europe/Istanbul — EDL-01 rocket landing cinematic at the start of the EVA
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: EDL-01
+- Files changed: `web/hud/landing-sequence.js` (new), `web/hud/hud3d.js`, `web/app.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked for a landing animation with no characters: arrive on Mars by rocket and start from there. Begin EVA (and a landing picked in the Orbit view) now plays an about 19 s entry-descent-landing cinematic: the lander falls from 720 m at 95 m/s, ignites at 300 m and brakes at a constant ~15.5 m/s² to a 9 m hover, deploys its legs and settles at about 1.3 m/s in blasted regolith (mars-fx dust), with a ground-lit engine glow. Shots: aerial chase while falling (haze thinned at altitude), long ground shot of the burn, low close shot of touchdown, then a glide to the visor beside the lander. Letterbox bars and a caption; any key, click or controller button skips. The walker is hidden while it plays, the helmet HUD is hidden, input is locked. The lander stays at the pad (about 22 m ahead-right of you) as a solid landmark. It is a generic illustrative lander, not a real vehicle design. `hudApi.seekLanding(t)` jumps within the sequence for checking shots.
+- Tests: `node --test web/tests/*.test.mjs` passes. Checked shots A, B and the end state in the browser.
+- Commit: this commit
+- Next step: Cagan watches it at full frame rate; timing constants are at the top of `landing-sequence.js`.
 ### 2026-11-15 Europe/Istanbul — Final pull and branch consolidation into `main`
 
 - Human: Eymen
@@ -1174,3 +1185,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Files changed: `web/shared/dev-settings.js`, `web/styles.css`, `web/planner/map-gamepad.js`, `web/tests/fallback.test.mjs`, `docs/AI_USE.md`, `docs/AI_USE_LOG.md`, plus unified stash integration onto `origin/main` (`aacadf6`)
 - Why: Pulled latest `origin/main` (`aacadf6`, PERF-01 / LOAD-01 / PERF-02), merged `QUALITY_LEVELS` / `quality` seamlessly with the 3 HUD themes (`cyan`, `untitled`, `mono`) and `windDust` controls, restored `web/planner/map-gamepad.js` from `origin/demo1-controller` so nothing was lost, recorded merge commits (`-s ours`) unifying `origin/backend/science`, `origin/demo1-controller`, `origin/developermenu`, and `origin/frontend/planner-hud` into `main`, and removed local non-`main` branch pointers so only `main` remains locally.
 - Commit: consolidated commits on `main`
+
+### 2026-11-15 Europe/Istanbul — EDL-02 more realistic lander, landing pad clear of the station
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: EDL-02
+- Files changed: `web/hud/landing-sequence.js`, `web/hud/hud3d.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked for a more realistic rocket. The lander now has a smooth lathe hull (barrel, shoulder, ogive nose) with a procedural hull texture (weld seams, panel lines, rivets, team stripe and lettering, soot streaks, dust) and a matching bump map; a scorched engine skirt, a gold band, windows with frames, a side hatch with a ladder, four cold-gas thrusters that puff during the fall; four gimballed engine bells with feed hardware; legs with a main strut, a telescoping piston, a crush-core foot and a diagonal brace that follows the leg as it deploys; and a plume made of an inner and an outer cone with noise turbulence, rim-softened edges, shock diamonds and a flicker. The pad moved to about 47 m south-east of the walker, clear of the habitat station that main now spawns next to, and the station NPCs are hidden while the cinematic plays (no characters on screen).
+- Not re-added: the performance work, wind dust and rover dashboard that the team's merges removed from `hud3d.js` (Cagan: do not restore).
+- Commit: this commit
+- Next step: none.

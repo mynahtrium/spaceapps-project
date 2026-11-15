@@ -1082,6 +1082,12 @@ async function boot() {
       hudApi.visitLocation(lon, lat, { keepYaw: true, sun: sunMode });
     }
     switchView("hud");
+    if (hudApi.playLanding) {
+      const ns = lat >= 0 ? "N" : "S";
+      const ew = lon >= 0 ? "E" : "W";
+      hudApi.playLanding({ site: `${Math.abs(lat).toFixed(2)}°${ns} · ${Math.abs(lon).toFixed(2)}°${ew}` });
+      return;
+    }
     hudApi.playArrivalDrop?.();
     const flash = document.createElement("div");
     flash.className = "arrival-flash";
@@ -1090,9 +1096,13 @@ async function boot() {
     setTimeout(() => flash.remove(), 1200);
   }
 
+  let pendingIntro = false;
   const startEva = () => {
     if (data.route) dispatchSetRoute(data.route, 0);
     switchToHud();
+    // land by rocket, then walk from the lander (plays once the 3D view has loaded)
+    if (hudApi?.playLanding) hudApi.playLanding({ site: "GALE CRATER · MOUNT SHARP" });
+    else pendingIntro = true;
   };
 
   btnTabHud.onclick = switchToHud;
@@ -1247,6 +1257,7 @@ async function boot() {
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
     const k = e.key?.toLowerCase?.() || "";
+    if (document.body.classList.contains("landing-active")) return; // keys only skip the landing
 
     if (!e.repeat && modalBackdrop.classList.contains("open") && modalToggleKey && k === modalToggleKey) {
       e.preventDefault();
@@ -1461,6 +1472,10 @@ async function boot() {
     throw err;
   }
   if (data.route) dispatchSetRoute(data.route, 0);
+  if (pendingIntro && !pendingLanding) {
+    pendingIntro = false;
+    hudApi.playLanding?.({ site: "GALE CRATER · MOUNT SHARP" });
+  }
   if (pendingLanding) {
     const args = pendingLanding;
     pendingLanding = null;
