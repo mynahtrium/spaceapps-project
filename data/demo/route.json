@@ -1,14 +1,14 @@
 {
   "contract": "martian-mappers.route.v1",
   "status": "example",
-  "note": "Example route while PRE-07 is open. Not locked science stops. Routed on data/processed/terrain/cost-map.json. Slope limit illustrative lunar stand-in. Reported distance_m is the sum of the stop-to-stop legs. No routed example stop sits in a blocked cell. Stops were not moved. Blocked contract example points, left where they are: stop-boxwork-bonus (137.393, -4.803).",
+  "note": "Example route while PRE-07 is open. Not locked science stops. Routed on data/demo/cost-map.json. Slope limit illustrative lunar stand-in. Reported distance_m is the sum of the stop-to-stop legs. No routed example stop sits in a blocked cell. Stops were not moved. Blocked contract example points, left where they are: stop-boxwork-bonus (137.393, -4.803).",
   "sources": [
     {
       "name": "HiRISE DTM (MRO), PDS",
       "product_id": "DTEEC_019698_1750_019988_1750_U01",
       "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
       "fetch_date": "2026-11-14",
-      "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+      "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
     },
     {
       "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -74,7 +74,7 @@
   "slope_limit_note": "Illustrative lunar stand-in. Not a Mars-specific limit.",
   "route_id": "eva-example-pre07-scaffold-001",
   "route_method": "dijkstra_8_neighbour",
-  "cost_map_used": "data/processed/terrain/cost-map.json",
+  "cost_map_used": "data/demo/cost-map.json",
   "stop_order": [
     "stop-habitat",
     "stop-mudstone-a",
@@ -694,6 +694,6 @@
     "climb_m": 38.3,
     "descent_m": 38.3,
     "duration_min_placeholder": 59.3,
-    "dose_mSv_see": "data/processed/science/dose.json"
+    "dose_mSv_see": "data/demo/dose.json"
   }
 }

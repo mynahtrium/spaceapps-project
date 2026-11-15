@@ -1119,3 +1119,58 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: main moved a lot after the 22:10 commit (orbit view replaced the planner and the visor map, rover driving, new arm rig, flat cyan HUD). The merge keeps main's structure: the orbit view is the Mars globe, so the visor-map globe (`visor-globe.js`) and the demo-1 `dust-fx.js` are not wired in any more (main has its own `marsFx` boot dust). Text colour is blue (#4da6ff family) on black at Cagan's request, via the existing colour variables in `web/styles.css`. Kept from my side: the controller (stick walk, right-stick look, RT run, buttons, setup screen), wind-blown dust (`wind-dust.js`) and dust on the visor glass, the black-and-white Untitled HUD on top of main's HUD markup, and the start stop having no tall pole. Handoff note (this file replaces HANDOFFS.md, which main deleted): the globe on main is now the orbit view; talk to Cagan before changing the HUD style again.
 - Commit: this commit
 - Next step: Cagan checks the controller in the orbit view; map controls for the orbit view are not wired yet.
+
+### 2026-11-15 Europe/Istanbul — MMSEV rover: rigid-body suspension physics, rig, digital dashboard
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: ROVER-01
+- Files changed: `web/hud/rover-dynamics.js` (new), `web/hud/rover-rig.js` (new), `web/hud/rover-dash.js` (new), `web/tests/rover-dynamics.test.mjs` (new), `web/hud/hud3d.js`, `web/hud/experimental-rover.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked to rig the drivable rover, give it very realistic suspension physics, stop it from accelerating all at once, and show a digital gauge cluster (RPM etc.) at the bottom while driving. The old model blended speed towards a target (about 230 m/s² at the start, so full speed in a blink) and faked the body motion. Now the chassis is a rigid body with six raycast spring-damper wheels (softer in bump than rebound, bump stop), tyre forces inside a friction circle (cornering from slip angle), four-wheel Ackermann steering, a motor with a torque limit, power limit and speed governor, and a pedal that ramps in about 0.7 s. Pitch under power and braking, roll in corners, single wheels climbing a ledge and flight off crests all come out of the physics. The numbers (mass 2.95 t, 14 kW, 20 km/h top, 45 kWh battery) are plausible stand-ins, not NASA specifications. Rig: control arms and coil-over struts (spring stretches with the real strut length) follow each wheel. Dashboard: speed, motor RPM arc and gear (D/N/R), power with regen, torque, battery, acceleration, artificial horizon with pitch/roll/heading, six strut travel bars, grip, warning lights. Controller while driving: RT/LT or left stick up/down pedals, left stick steer, A handbrake, X boost.
+- Tests: `web/tests/rover-dynamics.test.mjs` (rest sag, gentle start about 2 km/h after 1 s and peak 0.9 m/s2, top speed near 20 km/h, braking dive, turning roll, ledge, rough terrain). All web tests pass. Checked in the browser: boarding, driving, dust, dashboard.
+- Commit: this commit
+- Next step: Cagan drives it on a real machine (frame rate was low in the hidden preview pane); tune `ROVER_PARAMS` in `rover-dynamics.js` if it feels too slow or too soft.
+
+### 2026-11-15 Europe/Istanbul — PERF-01 frame-rate work (target: the screen's refresh rate, 120 Hz)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PERF-01
+- Files changed: `web/hud/merge-static.js` (new), `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/hud/experimental-rover.js`, `web/hud/wind-dust.js`, `web/shared/dev-settings.js`, `web/app.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Cagan gets bad frame rates on 16 GB RAM / RTX 4060 and needs 120 fps. Measured with the new F3 readout (frame ms, CPU ms, draw calls, triangles): the scene submitted 1288 draw calls per frame (the five historic rovers alone were about 930 meshes, the MMSEV about 200, all drawn twice because they cast shadows), which made the CPU about 8.3 ms per frame, already the whole 120 Hz budget. Changes: (1) static parts merged per material (`merge-static.js`): 1288 -> about 300 draw calls, CPU 8.3 -> about 3-4.8 ms, same picture and still inspectable. (2) Adaptive resolution used to react only above 24 ms (it accepted 40 fps); it now aims at the display's refresh rate (found from the frame intervals, snapped to 60/75/90/120/144/165/240 Hz), drops in 5 % steps down to 50 % and comes back, and ignores load stalls and hidden tabs. (3) New "Graphics quality" setting in the dev menu, default "performance": 1 pixel per CSS pixel, no MSAA, 1024 px shadow map, 45 % of the wind-dust particles; "balanced" = MSAA 2 and 2048 px shadows; "quality" = the old 1.25x resolution. (4) The terrain shadow bake (about 5 s of frozen page at start and again every 10 min or when the sun mode changes) now runs at half resolution, with early exit, in 6 ms slices after the first frames. Start-up about 7.2 s -> about 2.6 s.
+- Not measured: GPU time. The preview pane is hidden and throttled, so absolute fps there means nothing; press F3 in the game on the real machine to see fps, CPU ms, draw calls and render scale.
+- Commit: this commit
+- Next step: Cagan checks F3 on the RTX 4060. If it is still under 120 fps with CPU under about 6 ms, the limit is the GPU (terrain shader / resolution); then lower the quality level or the render scale floor.
+
+### 2026-11-15 Europe/Istanbul — LOAD-01 loading screen stuck on "NASA SUIT MODEL"
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: LOAD-01
+- Files changed: `web/hud/hud3d.js`, `web/app.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan reported that after pressing Begin the loading screen stays on "LOADING TERRAIN · NASA SUIT MODEL". I could not reproduce it (demo and normal mode, Begin pressed at once: the screen clears; suit ready in about 2.2 s here), so the fix makes a stuck load visible and bounded: the veil now names the step it is on (TERRAIN, NASA SUIT MODEL, SCENE); the height map and each suit model give up after 30 s / 25 s (then the next suit model, then the capsule stand-in); if the 3D view throws while starting, the veil shows `3D VIEW FAILED: <message>` and the error goes to the console. The suit load time is logged (`suit model ready in N ms`).
+- Commit: this commit
+- Next step: if it still sticks on Cagan's machine, he reports the text on the veil and the first red line in the browser console (F12).
+
+### 2026-11-15 Europe/Istanbul — PERF-02 Experimental Super Graphics made affordable
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PERF-02
+- Files changed: `web/hud/hud3d.js`, `web/app.js`, `docs/AI_USE_LOG.md`
+- Why: with Super Graphics on, the game still stuttered. It rendered 2x pixel ratio x 1.25 supersampling (about 6x the pixels), 4x MSAA on a half-float target, a 4096 px soft shadow map, and adaptive resolution was switched off. Now: pixel ratio up to 1.5, no extra supersampling, 2x MSAA, 2048 px soft shadows (about 3 cm texels), rocks and micro-detail unchanged, and the adaptive resolution stays on (floor 60 %) so it holds the screen's refresh rate. Ray tracing is a separate toggle and stays heavy (per-pixel height-field marching); the adaptive resolution also applies to it.
+- Commit: this commit
+- Next step: Cagan checks F3 with Super Graphics on; if the render scale sits at 60 % and fps is still low, turn off Ray Tracing or Realistic Textures, or use Balanced quality.
+
+### 2026-11-15 Europe/Istanbul — Final pull and branch consolidation into `main`
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Task id: branch-consolidation
+- Files changed: `web/shared/dev-settings.js`, `web/styles.css`, `web/planner/map-gamepad.js`, `web/tests/fallback.test.mjs`, `docs/AI_USE.md`, `docs/AI_USE_LOG.md`, plus unified stash integration onto `origin/main` (`aacadf6`)
+- Why: Pulled latest `origin/main` (`aacadf6`, PERF-01 / LOAD-01 / PERF-02), merged `QUALITY_LEVELS` / `quality` seamlessly with the 3 HUD themes (`cyan`, `untitled`, `mono`) and `windDust` controls, restored `web/planner/map-gamepad.js` from `origin/demo1-controller` so nothing was lost, recorded merge commits (`-s ours`) unifying `origin/backend/science`, `origin/demo1-controller`, `origin/developermenu`, and `origin/frontend/planner-hud` into `main`, and removed local non-`main` branch pointers so only `main` remains locally.
+- Commit: consolidated commits on `main`

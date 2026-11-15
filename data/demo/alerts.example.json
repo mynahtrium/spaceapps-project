@@ -8,7 +8,7 @@
     "https://api.nasa.gov/",
     "https://ccmc.gsfc.nasa.gov/tools/DONKI/"
   ],
-  "note": "Labelled example. Live DONKI was not called because NASA_API_KEY is absent. This repeats the 11 Nov 2026 planning-check example in docs/contracts/alerts.json (a May 2025 WSA-Enlil query listed a Mars arrival at 2025-05-08 12:00Z). Not a live forecast. Counts were not fetched. A real data/processed/science/donki-cache.json or alerts.json, if present, is left unchanged.",
+  "note": "Labelled example. Live DONKI was not called because NASA_API_KEY is absent. This repeats the 11 Nov 2026 planning-check example in docs/contracts/alerts.json (a May 2025 WSA-Enlil query listed a Mars arrival at 2025-05-08 12:00Z). Not a live forecast. Counts were not fetched. A real data/demo/donki-cache.json or alerts.json, if present, is left unchanged.",
   "queried_at": null,
   "window": null,
   "counts": {
@@ -17,7 +17,7 @@
     "SEP": null,
     "GST": null
   },
-  "cache_relpath": "data/processed/science/donki-cache.example.json",
+  "cache_relpath": "data/demo/donki-cache.example.json",
   "alerts": [
     {
       "id": "example-enlil-2025-05",

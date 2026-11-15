@@ -142,6 +142,6 @@
       "label_url": "https://pds-geosciences.wustl.edu/mro/mro-m-crism-5-rdr-mptargeted-v1/mrocr_4001/mtrdr/2011/2011_342/frt00021c92/frt00021c92_07_if164j_mtr3.xml"
     }
   ],
-  "overlay_relpath": "data/processed/science/tiles/crism/",
+  "overlay_relpath": "data/demo/tiles/crism/",
   "legend_note": "Show only mapped browse bands you can cite. Do not invent mineral detections."
 }

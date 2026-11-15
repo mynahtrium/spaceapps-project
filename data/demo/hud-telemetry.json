@@ -8,7 +8,7 @@
       "product_id": "DTEEC_019698_1750_019988_1750_U01",
       "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
       "fetch_date": "2026-11-14",
-      "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+      "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
     },
     {
       "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -39,7 +39,7 @@
   "slope_deg": 8.8,
   "slope_class": "green",
   "next_stop_id": "stop-boxwork-bonus",
-  "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+  "next_stop_name": "Boxwork bonus (example — Sol 4534 candidate)",
   "elapsed_min_placeholder": 32.9,
   "planned_eva_min_placeholder": 59.3,
   "suit_o2_remaining_percent": 44.4,
@@ -55,7 +55,7 @@
         "product_id": "DTEEC_019698_1750_019988_1750_U01",
         "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
         "fetch_date": "2026-11-14",
-        "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+        "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
       },
       {
         "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -86,7 +86,7 @@
     "slope_deg": 8.8,
     "slope_class": "green",
     "next_stop_id": "stop-boxwork-bonus",
-    "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+    "next_stop_name": "Boxwork bonus (example — Sol 4534 candidate)",
     "elapsed_min_placeholder": 32.9,
     "planned_eva_min_placeholder": 59.3,
     "suit_o2_remaining_percent": 44.4,
@@ -104,7 +104,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -152,7 +152,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -200,7 +200,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -248,7 +248,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -279,7 +279,7 @@
       "slope_deg": 8.4,
       "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
-      "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+      "next_stop_name": "Boxwork bonus (example — Sol 4534 candidate)",
       "elapsed_min_placeholder": 26.3,
       "planned_eva_min_placeholder": 59.3,
       "suit_o2_remaining_percent": 55.6,
@@ -296,7 +296,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -327,7 +327,7 @@
       "slope_deg": 8.8,
       "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
-      "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+      "next_stop_name": "Boxwork bonus (example — Sol 4534 candidate)",
       "elapsed_min_placeholder": 32.9,
       "planned_eva_min_placeholder": 59.3,
       "suit_o2_remaining_percent": 44.4,
@@ -344,7 +344,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -375,7 +375,7 @@
       "slope_deg": 2.1,
       "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
-      "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+      "next_stop_name": "Boxwork bonus (example — Sol 4534 candidate)",
       "elapsed_min_placeholder": 39.5,
       "planned_eva_min_placeholder": 59.3,
       "suit_o2_remaining_percent": 33.3,
@@ -392,7 +392,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -423,7 +423,7 @@
       "slope_deg": 4.8,
       "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
-      "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+      "next_stop_name": "Boxwork bonus (example — Sol 4534 candidate)",
       "elapsed_min_placeholder": 46.1,
       "planned_eva_min_placeholder": 59.3,
       "suit_o2_remaining_percent": 22.2,
@@ -440,7 +440,7 @@
           "product_id": "DTEEC_019698_1750_019988_1750_U01",
           "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
           "fetch_date": "2026-11-14",
-          "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on"
+          "used_for": "cost grid (data/demo/cost-map.json) and height preview the route, profile and HUD samples are computed on"
         },
         {
           "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
@@ -471,7 +471,7 @@
       "slope_deg": 6.3,
       "slope_class": "green",
       "next_stop_id": "stop-boxwork-bonus",
-      "next_stop_name": "Boxwork bonus (example \u2014 Sol 4534 candidate)",
+      "next_stop_name": "Boxwork bonus (example — Sol 4534 candidate)",
       "elapsed_min_placeholder": 52.7,
       "planned_eva_min_placeholder": 59.3,
       "suit_o2_remaining_percent": 11.1,
