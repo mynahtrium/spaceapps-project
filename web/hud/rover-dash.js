@@ -108,7 +108,8 @@ export function createRoverDash(host) {
     k.rpmArc.classList.toggle("red", rpmFrac > 0.85);
     k.rpm.textContent = (Math.abs(t.rpm) / 1000).toFixed(2);
     k.gear.textContent = t.gear;
-    const pw = Math.max(-1, Math.min(1, t.powerKw / 20));
+    const maxPwrKw = Number.isFinite(t.maxPowerKw) && t.maxPowerKw > 0 ? t.maxPowerKw : 35;
+    const pw = Math.max(-1, Math.min(1, t.powerKw / maxPwrKw));
     k.pwrBar.style.left = pw >= 0 ? "50%" : `${50 + pw * 50}%`;
     k.pwrBar.style.width = `${Math.abs(pw) * 50}%`;
     k.pwrBar.classList.toggle("regen", pw < 0);

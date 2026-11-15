@@ -3,11 +3,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   GRAPHICS_PRESETS,
+  buildHardwareSummary,
   chunkSegmentsFor,
+  cleanGpuModelName,
+  detectGpuVendor,
   detectGraphicsLevel,
+  estimateGpuVram,
+  estimateSceneVramMb,
   resolveGraphics,
 } from "../shared/graphics-profile.js";
-import { normalizeDevSettings } from "../shared/dev-settings.js";
+import {
+  DLSS_MODES,
+  DLSS_PRESETS,
+  cycleDlssMode,
+  getDlssPreset,
+  normalizeDevSettings,
+} from "../shared/dev-settings.js";
 
 test("auto picks a level from the hardware hints", () => {
   assert.equal(detectGraphicsLevel({ gpu: "Google SwiftShader", cores: 16, memoryGb: 8 }), "low");
@@ -54,4 +65,72 @@ test("chunks get coarser with distance", () => {
   assert.equal(chunkSegmentsFor(g, 10), 256);
   assert.equal(chunkSegmentsFor(g, 200), 128);
   assert.equal(chunkSegmentsFor(g, 500), 64);
+});
+
+test("DLSS experimental presets and normalization work across all modes", () => {
+  assert.deepEqual(DLSS_MODES, ["off", "ultra_performance", "performance", "balanced", "quality", "dlaa"]);
+  const def = normalizeDevSettings({});
+  assert.equal(def.dlss, false);
+  assert.equal(def.dlssMode, "off");
+  assert.equal(getDlssPreset(def).enabled, false);
+
+  const q = normalizeDevSettings({ dlss: true });
+  assert.equal(q.dlss, true);
+  assert.equal(q.dlssMode, "quality");
+  assert.equal(getDlssPreset(q).renderScale, 0.667);
+
+  const p = normalizeDevSettings({ dlssMode: "performance", dlssSharpness: 0.8 });
+  assert.equal(p.dlss, true);
+  assert.equal(p.dlssMode, "performance");
+  assert.equal(p.dlssSharpness, 0.8);
+  assert.equal(DLSS_PRESETS.performance.renderScale, 0.5);
+
+  const cycled = cycleDlssMode({ dlssMode: "off" });
+  assert.equal(cycled.dlss, true);
+  assert.equal(cycled.dlssMode, "ultra_performance");
+});
+
+test("hardware detection cleans ANGLE GPU strings, estimates VRAM, and builds telemetry summary", () => {
+  const rawNvidia = "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)";
+  assert.equal(cleanGpuModelName(rawNvidia), "NVIDIA GeForce RTX 4070");
+  assert.equal(detectGpuVendor(rawNvidia), "NVIDIA");
+
+  const vram4070 = estimateGpuVram(rawNvidia, 0, 32);
+  assert.equal(vram4070.vramGb, 12);
+  assert.equal(vram4070.vramMb, 12288);
+  assert.equal(vram4070.shared, false);
+
+  const rawIntel = "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0)";
+  const vramIntel = estimateGpuVram(rawIntel, 0, 16);
+  assert.equal(vramIntel.shared, true);
+  assert.equal(vramIntel.vramGb, 8);
+
+  const summary = buildHardwareSummary({
+    gpu: rawNvidia,
+    cores: 16,
+    osRamGb: 32,
+    osFreeRamGb: 18.4,
+    cpuModel: "AMD Ryzen 7 7800X3D",
+    maxTextureSize: 16384,
+  });
+  assert.equal(summary.gpuName, "NVIDIA GeForce RTX 4070");
+  assert.equal(summary.vramGb, 12);
+  assert.equal(summary.ramGb, 32);
+  assert.equal(summary.freeRamGb, 18.4);
+  assert.equal(summary.cores, 16);
+  assert.equal(summary.cpuModel, "AMD Ryzen 7 7800X3D");
+  assert.equal(summary.autoLevel, "high");
+
+  const sceneMb = estimateSceneVramMb({
+    rtWidth: 1920,
+    rtHeight: 1080,
+    rtSamples: 4,
+    rtHasDepth: true,
+    shadowPx: 2048,
+    textures: 24,
+    geometries: 80,
+    triangles: 250000,
+    realisticTextures: true,
+  });
+  assert.ok(sceneMb >= 60 && sceneMb <= 350, `scene VRAM estimate ${sceneMb} MB within realistic range`);
 });

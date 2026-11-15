@@ -40,12 +40,14 @@ export const DRIVABLE_VEHICLES = Object.freeze([
     driftGrip: 4.6,
     massKg: 1850,
     weightN: 1850 * MARS_GRAVITY_MS2,
-    powerW: 14000,
-    boostPowerW: 19000,
-    hp: 14000 / 745.699872,
-    boostHp: 19000 / 745.699872,
-    wheelTorqueMaxNm: 1173,
-    motorTorqueMaxNm: 74.1,
+    powerW: 14000 * 1.75, // 24,500 W (24.5 kW, 1.75x)
+    boostPowerW: 19000 * 1.75, // 33,250 W (33.25 kW, 1.75x)
+    powerKw: (14000 * 1.75) / 1000,
+    boostPowerKw: (19000 * 1.75) / 1000,
+    hp: (14000 * 1.75) / 745.699872,
+    boostHp: (19000 * 1.75) / 745.699872,
+    wheelTorqueMaxNm: 1173 * 2.25, // 2,639.25 N·m (2.25x)
+    motorTorqueMaxNm: 74.1 * 2.25, // 166.725 N·m (2.25x)
     gearRatio: 18,
     suspStiff: 40.0,
     suspDamp: 7.6,
@@ -78,12 +80,14 @@ export const DRIVABLE_VEHICLES = Object.freeze([
     driftGrip: 5.0,
     massKg: 2250,
     weightN: 2250 * MARS_GRAVITY_MS2,
-    powerW: 20200,
-    boostPowerW: 27400,
-    hp: 20200 / 745.699872,
-    boostHp: 27400 / 745.699872,
-    wheelTorqueMaxNm: 2150,
-    motorTorqueMaxNm: 135.7,
+    powerW: 20200 * 1.75, // 35,350 W (35.35 kW, 1.75x)
+    boostPowerW: 27400 * 1.75, // 47,950 W (47.95 kW, 1.75x)
+    powerKw: (20200 * 1.75) / 1000,
+    boostPowerKw: (27400 * 1.75) / 1000,
+    hp: (20200 * 1.75) / 745.699872,
+    boostHp: (27400 * 1.75) / 745.699872,
+    wheelTorqueMaxNm: 2150 * 2.25, // 4,837.5 N·m (2.25x)
+    motorTorqueMaxNm: 135.7 * 2.25, // 305.325 N·m (2.25x)
     gearRatio: 18,
     suspStiff: 44.0,
     suspDamp: 8.2,
@@ -193,11 +197,19 @@ export function stepAdvancedRoverPhysics(
 
   const topFwd = (boost ? spec.boostSpeedMs : spec.topSpeedMs) * mult;
   const topRev = spec.reverseSpeedMs * mult;
+  const availPowerW = ((boost ? spec.boostPowerW : spec.powerW) || 24500) * mult;
+  const maxTorqueNm = (spec.wheelTorqueMaxNm || 2639.25) * mult;
+  const wheelRadiusM = Math.max(0.2, spec.wheelRadius || 0.345);
+  const massKg = Math.max(400, spec.massKg || 1850);
 
   if (!airborne) {
-    // 1. Electric motor torque curve (extra low-end torque in Gear 1 + steep climb support)
+    // 1. Electric motor torque curve (wheel torque & kW power cap integrated into longitudinal dynamics)
     const speedFrac = Math.min(1, Math.abs(vFwd) / Math.max(1, topFwd));
-    const lowEndBoost = 1 + (1 - speedFrac) * 0.45 * (spec.slopeTorque || 1);
+    const wheelOmegaPre = Math.max(0.8, Math.abs(vFwd) / wheelRadiusM);
+    const torqueAvailPre = Math.min(maxTorqueNm, availPowerW / wheelOmegaPre);
+    const tractiveForceN = torqueAvailPre / wheelRadiusM;
+    const torqueFactor = Math.max(1, tractiveForceN / (massKg * 2.2));
+    const lowEndBoost = (1 + (1 - speedFrac) * 0.45 * (spec.slopeTorque || 1)) * Math.min(1.65, Math.sqrt(torqueFactor));
     const reversingInput = throttle !== 0 && throttle * vFwd < -0.6;
 
     let targetVel = 0;
@@ -221,8 +233,11 @@ export function stepAdvancedRoverPhysics(
     if (throttle === 0 && !handbrake && Math.abs(nextVFwd) < 0.18) nextVFwd = 0;
 
     if (realisticPhysics) {
-      // Slope longitudinal gravity load + lateral side-camber slide
-      const climbAssist = throttle !== 0 ? Math.min(0.45, (spec.slopeTorque - 1) * 0.35) : 0;
+      // Slope longitudinal gravity load + lateral side-camber slide, countered by wheel torque reserve
+      const climbAssist =
+        throttle !== 0
+          ? Math.min(0.65, (spec.slopeTorque - 1) * 0.35 + (maxTorqueNm / (massKg * MARS_GRAVITY_MS2 * wheelRadiusM)) * 0.08)
+          : 0;
       nextVFwd -= MARS_GRAVITY_MS2 * Math.sin(slopePitch) * (1.12 - climbAssist) * safeDt;
       vLat += MARS_GRAVITY_MS2 * Math.sin(slopeRoll) * 0.75 * safeDt;
     }
@@ -293,20 +308,22 @@ export function stepAdvancedRoverPhysics(
   state.gear = gear;
   state.rpmNorm = rpmNorm;
 
-  const availPowerW = ((boost ? spec.boostPowerW : spec.powerW) || 14000) * mult;
-  const maxTorqueNm = (spec.wheelTorqueMaxNm || 1173) * mult;
   const speedAbs = Math.abs(vFwd);
-  const wheelOmega = Math.max(0.8, speedAbs / Math.max(0.2, spec.wheelRadius || 0.345));
+  const wheelOmega = Math.max(0.8, speedAbs / wheelRadiusM);
   const torqueAvail = Math.min(maxTorqueNm, availPowerW / wheelOmega);
   const wheelTorqueNm = airborne ? 0 : throttle * torqueAvail;
   const motorTorqueNm = wheelTorqueNm / ((spec.gearRatio || 18) * 0.88);
   const mechPowerW = Math.abs(wheelTorqueNm * wheelOmega);
+  const mechPowerKw = mechPowerW / 1000;
+  const maxPowerKw = availPowerW / 1000;
   const hp = mechPowerW / 745.699872;
   const maxHp = availPowerW / 745.699872;
-  const weightN = (spec.massKg || 1850) * MARS_GRAVITY_MS2;
+  const weightN = massKg * MARS_GRAVITY_MS2;
   state.wheelTorqueNm = wheelTorqueNm;
   state.motorTorqueNm = motorTorqueNm;
   state.mechPowerW = mechPowerW;
+  state.mechPowerKw = mechPowerKw;
+  state.maxPowerKw = maxPowerKw;
   state.hp = hp;
   state.maxHp = maxHp;
   state.weightN = weightN;

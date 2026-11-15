@@ -85,6 +85,23 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
       return;
     }
 
+    if (pathname === "/api/hw/info") {
+      const cpus = os.cpus() || [];
+      const body = JSON.stringify({
+        ok: true,
+        totalMemGb: +(os.totalmem() / 1073741824).toFixed(1),
+        freeMemGb: +(os.freemem() / 1073741824).toFixed(1),
+        cpuModel: String(cpus[0]?.model || "").trim(),
+        cpuCores: cpus.length || 4,
+      });
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(body);
+      return;
+    }
+
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { "Content-Type": "text/plain" });
       res.end("Method Not Allowed");

@@ -52,8 +52,20 @@ import { gamepad } from "../shared/gamepad.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
-import { cycleRayTracingMode, loadDevSettings, saveDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
-import { chunkSegmentsFor, resolveGraphics } from "../shared/graphics-profile.js";
+import {
+  cycleDlssMode,
+  cycleRayTracingMode,
+  getDlssPreset,
+  loadDevSettings,
+  saveDevSettings,
+  subscribeDevSettings,
+} from "../shared/dev-settings.js";
+import {
+  buildHardwareSummary,
+  chunkSegmentsFor,
+  estimateSceneVramMb,
+  resolveGraphics,
+} from "../shared/graphics-profile.js";
 import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
@@ -330,6 +342,10 @@ const LENS_FRAG = /* glsl */ `
   uniform float uGlint;
   uniform float uRay;
   uniform float uDust;
+  uniform float uDlssEnabled;
+  uniform float uDlssScale;
+  uniform float uDlssSharpness;
+  uniform vec2 uDlssJitter;
   varying vec2 vUv;
 
   ${RT_LENS_PARS_GLSL}
@@ -338,6 +354,38 @@ const LENS_FRAG = /* glsl */ `
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
     return fract(p.x * p.y);
+  }
+
+  // Edge-directed Lanczos2 / Catmull-Rom + Contrast-Adaptive Sharpening (CAS) reconstruction pass for DLSS & DLAA
+  vec3 dlssReconstructSample(sampler2D tex, vec2 uv, vec2 res, float sharpness, vec2 jitter) {
+    vec2 texel = 1.0 / max(vec2(1.0), res);
+    vec2 jUv = clamp(uv + jitter * texel * 0.35, 0.0, 1.0);
+    vec3 c = texture2D(tex, jUv).rgb;
+    vec3 n = texture2D(tex, clamp(jUv + vec2(0.0, -texel.y), 0.0, 1.0)).rgb;
+    vec3 s = texture2D(tex, clamp(jUv + vec2(0.0, texel.y), 0.0, 1.0)).rgb;
+    vec3 w = texture2D(tex, clamp(jUv + vec2(-texel.x, 0.0), 0.0, 1.0)).rgb;
+    vec3 e = texture2D(tex, clamp(jUv + vec2(texel.x, 0.0), 0.0, 1.0)).rgb;
+    vec3 nw = texture2D(tex, clamp(jUv + vec2(-texel.x, -texel.y), 0.0, 1.0)).rgb;
+    vec3 ne = texture2D(tex, clamp(jUv + vec2(texel.x, -texel.y), 0.0, 1.0)).rgb;
+    vec3 sw = texture2D(tex, clamp(jUv + vec2(-texel.x, texel.y), 0.0, 1.0)).rgb;
+    vec3 se = texture2D(tex, clamp(jUv + vec2(texel.x, texel.y), 0.0, 1.0)).rgb;
+
+    // Neighborhood min/max anti-ringing box
+    vec3 mn4 = min(min(min(n, s), min(w, e)), c);
+    vec3 mx4 = max(max(max(n, s), max(w, e)), c);
+    vec3 mn9 = min(mn4, min(min(nw, ne), min(sw, se)));
+    vec3 mx9 = max(mx4, max(max(nw, ne), max(sw, se)));
+    vec3 mn = 0.5 * (mn4 + mn9);
+    vec3 mx = 0.5 * (mx4 + mx9);
+
+    // FidelityFX / DLSS-style adaptive contrast lobe weight
+    vec3 amp = clamp(min(mn, 2.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0);
+    amp = sqrt(amp);
+    float peak = -1.0 / mix(8.0, 4.5, clamp(sharpness, 0.0, 1.0));
+    vec3 wLobe = amp * peak;
+    vec3 rcpW = 1.0 / (1.0 + 4.0 * wLobe);
+    vec3 recon = ((n + s + w + e) * wLobe + c) * rcpW;
+    return clamp(recon, mn, mx);
   }
 
   void main() {
@@ -353,7 +401,9 @@ const LENS_FRAG = /* glsl */ `
     float ca = uAberration * r2;
     vec3 col;
     if (uRtEnabled > 0.5) {
-      vec3 rtBase = rtFxaaSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution);
+      vec3 rtBase = uDlssEnabled > 0.5
+        ? dlssReconstructSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution, uDlssSharpness, uDlssJitter)
+        : rtFxaaSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution);
       float rtJ = hash(gl_FragCoord.xy + fract(uTime * 13.7) * 97.0);
       vec3 rtCol = rtScreenSpacePass(tDiffuse, rtBase, clamp(uv, 0.0, 1.0), uResolution, rtJ);
       if (ca > 0.0001) {
@@ -362,6 +412,15 @@ const LENS_FRAG = /* glsl */ `
         col.b = mix(rtCol.b, texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b, 0.35);
       } else {
         col = rtCol;
+      }
+    } else if (uDlssEnabled > 0.5) {
+      vec3 dlssCol = dlssReconstructSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution, uDlssSharpness, uDlssJitter);
+      if (ca > 0.0001) {
+        col.r = mix(dlssCol.r, texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r, 0.35);
+        col.g = dlssCol.g;
+        col.b = mix(dlssCol.b, texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b, 0.35);
+      } else {
+        col = dlssCol;
       }
     } else if (ca > 0.0001) {
       col.r = texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r;
@@ -622,21 +681,94 @@ export async function initHud3D(
   // Graphics preset (pixel ratio, MSAA, shadows, terrain radius...): see shared/graphics-profile.js.
   const gfxHw = (() => {
     let gpu = "";
+    let driverVramMb = 0;
+    let maxTextureSize = 4096;
     try {
       const gl = renderer.getContext();
       const ext = gl.getExtension("WEBGL_debug_renderer_info");
       gpu = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || "");
+      maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096;
+      const nvx = gl.getExtension("NVX_gpu_memory_info") || gl.getExtension("WEBGL_memory_info");
+      if (nvx) {
+        const dedKb = Number(gl.getParameter(0x9047)) || Number(gl.getParameter(0x9048)) || 0;
+        if (dedKb > 0) driverVramMb = Math.round(dedKb / 1024);
+      } else {
+        const ati = gl.getExtension("ATI_meminfo");
+        if (ati) {
+          const vboFree = gl.getParameter(0x87FB);
+          if (vboFree && vboFree[0] > 0) driverVramMb = Math.round(vboFree[0] / 1024);
+        }
+      }
     } catch {
       /* the GPU name is only a hint */
     }
     return {
       gpu,
+      driverVramMb,
+      maxTextureSize,
       cores: navigator.hardwareConcurrency,
       memoryGb: navigator.deviceMemory,
       mobile: /Android|iPhone|iPad/i.test(navigator.userAgent),
     };
   })();
+  let hwSummary = buildHardwareSummary(gfxHw);
   let gfx = resolveGraphics(devCfg, gfxHw);
+
+  const getLiveHardwareTelemetry = () => {
+    const mInfo = renderer.info?.memory || { geometries: 0, textures: 0 };
+    const w = (typeof rt !== "undefined" && rt?.width) || renderer.domElement?.width || 1920;
+    const h = (typeof rt !== "undefined" && rt?.height) || renderer.domElement?.height || 1080;
+    const samples = typeof rtSamples !== "undefined" ? rtSamples : 0;
+    const sceneVramMb = estimateSceneVramMb({
+      rtWidth: w,
+      rtHeight: h,
+      rtSamples: samples,
+      rtHasDepth: Boolean(devCfg.rayTracing && devCfg.rayTracingMode !== "off"),
+      shadowPx: gfx.shadowMapPx || 0,
+      textures: mInfo.textures || 0,
+      geometries: mInfo.geometries || 0,
+      triangles: renderer.info?.render?.triangles || 0,
+      realisticTextures: Boolean(devCfg.realisticTextures),
+    });
+    const mem = typeof performance !== "undefined" ? performance.memory : null;
+    const jsHeapUsedMb = mem ? +(mem.usedJSHeapSize / 1048576).toFixed(1) : 0;
+    const jsHeapLimitMb = mem ? Math.round(mem.jsHeapSizeLimit / 1048576) : 0;
+    return {
+      ...hwSummary,
+      sceneVramMb,
+      jsHeapUsedMb,
+      jsHeapLimitMb,
+      geometries: mInfo.geometries || 0,
+      textures: mInfo.textures || 0,
+      rtWidth: w,
+      rtHeight: h,
+      gfxLevel: gfx.level,
+      dlssMode: devCfg.dlss ? (devCfg.dlssMode || "off") : "off",
+      rayTracingMode: devCfg.rayTracing ? (devCfg.rayTracingMode || "off") : "off",
+    };
+  };
+  if (typeof window !== "undefined") {
+    window.__mmGetHardwareTelemetry = getLiveHardwareTelemetry;
+    const isDemo = new URLSearchParams(window.location.search).has("demo");
+    if (!isDemo && typeof fetch === "function") {
+      fetch("/api/hw/info", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && data.ok) {
+            if (Number(data.totalMemGb) > 0) gfxHw.osRamGb = Number(data.totalMemGb);
+            if (Number(data.freeMemGb) >= 0) gfxHw.osFreeRamGb = Number(data.freeMemGb);
+            if (data.cpuModel) gfxHw.cpuModel = String(data.cpuModel);
+            if (Number(data.cpuCores) > 0) gfxHw.cores = Number(data.cpuCores);
+            hwSummary = buildHardwareSummary(gfxHw);
+            gfx = resolveGraphics(devCfg, gfxHw);
+            window.dispatchEvent(new CustomEvent("mm:hw-info", { detail: getLiveHardwareTelemetry() }));
+          }
+        })
+        .catch(() => {
+          /* static server without /api/hw/info: client-side hardware detection remains active */
+        });
+    }
+  }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfx.pixelRatioCap));
   renderer.info.autoReset = false; // reset once per frame, so the counters cover every pass
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -2407,14 +2539,18 @@ export async function initHud3D(
       },
     };
   }
+  const MAX_NPC_INTERACT_DIST_M = 4.8;
+  const MAX_ROVER_INTERACT_DIST_M = 6.5;
+
   /** The historic rover you are standing next to (within reach of its body), or null. */
   function nearestHistoricEntry(x, z) {
+    if (freecamActive) return null;
     let best = null;
     let bestD = Infinity;
     for (const e of historicRovers.getAllEntries()) {
       if (!e?.group?.visible || !e.spec) continue;
       const d = Math.hypot(e.group.position.x - x, e.group.position.z - z);
-      const reach = Math.max(e.spec.halfL || 1, e.spec.halfW || 1) + 4.2; // "go to rover" leaves you ~5 m away
+      const reach = Math.min(MAX_ROVER_INTERACT_DIST_M, Math.max(e.spec.halfL || 1, e.spec.halfW || 1) + 3.8);
       if (d <= reach && d < bestD) {
         best = e;
         bestD = d;
@@ -2852,6 +2988,10 @@ export async function initHud3D(
       uOptZoom: { value: 1 },
       uGlint: { value: 0 },
       uRay: { value: 0.00035 },
+      uDlssEnabled: { value: 0 },
+      uDlssScale: { value: 1.0 },
+      uDlssSharpness: { value: 0.55 },
+      uDlssJitter: { value: new THREE.Vector2(0, 0) },
     },
   });
   const lensScene = new THREE.Scene();
@@ -3194,31 +3334,32 @@ export async function initHud3D(
   }
 
   function pickTargetNpc(clientX = null, clientY = null) {
-    if (!npcManager.npcGroup.visible || drivingRover) return null;
+    if (!npcManager.npcGroup.visible || freecamActive || drivingRover) return null;
     if (!setRaycasterFromView(clientX, clientY)) return null;
-    const maxRayDist = thirdPersonWalk ? 9.0 : NPC_TALK_MAX_DIST_M + 1.4;
-    const hit = npcManager.pickNpc(raycaster, maxRayDist);
+    const maxRayDist = thirdPersonWalk ? 8.0 : NPC_TALK_MAX_DIST_M + 1.4;
+    const hit = npcManager.pickNpc(raycaster, maxRayDist, freePos, MAX_NPC_INTERACT_DIST_M);
     return isNpcInTalkRange(hit) ? hit : null;
   }
 
   function pickHistoricRover(clientX = null, clientY = null) {
+    if (freecamActive || drivingRover) return null;
     const groups = historicRovers.getInteractiveGroups();
     if (!groups || groups.length === 0) return null;
     if (!setRaycasterFromView(clientX, clientY)) return null;
     pickHistoricGroups.length = 0;
-    const ro = raycaster.ray.origin;
+    const maxP2 = MAX_ROVER_INTERACT_DIST_M * MAX_ROVER_INTERACT_DIST_M;
     for (let i = 0; i < groups.length; i++) {
       const g = groups[i];
-      const dx = g.position.x - ro.x;
-      const dz = g.position.z - ro.z;
-      if (dx * dx + dz * dz > 118 * 118) continue;
+      const pdx = g.position.x - freePos.x;
+      const pdz = g.position.z - freePos.z;
+      if (pdx * pdx + pdz * pdz > maxP2) continue;
       if (raycaster.ray.distanceSqToPoint(g.position) <= 12.25) {
         pickHistoricGroups.push(g);
       }
     }
     if (pickHistoricGroups.length === 0) return null;
     const hits = raycaster.intersectObjects(pickHistoricGroups, true);
-    if (hits.length > 0 && hits[0].distance <= 115) {
+    if (hits.length > 0 && hits[0].distance <= 10.0) {
       let obj = hits[0].object;
       while (obj && !obj.userData?.historicRoverId) obj = obj.parent;
       const rId = obj?.userData?.historicRoverId;
@@ -3227,7 +3368,8 @@ export async function initHud3D(
     return null;
   }
 
-  function findNearestDrivableEntry(x, z, maxDistM = 5.8) {
+  function findNearestDrivableEntry(x, z, maxDistM = 5.2) {
+    if (freecamActive) return null;
     let best = null;
     let bestDist = maxDistM;
     for (const drvR of drivableRovers) {
@@ -4499,6 +4641,16 @@ export async function initHud3D(
     optZoomPill.parentElement.appendChild(optRtPill);
   }
 
+  let optDlssPill = document.getElementById("hud-opt-dlss");
+  if (!optDlssPill && optZoomPill?.parentElement && typeof document !== "undefined") {
+    optDlssPill = document.createElement("span");
+    optDlssPill.id = "hud-opt-dlss";
+    optDlssPill.className = "dim";
+    optDlssPill.style.cursor = "pointer";
+    optDlssPill.title = "Cycle DLSS Super Resolution / DLAA Mode";
+    optZoomPill.parentElement.appendChild(optDlssPill);
+  }
+
   function syncOpticsOverlayUi() {
     const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
     const goldOn = goldVisor > 0.5;
@@ -4531,6 +4683,12 @@ export async function initHud3D(
       optRtPill.textContent = rtPreset.hudPill;
       optRtPill.classList.toggle("active", rtPreset.enabled > 0);
     }
+    if (optDlssPill) {
+      const dlssPreset = getDlssPreset(devCfg);
+      optDlssPill.textContent = dlssPreset.hudPill;
+      optDlssPill.classList.toggle("active", dlssPreset.enabled);
+      optDlssPill.hidden = !dlssPreset.enabled;
+    }
   }
 
   function cycleRayTracingTier() {
@@ -4539,6 +4697,14 @@ export async function initHud3D(
     applyDevSettings(nextCfg);
     const preset = getRayTracingPreset(nextCfg);
     showWrapNotice(`RAY TRACING: ${isTrLang() ? preset.hudLabelTr : preset.hudLabelEn}`);
+  }
+
+  function cycleDlssTier() {
+    const nextDlss = cycleDlssMode(devCfg);
+    const nextCfg = saveDevSettings(nextDlss);
+    applyDevSettings(nextCfg);
+    const preset = getDlssPreset(nextCfg);
+    showWrapNotice(`DLSS: ${isTrLang() ? preset.labelTr.toUpperCase() : preset.labelEn.toUpperCase()}`);
   }
 
   function toggleGoldVisor() {
@@ -4571,6 +4737,10 @@ export async function initHud3D(
   optRtPill?.addEventListener("click", (ev) => {
     ev.stopPropagation();
     cycleRayTracingTier();
+  });
+  optDlssPill?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    cycleDlssTier();
   });
   syncOpticsOverlayUi();
 
@@ -4827,7 +4997,7 @@ export async function initHud3D(
       }
 
       let nearRover = null;
-      let bestRoverDist = 7.0;
+      let bestRoverDist = MAX_ROVER_INTERACT_DIST_M;
       for (const entry of historicRovers.getAllEntries()) {
         if (!entry?.group || !entry?.spec) continue;
         const dH = Math.hypot(freePos.x - entry.group.position.x, freePos.z - entry.group.position.z);
@@ -5048,13 +5218,21 @@ export async function initHud3D(
 
   const resizeRenderTarget = () => {
     const rtPreset = getRayTracingPreset(devCfg);
+    const dlssPreset = getDlssPreset(devCfg);
     const wantRt = rtPreset.enabled > 0;
     const basePr = wantRt
       ? rtPreset.tier >= 4
         ? renderer.getPixelRatio()
         : Math.min(1.0, renderer.getPixelRatio())
       : renderer.getPixelRatio();
-    const pr = basePr * (wantRt ? rtPreset.resolutionScale : renderScale);
+    const activeScale = dlssPreset.enabled
+      ? wantRt
+        ? Math.min(rtPreset.resolutionScale, dlssPreset.renderScale)
+        : dlssPreset.renderScale
+      : wantRt
+        ? rtPreset.resolutionScale
+        : renderScale;
+    const pr = basePr * activeScale;
     const nextW = Math.max(1, Math.floor(viewW * pr));
     const nextH = Math.max(1, Math.floor(viewH * pr));
     if (nextW !== lastRtW || nextH !== lastRtH) {
@@ -5143,13 +5321,19 @@ export async function initHud3D(
       });
     }
     const rtPreset = applyRayTracerTierUniforms(rtUniforms, cfg);
+    const dlssPreset = getDlssPreset(cfg);
     const wantRt = rtPreset.enabled > 0;
     const targetPr = Math.min(window.devicePixelRatio || 1, rtPreset.tier >= 4 ? 2.0 : gfx.pixelRatioCap);
     renderer.setPixelRatio(targetPr);
-    if (wantRt) renderScale = rtPreset.resolutionScale;
+    if (dlssPreset.enabled) {
+      renderScale = wantRt ? Math.min(rtPreset.resolutionScale, dlssPreset.renderScale) : dlssPreset.renderScale;
+    } else if (wantRt) renderScale = rtPreset.resolutionScale;
     else if (!gfxApplied || prevGfx.level !== gfx.level || prevGfx.renderScale !== gfx.renderScale || !gfx.adaptive) {
       renderScale = gfx.renderScale;
     } else renderScale = Math.max(gfx.minScale, Math.min(gfx.renderScale, renderScale));
+    lensMat.uniforms.uDlssEnabled.value = dlssPreset.enabled ? 1.0 : 0.0;
+    lensMat.uniforms.uDlssScale.value = dlssPreset.renderScale;
+    lensMat.uniforms.uDlssSharpness.value = Number.isFinite(cfg.dlssSharpness) ? cfg.dlssSharpness : dlssPreset.sharpness;
     // terrain radius or level of detail changed: plan the chunks again on the next frame
     if (prevGfx.detailRadiusM !== gfx.detailRadiusM || prevGfx.lodNearM !== gfx.lodNearM || prevGfx.lodSegs !== gfx.lodSegs) {
       chunkPlanT = 0;
@@ -5282,7 +5466,7 @@ export async function initHud3D(
   // "Fast" is measured against the display's own frame time (the shortest frame seen lately), so
   // the resolution also climbs back on a 60 Hz screen, where no frame is ever shorter than 16.7 ms.
   function adaptResolution(now) {
-    if (devCfg.rayTracing || !gfx.adaptive) return;
+    if (devCfg.rayTracing || devCfg.dlss || !gfx.adaptive) return;
     if (now - lastScaleChange < 1200) return;
     let next = renderScale;
     if (frameAvg > Math.max(24, displayMs * 1.45) && renderScale > gfx.minScale) {
@@ -5620,9 +5804,12 @@ export async function initHud3D(
           rpm: rs.motorRpm,
           gear: rs.gear,
           powerKw: rs.powerW / 1000,
+          maxPowerKw: rs.maxPowerKw,
           hp: rs.hp,
+          maxHp: rs.maxHp,
           torquePct: rs.torquePct,
           wheelTorqueNm: rs.wheelTorqueNm,
+          maxWheelTorqueNm: rs.maxWheelTorqueNm,
           massKg: rs.massKg,
           weightN: rs.weightN,
           batteryPct: (100 * rs.batteryKWh) / P.batteryKWh,
@@ -6344,10 +6531,16 @@ export async function initHud3D(
       });
       if (!perfEl.hidden) {
         const ri = renderer.info;
+        const hwTel = getLiveHardwareTelemetry();
+        const heapTxt = hwTel.jsHeapLimitMb > 0 ? `${hwTel.jsHeapUsedMb}/${hwTel.jsHeapLimitMb} MB` : "n/a";
+        const ramTxt = hwTel.freeRamGb !== null
+          ? `${(hwTel.ramGb - hwTel.freeRamGb).toFixed(1)}/${hwTel.ramGb} GB RAM`
+          : `${hwTel.ramGb} GB RAM`;
         perfEl.textContent =
           `${Math.round(1000 / Math.max(1, frameAvg))} fps · ${frameAvg.toFixed(1)} ms · ${gfx.level} · scale ${renderScale.toFixed(2)}\n` +
-          `draws ${perfDraws} · tris ${(perfTris / 1000).toFixed(0)}k · chunks ${chunkMeshes.size}\n` +
-          `geometries ${ri.memory.geometries} · textures ${ri.memory.textures} · shaders ${ri.programs?.length ?? 0}`;
+          `GPU: ${hwTel.gpuName} · VRAM ~${hwTel.sceneVramMb} MB / ${hwTel.vramGb} GB${hwTel.vramShared ? " (shared)" : ""}\n` +
+          `MEM: ${ramTxt} · JS heap ${heapTxt} · CPU ${hwTel.cores}T\n` +
+          `draws ${perfDraws} · tris ${(perfTris / 1000).toFixed(0)}k · chunks ${chunkMeshes.size} · geo ${ri.memory.geometries} · tex ${ri.memory.textures}`;
       }
       const metEl = (metabolicEl ||= document.getElementById("hud-metabolic"));
       if (metEl) {
@@ -6464,6 +6657,14 @@ export async function initHud3D(
 
     if (!resumedFromHide) adaptResolution(now);
     lensMat.uniforms.uTime.value = clockT;
+    if (devCfg.dlss) {
+      const jPhase = Math.floor(clockT * 60) & 7;
+      const hx = (((jPhase & 1) << 2) | (jPhase & 2) | ((jPhase & 4) >> 2)) / 8 - 0.4375;
+      const hy = ((jPhase % 3) / 3 + Math.floor(jPhase / 3) / 9) - 0.4444;
+      lensMat.uniforms.uDlssJitter.value.set(hx, hy);
+    } else {
+      lensMat.uniforms.uDlssJitter.value.set(0, 0);
+    }
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uGoldSlide.value = goldSlide;
     lensMat.uniforms.uOptZoom.value = optZoom;
@@ -6510,9 +6711,13 @@ export async function initHud3D(
         const heapStr = mem ? `${(mem.usedJSHeapSize / 1048576).toFixed(1)}/${(mem.jsHeapSizeLimit / 1048576).toFixed(0)}MB` : "n/a";
         const mInfo = renderer.info.memory;
         const pCount = renderer.info.programs ? renderer.info.programs.length : 0;
+        const hwTel = getLiveHardwareTelemetry();
+        const ramStr = hwTel.freeRamGb !== null
+          ? `${(hwTel.ramGb - hwTel.freeRamGb).toFixed(1)}/${hwTel.ramGb}GB`
+          : `${hwTel.ramGb}GB`;
         perfOverlayEl.textContent =
-          `FPS ${fps.toFixed(1)} | avg ${avgMs.toFixed(1)}ms p95 ${p95Ms.toFixed(1)}ms sim ${simMs.toFixed(1)}ms ren ${renderMs.toFixed(1)}ms\n` +
-          `calls ${sceneCalls} tris ${Math.round(sceneTris / 1000)}k ch ${chunkMeshes.size} | geo ${mInfo.geometries} tex ${mInfo.textures} prog ${pCount} | rt ${rt.width}x${rt.height} s=${rtSamples} sc=${renderScale.toFixed(2)} q=${gfx.level} | heap ${heapStr}`;
+          `FPS ${fps.toFixed(1)} | avg ${avgMs.toFixed(1)}ms p95 ${p95Ms.toFixed(1)}ms sim ${simMs.toFixed(1)}ms ren ${renderMs.toFixed(1)}ms | GPU: ${hwTel.gpuName}\n` +
+          `VRAM ~${hwTel.sceneVramMb}MB/${hwTel.vramGb}GB${hwTel.vramShared ? "(sh)" : ""} | RAM ${ramStr} | heap ${heapStr} | CPU ${hwTel.cores}T | calls ${sceneCalls} tris ${Math.round(sceneTris / 1000)}k ch ${chunkMeshes.size} | geo ${mInfo.geometries} tex ${mInfo.textures} prog ${pCount} | rt ${rt.width}x${rt.height} s=${rtSamples} sc=${renderScale.toFixed(2)} q=${gfx.level}`;
       }
     }
   }

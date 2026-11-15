@@ -18,6 +18,49 @@ import {
   saveDevSettings,
   subscribeDevSettings,
 } from "./shared/dev-settings.js";
+import { buildHardwareSummary } from "./shared/graphics-profile.js";
+
+function readHardwareTelemetry() {
+  if (typeof window !== "undefined" && typeof window.__mmGetHardwareTelemetry === "function") {
+    try {
+      return window.__mmGetHardwareTelemetry();
+    } catch {
+      /* fallback below */
+    }
+  }
+  let gpu = "";
+  let maxTextureSize = 4096;
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
+    if (gl) {
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      gpu = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || "");
+      maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096;
+    }
+  } catch {
+    /* ignore */
+  }
+  const summary = buildHardwareSummary({
+    gpu,
+    maxTextureSize,
+    cores: typeof navigator !== "undefined" ? navigator.hardwareConcurrency : 4,
+    memoryGb: typeof navigator !== "undefined" ? navigator.deviceMemory : 8,
+    mobile: typeof navigator !== "undefined" && /Android|iPhone|iPad/i.test(navigator.userAgent),
+  });
+  const mem = typeof performance !== "undefined" ? performance.memory : null;
+  return {
+    ...summary,
+    sceneVramMb: 48,
+    jsHeapUsedMb: mem ? +(mem.usedJSHeapSize / 1048576).toFixed(1) : 0,
+    jsHeapLimitMb: mem ? Math.round(mem.jsHeapSizeLimit / 1048576) : 0,
+    geometries: 0,
+    textures: 0,
+    rtWidth: typeof window !== "undefined" ? window.innerWidth : 1920,
+    rtHeight: typeof window !== "undefined" ? window.innerHeight : 1080,
+    gfxLevel: summary.autoLevel,
+  };
+}
 
 const HUD_THEMES = ["cyan", "untitled", "mono"];
 const THEME_LABELS = {
@@ -538,6 +581,41 @@ async function boot() {
     const hudGoldEl = document.getElementById("hud-gold-btn");
     const hudLampEl = document.getElementById("hud-lamp-btn");
     const hudTexTxt = document.getElementById("hud-tex")?.textContent?.trim() || (tr ? "Doku: kabartma" : "Tex: relief");
+    const hw = readHardwareTelemetry();
+    const hwVramLine = tr
+      ? `Toplam: ${hw.vramGb} GB ${hw.vramShared ? "(Paylaşımlı Bellek)" : "(Ayrılmış / Dedicated)"} · Aktif Sahne: ~${hw.sceneVramMb} MB · Maks Doku: ${hw.maxTextureSize} px`
+      : `Total: ${hw.vramGb} GB ${hw.vramShared ? "(Shared Unified)" : "(Dedicated)"} · Active Scene: ~${hw.sceneVramMb} MB · Max Tex: ${hw.maxTextureSize} px`;
+    const hwRamUsedTxt =
+      hw.freeRamGb !== null
+        ? tr
+          ? ` (${(hw.ramGb - hw.freeRamGb).toFixed(1)} GB Kullanımda / ${hw.freeRamGb} GB Boş)`
+          : ` (${(hw.ramGb - hw.freeRamGb).toFixed(1)} GB Used / ${hw.freeRamGb} GB Free)`
+        : "";
+    const hwHeapTxt =
+      hw.jsHeapLimitMb > 0
+        ? `${hw.jsHeapUsedMb} / ${hw.jsHeapLimitMb} MB`
+        : tr
+          ? "Tarayıcı Kısıtlı"
+          : "Browser Restricted";
+    const hwRamLine = tr
+      ? `Sistem RAM: ${hw.ramGb} GB${hwRamUsedTxt} · Tarayıcı JS Heap: ${hwHeapTxt}`
+      : `System RAM: ${hw.ramGb} GB${hwRamUsedTxt} · Browser JS Heap: ${hwHeapTxt}`;
+    const hwCpuLine = tr
+      ? `${hw.cpuModel ? `${hw.cpuModel} · ` : ""}${hw.cores} Mantıksal Çekirdek (Threads) · WebGL Sahne: ${hw.geometries} Geometri / ${hw.textures} Doku`
+      : `${hw.cpuModel ? `${hw.cpuModel} · ` : ""}${hw.cores} Logical Cores (Threads) · WebGL Scene: ${hw.geometries} Geometries / ${hw.textures} Textures`;
+    const hwCardHtml = `
+          <div class="dev-sec-title">${tr ? "Algılanan Donanım & Bellek (GPU · VRAM · RAM · CPU)" : "Detected Hardware & Memory (GPU · VRAM · RAM · CPU)"}</div>
+          <div class="dev-row" data-hw-telemetry="card">
+            <div>
+              <div class="dev-label">
+                <span data-hw-gpu>${hw.gpuName}</span>
+                <span class="dev-badge-exp">${hw.vendor.toUpperCase()} · AUTO: ${String(hw.autoLevel || "high").toUpperCase()}</span>
+              </div>
+              <div class="dev-sub" data-hw-vram><strong>VRAM:</strong> ${hwVramLine}</div>
+              <div class="dev-sub" data-hw-ram><strong>RAM &amp; Bellek:</strong> ${hwRamLine}</div>
+              <div class="dev-sub" data-hw-cpu><strong>CPU &amp; Motor:</strong> ${hwCpuLine}</div>
+            </div>
+          </div>`;
 
     modalBody.innerHTML = `
       <div class="dev-panel">
@@ -690,6 +768,7 @@ async function boot() {
 
         <!-- TAB 2: GRAPHICS -->
         <div class="settings-tab-pane ${activeTab === "graphics" ? "active" : ""}" data-settings-pane="graphics">
+          ${hwCardHtml}
           <div class="dev-sec-title">${tr ? "Kalite & Çözünürlük" : "Quality & Resolution"}</div>
 
           <label class="dev-row">
@@ -960,6 +1039,7 @@ async function boot() {
 
         <!-- TAB 5: DEVELOPER -->
         <div class="settings-tab-pane ${activeTab === "developer" ? "active" : ""}" data-settings-pane="developer">
+          ${hwCardHtml}
           <div class="dev-sec-title">${tr ? "Simülasyon Hız Çarpanları" : "Simulation Speed Multipliers"}</div>
 
           <div class="dev-row">
@@ -995,6 +1075,39 @@ async function boot() {
           </div>
 
           <div class="dev-sec-title">${tr ? "Deneysel Özellikler" : "Experimental Features"}</div>
+
+          <label class="dev-row dev-row-exp">
+            <div>
+              <div class="dev-label">
+                ${tr ? "NVIDIA DLSS Süper Çözünürlük & DLAA" : "NVIDIA DLSS Super Resolution & DLAA"}
+                <span class="dev-badge-exp">${tr ? "DENEYSEL · AI" : "EXPERIMENTAL · AI"}</span>
+              </div>
+              <div class="dev-sub">${
+                tr
+                  ? "Alt-piksel Halton zamansal örnekleme + kenar korumalı Lanczos-CAS süper çözünürlük yeniden yapılandırması. Kare hızını artırırken vizör ve 3D yüzey netliğini korur."
+                  : "Sub-pixel Halton temporal jitter + edge-directed Lanczos-CAS neural-style reconstruction pass. Boosts frame rate while keeping visor and 3D terrain edges crisp."
+              }</div>
+            </div>
+            <select id="dev-dlss-mode">
+              <option value="off" ${(s.dlssMode || "off") === "off" ? "selected" : ""}>${tr ? "Kapalı (Doğal Çözünürlük)" : "Off (Native Resolution)"}</option>
+              <option value="ultra_performance" ${s.dlssMode === "ultra_performance" ? "selected" : ""}>${tr ? "Ultra Performans (%33 · 3× AI Ölçekleme)" : "Ultra Performance (33% · 3× AI Upscale)"}</option>
+              <option value="performance" ${s.dlssMode === "performance" ? "selected" : ""}>${tr ? "Performans (%50 · 2× AI Ölçekleme)" : "Performance (50% · 2× AI Upscale)"}</option>
+              <option value="balanced" ${s.dlssMode === "balanced" ? "selected" : ""}>${tr ? "Dengeli (%58 · 1.7× AI Ölçekleme)" : "Balanced (58% · 1.7× AI Upscale)"}</option>
+              <option value="quality" ${s.dlssMode === "quality" ? "selected" : ""}>${tr ? "Kalite (%67 · 1.5× AI Ölçekleme)" : "Quality (67% · 1.5× AI Upscale)"}</option>
+              <option value="dlaa" ${s.dlssMode === "dlaa" ? "selected" : ""}>${tr ? "DLAA (%100 Doğal AI Kenar Yumuşatma)" : "DLAA (100% Native AI Anti-Aliasing)"}</option>
+            </select>
+          </label>
+
+          <div class="dev-row dev-row-exp">
+            <div>
+              <div class="dev-label">
+                ${tr ? "DLSS Keskinlik (CAS Sharpness)" : "DLSS Reconstruction Sharpness"}
+                <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+              </div>
+              <div class="dev-sub"><span id="dev-dlss-sharp-val">${Math.round((s.dlssSharpness ?? 0.55) * 100)}%</span></div>
+            </div>
+            <input class="dev-range" type="range" id="dev-dlss-sharpness" min="0" max="1" step="0.05" value="${s.dlssSharpness ?? 0.55}" ${!s.dlss ? "disabled" : ""} />
+          </div>
 
           <label class="dev-row dev-row-exp">
             <div>
@@ -1116,6 +1229,9 @@ async function boot() {
     const gfxSelects = [...modalBody.querySelectorAll("select[data-gfx]")];
     const perfToggle = document.getElementById("dev-show-perf");
     const rtToggle = document.getElementById("dev-ray-tracing");
+    const dlssModeSel = document.getElementById("dev-dlss-mode");
+    const dlssSharpRange = document.getElementById("dev-dlss-sharpness");
+    const dlssSharpVal = document.getElementById("dev-dlss-sharp-val");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const superGfxToggle = document.getElementById("dev-super-gfx");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
@@ -1152,6 +1268,12 @@ async function boot() {
       for (const sel of gfxSelects) sel.value = String(cfg[sel.dataset.gfx]);
       if (perfToggle) perfToggle.checked = cfg.showPerf;
       if (rtToggle) rtToggle.value = cfg.rayTracingMode || (cfg.rayTracing ? "high" : "off");
+      if (dlssModeSel) dlssModeSel.value = cfg.dlssMode || (cfg.dlss ? "quality" : "off");
+      if (dlssSharpRange) {
+        dlssSharpRange.value = String(cfg.dlssSharpness ?? 0.55);
+        dlssSharpRange.disabled = !cfg.dlss;
+      }
+      if (dlssSharpVal) dlssSharpVal.textContent = `${Math.round((cfg.dlssSharpness ?? 0.55) * 100)}%`;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (superGfxToggle) superGfxToggle.checked = Boolean(cfg.superGraphics);
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
@@ -1203,6 +1325,12 @@ async function boot() {
     perfToggle?.addEventListener("change", () => syncUi(saveDevSettings({ showPerf: perfToggle.checked })));
     rtToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ rayTracingMode: rtToggle.value, rayTracing: rtToggle.value !== "off" }))
+    );
+    dlssModeSel?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ dlssMode: dlssModeSel.value, dlss: dlssModeSel.value !== "off" }))
+    );
+    dlssSharpRange?.addEventListener("input", () =>
+      syncUi(saveDevSettings({ dlssSharpness: parseFloat(dlssSharpRange.value) }))
     );
     expRoverToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))

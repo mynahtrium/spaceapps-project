@@ -687,13 +687,21 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
   const pickScratch = [];
   /**
    * Raycast interaction picker (click-to-interact / crosshair aim).
+   * Enforces both ray distance and player proximity so distant NPCs cannot be interacted with.
    */
-  function pickNpc(raycaster, maxDist = 9.0) {
+  function pickNpc(raycaster, maxDist = 6.5, playerPos = null, maxPlayerDist = 4.8) {
     if (!raycaster || npcGroup.children.length === 0) return null;
     pickScratch.length = 0;
     const ro = raycaster.ray?.origin;
     const maxR2 = (maxDist + 2.2) * (maxDist + 2.2);
+    const maxP2 = maxPlayerDist * maxPlayerDist;
+    const checkPlayer = playerPos && Number.isFinite(playerPos.x) && Number.isFinite(playerPos.z);
     for (const entry of npcs.values()) {
+      if (checkPlayer) {
+        const pdx = entry.x - playerPos.x;
+        const pdz = entry.z - playerPos.z;
+        if (pdx * pdx + pdz * pdz > maxP2) continue;
+      }
       if (ro) {
         const dx = entry.x - ro.x;
         const dz = entry.z - ro.z;

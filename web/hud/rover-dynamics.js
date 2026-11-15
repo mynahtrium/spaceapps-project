@@ -19,6 +19,12 @@
  */
 
 export const WATTS_PER_HP = 745.699872;
+export const TORQUE_MULTIPLIER = 2.25;
+export const POWER_MULTIPLIER = 1.75;
+
+const BASE_WHEEL_FORCE_MAX_N = 3400 * TORQUE_MULTIPLIER; // 7,650 N (2.25x baseline tractive force)
+const BASE_POWER_W = 14000 * POWER_MULTIPLIER; // 24,500 W / 24.5 kW (1.75x baseline continuous power)
+const BASE_BOOST_POWER_W = 19000 * POWER_MULTIPLIER; // 33,250 W / 33.25 kW (1.75x baseline boost power)
 
 export const ROVER_PARAMS = Object.freeze({
   massKg: 2950,
@@ -44,13 +50,15 @@ export const ROVER_PARAMS = Object.freeze({
   rollingCrr: 0.075, // soft-soil rolling resistance coefficient
   corneringB: 7.5, // lateral force rises to full grip by about 8 degrees of slip
   gearRatio: 18,
-  wheelForceMaxN: 3400, // whole vehicle, low-speed traction force at full pedal (~1.15 m/s^2)
-  wheelTorqueMaxNm: 3400 * 0.345, // 1,173 N·m total wheel torque across 6 hub drives
-  motorTorqueMaxNm: (3400 * 0.345) / (18 * 0.88), // ~74.1 N·m total motor shaft torque
-  powerW: 14000,
-  boostPowerW: 19000,
-  maxHp: 14000 / WATTS_PER_HP, // 18.77 HP continuous
-  boostHp: 19000 / WATTS_PER_HP, // 25.48 HP boost
+  wheelForceMaxN: BASE_WHEEL_FORCE_MAX_N, // whole vehicle low-speed traction force from 2.25x torque
+  wheelTorqueMaxNm: BASE_WHEEL_FORCE_MAX_N * 0.345, // 2,639.25 N·m total wheel torque across 6 hub drives (2.25x)
+  motorTorqueMaxNm: (BASE_WHEEL_FORCE_MAX_N * 0.345) / (18 * 0.88), // ~166.62 N·m total motor shaft torque (2.25x)
+  powerW: BASE_POWER_W,
+  boostPowerW: BASE_BOOST_POWER_W,
+  powerKw: BASE_POWER_W / 1000, // 24.5 kW continuous (1.75x)
+  boostPowerKw: BASE_BOOST_POWER_W / 1000, // 33.25 kW boost (1.75x)
+  maxHp: BASE_POWER_W / WATTS_PER_HP, // ~32.85 HP continuous (1.75x)
+  boostHp: BASE_BOOST_POWER_W / WATTS_PER_HP, // ~44.59 HP boost (1.75x)
   vMax: 20 / 3.6,
   vMaxBoost: 26 / 3.6,
   vMaxReverse: 8 / 3.6,
@@ -77,13 +85,17 @@ export function roverParamsFor(spec) {
   const mid = axleZ.length === 3 ? axleZ[1] : ROVER_PARAMS.cgZ;
   const r = spec.wheelRadius || ROVER_PARAMS.wheelRadius;
   const massKg = Math.round(ROVER_PARAMS.massKg * k);
-  const wheelForceMaxN = ROVER_PARAMS.wheelForceMaxN * k;
   const gearRatio = spec.gearRatio || ROVER_PARAMS.gearRatio;
   const eff = ROVER_PARAMS.driveEfficiency;
-  const wheelTorqueMaxNm = wheelForceMaxN * r;
-  const motorTorqueMaxNm = wheelTorqueMaxNm / (gearRatio * eff);
-  const powerW = ROVER_PARAMS.powerW * k * sp;
-  const boostPowerW = ROVER_PARAMS.boostPowerW * k * sp;
+  const wheelTorqueMaxNm = Number.isFinite(spec.wheelTorqueMaxNm)
+    ? spec.wheelTorqueMaxNm
+    : ROVER_PARAMS.wheelForceMaxN * k * r;
+  const wheelForceMaxN = wheelTorqueMaxNm / r;
+  const motorTorqueMaxNm = Number.isFinite(spec.motorTorqueMaxNm)
+    ? spec.motorTorqueMaxNm
+    : wheelTorqueMaxNm / (gearRatio * eff);
+  const powerW = Number.isFinite(spec.powerW) ? spec.powerW : ROVER_PARAMS.powerW * k * sp;
+  const boostPowerW = Number.isFinite(spec.boostPowerW) ? spec.boostPowerW : ROVER_PARAMS.boostPowerW * k * sp;
   const wheelMassKg = ROVER_PARAMS.wheelMassKg * (r / ROVER_PARAMS.wheelRadius) ** 2;
   return Object.freeze({
     ...ROVER_PARAMS,
@@ -104,6 +116,8 @@ export function roverParamsFor(spec) {
     brakeForceN: ROVER_PARAMS.brakeForceN * k,
     powerW,
     boostPowerW,
+    powerKw: powerW / 1000,
+    boostPowerKw: boostPowerW / 1000,
     maxHp: powerW / WATTS_PER_HP,
     boostHp: boostPowerW / WATTS_PER_HP,
     gearRatio,
@@ -134,11 +148,15 @@ export function roverParamsForHistoric(spec) {
   const mass = spec?.massKg || 900;
   const k = mass / ROVER_PARAMS.massKg;
   const vmax = (HISTORIC_VMAX_KMH[kind] ?? 8) / 3.6;
-  const wheelForceMaxN = ROVER_PARAMS.wheelForceMaxN * k;
-  const wheelTorqueMaxNm = wheelForceMaxN * r;
-  const motorTorqueMaxNm = wheelTorqueMaxNm / (ROVER_PARAMS.gearRatio * ROVER_PARAMS.driveEfficiency);
-  const powerW = ROVER_PARAMS.powerW * k;
-  const boostPowerW = ROVER_PARAMS.boostPowerW * k;
+  const wheelTorqueMaxNm = Number.isFinite(spec?.wheelTorqueMaxNm)
+    ? spec.wheelTorqueMaxNm
+    : ROVER_PARAMS.wheelForceMaxN * k * r;
+  const wheelForceMaxN = wheelTorqueMaxNm / r;
+  const motorTorqueMaxNm = Number.isFinite(spec?.motorTorqueMaxNm)
+    ? spec.motorTorqueMaxNm
+    : wheelTorqueMaxNm / (ROVER_PARAMS.gearRatio * ROVER_PARAMS.driveEfficiency);
+  const powerW = Number.isFinite(spec?.powerW) ? spec.powerW : ROVER_PARAMS.powerW * k;
+  const boostPowerW = Number.isFinite(spec?.boostPowerW) ? spec.boostPowerW : ROVER_PARAMS.boostPowerW * k;
   const wheelMassKg = Math.max(0.35, mass * 0.018);
   return Object.freeze({
     ...ROVER_PARAMS,
@@ -163,6 +181,8 @@ export function roverParamsForHistoric(spec) {
     brakeForceN: ROVER_PARAMS.brakeForceN * k,
     powerW,
     boostPowerW,
+    powerKw: powerW / 1000,
+    boostPowerKw: boostPowerW / 1000,
     maxHp: powerW / WATTS_PER_HP,
     boostHp: boostPowerW / WATTS_PER_HP,
     vMax: vmax,
@@ -225,7 +245,11 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     batteryKWh: P.batteryKWh,
     odometerM: 0,
     powerW: 0,
+    powerKw: 0,
     mechPowerW: 0,
+    mechPowerKw: 0,
+    maxPowerW: P.powerW,
+    maxPowerKw: (P.powerW || 0) / 1000,
     hp: 0,
     maxHp: P.maxHp || P.powerW / WATTS_PER_HP,
     motorRpm: 0,
@@ -239,6 +263,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     weightN: m * P.g,
     normalLoadN: m * P.g,
     powerToWeightHpPerTon: (((P.maxHp || P.powerW / WATTS_PER_HP) * 1000) / m),
+    powerToWeightKwPerTon: (P.powerW || 0) / m,
     gradeForceN: 0,
     rollingResistanceN: 0,
     vLong: 0,
@@ -437,11 +462,19 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     const speedMult = Number.isFinite(rawMult) ? Math.max(0.3, Math.min(4.0, rawMult)) : 1;
     const vCap = (st.pedal >= 0 ? (boost ? P.vMaxBoost : P.vMax) : P.vMaxReverse) * speedMult;
     const governor = Math.max(0, Math.min(1, (vCap - speed) / 0.8));
-    const wheelForceMaxN = P.wheelForceMaxN * speedMult;
+    const baseWheelTorqueMaxNm =
+      Number.isFinite(P.wheelTorqueMaxNm) && P.wheelTorqueMaxNm > 0
+        ? P.wheelTorqueMaxNm
+        : Number.isFinite(P.motorTorqueMaxNm) && P.motorTorqueMaxNm > 0
+          ? P.motorTorqueMaxNm * P.gearRatio * P.driveEfficiency
+          : P.wheelForceMaxN * P.wheelRadius;
+    const maxWheelTorqueNm = baseWheelTorqueMaxNm * speedMult;
+    const wheelForceMaxN = maxWheelTorqueNm / P.wheelRadius;
     const availPowerW = (boost ? P.boostPowerW : P.powerW) * speedMult;
-    const powerCap = availPowerW / Math.max(0.5, speed);
-    let driveTotal = Math.min(wheelForceMaxN, powerCap) * Math.abs(st.pedal) * governor;
-    driveTotal *= Math.sign(st.pedal);
+    const wheelOmegaEff = Math.max(0.5 / P.wheelRadius, speed / P.wheelRadius);
+    const powerCapTorqueNm = availPowerW / wheelOmegaEff;
+    const commandedTorqueNm = Math.min(maxWheelTorqueNm, powerCapTorqueNm) * Math.abs(st.pedal) * governor * Math.sign(st.pedal);
+    const driveTotal = commandedTorqueNm / P.wheelRadius;
     const coastRegen = st.pedal === 0 && st.brake < 0.05 ? -Math.sign(vLong) * Math.min(1, speed / 0.6) * m * P.regenCoastG : 0;
 
     let contacts = 0;
@@ -674,20 +707,25 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     const wheelOmega = driven ? wSum / driven : Math.abs(vLong) / P.wheelRadius;
     st.motorRpm = (wheelOmega * 60 * P.gearRatio) / (2 * Math.PI);
     const tractive = driveTotal + coastRegen;
-    st.torquePct = Math.max(-1, Math.min(1, tractive / wheelForceMaxN));
-    st.maxWheelTorqueNm = wheelForceMaxN * P.wheelRadius;
-    st.maxMotorTorqueNm = st.maxWheelTorqueNm / (P.gearRatio * P.driveEfficiency);
+    st.torquePct = Math.max(-1, Math.min(1, tractive / Math.max(1, wheelForceMaxN)));
+    st.maxWheelTorqueNm = maxWheelTorqueNm;
+    st.maxMotorTorqueNm = maxWheelTorqueNm / (P.gearRatio * P.driveEfficiency);
     st.wheelTorqueNm = tractive * P.wheelRadius;
     st.motorTorqueNm = st.wheelTorqueNm / (P.gearRatio * P.driveEfficiency);
     const mech = tractive * vLong;
     st.mechPowerW = mech;
+    st.mechPowerKw = mech / 1000;
     st.hp = Math.abs(mech) / WATTS_PER_HP;
+    st.maxPowerW = availPowerW;
+    st.maxPowerKw = availPowerW / 1000;
     st.maxHp = availPowerW / WATTS_PER_HP;
     st.powerToWeightHpPerTon = (st.maxHp * 1000) / m;
+    st.powerToWeightKwPerTon = st.maxPowerW / m;
     st.normalLoadN = totalNormalLoad;
     st.gradeForceN = -m * P.g * fwd.y;
     st.rollingResistanceN = totalRollingDrag;
     st.powerW = (mech >= 0 ? mech / P.driveEfficiency : mech * P.regenEfficiency) + P.hotelW;
+    st.powerKw = st.powerW / 1000;
     st.batteryKWh = Math.max(0, Math.min(P.batteryKWh, st.batteryKWh - (st.powerW * dt) / 3.6e6));
     st.odometerM += Math.abs(vLong) * dt;
   }

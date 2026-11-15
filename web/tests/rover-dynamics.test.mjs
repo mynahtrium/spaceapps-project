@@ -4,7 +4,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as THREE from "../vendor/three.module.js";
-import { createRoverDynamics, roverParamsFor, roverParamsForHistoric, ROVER_PARAMS } from "../hud/rover-dynamics.js";
+import {
+  createRoverDynamics,
+  roverParamsFor,
+  roverParamsForHistoric,
+  ROVER_PARAMS,
+  TORQUE_MULTIPLIER,
+  POWER_MULTIPLIER,
+} from "../hud/rover-dynamics.js";
+import { DRIVABLE_VEHICLES } from "../hud/experimental-rover.js";
 
 const flat = {
   sampleY: () => 0,
@@ -47,8 +55,8 @@ const idle = { throttle: 0, steer: 0, boost: false, handbrake: false };
   });
   const kmh = rv.state.vLong * 3.6;
   console.log(`after 1 s ${(v1 * 3.6).toFixed(1)} km/h, after 12 s ${kmh.toFixed(1)} km/h, peak accel ${maxAccel.toFixed(2)} m/s2, squat pitch ${(maxPitch * 57.3).toFixed(2)} deg, motor ${Math.round(rv.state.motorRpm)} rpm`);
-  assert.ok(v1 * 3.6 < 4.5, "no instant launch");
-  assert.ok(maxAccel < 1.6, "gentle acceleration");
+  assert.ok(v1 * 3.6 < 6.0, "no instant launch");
+  assert.ok(maxAccel > 1.2 && maxAccel < 2.2, "high-torque Martian regolith acceleration");
   assert.ok(kmh > 17 && kmh < 21, "governed near 20 km/h");
   assert.ok(maxPitch > 0.002, "nose lifts / rear squats under power");
   assert.ok(rv.state.motorRpm > 2000 && rv.state.motorRpm < 3500, "motor rpm");
@@ -322,14 +330,16 @@ console.log("rover-dynamics: all checks passed");
   assert.equal(st0.massKg, 2950);
   assert.ok(Math.abs(st0.weightN - 2950 * rv.params.g) < 1, `Martian weight N (${st0.weightN})`);
   assert.ok(Math.abs(st0.normalLoadN - st0.weightN) < 150, `settled normal load matches weight (${st0.normalLoadN} vs ${st0.weightN})`);
-  assert.ok(Math.abs(st0.maxWheelTorqueNm - 3400 * 0.345) < 1, `max wheel torque N*m (${st0.maxWheelTorqueNm})`);
-  assert.ok(st0.maxHp > 18, `max horsepower HP (${st0.maxHp})`);
+  assert.ok(Math.abs(st0.maxWheelTorqueNm - 3400 * 2.25 * 0.345) < 1, `2.25x max wheel torque N*m (${st0.maxWheelTorqueNm})`);
+  assert.ok(Math.abs(st0.maxPowerKw - 14 * 1.75) < 0.05, `1.75x max power kW (${st0.maxPowerKw})`);
+  assert.ok(st0.maxHp > 32, `1.75x max horsepower HP (${st0.maxHp})`);
 
   // Full throttle acceleration: positive wheel/motor torque and horsepower
   run(rv, 3.0, { ...idle, throttle: 1, boost: true });
   assert.ok(rv.state.wheelTorqueNm > 400, `active wheel torque N*m (${rv.state.wheelTorqueNm})`);
   assert.ok(rv.state.motorTorqueNm > 20, `active motor torque N*m (${rv.state.motorTorqueNm})`);
-  assert.ok(rv.state.hp > 10, `active horsepower HP (${rv.state.hp})`);
+  assert.ok(rv.state.hp > 15, `active horsepower HP (${rv.state.hp})`);
+  assert.ok(Math.abs(rv.state.maxPowerKw - 19 * 1.75) < 0.05, `1.75x boost power kW (${rv.state.maxPowerKw})`);
 
   // Sharp step / bump obstacle: wheel bottom never clips below ground under tire footprint
   const stepEnv = {
@@ -353,4 +363,22 @@ console.log("rover-dynamics: all checks passed");
       );
     }
   }
+
+  // Verify 2.25x torque and >= 1.75x kW/HP across DRIVABLE_VEHICLES and historic rovers
+  assert.equal(TORQUE_MULTIPLIER, 2.25);
+  assert.ok(POWER_MULTIPLIER >= 1.75);
+  const mmsevSpec = DRIVABLE_VEHICLES.find((v) => v.id === "mmsev");
+  const conceptSpec = DRIVABLE_VEHICLES.find((v) => v.id === "nasa_concept");
+  assert.equal(mmsevSpec.wheelTorqueMaxNm, 1173 * 2.25);
+  assert.equal(mmsevSpec.powerW, 14000 * 1.75);
+  assert.equal(mmsevSpec.boostPowerW, 19000 * 1.75);
+  assert.equal(conceptSpec.wheelTorqueMaxNm, 2150 * 2.25);
+  assert.equal(conceptSpec.powerW, 20200 * 1.75);
+  assert.equal(conceptSpec.boostPowerW, 27400 * 1.75);
+  const conceptParams = roverParamsFor(conceptSpec);
+  assert.equal(conceptParams.wheelTorqueMaxNm, 2150 * 2.25);
+  assert.equal(conceptParams.powerKw, (20200 * 1.75) / 1000);
+  const curParams = roverParamsForHistoric({ modelKind: "curiosity", massKg: 899 });
+  assert.ok(Math.abs(curParams.wheelTorqueMaxNm - 3400 * 2.25 * (899 / 2950) * 0.255) < 0.01);
+  assert.ok(Math.abs(curParams.powerKw - (14 * 1.75 * 899) / 2950) < 0.01);
 }

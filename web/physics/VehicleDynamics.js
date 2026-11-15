@@ -81,8 +81,11 @@ export const VEHICLE_SPECS = Object.freeze({
     massKg: 2994 + 160, // + two crew inside in plain clothes (estimate)
     topSpeedMs: 10 / 3.6,
     reverseSpeedMs: 4 / 3.6, // estimate
-    powerW: 12000, // estimate: climbs ~20 deg at ~1.5 m/s
-    maxDriveForceN: 7500, // estimate
+    powerW: 12000 * 1.75, // 21,000 W / 21.0 kW (1.75x)
+    powerKw: (12000 * 1.75) / 1000,
+    maxHp: (12000 * 1.75) / 745.699872,
+    maxDriveForceN: 7500 * 2.25, // 16,875 N (2.25x)
+    wheelTorqueMaxNm: 7500 * 2.25 * 0.345, // 5,821.875 N·m (2.25x)
     brakeForceN: 9000, // estimate
     mu: 0.55, // tyre on Mars regolith, illustrative
     rollingResistance: 0.06, // loose regolith, illustrative
@@ -109,8 +112,11 @@ export const VEHICLE_SPECS = Object.freeze({
     massKg: 1500 + 360, // chassis mass not published: estimate; + two suited crew (app suit model 180 kg each)
     topSpeedMs: 10 / 3.6,
     reverseSpeedMs: 4 / 3.6,
-    powerW: 12000,
-    maxDriveForceN: 7500,
+    powerW: 12000 * 1.75, // 21,000 W / 21.0 kW (1.75x)
+    powerKw: (12000 * 1.75) / 1000,
+    maxHp: (12000 * 1.75) / 745.699872,
+    maxDriveForceN: 7500 * 2.25, // 16,875 N (2.25x)
+    wheelTorqueMaxNm: 7500 * 2.25 * 0.345, // 5,821.875 N·m (2.25x)
     brakeForceN: 9000,
     mu: 0.55,
     rollingResistance: 0.06,
@@ -138,8 +144,11 @@ export const VEHICLE_SPECS = Object.freeze({
     massKg: 210 + 360, // + two suited crew (app suit model 180 kg each)
     topSpeedMs: 13 / 3.6,
     reverseSpeedMs: 5 / 3.6, // estimate
-    powerW: 4 * 186.4, // 4 x 0.25 hp
-    maxDriveForceN: 1150, // estimate: series-wound motors give high stall torque
+    powerW: 4 * 186.4 * 1.75, // 1,304.8 W / 1.305 kW (1.75x)
+    powerKw: (4 * 186.4 * 1.75) / 1000,
+    maxHp: (4 * 186.4 * 1.75) / 745.699872,
+    maxDriveForceN: 1150 * 2.25, // 2,587.5 N (2.25x)
+    wheelTorqueMaxNm: 1150 * 2.25 * 0.409, // 1,058.29 N·m (2.25x)
     brakeForceN: 1500, // estimate
     mu: 0.6,
     rollingResistance: 0.06,
@@ -316,23 +325,31 @@ function substep(body, input, env, h) {
   const targetSteer = steerIn * Math.min(spec.maxSteerRad, speedLimit);
   body.steer += Math.max(-1.2 * h, Math.min(1.2 * h, targetSteer - body.steer));
 
-  // drive force available (motor power and force limits, speed governor)
+  // drive force available (motor torque, power kW/HP envelope, and speed governor)
   const vMax = (throttle >= 0 ? spec.topSpeedMs : spec.reverseSpeedMs) * mult;
   const power = spec.powerW * mult;
+  const maxWheelTorqueNm = spec.wheelTorqueMaxNm ?? spec.maxDriveForceN * spec.wheelRadius;
+  const maxDriveForceN = maxWheelTorqueNm / spec.wheelRadius;
   let driveTotal = 0;
   const movingWithThrottle = throttle !== 0 && Math.sign(throttle) === Math.sign(vFwd || throttle);
   if (throttle !== 0 && movingWithThrottle) {
     const governor = Math.max(0, Math.min(1, (vMax - Math.abs(vFwd)) / (0.12 * vMax)));
-    driveTotal = Math.sign(throttle) * Math.abs(throttle) * Math.min(spec.maxDriveForceN, power / Math.max(0.3, Math.abs(vFwd))) * governor;
+    const wheelOmega = Math.max(0.3 / spec.wheelRadius, Math.abs(vFwd) / spec.wheelRadius);
+    const powerCapTorqueNm = power / wheelOmega;
+    const cmdTorqueNm = Math.sign(throttle) * Math.abs(throttle) * Math.min(maxWheelTorqueNm, powerCapTorqueNm) * governor;
+    driveTotal = cmdTorqueNm / spec.wheelRadius;
   }
   const braking = input.brake || (throttle !== 0 && !movingWithThrottle);
   const hold = throttle === 0; // motors hold the wheels when no throttle (parking brake)
   const mechPowerW = Math.abs(driveTotal * vFwd);
   body.mechPowerW = mechPowerW;
+  body.mechPowerKw = mechPowerW / 1000;
+  body.maxPowerKw = power / 1000;
   body.hp = mechPowerW / 745.699872;
   body.maxHp = power / 745.699872;
   body.wheelTorqueNm = driveTotal * spec.wheelRadius;
-  body.maxWheelTorqueNm = spec.maxDriveForceN * spec.wheelRadius;
+  body.maxWheelTorqueNm = maxWheelTorqueNm;
+  body.maxDriveForceN = maxDriveForceN;
   body.weightN = spec.massKg * g;
   body.powerFrac = Math.min(1, mechPowerW / power);
 
@@ -401,7 +418,10 @@ function substep(body, input, env, h) {
     let fLong = 0;
     if (braking) fLong = -Math.min(spec.brakeForceN / driveWheels, fMax) * Math.tanh(vLong / 0.05);
     else if (hold) fLong = -fMax * Math.tanh(vLong / 0.05);
-    else fLong = driveTotal / driveWheels;
+    else {
+      const tractionCap = fMax * (1 - 0.35 * Math.min(1, Math.abs(alpha) / 0.12));
+      fLong = Math.max(-tractionCap, Math.min(tractionCap, driveTotal / driveWheels));
+    }
     fLong -= spec.rollingResistance * load * Math.tanh(vLong / 0.1);
     // Parked or braked and nearly still: real static friction. The tyre is held to the ground point
     // where it stopped and only slides when the needed force exceeds mu * load (no slow creep).
