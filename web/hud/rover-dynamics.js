@@ -86,6 +86,51 @@ export function roverParamsFor(spec) {
   });
 }
 
+// Wheel radius of each historic NASA rover model (metres, from the models in historic-rovers.js)
+const HISTORIC_WHEEL_R = { sojourner: 0.068, "mer-spirit": 0.128, "mer-opportunity": 0.128, curiosity: 0.255, "perseverance-glb": 0.26 };
+// Driving speed in the game. The real rovers are far slower (Curiosity about 0.14 km/h on autonav,
+// Sojourner about 0.04 km/h); these are teleoperation-for-fun speeds, labelled as such in the HUD.
+const HISTORIC_VMAX_KMH = { sojourner: 4, "mer-spirit": 7, "mer-opportunity": 7, curiosity: 10, "perseverance-glb": 10 };
+
+/**
+ * Parameters for a historic rover (Sojourner, Spirit, Opportunity, Curiosity, Perseverance) from its
+ * spec: six wheels on the footprint used by historic-rovers.js, real mass, suspension and belly
+ * contact points scaled with the wheel size so a 10 kg Sojourner and a 1 t Curiosity both work.
+ */
+export function roverParamsForHistoric(spec) {
+  const kind = spec?.modelKind || "curiosity";
+  const r = HISTORIC_WHEEL_R[kind] ?? 0.25;
+  const s = r / ROVER_PARAMS.wheelRadius; // size relative to the MMSEV wheel
+  const hw = Math.max(0.24, (spec?.halfW || 1.2) * 0.72);
+  const hl = Math.max(0.28, (spec?.halfL || 1.4) * 0.72);
+  const mass = spec?.massKg || 900;
+  const k = mass / ROVER_PARAMS.massKg;
+  const vmax = (HISTORIC_VMAX_KMH[kind] ?? 8) / 3.6;
+  return Object.freeze({
+    ...ROVER_PARAMS,
+    massKg: mass,
+    dims: { w: hw * 2.4, h: Math.max(0.3, 2.2 * s), l: hl * 2.4 },
+    cgY: Math.max(0.12, 0.95 * s),
+    cgZ: 0,
+    wheelRadius: r,
+    trackHalfW: hw,
+    axleZ: [-hl, 0, hl],
+    restLen: 0.5 * s,
+    sagM: 0.11 * s,
+    maxComp: 0.34 * s,
+    probeScale: s,
+    wheelForceMaxN: ROVER_PARAMS.wheelForceMaxN * k,
+    brakeForceN: ROVER_PARAMS.brakeForceN * k,
+    powerW: ROVER_PARAMS.powerW * k,
+    boostPowerW: ROVER_PARAMS.boostPowerW * k,
+    vMax: vmax,
+    vMaxBoost: vmax * 1.3,
+    vMaxReverse: vmax * 0.5,
+    batteryKWh: kind === "sojourner" ? 0.15 : kind.startsWith("mer") ? 1.0 : 2.7,
+    hotelW: kind === "sojourner" ? 10 : kind.startsWith("mer") ? 60 : 110,
+  });
+}
+
 const SUBSTEP = 1 / 240;
 
 export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
@@ -390,8 +435,9 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     }
 
     // chassis / belly against the terrain (rocks, crests): stiff penalty contact
+    const ps = P.probeScale || 1;
     for (const [bx, by, bz] of probe) {
-      tmp.set(bx, by, bz).applyQuaternion(st.q).add(st.pos);
+      tmp.set(bx * ps, by * ps, bz * ps).applyQuaternion(st.q).add(st.pos);
       const gy = sampleY(tmp.x, tmp.z);
       const pen = gy - tmp.y;
       if (pen <= 0) continue;

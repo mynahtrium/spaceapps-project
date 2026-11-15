@@ -47,6 +47,7 @@ export const ACTIONS = [
   { id: "menu", label: "Esc menu", button: 9 },
   { id: "pov", label: "Rover POV photo", button: 4 },
   { id: "setup", label: "Controller setup", button: 11 },
+  { id: "interact", label: "Board / leave a vehicle, talk (E)", button: 5 },
 ];
 
 const DEFAULT_SETTINGS = {

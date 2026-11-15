@@ -1224,3 +1224,18 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Not measured: frame-time on the RTX 4060; the preview pane is throttled.
 - Commit: this commit
 - Next step: Cagan checks the cut-scenes and site changes on his machine.
+
+### 2026-11-15 Europe/Istanbul — PAD-02 every vehicle drivable with a controller, historic rovers included
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PAD-02
+- Files changed: `web/hud/hud3d.js`, `web/hud/rover-dynamics.js`, `web/hud/historic-rovers.js`, `web/shared/gamepad.js`, `web/index.html`, `web/tests/rover-dynamics.test.mjs`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked to control Curiosity and all other vehicles with the controller. The controller had no board/leave button and the five historic NASA rovers could not be driven at all.
+  - New controller action `interact` (RB by default, rebindable on the setup screen) = the E key: board or leave any vehicle, talk to the crew.
+  - Sojourner, Spirit, Opportunity, Curiosity and Perseverance can be boarded when you stand next to one (E / RB). Each runs the same rigid-body six-strut model with its own size and real mass (`roverParamsForHistoric`: wheel radius from the model, suspension and belly contacts scaled to the rover). Wheels turn, corner wheels steer and the rocker-bogies follow the strut travel through the model's own rig. Driving speeds are game speeds (4-10 km/h); the real rovers are far slower (Curiosity about 0.14 km/h), and the boarding notice says so.
+  - Controller while driving (all vehicles): left stick steer and throttle, RT / LT throttle and brake/reverse, A handbrake, X boost, right stick camera, RB leave. The chase camera distance now scales with the vehicle.
+- Tests: headless checks for all four historic sizes (level at rest, reach their speed, stay upright, stop); browser check with a simulated pad: board Curiosity with RB, drive with stick + RT, leave with RB.
+- Commit: this commit
+- Next step: Cagan tries it with a real pad.

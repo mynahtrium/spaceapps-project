@@ -1,7 +1,7 @@
 // Headless checks for the MMSEV rigid-body + suspension model (node web/tests/rover-dynamics.test.mjs).
 import assert from "node:assert/strict";
 import * as THREE from "../vendor/three.module.js";
-import { createRoverDynamics, roverParamsFor, ROVER_PARAMS } from "../hud/rover-dynamics.js";
+import { createRoverDynamics, roverParamsFor, roverParamsForHistoric, ROVER_PARAMS } from "../hud/rover-dynamics.js";
 
 const flat = {
   sampleY: () => 0,
@@ -141,6 +141,35 @@ const idle = { throttle: 0, steer: 0, boost: false, handbrake: false };
     assert.ok(Math.abs(rv.state.pos.y - 526.6) < 0.1, "sits on the ground");
     assert.ok(Math.abs(a.pitch) < 0.02 && Math.abs(a.roll) < 0.02, "level on flat high ground");
     assert.equal(rv.wheels.filter((w) => w.contact).length, 6, "all wheels down");
+  }
+}
+
+// 7) historic rovers (tiny Sojourner to 1 t Perseverance): sit level on their springs, drive up to
+//    their (game) top speed without flipping, and stop again
+{
+  for (const spec of [
+    { id: "sojourner", modelKind: "sojourner", massKg: 10.6, halfW: 0.32, halfL: 0.38 },
+    { id: "spirit", modelKind: "mer-spirit", massKg: 185, halfW: 1.22, halfL: 0.92 },
+    { id: "curiosity", modelKind: "curiosity", massKg: 899, halfW: 1.45, halfL: 1.55 },
+    { id: "perseverance", modelKind: "perseverance-glb", massKg: 1025, halfW: 1.45, halfL: 1.55 },
+  ]) {
+    const P = roverParamsForHistoric(spec);
+    const rv = createRoverDynamics(THREE, P);
+    rv.reset(0, 0, 0, flat.sampleY);
+    run(rv, 2, idle);
+    const rest = rv.attitude();
+    assert.ok(Math.abs(rest.pitch) < 0.02 && Math.abs(rest.roll) < 0.02, `${spec.id} level at rest`);
+    let worst = 0;
+    run(rv, 10, { ...idle, throttle: 1, steer: 0.3 }, flat, () => {
+      const a = rv.attitude();
+      worst = Math.max(worst, Math.abs(a.pitch), Math.abs(a.roll));
+    });
+    const kmh = Math.hypot(rv.state.vel.x, rv.state.vel.z) * 3.6;
+    run(rv, 8, { ...idle, throttle: -1 }, flat);
+    console.log(`${spec.id}: top ${kmh.toFixed(1)} km/h (limit ${(P.vMax * 3.6).toFixed(0)}), worst tilt ${(worst * 57.3).toFixed(1)} deg`);
+    assert.ok(kmh > P.vMax * 3.6 * 0.6 && kmh < P.vMax * 3.6 * 1.1, `${spec.id} reaches its speed`);
+    assert.ok(worst < 0.35, `${spec.id} stays upright`);
+    assert.ok(Number.isFinite(rv.state.pos.y), `${spec.id} stable`);
   }
 }
 

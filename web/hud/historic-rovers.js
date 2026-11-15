@@ -2047,6 +2047,9 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
         relObserverY: relY,
         relObserverZ: relZ,
         wheelDeltaHeights: entry.wheelDeltaHeights || null,
+        // set while you drive this rover (hud3d.js): wheels turn and the corner wheels steer
+        driveSpeed: entry.driveSpeed || 0,
+        steerAngle: entry.steerAngle || 0,
       });
     }
   }

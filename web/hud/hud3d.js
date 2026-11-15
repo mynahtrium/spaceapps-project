@@ -44,7 +44,8 @@ import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
 import { createDustDevil } from "./DustDevil.js";
 import { createLandingSequence } from "./landing-sequence.js";
-import { createRoverDynamics, roverParamsFor } from "./rover-dynamics.js";
+import { createRoverDynamics, roverParamsFor, roverParamsForHistoric } from "./rover-dynamics.js";
+import { resolveRoverObbCollision as obbPushOut } from "./experimental-rover.js";
 import { attachSuspensionRig } from "./rover-rig.js";
 import { createRoverDash } from "./rover-dash.js";
 import { gamepad } from "../shared/gamepad.js";
@@ -1842,6 +1843,93 @@ export async function initHud3D(
     r.sim = createRoverDynamics(THREE, roverParamsFor(r.getActiveSpec()));
     r.rig = attachSuspensionRig(THREE, r, r.sim);
   }
+  // ---- historic NASA rovers (Sojourner ... Perseverance) can be driven too ----
+  // Each one gets the rigid-body model with its own size and mass while you drive it; the model's
+  // own rig turns the wheels, steers the corner wheels and tilts the rocker-bogies.
+  let preHistoricRover = null;
+  function makeHistoricDriveAdapter(entry) {
+    const spec = entry.spec;
+    const group = entry.group;
+    const P = roverParamsForHistoric(spec);
+    const sim = createRoverDynamics(THREE, P);
+    sim.reset(group.position.x, group.position.z, group.rotation.y, sampleElevSceneY);
+    const label = String(spec.name || spec.id).toUpperCase();
+    const rig = {
+      sync() {
+        const st = sim.state;
+        const a = sim.attitude();
+        group.position.copy(st.pos);
+        group.rotation.order = "YXZ";
+        group.rotation.set(a.pitch, a.yaw, a.roll);
+        // stay put when the endless terrain re-centres (the manager places rovers from base x/z)
+        entry.baseX = group.position.x;
+        entry.baseZ = group.position.z;
+        // wheels and corner steering on the model; rocker-bogie tilt from the strut travel
+        entry.driveSpeed = st.vLong;
+        entry.steerAngle = st.steerCmd * P.steerMaxRad;
+        const w = sim.wheels; // FL FR ML MR RL RR
+        const d = (i) => -(w[i].comp - P.sagM);
+        entry.wheelDeltaHeights = [d(0), d(2), d(4), d(1), d(3), d(5)];
+      },
+    };
+    return {
+      isHistoricAdapter: true,
+      chaseDist: Math.max(2.2, 2.9 * Math.max(spec.halfL || 1, spec.halfW || 1)),
+      entry,
+      group,
+      sim,
+      rig,
+      getActiveSpec: () => ({ id: spec.id, shortLabel: label, nameEn: spec.name, nameTr: spec.name }),
+      getWheelDustEmitPoint(side) {
+        const yaw = group.rotation.y;
+        const hw = P.trackHalfW * side;
+        const zb = P.axleZ[2];
+        return {
+          x: group.position.x + Math.cos(yaw) * hw + Math.sin(yaw) * zb,
+          z: group.position.z - Math.sin(yaw) * hw + Math.cos(yaw) * zb,
+        };
+      },
+      sampleSupportGroundY: (fn) => fn(group.position.x, group.position.z),
+      resolveCollision: (x, z, radius = 0.42, y = null) =>
+        obbPushOut(
+          group.position.x,
+          group.position.z,
+          group.rotation.y,
+          group.position.y,
+          x,
+          z,
+          radius,
+          y,
+          Math.max(0.3, spec.halfW || 1.2),
+          Math.max(0.35, spec.halfL || 1.4),
+          spec.heightM || 2.2
+        ),
+      spawnBeside() {
+        return group.position;
+      },
+      release() {
+        entry.driveSpeed = 0;
+        entry.steerAngle = 0;
+        entry.wheelDeltaHeights = null; // the manager re-seats it on the ground next frame
+      },
+    };
+  }
+  /** The historic rover you are standing next to (within reach of its body), or null. */
+  function nearestHistoricEntry(x, z) {
+    let best = null;
+    let bestD = Infinity;
+    for (const e of historicRovers.getAllEntries()) {
+      if (!e?.group?.visible || !e.spec) continue;
+      const d = Math.hypot(e.group.position.x - x, e.group.position.z - z);
+      const reach = Math.max(e.spec.halfL || 1, e.spec.halfW || 1) + 4.2; // "go to rover" leaves you ~5 m away
+      if (d <= reach && d < bestD) {
+        best = e;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
   // digital instrument cluster along the bottom while driving (rover-dash.js)
   const roverDash = createRoverDash(
     document.getElementById("visor-overlay") || document.querySelector(".visor-overlay") || hudView
@@ -3804,7 +3892,12 @@ export async function initHud3D(
         snapPhys(wx, wz);
         syncDrivingCameraVisualState(false);
         if (self?.group) self.group.visible = suitRig != null;
-        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E)" : "EXITED MARS ROVER (PRESS E TO BOARD)");
+        if (activeDriveRover.isHistoricAdapter) {
+          activeDriveRover.release();
+          activeDriveRover = preHistoricRover || roverConcept;
+          preHistoricRover = null;
+        }
+        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E / RB)" : "EXITED MARS ROVER (PRESS E / RB TO BOARD)");
         return;
       }
 
@@ -3815,6 +3908,31 @@ export async function initHud3D(
       const targetNpc = pickTargetNpc(aimX, aimY);
       if (targetNpc) {
         openNpcDialogueSafe(targetNpc);
+        return;
+      }
+
+      // standing next to a historic rover: E (or RB) drives it; from further away E still opens its card
+      const histEntry = nearestHistoricEntry(freePos.x, freePos.z);
+      if (histEntry && !findNearestDrivableEntry(freePos.x, freePos.z, 5.8)) {
+        preHistoricRover = activeDriveRover?.isHistoricAdapter ? preHistoricRover : activeDriveRover;
+        activeDriveRover = makeHistoricDriveAdapter(histEntry);
+        const hs = activeDriveRover.getActiveSpec();
+        if (drvVehEl) drvVehEl.textContent = hs.shortLabel;
+        drivingRover = true;
+        resetRoverMotionState();
+        prevFirstPersonPitch = pitch;
+        pitch = -0.25;
+        autoYaw = 0;
+        userYaw = histEntry.group.rotation.y;
+        roverDynState.yaw = histEntry.group.rotation.y;
+        chaseCamInit = false;
+        syncDrivingCameraVisualState(true);
+        if (self?.group) self.group.visible = false;
+        showWrapNotice(
+          tr
+            ? `${hs.shortLabel} · UZAKTAN SÜRÜŞ (GERÇEKTE ÇOK DAHA YAVAŞ) · W/S · A/D · E / RB İN`
+            : `${hs.shortLabel} · TELEOPERATED DRIVE (THE REAL ROVER IS FAR SLOWER) · W/S · A/D · E / RB EXIT`
+        );
         return;
       }
 
@@ -3912,6 +4030,12 @@ export async function initHud3D(
     hasOpenModalOverlay();
   gamepad.onPress(({ actions }) => {
     if (landing.active) return landing.skip();
+    if (isHudActive() && !padBlocked() && actions.includes("interact")) {
+      // same as the E key: board / leave any vehicle (historic rovers too), talk to crew
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "e", bubbles: true }));
+      return;
+    }
     if (!isHudActive() || padBlocked() || drivingRover) return;
     for (const a of actions) {
       if (a === "jump") {
@@ -4392,6 +4516,7 @@ export async function initHud3D(
           pushOut(remote.group.position.x, remote.group.position.z, PARTNER_COLLISION_R + 0.08, remote.group.position.y);
         }
         for (const histEntry of historicRovers.getAllEntries()) {
+          if (histEntry.group === activeDriveRover.group) continue; // the rover you are driving
           const hPos = histEntry.group?.position;
           const hSpec = histEntry.spec;
           if (!hPos || !hSpec) continue;
@@ -4844,7 +4969,9 @@ export async function initHud3D(
     if (drivingRover && activeDriveRover?.group?.visible) {
       const rPos = activeDriveRover.group.position;
       const rYaw = activeDriveRover.group.rotation.y;
-      const camDist = 6.9 + Math.min(1.6, Math.abs(roverThrottleVel) * 0.065) + (roverAirState.airborne ? 0.75 : 0);
+      // chase distance scales with the vehicle: 6.9 m behind the MMSEV, about 2 m behind Sojourner
+      const camBase = activeDriveRover.chaseDist ?? 6.9;
+      const camDist = camBase + Math.min(1.6 * (camBase / 6.9), Math.abs(roverThrottleVel) * 0.065) + (roverAirState.airborne ? 0.75 : 0);
       const elevAng = Math.max(0.06, Math.min(1.08, -pitch));
       const horizDist = camDist * Math.cos(elevAng);
       const heightOff = camDist * Math.sin(elevAng);
@@ -5293,6 +5420,9 @@ export async function initHud3D(
         id: activeDriveRover.getActiveSpec().id,
         ground: +sampleElevSceneY(activeDriveRover.group.position.x, activeDriveRover.group.position.z).toFixed(2),
         support: +activeDriveRover.sampleSupportGroundY(sampleElevSceneY).toFixed(2),
+        walker: [+freePos.x.toFixed(2), +freePos.z.toFixed(2)],
+        historic: historicRovers.getAllEntries().map((e) => [e.spec?.id, +Math.hypot(e.group.position.x - freePos.x, e.group.position.z - freePos.z).toFixed(1), e.group.visible]),
+        npcDialog: document.querySelector(".npc-dialogue-backdrop.open") ? "open" : "closed",
       };
     },
     seekLanding: (t) => landing.seek(t),
