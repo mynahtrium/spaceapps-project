@@ -216,6 +216,14 @@ export function createMarsPostPipeline({ THREE = THREE_DEFAULT, renderer, scene,
     const wantSmaa = state.aa === "smaa" && smaaPass;
     if (smaaPass) smaaPass.enabled = Boolean(wantSmaa);
     if (fxaaPass) fxaaPass.enabled = state.aa === "fxaa" || (state.aa === "smaa" && !smaaPass);
+    if ( Array.isArray(composer.passes)) {
+      let lastEnabled = null;
+      for (const pass of composer.passes) {
+        pass.renderToScreen = false;
+        if (pass.enabled) lastEnabled = pass;
+      }
+      if (lastEnabled) lastEnabled.renderToScreen = true;
+    }
     const samples = state.aa === "msaa" ? MSAA_SAMPLES : 0;
     if (composer.multisampling !== samples) composer.multisampling = samples;
     return { ...state };
