@@ -41,7 +41,6 @@ import { createCelestialSky } from "./MarsCelestialSky.js";
 import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
 import { createDustDevil } from "./DustDevil.js";
-import { createWindDust } from "./wind-dust.js";
 import { gamepad } from "../shared/gamepad.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
@@ -672,7 +671,6 @@ export async function initHud3D(
   scene.add(rockField.group);
   const galeVista = createGaleVista(THREE);
   scene.add(galeVista);
-  const windDust = createWindDust({ THREE, scene, groundY: (x, z) => sampleElevSceneY(x, z), sunDir });
   const dustDevil = createDustDevil(THREE);
   scene.add(dustDevil.points);
 
@@ -2592,8 +2590,12 @@ export async function initHud3D(
       }
       if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
       const standDist = spec.lengthM < 1 ? 2.6 : 5.4;
-      const standX = wrapSceneCoord(rx - Math.sin(rYaw) * standDist * 0.55 - 1.6, worldW * 2).val;
-      const standZ = wrapSceneCoord(rz - Math.cos(rYaw) * standDist, worldH * 2).val;
+      const cosRY = Math.cos(rYaw);
+      const sinRY = Math.sin(rYaw);
+      const standLx = -standDist * 0.45;
+      const standLz = -standDist * 0.88;
+      const standX = wrapSceneCoord(rx + standLx * cosRY + standLz * sinRY, worldW * 2).val;
+      const standZ = wrapSceneCoord(rz - standLx * sinRY + standLz * cosRY, worldH * 2).val;
       teleportToLocal(standX, standZ, { keepYaw: true });
       autoYaw = 0;
       userYaw = Math.atan2(-(rx - standX), -(rz - standZ));
@@ -3953,9 +3955,8 @@ export async function initHud3D(
     updateMoons(camera.position);
     footsteps.update(dt, phys.g || surfaceG);
     rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
+    historicRovers.update(dt, { sampleElevY: sampleElevSceneY, observerPos: camera.position, clockT });
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
-    windDust.setPixelScale(renderer.domElement.height);
-    windDust.update(dt, camera, devCfg.windDust === false ? 0 : 1);
     lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
@@ -4046,7 +4047,9 @@ export async function initHud3D(
     const pitchDeg = (pitch * 180) / Math.PI;
     const stopCoord = nextPovStop?.geometry?.coordinates;
     const stopBearingDeg =
-      Array.isArray(stopCoord) && stopCoord.length >= 2 ? marsBearingDeg([curLon, curLat], stopCoord) : NaN;
+      Array.isArray(stopCoord) && stopCoord.length >= 2 && Number.isFinite(curLon) && Number.isFinite(curLat)
+        ? marsBearingDeg([curLon, curLat], stopCoord)
+        : NaN;
     const sunBearingDeg = (((Math.atan2(sunDir.x, -sunDir.z) * 180) / Math.PI) % 360 + 360) % 360;
     updateWaveguideOptics(headingDeg, pitchDeg, heightEnv.molaElevM(px, pz), stopBearingDeg, sunBearingDeg);
 

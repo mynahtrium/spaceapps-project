@@ -1599,6 +1599,7 @@ svg.profile-svg {
   right: var(--visor-pad-x, clamp(46px, 5vw, 96px));
   bottom: calc(var(--visor-pad-bottom, clamp(28px, 4.4vh, 52px)) + 52px);
   z-index: 35;
+  pointer-events: auto;
   width: min(360px, calc(100vw - 2 * var(--visor-pad-x, 46px)));
   background: rgba(0, 6, 10, 0.94);
   border: 1px solid var(--line-strong);

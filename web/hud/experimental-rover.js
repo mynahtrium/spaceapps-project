@@ -355,11 +355,11 @@ export function resolveRoverObbCollision(
     return { hit: false, x: entityX, z: entityZ, nx: 0, nz: 0, pen: 0 };
   }
 
-  let outLx;
-  let outLz;
-  let normLx;
-  let normLz;
-  let pen;
+  let outLx = lx;
+  let outLz = lz;
+  let normLx = 0;
+  let normLz = 0;
+  let pen = 0;
   if (distSq > 1e-8) {
     const dist = Math.sqrt(distSq);
     pen = entityRadius - dist;

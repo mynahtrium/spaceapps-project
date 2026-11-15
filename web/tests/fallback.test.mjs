@@ -4,6 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import * as THREE from "../vendor/three.module.js";
+import { createHistoricRoverGroup, stepRoverRigKinematics } from "../hud/historic-rovers.js";
+
 import { makeLocalTangentOrigin, decodeTerrariumPixel } from "../map/Geodesy.js";
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
 import {
@@ -688,4 +691,66 @@ test("stepAdvancedRoverPhysics simulates acceleration, gearbox shifts, handbrake
   });
   assert.equal(airOut.drifting, false);
   assert.ok(s.airPitchVel !== 0 || s.airRollVel !== 0);
+});
+
+test("all 5 historic rovers (curiosity, sojourner, spirit, opportunity, perseverance) build complete rigs and articulate cleanly", () => {
+  const orderedIds = ["curiosity", "sojourner", "spirit", "opportunity", "perseverance"];
+  for (const id of orderedIds) {
+    const spec = getHistoricRoverById(id);
+    assert.ok(spec, `Expected spec for ${id}`);
+    const grp = createHistoricRoverGroup(THREE, null, spec);
+    const rig = grp.userData?.rig;
+    assert.ok(rig, `${id} must expose userData.rig`);
+    assert.ok(rig.chassis, `${id} rig must have chassis`);
+    assert.ok(rig.rockerL && rig.rockerR, `${id} rig must have rockerL and rockerR`);
+    assert.ok(rig.bogieL && rig.bogieR, `${id} rig must have bogieL and bogieR`);
+    assert.ok(rig.diffBar, `${id} rig must have diffBar`);
+    assert.equal(rig.wheels.length, 6, `${id} rig must have 6 wheel spin pivots`);
+    assert.equal(rig.steerKnuckles.length, 4, `${id} rig must have 4 corner steering knuckles`);
+    assert.ok(rig.mastYaw && rig.mastPitch, `${id} rig must have mastYaw and mastPitch`);
+    assert.ok(rig.hgaYaw && rig.hgaPitch, `${id} rig must have hgaYaw and hgaPitch`);
+    assert.ok(rig.arm?.shoulderYaw && rig.arm?.shoulderPitch && rig.arm?.elbowPitch, `${id} rig must have hierarchical arm joints`);
+    assert.ok(rig.arm?.wristPitch && rig.arm?.turretRoll && rig.arm?.toolSpin, `${id} rig must have wrist/turret/tool joints`);
+
+    const initMastY = rig.mastYaw.rotation.y;
+    const initWheelX = rig.wheels[0].rotation.x;
+    const initArmYaw = rig.arm.shoulderYaw.rotation.y;
+    const initToolZ = rig.arm.toolSpin.rotation.z;
+
+    for (let i = 0; i < 20; i++) {
+      stepRoverRigKinematics(rig, {
+        dt: 0.05,
+        clockT: 1.5 + i * 0.05,
+        relObserverX: 4.5,
+        relObserverY: 0.6,
+        relObserverZ: -6.0,
+        wheelDeltaHeights: [0.18, 0.04, -0.14, -0.12, 0.0, 0.14],
+        driveSpeed: 0.4,
+        steerAngle: 0.25,
+      });
+    }
+
+    assert.notEqual(rig.mastYaw.rotation.y, initMastY, `${id} mastYaw must articulate`);
+    assert.notEqual(rig.wheels[0].rotation.x, initWheelX, `${id} wheels must spin`);
+    assert.notEqual(rig.arm.shoulderYaw.rotation.y, initArmYaw, `${id} arm must articulate`);
+    assert.notEqual(rig.arm.toolSpin.rotation.z, initToolZ, `${id} toolSpin must rotate`);
+    assert.ok(Math.abs(rig.rockerL.rotation.x) > 0.01, `${id} rockerL must flex with wheel terrain deltas`);
+    assert.ok(Math.abs(rig.steerKnuckles[0].rotation.y) > 0.05, `${id} corner steering knuckle must turn`);
+  }
+});
+
+test("resolveRoverObbCollision returns finite push-out when entity center lies inside the OBB", () => {
+  for (const [ex, ez] of [
+    [10, 20],
+    [10.25, 19.7],
+    [9.4, 20.6],
+  ]) {
+    const res = resolveRoverObbCollision(10, 20, -0.43, 0, ex, ez, 0.45, 0, 1.45, 1.55);
+    assert.equal(res.hit, true);
+    assert.ok(Number.isFinite(res.x), "resolved x must be finite");
+    assert.ok(Number.isFinite(res.z), "resolved z must be finite");
+    assert.ok(Number.isFinite(res.nx), "resolved nx must be finite");
+    assert.ok(Number.isFinite(res.nz), "resolved nz must be finite");
+    assert.ok(Number.isFinite(res.pen) && res.pen > 0, "resolved pen must be positive and finite");
+  }
 });
