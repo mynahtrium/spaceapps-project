@@ -20,14 +20,18 @@ import importlib.util
 import json
 import math
 import shutil
-import struct
-import subprocess
-import zlib
+import sys
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from pipeline.contracts import write_validated_json  # noqa: E402
+from pipeline.terrain.terrain_ops import roughness_tri, save_image, slope_deg  # noqa: E402
+
 OUT = ROOT / "data" / "processed" / "terrain"
 CORRIDOR = ROOT / "data" / "demo" / "corridor"
 
@@ -41,18 +45,6 @@ K_ROUGH = 0.05
 BLOCKED = 9e99
 
 
-def write_png_rgb(path: Path, rgb: np.ndarray) -> None:
-    h, w, _ = rgb.shape
-    raw = b"".join(b"\x00" + rgb[y].astype(np.uint8).tobytes() for y in range(h))
-
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-
-    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-    png += chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
-    path.write_bytes(png)
-
-
 def main() -> None:
     manifest = json.loads((CORRIDOR / "manifest.json").read_text())
     g, _ = bc.load_heights()  # (nz, nx) vertex grid, metres
@@ -64,15 +56,8 @@ def main() -> None:
     lat_mid = 0.5 * (manifest["bounds"]["north_lat_deg"] + manifest["bounds"]["south_lat_deg"])
     cell_z = BLOCK * bc.DTM_SCALE
     cell_x = BLOCK * bc.DTM_SCALE * math.cos(math.radians(lat_mid))
-    dzdr, dzdc = np.gradient(blk, cell_z, cell_x)
-    slope = np.degrees(np.arctan(np.hypot(dzdr, dzdc)))
-    pad = np.pad(blk, 1, mode="edge")
-    tri = np.zeros_like(blk)
-    for dr in (-1, 0, 1):
-        for dc in (-1, 0, 1):
-            if dr or dc:
-                tri += np.abs(pad[1 + dr : 1 + dr + rows, 1 + dc : 1 + dc + cols] - blk)
-    tri /= 8.0
+    slope = slope_deg(blk, cell_x, cell_z)
+    tri = roughness_tri(blk, cell_x, cell_z)
     cost = 1.0 + (slope / 10.0) ** 2 + K_ROUGH * tri
     cost = np.where(slope > SLOPE_LIMIT, BLOCKED, cost)
 
@@ -132,21 +117,25 @@ def main() -> None:
             "median_deg": round(float(np.median(slope)), 2),
         },
     }
-    (OUT / "cost-map.json").write_text(json.dumps(cm, separators=(",", ":")) + "\n")
+    write_validated_json(
+        OUT / "cost-map.json",
+        cm,
+        contract_id="martian-mappers.cost-map.v1",
+        indent=None,
+        separators=(",", ":"),
+    )
 
     val = np.clip(np.round((blk - zlo) / (zhi - zlo) * 65535), 1, 65535).astype(np.int64)
-    write_png_rgb(OUT / "height-preview.png", np.stack([val >> 8, val & 255, np.zeros_like(val)], axis=-1))
+    save_image(OUT / "height-preview.png", np.stack([val >> 8, val & 255, np.zeros_like(val)], axis=-1))
     cls = np.zeros(slope.shape + (3,), dtype=np.uint8)
     cls[...] = (34, 197, 94)
     cls[slope > 10] = (245, 158, 11)
     cls[slope > 15] = (239, 68, 68)
     cls[slope > 20] = (60, 20, 20)
-    write_png_rgb(OUT / "slope-preview.png", cls)
+    save_image(OUT / "slope-preview.png", cls)
     shutil.copyfile(CORRIDOR / "overview.jpg", OUT / "texture-relief.jpg")
-    subprocess.run(
-        ["vips", "colourspace", str(CORRIDOR / "overview.jpg"), str(OUT / "ortho-preview.png"), "b-w"],
-        check=True, stderr=subprocess.DEVNULL,
-    )
+    with Image.open(CORRIDOR / "overview.jpg") as ov:
+        ov.convert("L").save(OUT / "ortho-preview.png", format="PNG")
     print(f"cost map {cols}x{rows} cells, slope median {cm['slope_stats']['median_deg']} deg, "
           f">20 deg {100 * cm['slope_stats']['share_gt_20_deg']:.1f}%")
 

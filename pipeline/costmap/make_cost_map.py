@@ -17,21 +17,20 @@ Outputs (data/processed/terrain/):
                         value = R * 256 + G (B is 0); elevation_m = min + value / 65535 * (max - min),
                         with min and max from height_preview_elevation_range_m. Value 0 also marks no-data.
 """
-import json
 import sys
 from pathlib import Path
 
 import numpy as np
 import rasterio
 from rasterio.windows import Window
-from skimage.io import imsave
 
-_HERE = Path(__file__).resolve().parent
-_TERRAIN = _HERE.parent / "terrain"
-sys.path.insert(0, str(_HERE))
-sys.path.insert(0, str(_TERRAIN))
-from crop_window import crop_xy, load_example_stops, xy_to_lonlat  # noqa: E402
-from make_slope import CELL_M, block_mean, slope_deg  # noqa: E402
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from pipeline.contracts import write_validated_json  # noqa: E402
+from pipeline.terrain.crop_window import crop_xy, load_example_stops, xy_to_lonlat  # noqa: E402
+from pipeline.terrain.make_slope import CELL_M, block_mean, slope_deg  # noqa: E402
+from pipeline.terrain.terrain_ops import roughness_tri as _xr_tri, save_image  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DTM_URL = (
@@ -44,16 +43,8 @@ BLOCKED = 9e99
 
 
 def roughness_tri(z):
-    """Terrain Ruggedness Index: mean absolute elevation difference to the 8 neighbours (m)."""
-    p = np.pad(z, 1, mode="edge")
-    h, w = z.shape
-    diffs = [
-        np.abs(p[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w] - z)
-        for dy in (-1, 0, 1)
-        for dx in (-1, 0, 1)
-        if (dy, dx) != (0, 0)
-    ]
-    return np.mean(diffs, axis=0)
+    """Terrain Ruggedness Index on the grid using ``xrspatial.tri`` (m)."""
+    return _xr_tri(z)
 
 
 def read_stop_window(stops, half):
@@ -122,7 +113,7 @@ def main():
     h16 = np.where(np.isfinite(zc), (zc - zmin) / (zmax - zmin), 0) * 65535
     h16 = h16.astype("uint16")
     rgb = np.dstack([h16 >> 8, h16 & 255, np.zeros_like(h16)]).astype("uint8")
-    imsave(out / "height-preview.png", rgb, check_contrast=False)
+    save_image(out / "height-preview.png", rgb)
 
     west, north = t.c, t.f
     east, south = west + zc.shape[1] * cell, north - zc.shape[0] * cell
@@ -181,7 +172,13 @@ def main():
         "blocked_sentinel": BLOCKED,
         "units": {"cost": "relative", "slope": "degrees"},
     }
-    (out / "cost-map.json").write_text(json.dumps(cost_map, separators=(",", ":")) + "\n")
+    write_validated_json(
+        out / "cost-map.json",
+        cost_map,
+        contract_id="martian-mappers.cost-map.v1",
+        indent=None,
+        separators=(",", ":"),
+    )
     print("grid", zc.shape, "blocked share", float((cost >= BLOCKED).mean()), "elev", zmin, zmax)
 
 

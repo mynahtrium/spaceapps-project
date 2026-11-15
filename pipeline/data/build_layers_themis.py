@@ -6,9 +6,11 @@ Matches the martian-mappers.layer-themis.v1 contract in docs/contracts/layers-th
 from __future__ import annotations
 
 import math
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
+
+from lxml import etree
+from owslib.wmts import WebMapTileService
 
 from .common import DATA_RAW, DATA_SCIENCE, http_get_bytes, utc_now_iso, write_json
 
@@ -24,59 +26,58 @@ THEMIS_NIGHT_CAPS = (
 # Gale / Mount Sharp site center (Curiosity traverse / HiRISE DTM 019698)
 GALE_LAT = -4.80
 GALE_LON = 137.39
-
-NS = {
-    "wmts": "http://www.opengis.net/wmts/1.0",
-    "ows": "http://www.opengis.net/ows/1.1",
-}
+_WMTS_NS = {"wmts": "http://www.opengis.net/wmts/1.0"}
 
 
-def _text(elem: ET.Element | None, path: str) -> str | None:
-    if elem is None:
-        return None
-    found = elem.find(path, NS)
-    return found.text.strip() if found is not None and found.text else None
+def _normalize_wmts_xml(xml_bytes: bytes) -> bytes:
+    """Coerce Mars Trek float MatrixWidth/MatrixHeight ('2.0') to integer strings for OWSLib."""
+    root = etree.fromstring(xml_bytes)
+    for tag in ("wmts:MatrixWidth", "wmts:MatrixHeight"):
+        for elem in root.findall(f".//{tag}", _WMTS_NS):
+            if elem.text and "." in elem.text:
+                elem.text = str(int(float(elem.text.strip())))
+    return etree.tostring(root)
 
 
-def _parse_capabilities(xml_bytes: bytes) -> dict[str, Any]:
-    root = ET.fromstring(xml_bytes)
-    layer = root.find(".//wmts:Contents/wmts:Layer", NS)
-    if layer is None:
+def _parse_capabilities(xml_bytes: bytes, caps_url: str = THEMIS_DAY_CAPS) -> dict[str, Any]:
+    wmts = WebMapTileService(caps_url, xml=_normalize_wmts_xml(xml_bytes))
+    if not wmts.contents:
         raise RuntimeError("No <Layer> found in WMTSCapabilities.xml")
 
-    identifier = _text(layer, "ows:Identifier")
-    title = _text(layer, "ows:Title") or identifier
-    style_id = _text(layer, "wmts:Style/ows:Identifier") or "default"
-    tms_id = _text(layer, "wmts:TileMatrixSetLink/wmts:TileMatrixSet") or "default028mm"
+    layer = next(iter(wmts.contents.values()))
+    identifier = layer.id
+    title = layer.title or identifier
+    style_id = (
+        next((sid for sid, meta in (layer.styles or {}).items() if meta.get("isDefault")), None)
+        or next(iter(layer.styles or ()), "default")
+    )
+    tms_id = next(iter(layer.tilematrixsetlinks or ()), "default028mm")
 
-    res_url_elem = layer.find("wmts:ResourceURL[@resourceType='tile']", NS)
-    template = res_url_elem.attrib.get("template") if res_url_elem is not None else None
-    img_format = res_url_elem.attrib.get("format") if res_url_elem is not None else "image/png"
+    tile_res = next((r for r in (layer.resourceURLs or []) if r.get("resourceType") == "tile"), None)
+    template = tile_res.get("template") if tile_res else None
+    img_format = (
+        (tile_res.get("format") if tile_res else None)
+        or next(iter(layer.formats or ()), "image/png")
+    )
 
-    bbox_elem = layer.find("ows:WGS84BoundingBox", NS)
-    lower = _text(bbox_elem, "ows:LowerCorner")
-    upper = _text(bbox_elem, "ows:UpperCorner")
+    bbox = getattr(layer, "boundingBoxWGS84", None)
+    lower = f"{bbox[0]} {bbox[1]}" if bbox and len(bbox) == 4 else None
+    upper = f"{bbox[2]} {bbox[3]}" if bbox and len(bbox) == 4 else None
 
     matrices: list[dict[str, Any]] = []
-    for tms in root.findall(".//wmts:Contents/wmts:TileMatrixSet", NS):
-        if _text(tms, "ows:Identifier") != tms_id:
-            continue
-        for tm in tms.findall("wmts:TileMatrix", NS):
-            tm_id = _text(tm, "ows:Identifier")
-            top_left_str = _text(tm, "wmts:TopLeftCorner")
-            mw = _text(tm, "wmts:MatrixWidth")
-            mh = _text(tm, "wmts:MatrixHeight")
-            if tm_id and mw and mh:
-                tl_parts = [float(x) for x in top_left_str.split()] if top_left_str else [-180.0, 90.0]
-                matrices.append(
-                    {
-                        "id": tm_id,
-                        "matrix_width": int(float(mw)),
-                        "matrix_height": int(float(mh)),
-                        "top_left_lon": tl_parts[0],
-                        "top_left_lat": tl_parts[1],
-                    }
-                )
+    tms = (wmts.tilematrixsets or {}).get(tms_id)
+    if tms is not None:
+        for tm in tms.tilematrix.values():
+            tl = tm.topleftcorner or (-180.0, 90.0)
+            matrices.append(
+                {
+                    "id": tm.identifier,
+                    "matrix_width": int(tm.matrixwidth),
+                    "matrix_height": int(tm.matrixheight),
+                    "top_left_lon": float(tl[0]),
+                    "top_left_lat": float(tl[1]),
+                }
+            )
 
     return {
         "identifier": identifier,
@@ -161,7 +162,7 @@ def _process_layer(key: str, name: str, caps_url: str, raw_dir: Path, tile_dir: 
     raw_dir.mkdir(parents=True, exist_ok=True)
     (raw_dir / f"themis_{key}_WMTSCapabilities.xml").write_bytes(xml_bytes)
 
-    parsed = _parse_capabilities(xml_bytes)
+    parsed = _parse_capabilities(xml_bytes, caps_url=caps_url)
     cached_tiles = _cache_sample_tiles(key, parsed, tile_dir)
     return {
         "name": name,

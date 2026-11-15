@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .common import DATA_SCIENCE, REPO_ROOT, utc_now_iso, write_json
+from .common import CONTRACT_MODELS, DATA_SCIENCE, REPO_ROOT, utc_now_iso, validate_contract, write_json
 
 DEMO_DIR = REPO_ROOT / "data" / "demo"
 _PROCESSED_PREFIX_RE = re.compile(r"data/processed/(?:terrain|routing|science)/")
@@ -49,6 +49,8 @@ def _copy_or_rewrite_json(src: Path, dst: Path) -> None:
     data = json.loads(src.read_text(encoding="utf-8"))
     rewritten = _rewrite_demo_paths(data)
     if raw_bytes > 100_000:
+        if isinstance(rewritten, dict) and rewritten.get("contract") in CONTRACT_MODELS:
+            validate_contract(rewritten)
         dst.write_text(json.dumps(rewritten, separators=(",", ":")), encoding="utf-8")
     else:
         write_json(dst, rewritten)

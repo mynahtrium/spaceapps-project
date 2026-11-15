@@ -11,22 +11,27 @@ from __future__ import annotations
 import json
 import math
 import os
-import struct
 import sys
-import zlib
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
+from rasterio.transform import Affine, from_bounds
+from rasterio.transform import rowcol as affine_rowcol
+from rasterio.transform import xy as affine_xy
+from shapely import covers as shapely_covers
+from shapely.geometry import Point, box
 
 _HERE = Path(__file__).resolve().parent
+_ROOT = _HERE.parents[1]
 _STOPS = _HERE.parent / "stops"
-if str(_HERE) not in sys.path:
-    sys.path.insert(0, str(_HERE))
-if str(_STOPS) not in sys.path:
-    sys.path.insert(0, str(_STOPS))
+for _p in (str(_ROOT), str(_HERE), str(_STOPS)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from dijkstra_grid import route_through_stops
 from mars_geo import MARS_RADIUS_M, bearing_deg, haversine_m, interpolate_lonlat
+from pipeline.contracts import validate_contract, write_validated_json
 from write_stops import SOURCES as STOP_SOURCES, build_stops
 
 TERRAIN_SOURCE = {
@@ -87,32 +92,40 @@ def cost_array(cm: dict) -> np.ndarray:
     return arr
 
 
-def in_bounds(lon: float, lat: float, bounds: dict) -> bool:
-    return (
-        bounds["west_lon_deg"] <= lon <= bounds["east_lon_deg"]
-        and bounds["south_lat_deg"] <= lat <= bounds["north_lat_deg"]
+def _grid_transform(cm: dict) -> Affine:
+    b = cm["bounds"]
+    ncols = int(cm["grid"]["ncols"])
+    nrows = int(cm["grid"]["nrows"])
+    return from_bounds(
+        float(b["west_lon_deg"]),
+        float(b["south_lat_deg"]),
+        float(b["east_lon_deg"]),
+        float(b["north_lat_deg"]),
+        ncols,
+        nrows,
     )
 
 
+def in_bounds(lon: float, lat: float, bounds: dict) -> bool:
+    bbox = box(
+        float(bounds["west_lon_deg"]),
+        float(bounds["south_lat_deg"]),
+        float(bounds["east_lon_deg"]),
+        float(bounds["north_lat_deg"]),
+    )
+    return bool(shapely_covers(bbox, Point(float(lon), float(lat))))
+
+
 def lonlat_to_rowcol(lon: float, lat: float, cm: dict) -> tuple[int, int]:
-    b = cm["bounds"]
     ncols = int(cm["grid"]["ncols"])
     nrows = int(cm["grid"]["nrows"])
-    # row_major north_to_south: row 0 = north
-    col = (lon - b["west_lon_deg"]) / (b["east_lon_deg"] - b["west_lon_deg"]) * ncols
-    row = (b["north_lat_deg"] - lat) / (b["north_lat_deg"] - b["south_lat_deg"]) * nrows
-    c = int(min(ncols - 1, max(0, math.floor(col))))
-    r = int(min(nrows - 1, max(0, math.floor(row))))
-    return r, c
+    r, c = affine_rowcol(_grid_transform(cm), float(lon), float(lat), op=math.floor)
+    return int(min(nrows - 1, max(0, r))), int(min(ncols - 1, max(0, c)))
 
 
 def rowcol_to_lonlat(r: float, c: float, cm: dict) -> tuple[float, float]:
-    b = cm["bounds"]
-    ncols = int(cm["grid"]["ncols"])
-    nrows = int(cm["grid"]["nrows"])
-    lon = b["west_lon_deg"] + (c + 0.5) / ncols * (b["east_lon_deg"] - b["west_lon_deg"])
-    lat = b["north_lat_deg"] - (r + 0.5) / nrows * (b["north_lat_deg"] - b["south_lat_deg"])
-    return lon, lat
+    lon, lat = affine_xy(_grid_transform(cm), r, c, offset="center")
+    return float(lon), float(lat)
 
 
 def stop_block_report(cm: dict, coords: dict[str, tuple[float, float]]) -> list[dict]:
@@ -252,7 +265,7 @@ def leg_distances(line: list[list[float]], coords: dict[str, tuple[float, float]
 
 
 def load_height_grid(cm: dict) -> np.ndarray | None:
-    """Decode height-preview.png (8-bit RGB R*256+G or 16-bit grey) into elevation_m array."""
+    """Decode height-preview.png (8-bit RGB R*256+G or 16-bit grey) via Pillow."""
     rel = cm.get("height_preview_png_relpath")
     rng = cm.get("height_preview_elevation_range_m")
     if not rel or not rng or len(rng) != 2:
@@ -260,58 +273,17 @@ def load_height_grid(cm: dict) -> np.ndarray | None:
     png_path = ROOT / rel
     if not png_path.exists():
         return None
-    raw = png_path.read_bytes()
-    if raw[:8] != b"\x89PNG\r\n\x1a\n":
+    with Image.open(png_path) as img:
+        arr = np.asarray(img)
+    if arr.ndim == 3 and arr.shape[2] >= 2:
+        val = (arr[..., 0].astype(np.uint16) << 8) | arr[..., 1].astype(np.uint16)
+    elif arr.ndim == 2:
+        val = arr.astype(np.int64)
+    else:
         return None
-    pos = 8
-    idat = bytearray()
-    w = h = bd = ct = 0
-    while pos < len(raw):
-        ln = struct.unpack(">I", raw[pos : pos + 4])[0]
-        ctype = raw[pos + 4 : pos + 8]
-        data = raw[pos + 8 : pos + 8 + ln]
-        pos += 12 + ln
-        if ctype == b"IHDR":
-            w, h, bd, ct = struct.unpack(">IIBB", data[:10])
-        elif ctype == b"IDAT":
-            idat.extend(data)
-    bpp = 3 if (bd, ct) == (8, 2) else (2 if (bd, ct) == (16, 0) else 0)
-    if bpp == 0 or w <= 0 or h <= 0:
-        return None
-    decomp = zlib.decompress(bytes(idat))
-    row_bytes = 1 + w * bpp
-    prev = bytearray(w * bpp)
-    grid = np.full((h, w), np.nan, dtype=np.float64)
     zmin, zmax = float(rng[0]), float(rng[1])
-    for y in range(h):
-        off = y * row_bytes
-        ftype = decomp[off]
-        scan = bytearray(decomp[off + 1 : off + 1 + w * bpp])
-        if ftype == 1:
-            for i in range(bpp, len(scan)):
-                scan[i] = (scan[i] + scan[i - bpp]) & 255
-        elif ftype == 2:
-            for i in range(len(scan)):
-                scan[i] = (scan[i] + prev[i]) & 255
-        elif ftype == 3:
-            for i in range(len(scan)):
-                a = scan[i - bpp] if i >= bpp else 0
-                scan[i] = (scan[i] + ((a + prev[i]) >> 1)) & 255
-        elif ftype == 4:
-            for i in range(len(scan)):
-                a = scan[i - bpp] if i >= bpp else 0
-                b = prev[i]
-                c = prev[i - bpp] if i >= bpp else 0
-                p = a + b - c
-                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
-                scan[i] = (scan[i] + pr) & 255
-        prev = scan
-        for x in range(w):
-            val = (scan[x * bpp] << 8) | scan[x * bpp + 1]
-            if val > 0:
-                grid[y, x] = zmin + (val / 65535.0) * (zmax - zmin)
-    return grid
+    grid = np.where(val > 0, zmin + (val / 65535.0) * (zmax - zmin), np.nan)
+    return grid.astype(np.float64)
 
 
 def sample_elev_and_slope(
@@ -526,9 +498,10 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stops_path = OUT_DIR / "stops.json"
     if not stops_path.exists():
-        stops_path.write_text(json.dumps(build_stops(), indent=2) + "\n")
+        write_validated_json(stops_path, build_stops(), contract_id="martian-mappers.stops.v1")
 
     stops = load_stops()
+    validate_contract(stops, contract_id="martian-mappers.stops.v1")
     coords = stop_lonlat(stops)
     names = stop_names(stops)
 
@@ -651,8 +624,8 @@ def main() -> None:
     if route["status"] != "example":
         raise SystemExit("status must stay example")
 
-    (OUT_DIR / "route.json").write_text(json.dumps(route, indent=2) + "\n")
-    (OUT_DIR / "hud-telemetry.json").write_text(json.dumps(hud, indent=2) + "\n")
+    write_validated_json(OUT_DIR / "route.json", route, contract_id="martian-mappers.route.v1")
+    write_validated_json(OUT_DIR / "hud-telemetry.json", hud, contract_id="martian-mappers.hud-telemetry.v1")
     print("method", method, "cost", cm_label)
     print("blocked_stops", blocked_ids)
     print("distance_m", round(total_m, 1), "leg_sum", leg_sum, "duration_min_placeholder", round(planned_min, 1))

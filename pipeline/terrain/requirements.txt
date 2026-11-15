@@ -1,5 +1,13 @@
-rasterio>=1.5
-numpy
-scipy
-scikit-image
-shapely
+# Terrain & costmap pipeline dependencies (synced with pipeline/requirements.txt)
+httpx==0.28.1
+numpy==2.5.4
+pillow==13.0.0
+pydantic==2.14.3
+pyproj==3.8.0
+rasterio==1.5.2
+scipy==1.18.1
+shapely==2.2.0
+tenacity==9.2.1
+trimesh==5.2.1
+xarray==2026.9.0
+xarray-spatial==0.10.20

@@ -8,14 +8,16 @@ All features keep is_example: true until the team locks PRE-07. No mineral IDs a
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 _HERE = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+from pipeline.contracts import write_validated_json  # noqa: E402
 OUT = ROOT / "data/processed/routing/stops.json"
 
 # Cited MSL waypoints (docs/testing/STOP_COORDINATE_CHECK.md, PRE07_LOCK_REQUEST.md).
@@ -176,9 +178,8 @@ def build_stops() -> dict:
 
 
 def main() -> None:
-    OUT.parent.mkdir(parents=True, exist_ok=True)
     payload = build_stops()
-    OUT.write_text(json.dumps(payload, indent=2) + "\n")
+    write_validated_json(OUT, payload, contract_id="martian-mappers.stops.v1")
     print("wrote", OUT.relative_to(ROOT), "features", len(payload["features"]))
 
 

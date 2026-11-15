@@ -13,11 +13,11 @@ Output: data/raw/terrain/DTEEC_019698_1750_019988_1750_U01.IMG (gitignored)
 import argparse
 import json
 import sys
-import time
-import urllib.request
 from pathlib import Path
 
+import httpx
 import rasterio
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from crop_window import crop_xy, load_example_stops  # noqa: E402
@@ -31,18 +31,31 @@ DTM_URL = (
 LOCAL = ROOT / "data/raw/terrain" / (DTM_ID + ".IMG")
 
 
-def get_range(start, end, tries=10):
-    for i in range(tries):
-        try:
-            req = urllib.request.Request(DTM_URL, headers={"Range": f"bytes={start}-{end}"})
-            with urllib.request.urlopen(req, timeout=120) as r:
-                data = r.read()
-            if len(data) == end - start + 1:
-                return data
-        except Exception as e:  # noqa: BLE001 - retry any network error
-            print(f"  retry {i + 1} for {start}-{end}: {e}")
-        time.sleep(min(30, 2 ** i))
-    raise SystemExit(f"failed to fetch bytes {start}-{end}")
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(10),
+    wait=wait_exponential(multiplier=1, min=1, max=30),
+    retry=retry_if_exception_type((httpx.HTTPError, ValueError)),
+)
+def _get_range_attempt(client: httpx.Client, start: int, end: int) -> bytes:
+    resp = client.get(DTM_URL, headers={"Range": f"bytes={start}-{end}"}, timeout=120.0)
+    resp.raise_for_status()
+    data = resp.content
+    expected = end - start + 1
+    if len(data) != expected:
+        raise ValueError(f"short byte range for {start}-{end}: got {len(data)}, expected {expected}")
+    return data
+
+
+def get_range(start, end, tries=10, *, client: httpx.Client | None = None):
+    attempt = _get_range_attempt.retry_with(stop=stop_after_attempt(max(1, int(tries))))
+    try:
+        if client is not None:
+            return attempt(client, start, end)
+        with httpx.Client(follow_redirects=True) as owned_client:
+            return attempt(owned_client, start, end)
+    except Exception as exc:  # noqa: BLE001 - wrap final retry exhaustion identically
+        raise SystemExit(f"failed to fetch bytes {start}-{end}: {exc}") from exc
 
 
 def main():
@@ -59,36 +72,38 @@ def main():
         r1, _ = ds.index(cx + half, cy - half)
         width, height = ds.width, ds.height
     row_bytes = width * 4
-    with urllib.request.urlopen(urllib.request.Request(DTM_URL, method="HEAD"), timeout=60) as r:
-        total = int(r.headers["Content-Length"])
-    label_bytes = total - height * row_bytes
-    r0, r1 = max(0, r0 - a.margin_rows), min(height, r1 + a.margin_rows)
-    band = (label_bytes + r0 * row_bytes, label_bytes + r1 * row_bytes - 1)
+    with httpx.Client(follow_redirects=True) as client:
+        head = client.head(DTM_URL, timeout=60.0)
+        head.raise_for_status()
+        total = int(head.headers["Content-Length"])
+        label_bytes = total - height * row_bytes
+        r0, r1 = max(0, r0 - a.margin_rows), min(height, r1 + a.margin_rows)
+        band = (label_bytes + r0 * row_bytes, label_bytes + r1 * row_bytes - 1)
 
-    LOCAL.parent.mkdir(parents=True, exist_ok=True)
-    state_path = LOCAL.with_suffix(".progress.json")
-    state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    if state.get("band") != list(band) or state.get("chunk") != chunk:
-        state = {"band": list(band), "chunk": chunk, "done": [d for d in state.get("done", []) if d[0] == 0]}
-    if not LOCAL.exists() or LOCAL.stat().st_size != total:
-        with open(LOCAL, "wb") as f:
-            f.truncate(total)
-        state["done"] = []
+        LOCAL.parent.mkdir(parents=True, exist_ok=True)
+        state_path = LOCAL.with_suffix(".progress.json")
+        state = json.loads(state_path.read_text()) if state_path.exists() else {}
+        if state.get("band") != list(band) or state.get("chunk") != chunk:
+            state = {"band": list(band), "chunk": chunk, "done": [d for d in state.get("done", []) if d[0] == 0]}
+        if not LOCAL.exists() or LOCAL.stat().st_size != total:
+            with open(LOCAL, "wb") as f:
+                f.truncate(total)
+            state["done"] = []
 
-    jobs = [(0, label_bytes - 1)] + [
-        (s, min(s + chunk - 1, band[1])) for s in range(band[0], band[1] + 1, chunk)
-    ]
-    done = {tuple(j) for j in state["done"]}
-    print(f"rows {r0}-{r1}, {(band[1] - band[0] + 1) / 1e6:.1f} MB in {len(jobs)} chunks, {len(done)} already done")
-    with open(LOCAL, "r+b") as f:
-        for k, (s, e) in enumerate(jobs, 1):
-            if (s, e) in done:
-                continue
-            f.seek(s)
-            f.write(get_range(s, e))
-            state["done"].append([s, e])
-            state_path.write_text(json.dumps(state))
-            print(f"  chunk {k}/{len(jobs)} ok")
+        jobs = [(0, label_bytes - 1)] + [
+            (s, min(s + chunk - 1, band[1])) for s in range(band[0], band[1] + 1, chunk)
+        ]
+        done = {tuple(j) for j in state["done"]}
+        print(f"rows {r0}-{r1}, {(band[1] - band[0] + 1) / 1e6:.1f} MB in {len(jobs)} chunks, {len(done)} already done")
+        with open(LOCAL, "r+b") as f:
+            for k, (s, e) in enumerate(jobs, 1):
+                if (s, e) in done:
+                    continue
+                f.seek(s)
+                f.write(get_range(s, e, client=client))
+                state["done"].append([s, e])
+                state_path.write_text(json.dumps(state))
+                print(f"  chunk {k}/{len(jobs)} ok")
     state["rows"] = [r0, r1]
     state_path.write_text(json.dumps(state))
     print("local DTM ready:", LOCAL.relative_to(ROOT), "rows", r0, r1)

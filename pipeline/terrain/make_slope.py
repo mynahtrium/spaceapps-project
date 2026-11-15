@@ -23,10 +23,12 @@ from pathlib import Path
 import numpy as np
 import rasterio
 from rasterio.windows import Window
-from skimage.io import imsave
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from crop_window import LON0, MARS_R_M, crop_xy, load_example_stops, lonlat_to_xy, xy_to_lonlat  # noqa: E402
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from pipeline.terrain.crop_window import LON0, MARS_R_M, crop_xy, load_example_stops, lonlat_to_xy, xy_to_lonlat  # noqa: E402
+from pipeline.terrain.terrain_ops import save_image, slope_deg as _xr_slope_deg  # noqa: E402
 
 DTM_URL = (
     "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/"
@@ -50,8 +52,7 @@ def block_mean(a, f):
 
 
 def slope_deg(z, cell):
-    dzdy, dzdx = np.gradient(z, cell)
-    return np.degrees(np.arctan(np.hypot(dzdx, dzdy)))
+    return _xr_slope_deg(z, cell)
 
 
 def classify(s):
@@ -126,7 +127,7 @@ def main():
         [[46, 160, 67], [240, 180, 40], [220, 80, 50], [30, 30, 30], [120, 120, 120]],
         dtype="uint8",
     )
-    imsave(out / "slope-preview.png", palette[cls], check_contrast=False)
+    save_image(out / "slope-preview.png", palette[cls])
 
     valid = np.isfinite(s)
     stats = {

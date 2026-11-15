@@ -17,35 +17,51 @@ Treat the result as a calibration hint, not a validation.
 """
 import argparse
 import json
-import math
 import sys
-import urllib.request
 from pathlib import Path
 
+import httpx
 import numpy as np
 import rasterio
 from rasterio.windows import Window
 from scipy.ndimage import uniform_filter
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from make_slope import DTM_URL, lonlat_to_xy  # noqa: E402
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from pipeline.terrain.make_slope import DTM_URL  # noqa: E402
+from pipeline.terrain.crop_window import lonlat_to_xy  # noqa: E402
+from pipeline.terrain.terrain_ops import slope_deg as _xr_slope_deg  # noqa: E402
 
 WAYPOINTS_URL = "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json"
 ROOT = Path(__file__).resolve().parents[2]
 MARGIN_M = 20
 
 
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type(httpx.HTTPError),
+)
+def _fetch_waypoints_json(url: str) -> bytes:
+    with httpx.Client(follow_redirects=True, timeout=30.0) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        return resp.content
+
+
 def load_waypoints(path):
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(WAYPOINTS_URL, path)
+        path.write_bytes(_fetch_waypoints_json(WAYPOINTS_URL))
     feats = json.loads(path.read_text())["features"]
     return [f["properties"] for f in feats]
 
 
 def slope_deg(z, cell):
-    dzdy, dzdx = np.gradient(z, cell)
-    return np.degrees(np.arctan(np.hypot(dzdx, dzdy)))
+    return _xr_slope_deg(z, cell)
 
 
 def summary(dtm, tilt):

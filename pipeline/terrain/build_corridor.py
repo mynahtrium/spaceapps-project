@@ -12,7 +12,7 @@ shift. Fitting 478 waypoints inside the corridor gives -60 samples / +14 lines (
 14 m N-S); the elevation residual spread drops from 6.2 m to 2.35 m. Everything here is written in
 the waypoint frame so the stops, route and traverse sit on the right rocks.
 
-Needs only numpy plus the `opj_decompress` and `vips` command-line tools (no GDAL / Pillow).
+Needs numpy, rasterio (windowed JP2 reading and C void filling), and Pillow for JPEG encoding.
 
 Inputs (gitignored, data/raw/hirise/):
   dtm9149_rows_from_2900.f32   DTM lines 2900..8319, all 6749 samples, little-endian float32
@@ -29,16 +29,23 @@ Height files: gzip of row-delta-coded little-endian int16 over uint16 levels,
 from __future__ import annotations
 
 import gzip
-import json
 import math
 import re
 import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
+import rasterio
+from rasterio.enums import Resampling
+from rasterio.fill import fillnodata
+from rasterio.windows import Window
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from pipeline.contracts import write_validated_json  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 RAW = ROOT / "data" / "raw" / "hirise"
@@ -96,16 +103,11 @@ def load_heights() -> np.ndarray:
     bad = ~((g > NODATA_BELOW) & (g < 0))
     holes = int(bad.sum())
     if holes:
-        # Diffuse valid neighbours into small voids (none expected in this corridor).
-        for _ in range(400):
-            if not bad.any():
-                break
-            p = np.pad(np.where(bad, np.nan, g), 1, mode="edge")
-            nb = np.stack([p[:-2, 1:-1], p[2:, 1:-1], p[1:-1, :-2], p[1:-1, 2:]])
-            fill = np.nanmean(nb, axis=0)
-            ok = bad & ~np.isnan(fill)
-            g[ok] = fill[ok]
-            bad &= ~ok
+        g = fillnodata(
+            np.where(bad, np.nan, g),
+            mask=(~bad).astype(np.uint8),
+            max_search_distance=400.0,
+        ).astype(np.float64)
     return g, holes
 
 
@@ -161,49 +163,38 @@ def mars_tint(gray: np.ndarray) -> np.ndarray:
 
 
 def write_jpeg(rgb: np.ndarray, path: Path, quality: int = 82) -> None:
-    h, w, _ = rgb.shape
-    with tempfile.NamedTemporaryFile(suffix=".ppm", delete=False) as f:
-        f.write(f"P6 {w} {h} 255\n".encode())
-        f.write(rgb.tobytes())
-        tmp = f.name
-    subprocess.run(["vips", "copy", tmp, f"{path}[Q={quality},strip]"], check=True)
-    Path(tmp).unlink()
-
-
-def read_pgm(path: Path) -> np.ndarray:
-    data = path.read_bytes()
-    # Header tokens may be separated by '#' comment lines (opj_decompress writes one).
-    m = re.match(rb"P5(?:\s|#[^\n]*\n)+(\d+)(?:\s|#[^\n]*\n)+(\d+)(?:\s|#[^\n]*\n)+(\d+)\s", data)
-    if not m:
-        raise SystemExit(f"not a binary PGM: {path}")
-    w, h, mx = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    body = data[m.end():]
-    dt = np.uint8 if mx < 256 else ">u2"
-    arr = np.frombuffer(body, dtype=dt, count=w * h).reshape(h, w)
-    if mx >= 256:
-        arr = (arr.astype(np.float32) * (255.0 / mx)).astype(np.uint8)
-    return arr
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.asarray(rgb, dtype=np.uint8), mode="RGB").save(
+        path,
+        format="JPEG",
+        quality=int(quality),
+        optimize=True,
+    )
 
 
 def decode_ortho(ol: dict, reduce: int) -> tuple[np.ndarray, float, float]:
-    """Decode the corridor window of the JP2 at 1/2**reduce resolution. Returns (img, ortho_s0, ortho_l0)."""
+    """Decode the corridor window of the JP2 at 1/2**reduce resolution via rasterio. Returns (img, ortho_s0, ortho_l0)."""
     s_a, l_a = dtm_px_to_ortho_px(S0 - 0.5, L0 - 0.5, ol)
     s_b, l_b = dtm_px_to_ortho_px(S0 + NCX * CHUNK - 0.5, L0 + NCZ * CHUNK - 0.5, ol)
     x0, y0 = int(math.floor(s_a + 0.5)), int(math.floor(l_a + 0.5))
     x1, y1 = int(math.ceil(s_b + 0.5)), int(math.ceil(l_b + 0.5))
     x0, y0 = max(0, x0), max(0, y0)
     x1, y1 = min(ol["samples"], x1), min(ol["lines"], y1)
-    tmpdir = Path(tempfile.mkdtemp(dir=RAW))
-    out = tmpdir / "win.pgm"
-    subprocess.run(
-        [
-            "opj_decompress", "-i", str(RAW / "PSP_009149_1750_RED_A_01_ORTHO.JP2"), "-o", str(out),
-            "-d", f"{x0},{y0},{x1},{y1}", "-r", str(reduce), "-quiet",
-        ],
-        check=True,
-    )
-    img = read_pgm(out)
-    shutil.rmtree(tmpdir)
+    scale = 2 ** reduce
+    out_w = max(1, (x1 - x0 + scale - 1) // scale)
+    out_h = max(1, (y1 - y0 + scale - 1) // scale)
+    with rasterio.open(RAW / "PSP_009149_1750_RED_A_01_ORTHO.JP2") as ds:
+        read_w = min(ds.width - x0, out_w * scale)
+        read_h = min(ds.height - y0, out_h * scale)
+        img = ds.read(
+            1,
+            window=Window(x0, y0, read_w, read_h),
+            out_shape=(out_h, out_w),
+            resampling=Resampling.bilinear,
+        )
+    if img.dtype != np.uint8:
+        mx = float(np.nanmax(img)) or 1.0
+        img = np.clip(img.astype(np.float32) * (255.0 / mx), 0, 255).astype(np.uint8)
     return img, x0, y0
 
 
@@ -324,7 +315,7 @@ def main() -> None:
         "height_encoding": "gzip(int16 little-endian row deltas over uint16 levels; first column absolute uint16)",
         "files": {"overview_height": "overview.bin", "overview_texture": "overview.jpg", "chunk_height": "chunks/h_{i}_{j}.bin", "chunk_texture": "chunks/t_{i}_{j}.jpg"},
     }
-    (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    write_validated_json(OUT / "manifest.json", manifest, contract_id="martian-mappers.corridor.v1")
     total = sum(p.stat().st_size for p in OUT.rglob("*") if p.is_file())
     print(f"corridor written: {NCX}x{NCZ} chunks, elev {emin:.1f}..{emax:.1f} m, holes filled {holes}, {total/1e6:.1f} MB")
 

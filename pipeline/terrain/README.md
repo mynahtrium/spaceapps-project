@@ -17,7 +17,7 @@ Cost / hazard grid and the height preview are `pipeline/costmap/` on branch `bac
 
 ## Streamed corridor (habitat to Glen Torridon), 2026-11-15
 
-`build_corridor.py` writes `data/demo/corridor/` (manifest, ~8 m overview, 168 chunks of 1 m heights and ~0.5 m imagery, about 14 MB), which `web/map/GaleCorridor.js` streams in both normal and demo-safe mode. `../costmap/make_corridor_cost_map.py` then rebuilds the cost map and previews on the same ground, and `../routing/build_route.py` routes on it. Only numpy plus the `opj_decompress` and `vips` command-line tools are needed (no GDAL, no Pillow).
+`build_corridor.py` writes `data/demo/corridor/` (manifest, ~8 m overview, 168 chunks of 1 m heights and ~0.5 m imagery, about 14 MB), which `web/map/GaleCorridor.js` streams in both normal and demo-safe mode. `../costmap/make_corridor_cost_map.py` then rebuilds the cost map and previews on the same ground, and `../routing/build_route.py` routes on it. Uses `numpy`, `rasterio`, and `Pillow` (see `../requirements.txt`).
 
 Inputs go in `data/raw/hirise/` (gitignored). The DTM is read with HTTP range requests, so only the corridor rows are downloaded (~146 MB):
 

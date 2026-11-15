@@ -10,16 +10,25 @@ The HiRISE DTM DTEEC_019698 is equirectangular with sphere radius
 the same projection as the PDS label.
 """
 import json
-import math
 from pathlib import Path
+
+from pyproj import CRS, Transformer
+from shapely.geometry import MultiPoint, Point, box
 
 MARS_R_M = 3396190.0
 LON0 = 137.38
+_MARS_GEOG_CRS = CRS.from_proj4(f"+proj=longlat +R={MARS_R_M} +no_defs")
+_MARS_EQC_CRS = CRS.from_proj4(
+    f"+proj=eqc +lat_ts=0 +lat_0=0 +lon_0={LON0} +x_0=0 +y_0=0 +R={MARS_R_M} +units=m +no_defs"
+)
+_TO_XY = Transformer.from_crs(_MARS_GEOG_CRS, _MARS_EQC_CRS, always_xy=True)
+_TO_LONLAT = Transformer.from_crs(_MARS_EQC_CRS, _MARS_GEOG_CRS, always_xy=True)
 # Footprint recorded from the cumulative DTM index on 11 November 2026.
 DTM_LON_WEST = 137.31
 DTM_LON_EAST = 137.44
 DTM_LAT_SOUTH = -5.04
 DTM_LAT_NORTH = -4.73
+_DTM_FOOTPRINT = box(DTM_LON_WEST, DTM_LAT_SOUTH, DTM_LON_EAST, DTM_LAT_NORTH)
 STOP_FILES = (
     "docs/contracts/stops.json",
     "data/processed/routing/stops.json",
@@ -27,13 +36,13 @@ STOP_FILES = (
 
 
 def lonlat_to_xy(lon, lat):
-    k = MARS_R_M * math.pi / 180.0
-    return (lon - LON0) * k, lat * k
+    x, y = _TO_XY.transform(float(lon), float(lat))
+    return float(x), float(y)
 
 
 def xy_to_lonlat(x, y):
-    k = MARS_R_M * math.pi / 180.0
-    return x / k + LON0, y / k
+    lon, lat = _TO_LONLAT.transform(float(x), float(y))
+    return float(lon), float(lat)
 
 
 def load_example_stops(root):
@@ -59,7 +68,7 @@ def load_example_stops(root):
         raise SystemExit("no example stops found in " + ", ".join(STOP_FILES))
     outside = [
         s for s in stops
-        if not (DTM_LON_WEST <= s["lon"] <= DTM_LON_EAST and DTM_LAT_SOUTH <= s["lat"] <= DTM_LAT_NORTH)
+        if not _DTM_FOOTPRINT.covers(Point(float(s["lon"]), float(s["lat"])))
     ]
     if outside:
         ids = ", ".join(f"{s['id']} ({s['lon']}, {s['lat']}) from {s['source']}" for s in outside)
@@ -69,17 +78,18 @@ def load_example_stops(root):
 
 def crop_xy(stops, min_half_m=1000.0, edge_margin_m=200.0):
     """Centre on the stop bounding box. Half-size is at least 1 km, and larger if needed."""
-    xs = []
-    ys = []
-    for stop in stops:
-        x, y = lonlat_to_xy(stop["lon"], stop["lat"])
-        stop["x"] = x
-        stop["y"] = y
-        xs.append(x)
-        ys.append(y)
-    cx = (min(xs) + max(xs)) / 2.0
-    cy = (min(ys) + max(ys)) / 2.0
-    half = float(min_half_m)
-    for x, y in zip(xs, ys):
-        half = max(half, abs(x - cx) + edge_margin_m, abs(y - cy) + edge_margin_m)
-    return cx, cy, half
+    lons = [float(stop["lon"]) for stop in stops]
+    lats = [float(stop["lat"]) for stop in stops]
+    xs, ys = _TO_XY.transform(lons, lats)
+    for stop, x, y in zip(stops, xs, ys):
+        stop["x"] = float(x)
+        stop["y"] = float(y)
+    minx, miny, maxx, maxy = MultiPoint(list(zip(xs, ys))).bounds
+    cx = 0.5 * (minx + maxx)
+    cy = 0.5 * (miny + maxy)
+    half = max(
+        float(min_half_m),
+        0.5 * (maxx - minx) + edge_margin_m,
+        0.5 * (maxy - miny) + edge_margin_m,
+    )
+    return float(cx), float(cy), float(half)

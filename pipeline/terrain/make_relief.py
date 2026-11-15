@@ -23,22 +23,27 @@ illustrative colour map, not measured colour. Label it that way in the UI.
 """
 import argparse
 import json
-import math
-import struct
+import sys
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import from_bounds
 from scipy.ndimage import gaussian_filter, zoom
-from skimage.io import imsave
+import trimesh
 
-ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from pipeline.contracts import write_validated_json  # noqa: E402
+from pipeline.terrain.crop_window import LON0, MARS_R_M, lonlat_to_xy, xy_to_lonlat  # noqa: E402
+from pipeline.terrain.terrain_ops import hillshade as _xr_hillshade, save_image  # noqa: E402
+
+ROOT = _ROOT
 RAW = ROOT / "data/raw/terrain"
 OUT = ROOT / "data/processed/terrain"
-MARS_R_M = 3396190.0
-LON0 = 137.38
 DTM_ID = "DTEEC_019698_1750_019988_1750_U01"
 ORTHO_ID = "ESP_019698_1750_RED_A_01_ORTHO"
 PDS_DIR = (
@@ -55,11 +60,6 @@ MARS_MID = np.array([150, 88, 58], dtype=float)
 MARS_LIGHT = np.array([232, 186, 142], dtype=float)
 
 
-def xy_to_lonlat(x, y):
-    k = MARS_R_M * math.pi / 180.0
-    return x / k + LON0, y / k
-
-
 def load_dtm():
     with rasterio.open(RAW / "dtm_crop_1m.tif") as ds:
         z = ds.read(1).astype("float64")
@@ -69,18 +69,19 @@ def load_dtm():
 
 def load_from_preview():
     """Offline fallback: the 5 m height preview and 1000 px ortho preview already in the repo."""
-    from skimage.io import imread
     cm = json.loads((OUT / "cost-map.json").read_text())
-    rgb = imread(OUT / "height-preview.png")
+    with Image.open(OUT / "height-preview.png") as im:
+        rgb = np.asarray(im)
     v = rgb[..., 0].astype(float) * 256 + rgb[..., 1]
     lo, hi = cm["height_preview_elevation_range_m"]
     z = lo + v / 65535.0 * (hi - lo)
     z[v == 0] = np.nan
     b = cm["bounds"]
-    k = MARS_R_M * math.pi / 180.0
-    bounds = rasterio.coords.BoundingBox((b["west_lon_deg"] - LON0) * k, b["south_lat_deg"] * k,
-                                         (b["east_lon_deg"] - LON0) * k, b["north_lat_deg"] * k)
-    ortho = imread(OUT / "ortho-preview.png")
+    left, bottom = lonlat_to_xy(b["west_lon_deg"], b["south_lat_deg"])
+    right, top = lonlat_to_xy(b["east_lon_deg"], b["north_lat_deg"])
+    bounds = rasterio.coords.BoundingBox(left, bottom, right, top)
+    with Image.open(OUT / "ortho-preview.png") as im:
+        ortho = np.asarray(im)
     if ortho.ndim == 3:
         ortho = ortho[..., 0]
     return z, cm["cell_size_m"], bounds, ortho
@@ -100,16 +101,11 @@ def resample(a, n):
 
 
 def hillshade(z, cell, azimuths=(225, 270, 315, 360), weights=(0.15, 0.25, 0.45, 0.15), altitude=40):
-    """Multi-directional hillshade (0..1). Light comes mostly from the north-west."""
-    dzdy, dzdx = np.gradient(z, cell)
-    slope = np.arctan(np.hypot(dzdx, dzdy))
-    aspect = np.arctan2(-dzdx, dzdy)
-    alt = math.radians(altitude)
-    out = np.zeros_like(z)
+    """Multi-directional hillshade (0..1) via ``xrspatial.hillshade``. Light comes mostly from the north-west."""
+    out = np.zeros_like(z, dtype=np.float64)
     for az, w in zip(azimuths, weights):
-        a = math.radians(360 - az + 90)
-        out += w * (np.sin(alt) * np.cos(slope) + np.cos(alt) * np.sin(slope) * np.cos(a - aspect))
-    return np.clip(out, 0, 1)
+        out += float(w) * _xr_hillshade(z, cell, azimuth_deg=float(az), altitude_deg=float(altitude))
+    return np.clip(out, 0.0, 1.0)
 
 
 def stretch(a, lo=1, hi=99):
@@ -150,69 +146,49 @@ def mars_tint(gray):
 
 
 def write_stl(path, z, cell, base_m=20.0, exaggeration=1.0):
-    """Closed binary STL: top surface, four walls and a flat base. Units: metres."""
+    """Closed watertight binary STL via ``trimesh`` (top surface + four walls + base). Units: metres."""
     n_r, n_c = z.shape
     zz = (fill_nan(z) - np.nanmin(z)) * exaggeration + base_m
-    xs = np.arange(n_c) * cell
-    ys = (n_r - 1 - np.arange(n_r)) * cell  # north up
-    X, Y = np.meshgrid(xs, ys)
-    tris = []
+    xs = np.arange(n_c, dtype=np.float64) * cell
+    ys = (n_r - 1 - np.arange(n_r, dtype=np.float64)) * cell  # north up
+    x_grid, y_grid = np.meshgrid(xs, ys)
+    top_verts = np.column_stack([x_grid.ravel(), y_grid.ravel(), zz.ravel()])
 
-    top = np.dstack([X, Y, zz])
-    a, b = top[:-1, :-1], top[:-1, 1:]
-    c, d = top[1:, :-1], top[1:, 1:]
-    tris.append(np.stack([a, c, b], -2).reshape(-1, 3, 3))
-    tris.append(np.stack([b, c, d], -2).reshape(-1, 3, 3))
+    row_i = np.arange(n_r - 1)[:, None]
+    col_i = np.arange(n_c - 1)[None, :]
+    a = (row_i * n_c + col_i).ravel()
+    b = a + 1
+    c_idx = a + n_c
+    d = c_idx + 1
+    top_faces = np.concatenate([np.column_stack([a, c_idx, b]), np.column_stack([b, c_idx, d])], axis=0)
 
-    def wall(edge_xy, edge_z, flip):
-        p_top = np.column_stack([edge_xy, edge_z])
-        p_bot = np.column_stack([edge_xy, np.zeros_like(edge_z)])
-        t0, t1, b0, b1 = p_top[:-1], p_top[1:], p_bot[:-1], p_bot[1:]
-        w1 = np.stack([t0, b0, t1] if not flip else [t0, t1, b0], 1)
-        w2 = np.stack([t1, b0, b1] if not flip else [t1, b1, b0], 1)
-        return np.concatenate([w1, w2])
-
-    tris.append(wall(np.column_stack([X[0], Y[0]]), zz[0], False))          # north
-    tris.append(wall(np.column_stack([X[-1], Y[-1]]), zz[-1], True))        # south
-    tris.append(wall(np.column_stack([X[:, 0], Y[:, 0]]), zz[:, 0], True))  # west
-    tris.append(wall(np.column_stack([X[:, -1], Y[:, -1]]), zz[:, -1], False))  # east
-
-    # Base: fan from the centre to every bottom perimeter vertex, so it shares the
-    # walls' bottom edges exactly (no T-junctions). Perimeter is clockwise from above.
-    per = np.concatenate([
-        np.column_stack([X[0], Y[0]]),                # north, west -> east
-        np.column_stack([X[1:, -1], Y[1:, -1]]),      # east, north -> south
-        np.column_stack([X[-1, -2::-1], Y[-1, -2::-1]]),  # south, east -> west
-        np.column_stack([X[-2:0:-1, 0], Y[-2:0:-1, 0]]),  # west, south -> north
+    # Clockwise perimeter vertices from above so shared wall/base edges remain watertight.
+    per_top = np.concatenate([
+        np.arange(n_c),
+        np.arange(1, n_r) * n_c + (n_c - 1),
+        (n_r - 1) * n_c + np.arange(n_c - 2, -1, -1),
+        np.arange(n_r - 2, 0, -1) * n_c,
     ])
-    per = np.column_stack([per, np.zeros(len(per))])
-    nxt = np.roll(per, -1, axis=0)
-    centre = np.array([xs[-1] / 2, ys[0] / 2, 0.0])
-    tris.append(np.stack([np.broadcast_to(centre, per.shape), per, nxt], 1))
+    per_len = len(per_top)
+    base_off = n_r * n_c
+    bot_verts = np.column_stack([top_verts[per_top, 0], top_verts[per_top, 1], np.zeros(per_len)])
+    center_idx = base_off + per_len
+    center_vert = np.array([[xs[-1] / 2.0, ys[0] / 2.0, 0.0]])
 
-    # Orient every part outwards: top up, base down, walls away from the centre.
-    centre_xy = np.array([xs[-1] / 2, ys[0] / 2])
-    out_dirs = []
-    for i, part in enumerate(tris):
-        n = np.cross(part[:, 1] - part[:, 0], part[:, 2] - part[:, 0])
-        if i < 2:  # top surface
-            want = n[:, 2] > 0
-        elif i == len(tris) - 1:  # base
-            want = n[:, 2] < 0
-        else:  # walls
-            c = part.mean(axis=1)[:, :2] - centre_xy
-            want = (n[:, :2] * c).sum(axis=1) > 0
-        tris[i] = np.where(want[:, None, None], part, part[:, [0, 2, 1]])
-    t = np.concatenate(tris).astype("float32")
-    nrm = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
-    nrm /= np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12
-    rec = np.zeros(len(t), dtype=[("n", "<f4", 3), ("v", "<f4", (3, 3)), ("a", "<u2")])
-    rec["n"], rec["v"] = nrm, t
-    with open(path, "wb") as f:
-        f.write(b"Martian Mappers relief, HiRISE DTEEC_019698, metres".ljust(80, b" "))
-        f.write(struct.pack("<I", len(t)))
-        rec.tofile(f)
-    return len(t)
+    verts = np.vstack([top_verts, bot_verts, center_vert])
+    i = np.arange(per_len)
+    j = (i + 1) % per_len
+    t0, t1 = per_top[i], per_top[j]
+    b0, b1 = base_off + i, base_off + j
+    wall_faces = np.concatenate([np.column_stack([t0, t1, b0]), np.column_stack([t1, b1, b0])], axis=0)
+    base_faces = np.column_stack([np.full(per_len, center_idx), b0, b1])
+    faces = np.vstack([top_faces, wall_faces, base_faces])
+
+    mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+    mesh.metadata["name"] = "Martian Mappers relief, HiRISE DTEEC_019698, metres"
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    mesh.export(path, file_type="stl")
+    return len(mesh.faces)
 
 
 def render_voxel(path, z, cell, tex, exaggeration, width=1600, height=1000, sky=(13, 13, 16)):
@@ -251,7 +227,7 @@ def render_voxel(path, z, cell, tex, exaggeration, width=1600, height=1000, sky=
         for x in np.nonzero(inside & (scr < ybuf))[0]:
             img[scr[x]:ybuf[x], x] = c[x]
             ybuf[x] = scr[x]
-    imsave(path, img, check_contrast=False)
+    save_image(path, img)
     return True
 
 
@@ -314,13 +290,13 @@ def main():
     zh = resample(fill_nan(zs), a.height_px)
     rgb, zmin, zmax = encode_height(zh)
     if not a.from_preview:  # in offline mode height-preview.png already is the best height we have
-        imsave(OUT / "height-hi.png", rgb, check_contrast=False)
+        save_image(OUT / "height-hi.png", rgb)
 
     # 2. hillshade at native 1 m, then 2048 px
     hs = hillshade(fill_nan(zs), res)
     hs_px = min(2048, a.tex_px)
     hs_img = resample(hs, hs_px)
-    imsave(OUT / "hillshade.png", (hs_img * 255).astype("uint8"), check_contrast=False)
+    save_image(OUT / "hillshade.png", (hs_img * 255).astype("uint8"))
 
     # 3. textures
     tex_rgb = None
@@ -328,12 +304,12 @@ def main():
         ortho = (resample(preview_ortho.astype(float), a.tex_px) if preview_ortho is not None
                  else fetch_ortho(bounds, a.tex_px).astype(float))
         og = stretch(ortho, 0.5, 99.5)
-        imsave(OUT / "texture-ortho.jpg", (og * 255).astype("uint8"), check_contrast=False, quality=90)
+        save_image(OUT / "texture-ortho.jpg", (og * 255).astype("uint8"), quality=90)
         hs_t = resample(hs, a.tex_px)
         shade = 0.55 + 0.45 * hs_t  # keep the ortho readable, add relief
         relief_grey = np.clip(og * shade * 1.1, 0, 1)
         tex_rgb = mars_tint(relief_grey).clip(0, 255).astype("uint8")
-        imsave(OUT / "texture-relief.jpg", tex_rgb, check_contrast=False, quality=90)
+        save_image(OUT / "texture-relief.jpg", tex_rgb, quality=90)
     else:
         tex_rgb = mars_tint(hs_img).clip(0, 255).astype("uint8")
 
@@ -386,7 +362,7 @@ def main():
             "Slope limits and route logic still use cost-map.json, not these files.",
         ],
     }
-    (OUT / "relief.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    write_validated_json(OUT / "relief.json", manifest, contract_id="martian-mappers.relief.v1")
     for f in ("height-hi.png", "hillshade.png", "texture-ortho.jpg", "texture-relief.jpg", "relief.stl", "relief-preview.png"):
         p = OUT / f
         if p.exists():
