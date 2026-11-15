@@ -13,6 +13,8 @@
  *    with in-air pitch/roll attitude angular momentum & reaction-wheel trim.
  */
 
+import { mergeRigidParts } from "./merge-static.js";
+
 export const MARS_GRAVITY_MS2 = 3.71;
 export const ROVER_FLIGHT_G = 9.4;
 export const ROVER_COLLISION_RADIUS_M = 2.45;
@@ -1377,6 +1379,18 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     tailBars.push(bar);
   }
 
+  // Bake each rigid piece (body shells, each wheel, each knuckle, each pod) into one mesh per
+  // material. The containers and the wheel parts stay separate nodes, so switching vehicle,
+  // steering, wheel spin and suspension travel work as before, at a fraction of the draw calls.
+  {
+    const movers = [mmsevContainer, conceptContainer, mmsevFallback.procGroup, conceptVisuals.procGroup, ...headLamps, ...tailBars];
+    for (const w of [mmsevWheels, conceptWheels]) {
+      movers.push(w.wheelGroup);
+      for (const pod of w.pods) movers.push(pod.podRoot, pod.knuckle, pod.spinner);
+    }
+    mergeRigidParts(THREE, bodyRoot, movers);
+  }
+
   function applyVehicleVisibility() {
     const isConcept = isConceptType(activeVehicleType);
     mmsevContainer.visible = !isConcept;
@@ -1453,6 +1467,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
         }
       });
 
+      mergeRigidParts(THREE, wrapper); // the NASA body has no moving parts: one mesh per material
       mmsevFallback.procGroup.visible = false;
       mmsevContainer.add(wrapper);
       nasaModelRoot = wrapper;

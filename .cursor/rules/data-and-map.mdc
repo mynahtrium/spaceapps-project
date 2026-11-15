@@ -1,15 +1,15 @@
 ---
-description: Data, routing, planner map, and 3D HUD conventions
+description: Data, routing, and 3D HUD conventions
 alwaysApply: false
 globs: data/**,pipeline/**,web/**,skills/**,docs/contracts/**
 ---
 
-# Data, routing, planner and HUD
+# Data, routing and HUD
 
 See the Data, Honesty labels and Conventions sections of **[AGENTS.md](../../AGENTS.md)**, and the matching skill in `skills/`.
 
 - Never commit `data/raw/`, `*.tif`, PDS `.IMG` or JP2 files. Keep static files under about 100 MB.
 - Load order: `data/processed/` → `data/demo/` → `docs/contracts/`. A live API is optional; `?demo=1` loads only local files.
 - Slope limits are lunar stand-ins; DTM slope matches rover tilt only weakly. Radiation is a time-based dose budget plus a DONKI banner, never a map of rocks. Walking time, suit O₂ and procedural terrain are illustrative placeholders.
-- The planner (`web/planner/`) sends the route to the HUD (`web/hud/`) with `mm:set-route`.
+- `app.js` sends the route to the HUD (`web/hud/`) with `mm:set-route`. The 2D MapLibre planner was removed; the Orbit view (`web/orbit/`) is where a landing site is picked.
 - Do not edit `web/vendor/`.

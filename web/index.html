@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Martian Mappers — Gale Crater / Mount Sharp Marswalk</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="./vendor/maplibre-gl.css" />
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
     {
@@ -31,7 +30,7 @@
         · EXAMPLE ROUTE, STOPS NOT LOCKED (PRE-07)
       </div>
       <div class="lang">
-        <button class="txt-btn dev-trigger" id="btn-dev-settings" data-i18n="menu_dev" title="Developer settings">DEV</button>
+        <button class="txt-btn dev-trigger" id="btn-dev-settings" data-i18n="menu_dev" title="Graphics and simulation settings">SETTINGS</button>
         <button class="txt-btn" id="lang-en">EN</button>
         <button class="txt-btn" id="lang-tr">TR</button>
       </div>
@@ -107,7 +106,14 @@
       <div id="hud-canvas-wrap"></div>
       <div class="hud-reticle"></div>
       <div id="hud-rover-target" class="hud-rover-target" aria-live="polite"></div>
-      <div id="hud-loading" class="loading-veil">LOADING TERRAIN · NASA SUIT MODEL</div>
+      <div id="hud-loading" class="loading-veil" role="status" aria-live="polite">
+        <div class="loading-map" aria-hidden="true">
+          <svg viewBox="0 0 240 240"><g id="loading-contours"><path d="M142.2 120.0 L141.5 123.0 L140.3 125.8 L138.5 128.3 L136.0 130.2 L132.9 131.3 L129.6 131.6 L126.6 131.4 L124.2 131.2 L122.1 131.7 L120.0 132.8 L117.4 134.4 L114.2 135.7 L110.7 136.0 L107.4 135.3 L104.6 133.5 L102.5 131.1 L100.9 128.5 L99.7 125.8 L99.0 122.9 L99.0 120.0 L99.9 117.2 L101.7 114.8 L103.9 112.8 L106.1 111.2 L108.1 109.5 L109.9 107.8 L111.9 106.0 L114.3 104.7 L117.1 104.1 L120.0 104.5 L122.6 105.4 L125.0 106.5 L127.4 107.3 L130.1 107.8 L133.2 108.4 L136.5 109.5 L139.4 111.3 L141.3 113.9 L142.2 116.9Z"/><path d="M163.1 120.0 L160.7 125.7 L157.3 130.6 L153.3 134.9 L148.7 138.3 L143.5 140.6 L138.0 141.7 L132.7 141.9 L128.1 141.9 L124.1 142.7 L120.0 144.6 L115.0 147.4 L108.9 149.9 L102.1 150.7 L95.7 149.3 L90.6 145.8 L87.1 141.0 L84.8 135.7 L83.3 130.5 L82.1 125.3 L81.5 120.0 L82.2 114.7 L84.4 109.9 L88.0 105.7 L92.3 102.4 L96.6 99.5 L100.7 96.8 L104.9 94.1 L109.5 91.8 L114.7 90.7 L120.0 91.0 L124.9 92.7 L129.4 94.7 L133.7 96.5 L138.6 97.5 L144.6 98.4 L151.3 100.1 L157.5 103.3 L161.9 108.1 L163.8 113.9Z"/><path d="M184.9 120.0 L180.0 128.3 L173.5 135.2 L166.6 140.8 L159.9 145.4 L153.2 149.1 L146.2 151.6 L139.3 153.1 L132.6 154.0 L126.4 155.2 L120.0 157.4 L112.6 160.7 L103.8 163.8 L93.9 165.0 L84.3 163.1 L76.7 158.0 L71.7 150.7 L69.1 142.7 L67.6 134.9 L66.2 127.5 L64.8 120.0 L64.5 112.3 L66.2 104.7 L70.6 97.9 L77.0 92.6 L84.2 88.7 L91.4 85.6 L98.3 82.8 L105.3 80.3 L112.5 78.7 L120.0 78.6 L127.2 80.2 L133.8 82.7 L140.3 85.1 L147.5 86.9 L156.2 88.3 L166.2 90.6 L176.0 95.0 L183.2 102.0 L186.3 110.8Z"/><path d="M206.7 120.0 L199.3 131.0 L189.2 139.7 L178.9 146.3 L169.9 151.7 L161.9 156.7 L154.3 161.3 L146.2 165.0 L137.6 167.6 L129.0 169.6 L120.0 171.7 L110.2 174.4 L98.8 177.1 L86.3 178.0 L73.9 175.6 L63.6 169.4 L56.7 160.3 L53.3 149.8 L51.7 139.5 L50.2 129.7 L48.3 120.0 L46.8 109.8 L47.6 99.4 L52.1 89.7 L60.4 82.0 L70.9 77.0 L81.9 74.1 L92.2 72.1 L101.6 70.3 L110.7 68.6 L120.0 67.7 L129.4 68.2 L138.5 70.1 L147.5 72.6 L157.3 75.1 L168.6 77.4 L181.4 80.9 L194.3 86.8 L204.3 96.0 L208.8 107.7Z"/><path d="M227.7 120.0 L218.3 133.6 L204.8 144.1 L191.0 151.7 L179.4 157.8 L170.2 164.0 L162.1 170.8 L153.3 177.3 L143.2 182.5 L131.9 185.7 L120.0 187.5 L107.6 188.8 L94.1 189.7 L79.6 189.5 L64.8 186.5 L51.8 179.8 L42.3 169.5 L36.9 157.1 L34.5 144.3 L32.9 132.1 L30.8 120.0 L28.8 107.3 L29.0 94.1 L33.6 81.4 L43.4 71.2 L57.2 65.0 L72.2 62.4 L86.3 62.0 L98.4 61.6 L109.2 60.3 L120.0 58.3 L131.4 56.8 L143.4 56.8 L155.7 58.6 L168.5 61.6 L182.2 65.5 L197.2 70.8 L212.1 78.9 L224.1 90.4 L229.9 104.7Z"/><path d="M246.8 120.0 L236.5 136.2 L220.8 148.7 L204.0 157.5 L189.7 164.4 L178.9 171.6 L170.0 180.3 L160.6 189.8 L148.9 197.9 L135.0 202.9 L120.0 204.5 L104.9 203.7 L89.6 201.9 L73.8 199.5 L57.3 195.6 L41.6 188.7 L28.7 178.1 L20.0 164.6 L15.4 149.8 L13.2 134.8 L11.5 120.0 L10.1 104.7 L10.6 88.9 L15.8 73.5 L27.1 60.9 L43.7 53.2 L62.6 50.8 L80.4 51.9 L95.3 53.5 L107.9 53.0 L120.0 50.0 L133.4 45.9 L148.5 43.1 L164.7 43.1 L181.2 46.2 L197.5 52.1 L213.9 60.2 L229.4 71.1 L242.1 85.3 L248.6 102.2Z"/><path d="M260.6 120.0 L251.1 138.2 L235.1 152.8 L216.8 163.2 L200.3 171.1 L187.5 179.1 L177.3 189.1 L166.9 200.7 L153.9 211.4 L137.8 218.3 L120.0 219.9 L102.4 217.2 L85.8 212.3 L69.4 207.1 L52.2 201.8 L34.4 195.0 L17.8 185.0 L4.8 171.5 L-3.4 155.1 L-7.2 137.7 L-8.2 120.0 L-7.7 102.3 L-5.1 84.4 L1.8 67.2 L14.5 52.9 L33.0 43.8 L54.6 41.1 L75.3 43.1 L92.7 46.3 L106.8 46.9 L120.0 43.3 L135.0 36.8 L153.1 30.7 L173.3 28.3 L193.7 31.1 L212.6 38.8 L229.5 50.3 L244.1 64.6 L255.6 81.4 L261.9 100.3Z"/></g></svg>
+          <div class="loading-scan"><svg viewBox="0 0 240 240"><use href="#loading-contours" /></svg></div>
+        </div>
+        <p class="loading-stage" id="hud-loading-stage">Loading terrain</p>
+        <p class="loading-note" data-i18n="loading_note">Elevation data, suit and rover models load once, before the EVA starts.</p>
+      </div>
       <div id="hud-wrap-notice" class="hud-wrap-notice" aria-live="polite"></div>
 
       <div id="visor-overlay" class="visor-overlay">
@@ -231,7 +237,7 @@
         <div class="esc-grid">
           <button id="esc-crew" class="btn esc-btn" type="button">Crew (1)</button>
           <button id="esc-theme" class="btn esc-btn" type="button">Theme: Ice-Cyan</button>
-          <button id="esc-dev" class="btn esc-btn" type="button">Developer Settings</button>
+          <button id="esc-dev" class="btn esc-btn" type="button">Settings</button>
           <button id="esc-sources" class="btn esc-btn" type="button">Sources &amp; Honesty</button>
           <button id="esc-title-btn" class="btn esc-btn" type="button">Title Screen</button>
         </div>
@@ -326,7 +332,6 @@
     </div>
   </div>
 
-  <script src="./vendor/maplibre-gl.js"></script>
   <script src="./shared/audioEngine.js"></script>
   <script type="module" src="./app.js"></script>
 </body>

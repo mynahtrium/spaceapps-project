@@ -446,9 +446,21 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
     }
   }
 
-  function update(dt, playerPos, clockT = 0, { activeNpcId = null, terrainSampler = null } = {}) {
+  // The suit meshes are skinned with frustum culling off (their bounds do not follow the bones), so
+  // every crew member was drawn and animated even behind the camera. Each one is culled here as a
+  // whole against the view, with a sphere wide enough to keep a shadow that reaches into view.
+  const viewFrustum = new THREE.Frustum();
+  const viewProj = new THREE.Matrix4();
+  const cullSphere = new THREE.Sphere(new THREE.Vector3(), 3.5);
+
+  function update(dt, playerPos, clockT = 0, { activeNpcId = null, terrainSampler = null, camera = null } = {}) {
     const safeDt = Math.max(0.001, Math.min(0.1, Number(dt) || 0.016));
     const sampler = terrainSampler || sampleElevY;
+    if (camera) {
+      camera.updateMatrixWorld();
+      viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      viewFrustum.setFromProjectionMatrix(viewProj);
+    }
 
     for (const entry of npcs.values()) {
       // Static Anchor safeguard: drivable vehicle NPCs strictly hold their bay anchor coordinates
@@ -461,6 +473,11 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
         entry.y = sampler(entry.x, entry.z);
       }
       entry.group.position.set(entry.x, entry.y, entry.z);
+      if (camera) {
+        cullSphere.center.set(entry.x, entry.y + 1, entry.z);
+        entry.group.visible = viewFrustum.intersectsSphere(cullSphere);
+        if (!entry.group.visible) continue; // out of view: no pose update either
+      }
 
       // Determine whether NPC should turn to face the player (near or actively conversing)
       let wantsPlayerFace = false;

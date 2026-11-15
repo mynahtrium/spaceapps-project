@@ -139,3 +139,112 @@ export function mergeStaticMeshes(THREE, subtree, { castShadow = true, receiveSh
   }
   return { before, after };
 }
+
+/** Every Object3D found in a rig description (nested objects and arrays, a few levels deep). */
+export function collectRigNodes(rig, out = [], depth = 0) {
+  if (!rig || depth > 4) return out;
+  if (rig.isObject3D) {
+    out.push(rig);
+    return out;
+  }
+  if (typeof rig !== "object") return out;
+  for (const v of Array.isArray(rig) ? rig : Object.values(rig)) collectRigNodes(v, out, depth + 1);
+  return out;
+}
+
+/**
+ * Merge a model that has moving parts. `movers` are the nodes that get animated or shown / hidden
+ * (wheel spinners, steering knuckles, suspension arms, containers that are toggled). Every mesh is
+ * baked into one mesh per material under the nearest mover above it (or under `root`), so each
+ * rigid piece still moves as before but costs a handful of draw calls instead of hundreds.
+ * A mesh that is itself a mover, or sits under a hidden node that is not a mover, is left alone.
+ * Returns { before, after } mesh counts.
+ */
+export function mergeRigidParts(THREE, root, movers = []) {
+  const anchors = new Set(movers.filter(Boolean));
+  anchors.add(root);
+  root.updateWorldMatrix(true, true);
+  const buckets = new Map(); // anchor -> Map(key -> { material, cast, recv, items })
+  let before = 0;
+  const visit = (o, anchor, hidden) => {
+    const isAnchor = anchors.has(o);
+    if (isAnchor) {
+      anchor = o;
+      hidden = false;
+    } else if (!o.visible) hidden = true;
+    if (o.isMesh) {
+      before++;
+      const g = o.geometry;
+      const ok =
+        !isAnchor &&
+        !hidden &&
+        o.children.length === 0 &&
+        !o.isSkinnedMesh &&
+        !o.isInstancedMesh &&
+        !o.userData?.noMerge &&
+        !o.userData?.isLocator &&
+        o.material &&
+        !Array.isArray(o.material) &&
+        !o.material.transparent &&
+        g?.attributes?.position &&
+        !g.morphAttributes?.position;
+      if (ok) {
+        const names = Object.keys(g.attributes).sort().join(",");
+        const key = `${o.material.uuid}|${names}|${g.index ? "i" : "n"}|${o.castShadow ? 1 : 0}${o.receiveShadow ? 1 : 0}`;
+        let byKey = buckets.get(anchor);
+        if (!byKey) buckets.set(anchor, (byKey = new Map()));
+        let b = byKey.get(key);
+        if (!b) byKey.set(key, (b = { material: o.material, cast: o.castShadow, recv: o.receiveShadow, items: [] }));
+        b.items.push(o);
+      }
+    }
+    for (const c of o.children) visit(c, anchor, hidden);
+  };
+  visit(root, root, false);
+
+  let removed = 0;
+  let added = 0;
+  const inv = new THREE.Matrix4();
+  const m = new THREE.Matrix4();
+  const victims = [];
+  for (const [anchor, byKey] of buckets) {
+    inv.copy(anchor.matrixWorld).invert();
+    for (const b of byKey.values()) {
+      if (b.items.length < 2) continue;
+      const geoms = [];
+      for (const o of b.items) {
+        const g = o.geometry.clone();
+        m.multiplyMatrices(inv, o.matrixWorld);
+        g.applyMatrix4(m);
+        if (m.determinant() < 0) flipWinding(THREE, g);
+        g.clearGroups();
+        geoms.push(g);
+      }
+      const merged = mergeGeometries(THREE, geoms);
+      for (const g of geoms) g.dispose();
+      if (!merged) continue;
+      merged.computeBoundingSphere();
+      merged.computeBoundingBox();
+      const mesh = new THREE.Mesh(merged, b.material);
+      mesh.castShadow = b.cast;
+      mesh.receiveShadow = b.recv;
+      const src = b.items[0].userData || {};
+      // the geometry is new (ours to dispose); the material may still belong to a shared model
+      mesh.userData = { ...src, merged: true, sharedAsset: false, sharedMaterial: Boolean(src.sharedAsset) };
+      anchor.add(mesh);
+      added++;
+      removed += b.items.length;
+      for (const o of b.items) victims.push(o);
+    }
+  }
+  const victimSet = new Set(victims);
+  const keptGeoms = new Set();
+  root.traverse((c) => {
+    if (c.isMesh && !victimSet.has(c) && c.geometry) keptGeoms.add(c.geometry);
+  });
+  for (const o of victims) {
+    o.parent?.remove(o);
+    if (o.geometry && !keptGeoms.has(o.geometry) && !o.userData?.sharedAsset) o.geometry.dispose?.();
+  }
+  return { before, after: before - removed + added };
+}

@@ -29,6 +29,7 @@ Add a row the same day you use a tool. Do not put secrets, API keys, or personal
 ## How to add an entry
 
 Copy this row shape:
+| 2026-11-15 | Claude Code (Fable 5.2) | Performance pass on the 3D EVA view, measured with a new F3 stats readout: merged the rigid parts of every rover into one mesh per material and moving part (`merge-static.js`), turned off the transmission material on the Perseverance model (it made three.js draw the scene twice), culled crew members outside the view, put parked rovers to sleep, removed per-frame allocations. Added graphics presets and options (`graphics-profile.js`), an FPS limit, a loading screen that waits for all models, and deleted unused modules (`terrain-surface.js`, `wind-dust.js`, `HighResMarsTerrainEngine.js`, `MarsTerrainShader.js`, the dust atlas). | Kept. Same view at the habitat on the Low preset: 3,976 draw calls before, about 820 after (AMD Vega 3, demo mode). Frame rates were not measured on a fast machine. Rover physics maths is unchanged; tests pass (`node --test web/tests/*.test.mjs`). |
 
 ```
 | YYYY-MM-DD | Tool name | Short description of the task | Kept as-is / edited (what changed) / rejected |

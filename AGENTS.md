@@ -8,13 +8,13 @@ Team members coordinate work themselves. Do the task you are asked to do; there 
 
 ## What the product is
 
-A **Marswalk planner and EVA simulator** for Gale crater / lower Mount Sharp, where Curiosity has driven. Frame it as "if a crew visited where Curiosity studied Mount Sharp": Gale is a rover site, not a human landing candidate.
+A **Marswalk EVA simulator** for Gale crater / lower Mount Sharp, where Curiosity has driven. Frame it as "if a crew visited where Curiosity studied Mount Sharp": Gale is a rover site, not a human landing candidate.
 
 - **Science goal:** ancient lake sediments and habitability / organics in mudstones. Main stops are the Curiosity drill sites Glen Etive 1 and Mary Anning 3 in the Glen Torridon clay-bearing unit; the boxwork unit (Altadena member) is a bonus stop. Stops in `data/processed/routing/stops.json` are still flagged `is_example: true` until the team locks them.
 - **Views** (all in `web/`, static ES modules, no bundler):
-  - **Planner** (`web/planner/`): 2D MapLibre map with HiRISE, slope hazard, THEMIS, CRISM, CTX and MOLA layers, route and stops. It sends the route to the 3D view with the `mm:set-route` event.
   - **EVA / HUD** (`web/hud/`): three.js first-person walk on streamed HiRISE corridor terrain, with a helmet HUD (distance, slope, next stop), Mars physics, drivable rovers, habitat, NPC crew, landing cinematic and multiplayer.
   - **Orbit** (`web/orbit/`): Mars globe; pick a site and land.
+  - The 2D MapLibre planner was removed (the Orbit view replaced it). The pipeline route still reaches the HUD: `app.js` sends it with the `mm:set-route` event.
 - **Pipeline** (`pipeline/`, Python + GDAL): HiRISE DTM → slope → cost map → Dijkstra route, plus NASA science fetchers. Outputs go to `data/processed/`, and demo fixtures to `data/demo/`.
 
 For a file-by-file map see [docs/CODEBASE_INDEX.md](./docs/CODEBASE_INDEX.md). Past choices are in [docs/DECISIONS.md](./docs/DECISIONS.md); [ROADMAP.md](./ROADMAP.md) is a historical plan and is not followed.
@@ -61,8 +61,8 @@ Notes:
 - Never commit raw rasters: `data/raw/`, `*.tif`, PDS `.IMG` and JP2 are gitignored. Commit small derived products only. Keep static files under about 100 MB.
 - Data loads in this order: `data/processed/` → `data/demo/` → `docs/contracts/`.
 - If you change a field name, meaning or file under `docs/contracts/`, update the example JSON, add a row to [docs/contracts/CHANGES.md](./docs/contracts/CHANGES.md), and update the matching `data/processed/` and `data/demo/` fixtures in the same commit.
-- `web/vendor/` (three.js, MapLibre, loaders) is vendored: do not edit it.
-- Task-specific notes are in `skills/*/SKILL.md` (routing, map-ui, hud-3d, dem-to-slope, data-fetching, ai-use-log).
+- `web/vendor/` (three.js, loaders) is vendored: do not edit it.
+- Task-specific notes are in `skills/*/SKILL.md` (routing, hud-3d, dem-to-slope, data-fetching, ai-use-log).
 
 ## How to run and check
 

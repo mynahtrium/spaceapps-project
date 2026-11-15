@@ -53,6 +53,7 @@ import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { cycleRayTracingMode, loadDevSettings, saveDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
+import { chunkSegmentsFor, resolveGraphics } from "../shared/graphics-profile.js";
 import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
@@ -470,6 +471,39 @@ export async function initHud3D(
     }
   };
 
+  // Loading screen: name the step that is running, and give the browser a moment to paint it
+  // (setTimeout, not requestAnimationFrame, which never fires in a background tab).
+  const loadingStageEl = document.getElementById("hud-loading-stage");
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const setLoadStage = async (en, tr) => {
+    if (loadingStageEl) loadingStageEl.textContent = isTrLang() ? tr : en;
+    await pause(20);
+  };
+  // Every texture and model goes through three's default loading manager. The loading screen stays
+  // up until it is idle, so no model pops in (and no shader compiles) after the EVA has started.
+  let loadsBusy = false;
+  let onLoadsIdle = null;
+  THREE.DefaultLoadingManager.onStart = () => {
+    loadsBusy = true;
+  };
+  THREE.DefaultLoadingManager.onLoad = () => {
+    loadsBusy = false;
+    onLoadsIdle?.();
+  };
+  /** Resolves when nothing is downloading or decoding, or after `maxMs` (a stuck file must not block the EVA). */
+  const waitForLoads = async (maxMs) => {
+    const t0 = performance.now();
+    for (;;) {
+      await pause(60); // lets finished loads attach their models
+      if (!loadsBusy) return true;
+      const left = maxMs - (performance.now() - t0);
+      if (left <= 0) return false;
+      await Promise.race([new Promise((r) => (onLoadsIdle = r)), pause(left)]);
+      onLoadsIdle = null;
+    }
+  };
+  await setLoadStage("Reading HiRISE elevation", "HiRISE yükseklik verisi okunuyor");
+
   // Streamed HiRISE corridor (habitat -> Glen Torridon, real 1 m DTM in chunks). When it is missing,
   // the world falls back to the single height-preview tile.
   const corridor = assets.corridorBaseUrl ? await GaleCorridor.load(assets.corridorBaseUrl) : null;
@@ -562,6 +596,7 @@ export async function initHud3D(
     await Promise.all(jobs);
   }
 
+  await setLoadStage("Building the surface", "Yüzey oluşturuluyor");
   // ---------- renderer, scene, camera ----------
   const scene = new THREE.Scene();
   const HORIZON = new THREE.Color(0.62, 0.43, 0.3);
@@ -571,8 +606,26 @@ export async function initHud3D(
 
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
   // Performance: draw at most 1.25 device pixels per CSS pixel; adaptive scaling below lowers it further.
-  const MAX_PIXEL_RATIO = Math.min(window.devicePixelRatio, 1.25);
-  renderer.setPixelRatio(MAX_PIXEL_RATIO);
+  // Graphics preset (pixel ratio, MSAA, shadows, terrain radius...): see shared/graphics-profile.js.
+  const gfxHw = (() => {
+    let gpu = "";
+    try {
+      const gl = renderer.getContext();
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      gpu = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || "");
+    } catch {
+      /* the GPU name is only a hint */
+    }
+    return {
+      gpu,
+      cores: navigator.hardwareConcurrency,
+      memoryGb: navigator.deviceMemory,
+      mobile: /Android|iPhone|iPad/i.test(navigator.userAgent),
+    };
+  })();
+  let gfx = resolveGraphics(devCfg, gfxHw);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfx.pixelRatioCap));
+  renderer.info.autoReset = false; // reset once per frame, so the counters cover every pass
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -847,13 +900,17 @@ export async function initHud3D(
   patchObjectRayTracer(THREE, rockField.group, rtUniforms, { reflectScale: 0.35 });
   patchObjectRayTracer(THREE, galeVista, rtUniforms, { reflectScale: 0.25 });
 
-  function sampleNormal(x, z) {
+  /** Unit ground normal. Pass `out` to reuse an object (hot paths); without it a new one is returned. */
+  function sampleNormal(x, z, out = { x: 0, y: 1, z: 0 }) {
     const e = 0.35;
     const nx = sampleElevSceneY(x - e, z) - sampleElevSceneY(x + e, z);
     const nz = sampleElevSceneY(x, z - e) - sampleElevSceneY(x, z + e);
     const ny = 2 * e;
     const len = Math.hypot(nx, ny, nz) || 1;
-    return { x: nx / len, y: ny / len, z: nz / len };
+    out.x = nx / len;
+    out.y = ny / len;
+    out.z = nz / len;
+    return out;
   }
 
   function footSample(x, z, yaw, bodyY) {
@@ -1413,6 +1470,7 @@ export async function initHud3D(
       copy.scale.set(i % 2 === 0 ? 1 : -1, 1, j % 2 === 0 ? 1 : -1);
       copy.receiveShadow = true;
       copy.userData.mirrorCopy = true;
+      copy.userData.ring = Math.max(Math.abs(i), Math.abs(j));
       if (i === 0 && j === 0) {
         copy.visible = false; // the real tile sits here until the ring moves
         endless.userData.centre = copy;
@@ -1421,6 +1479,12 @@ export async function initHud3D(
     }
   }
   scene.add(endless);
+  /** Lower presets draw fewer mirrored copies of the overview terrain (the fog hides the rest). */
+  function applyMirrorRing(ring) {
+    for (const copy of endless.children) {
+      if (copy !== endless.userData.centre) copy.visible = copy.userData.ring <= ring;
+    }
+  }
   const period = { x: 2 * worldW, z: 2 * worldH };
   function followEndless(pos) {
     endless.position.set(Math.round(pos.x / period.x) * period.x, 0, Math.round(pos.z / period.z) * period.z);
@@ -1436,9 +1500,7 @@ export async function initHud3D(
   const chunkMeshes = new Map(); // "a,b" -> { a, b, ci, cj, seg, mesh, ready, disposed }
   const chunkTexEntries = new Map(); // data-chunk index -> { tex, slope, refs, loaded, failed, waiters }
   const chunkNormalClones = new Map(); // shared normal map -> clone tiled for one chunk
-  const DETAIL_RADIUS_M = 850;
-  const DATA_RADIUS_M = 1050;
-  const chunkLodSeg = (d) => (d < 150 ? 256 : d < 450 ? 128 : 64); // 1 m, 2 m, 4 m vertex spacing
+  // radius and level of detail (1 m, 2 m, 4 m vertex spacing) come from the graphics preset
   let chunkPlanT = 0;
   let chunkPlanCell = "";
   let chunkBuildQueue = [];
@@ -1541,16 +1603,22 @@ export async function initHud3D(
   }
 
   function planCorridorChunks(px, pz) {
-    corridor.update(px, pz, DATA_RADIUS_M);
+    corridor.update(px, pz, gfx.detailRadiusM + 200);
     const { a, b } = corridor.sceneCellOf(px, pz);
-    const ra = Math.ceil(DETAIL_RADIUS_M / corridor.chunkW) + 1;
-    const rb = Math.ceil(DETAIL_RADIUS_M / corridor.chunkH) + 1;
+    const ra = Math.ceil(gfx.detailRadiusM / corridor.chunkW) + 1;
+    const rb = Math.ceil(gfx.detailRadiusM / corridor.chunkH) + 1;
     const want = new Map();
     for (let db = -rb; db <= rb; db++) {
       for (let da = -ra; da <= ra; da++) {
         const d = corridor.cellDistance(a + da, b + db, px, pz);
-        if (d > DETAIL_RADIUS_M) continue;
-        want.set(`${a + da},${b + db}`, { a: a + da, b: b + db, d, seg: chunkLodSeg(d) });
+        if (d > gfx.detailRadiusM) continue;
+        const key = `${a + da},${b + db}`;
+        let seg = chunkSegmentsFor(gfx, d);
+        // hysteresis: a mesh keeps its finer grid until it is 20 % past the boundary, so walking
+        // along a level-of-detail line does not rebuild the same chunk again and again
+        const cur = chunkMeshes.get(key);
+        if (cur && seg < cur.seg && chunkSegmentsFor(gfx, d / 1.2) >= cur.seg) seg = cur.seg;
+        want.set(key, { a: a + da, b: b + db, d, seg });
       }
     }
     for (const [key, c] of chunkMeshes) if (!want.has(key)) disposeChunk(key, c);
@@ -3228,8 +3296,8 @@ export async function initHud3D(
     celestial.update(sunState);
     const up = sunUp(sunState.elevationRad);
     // Night: no direct sun, a faint sky/starlight floor so the ground stays readable.
-    hemiLight.intensity = (devCfg.superGraphics ? 0.28 : 0.22) * (0.32 + 0.68 * up);
-    renderer.toneMappingExposure = (devCfg.superGraphics ? 1.06 : 1.0) * (1 + 0.55 * (1 - up));
+    hemiLight.intensity = (gfx.level === "ultra" ? 0.28 : 0.22) * (0.32 + 0.68 * up);
+    renderer.toneMappingExposure = (gfx.level === "ultra" ? 1.06 : 1.0) * (1 + 0.55 * (1 - up));
     if (rebake) {
       rebuildEnvironment();
       if (isGaleSite() && elevGrid) rebakeSunMask();
@@ -3292,8 +3360,8 @@ export async function initHud3D(
     for (const r of drivableRovers) r.group.visible = showRovers;
     npcManager.npcGroup.visible = showRovers;
     galeStopsGroup.visible = gale;
-    fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
-    galeVista.visible = Boolean(devCfg.superGraphics) && gale;
+    fieldKits.visible = gfx.sceneDetail && gale;
+    galeVista.visible = gfx.sceneDetail && gale;
     const nextMain = buildTerrainGeometry(fullSeg, fullSegZ);
     const nextCopy = buildTerrainGeometry(copySeg, copySegZ);
     terrainMesh.geometry = nextMain;
@@ -4024,10 +4092,12 @@ export async function initHud3D(
 
   // Controller buttons in the 3D view (layout and rebinding: shared/gamepad.js + setup screen).
   // Menus, dialogs and the setup screen are handled in app.js.
-  const padBlocked = () =>
-    document.getElementById("pad-setup")?.classList.contains("open") ||
-    !document.getElementById("start-screen")?.classList.contains("hidden") ||
-    hasOpenModalOverlay();
+  const padSetupEl = document.getElementById("pad-setup");
+  const startScreenEl = document.getElementById("start-screen");
+  /** `uiBlocked` = hasOpenModalOverlay(), passed in so the loop queries the DOM once per frame. */
+  const padBlockedGiven = (uiBlocked) =>
+    Boolean(padSetupEl?.classList.contains("open") || (startScreenEl && !startScreenEl.classList.contains("hidden")) || uiBlocked);
+  const padBlocked = () => padBlockedGiven(hasOpenModalOverlay());
   gamepad.onPress(({ actions }) => {
     if (landing.active) return landing.skip();
     if (isHudActive() && !padBlocked() && actions.includes("interact")) {
@@ -4137,7 +4207,26 @@ export async function initHud3D(
 
   let renderScale = 1;
   let frameAvg = 16;
+  let displayMs = 16.7; // shortest recent frame = the display's refresh interval (or the FPS limit)
   let lastScaleChange = 0;
+  let gfxApplied = false;
+  let lastDrawMs = 0;
+  let perfKeyOn = false;
+  let perfDraws = 0;
+  let perfTris = 0;
+  // F3 / "Show performance stats": frame rate and renderer counters. A geometry or texture count
+  // that keeps climbing while you stand still is a leak.
+  const perfEl = document.createElement("div");
+  perfEl.id = "hud-perf";
+  perfEl.className = "hud-perf";
+  perfEl.hidden = true;
+  hudView.appendChild(perfEl);
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "F3" || !hudView.classList.contains("active")) return;
+    e.preventDefault();
+    perfKeyOn = !perfKeyOn;
+    perfEl.hidden = !(devCfg.showPerf || perfKeyOn);
+  });
 
   function syncVisorSafeInsets(w, h, bezelScale) {
     const host = hudView || document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
@@ -4261,16 +4350,28 @@ export async function initHud3D(
       camera.updateProjectionMatrix();
     }
 
-    const wantSuper = Boolean(cfg.superGraphics);
+    const prevGfx = gfx;
+    gfx = resolveGraphics(cfg, gfxHw);
+    const wantSuper = gfx.level === "ultra";
     const rtPreset = applyRayTracerTierUniforms(rtUniforms, cfg);
     const wantRt = rtPreset.enabled > 0;
-    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper || rtPreset.tier >= 4 ? 2.0 : 1.25);
+    const targetPr = Math.min(window.devicePixelRatio || 1, rtPreset.tier >= 4 ? 2.0 : gfx.pixelRatioCap);
     renderer.setPixelRatio(targetPr);
-    renderScale = wantRt ? rtPreset.resolutionScale : wantSuper ? 1.25 : 1.0;
+    if (wantRt) renderScale = rtPreset.resolutionScale;
+    else if (!gfxApplied || prevGfx.level !== gfx.level || prevGfx.renderScale !== gfx.renderScale || !gfx.adaptive) {
+      renderScale = gfx.renderScale;
+    } else renderScale = Math.max(gfx.minScale, Math.min(gfx.renderScale, renderScale));
+    // terrain radius or level of detail changed: plan the chunks again on the next frame
+    if (prevGfx.detailRadiusM !== gfx.detailRadiusM || prevGfx.lodNearM !== gfx.lodNearM || prevGfx.lodSegs !== gfx.lodSegs) {
+      chunkPlanT = 0;
+    }
+    applyMirrorRing(gfx.mirrorRing);
+    gfxApplied = true;
+    if (perfEl) perfEl.hidden = !(cfg.showPerf || perfKeyOn);
 
     // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
     // we switch to samples: 0 + DepthTexture (paired with FXAA + CAS + SSR/RTAO in LENS_FRAG).
-    const wantSamples = wantRt ? 0 : wantSuper ? 4 : 2;
+    const wantSamples = wantRt ? 0 : gfx.msaa;
     if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
       rtHasDepth = wantRt;
@@ -4294,9 +4395,10 @@ export async function initHud3D(
     }
     syncOpticsOverlayUi();
 
-    const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
-    const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
-    const wantShadowType = wantSuper ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    // "shadows off" keeps a small map allocated but the sun stops casting (see the loop)
+    const wantShadowPx = gfx.shadowPx || 512;
+    const wantShadowHalf = gfx.shadowHalfM;
+    const wantShadowType = gfx.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     if (shadowMapPx !== wantShadowPx || shadowHalfM !== wantShadowHalf || renderer.shadowMap.type !== wantShadowType) {
       shadowMapPx = wantShadowPx;
       shadowHalfM = wantShadowHalf;
@@ -4336,9 +4438,9 @@ export async function initHud3D(
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * upNow;
     hemiLight.intensity = (wantSuper ? 0.28 : 0.22) * (0.32 + 0.68 * upNow);
     renderer.toneMappingExposure = (wantSuper ? 1.06 : 1.0) * (1 + 0.55 * (1 - upNow));
-    rockField.group.visible = wantSuper;
-    galeVista.visible = wantSuper && isGaleSite();
-    fieldKits.visible = wantSuper && isGaleSite();
+    rockField.group.visible = gfx.sceneDetail;
+    galeVista.visible = gfx.sceneDetail && isGaleSite();
+    fieldKits.visible = gfx.sceneDetail && isGaleSite();
     const tau = cfg.dustTau ?? 0.5;
     sky.material.uniforms.uTau.value = tau;
     sky.material.uniforms.uSunElev.value = sunState.elevationRad;
@@ -4382,13 +4484,17 @@ export async function initHud3D(
 
   // Adaptive resolution: the 3D scene renders into rt, so its size can drop when frames are slow
   // and come back when there is headroom. Disabled when Experimental Super Graphics is active.
-  function adaptResolution(frameMs, now) {
-    if (devCfg.rayTracing || devCfg.superGraphics) return;
-    frameAvg += (frameMs - frameAvg) * 0.05;
+  // "Fast" is measured against the display's own frame time (the shortest frame seen lately), so
+  // the resolution also climbs back on a 60 Hz screen, where no frame is ever shorter than 16.7 ms.
+  function adaptResolution(now) {
+    if (devCfg.rayTracing || !gfx.adaptive) return;
     if (now - lastScaleChange < 1200) return;
     let next = renderScale;
-    if (frameAvg > 24 && renderScale > 0.55) next = Math.max(0.55, renderScale - 0.1);
-    else if (frameAvg < 15 && renderScale < 1) next = Math.min(1, renderScale + 0.05);
+    if (frameAvg > Math.max(24, displayMs * 1.45) && renderScale > gfx.minScale) {
+      next = Math.max(gfx.minScale, renderScale - 0.1);
+    } else if (frameAvg < Math.max(15, displayMs * 1.12) && renderScale < gfx.renderScale) {
+      next = Math.min(gfx.renderScale, renderScale + 0.05);
+    }
     if (next !== renderScale) {
       renderScale = next;
       lastScaleChange = now;
@@ -4430,25 +4536,63 @@ export async function initHud3D(
   };
 
   const lookDir = new THREE.Vector3();
+  // scratch objects for the loop: nothing below allocates per frame
+  const NO_STICK = Object.freeze({ x: 0, y: 0 });
+  const habActors = [{ x: 0, z: 0 }];
+  const habUpdateOpts = { actors: habActors };
+  const driveInput = { throttle: 0, steer: 0, boost: false, handbrake: false };
+  // `park` lets the dynamics put a rover that has settled on its springs to sleep
+  const PARKED_INPUT = Object.freeze({ throttle: 0, steer: 0, boost: false, handbrake: true, park: true });
+  const wheelNormal = { x: 0, y: 1, z: 0 };
+  const roverEnv = { sampleY: sampleElevSceneY, sampleNormal: (x, z) => sampleNormal(x, z, wheelNormal) };
+  const dashStruts = [0, 0, 0, 0, 0, 0];
+  const strikes = [];
+  const gaitDirScratch = { f: 0, s: 0 };
+  const gaitOpts = {
+    crouch: 0,
+    lean: 0,
+    brake: 0,
+    footDyL: 0,
+    footDyR: 0,
+    normalL: null,
+    normalR: null,
+    onStrike: (side) => strikes.push(side),
+  };
+  let strictSlopeEl = null;
+  let metabolicEl = null;
+  let zoomReadoutEl = null;
   function animate(now) {
     requestAnimationFrame(animate);
-    const dt = Math.min(0.1, (now - prevT) / 1000);
+    // FPS limit: skip display frames until the chosen interval has passed
+    if (gfx.fpsLimit && now - lastDrawMs < 1000 / gfx.fpsLimit - 2) return;
+    lastDrawMs = now;
+    const frameMs = now - prevT;
+    const dt = Math.min(0.1, frameMs / 1000);
     prevT = now;
+    if (!hudView.classList.contains("active")) return; // nothing runs while the view is hidden
     syncStableLights();
     clockT += dt;
-    if (!hudView.classList.contains("active")) return; // do not render while hidden
+    if (frameMs < 250) {
+      frameAvg += (frameMs - frameAvg) * 0.05;
+      displayMs = frameMs < displayMs ? frameMs : displayMs + (frameMs - displayMs) * 0.002;
+    }
+    renderer.info.reset();
+    // one DOM query per frame for "is a menu or dialog open", shared by everything below
+    const uiBlocked = hasOpenModalOverlay();
 
     // habitat: bay doors / airlock doors open for the walker and the driven rover
     if (habitatStation.group.visible) {
-      const actors = [{ x: freePos.x, z: freePos.z }];
-      if (drivingRover && activeDriveRover?.group) actors.push(activeDriveRover.group.position);
-      habitatStation.update(dt, { actors });
+      habActors.length = 1;
+      habActors[0].x = freePos.x;
+      habActors[0].z = freePos.z;
+      if (drivingRover && activeDriveRover?.group) habActors.push(activeDriveRover.group.position);
+      habitatStation.update(dt, habUpdateOpts);
     }
     updateTransit(dt);
 
     // controller look (right stick), off while a menu, dialog or the setup screen has the pad
-    const padBusy = padBlocked();
-    const lk = padBusy ? { x: 0, y: 0 } : gamepad.look();
+    const padBusy = padBlockedGiven(uiBlocked);
+    const lk = padBusy ? NO_STICK : gamepad.look();
     if (lk.x || lk.y) {
       userYaw -= lk.x * 2.6 * dt;
       const minP = drivingRover ? -1.08 : -1.35;
@@ -4478,15 +4622,15 @@ export async function initHud3D(
         const sim = activeDriveRover.sim;
         const rig = activeDriveRover.rig;
         // inputs: keyboard, or controller (RT / LT or left stick for the pedals, left stick to steer)
-        const padOk = !padBlocked();
-        const st = padOk ? gamepad.move() : { x: 0, y: 0 };
+        const padOk = !padBusy;
+        const st = padOk ? gamepad.move() : NO_STICK;
         const rt = padOk ? gamepad.buttons[7] || 0 : 0;
         const lt = padOk ? gamepad.buttons[6] || 0 : 0;
         const keyThrottle =
           (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
         const keySteer =
           (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
-        const mapBlocked = isMapOpen() || hasOpenModalOverlay();
+        const mapBlocked = uiBlocked;
         const throttle = mapBlocked ? 0 : keyThrottle || (rt - lt) || (Math.abs(st.y) > 0.2 ? st.y : 0);
         const steerIn = mapBlocked ? 0 : keySteer || -st.x;
         const handbrake = !mapBlocked && (keys.has(" ") || (padOk && gamepad.isDown("jump")));
@@ -4496,10 +4640,11 @@ export async function initHud3D(
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
 
         const prevYaw = sim.attitude().yaw;
-        sim.step(dt, { throttle, steer: roverSteer, boost, handbrake }, {
-          sampleY: sampleElevSceneY,
-          sampleNormal,
-        });
+        driveInput.throttle = throttle;
+        driveInput.steer = roverSteer;
+        driveInput.boost = boost;
+        driveInput.handbrake = handbrake;
+        sim.step(dt, driveInput, roverEnv);
         const rs = sim.state;
 
         // bumping into crewmates, other vehicles, habitat, historic rovers, and NPCs: push out and bleed speed
@@ -4590,7 +4735,7 @@ export async function initHud3D(
 
         // instrument cluster
         const P = sim.params;
-        const strutOrder = [0, 1, 2, 3, 4, 5]; // FL FR ML MR RL RR (dynamics order)
+        for (let i = 0; i < 6; i++) dashStruts[i] = sim.wheels[i].comp / P.maxComp; // FL FR ML MR RL RR
         roverDash.update({
           speedKmh: rs.vLong * 3.6,
           rpm: rs.motorRpm,
@@ -4603,7 +4748,7 @@ export async function initHud3D(
           rollDeg: (att.roll * 180) / Math.PI,
           headingDeg: (-att.yaw * 180) / Math.PI,
           odoKm: rs.odometerM / 1000,
-          struts: strutOrder.map((i) => sim.wheels[i].comp / P.maxComp),
+          struts: dashStruts,
           slipPct: slipMax * 100,
           airborne: rs.airborne,
           wheelspin: rs.tractionLimited && Math.abs(rs.pedal) > 0.3,
@@ -4628,8 +4773,7 @@ export async function initHud3D(
           if (Math.hypot(rsIdle.pos.x - idleDrv.group.position.x, rsIdle.pos.z - idleDrv.group.position.z) > 0.5) {
             idleDrv.sim.reset(idleDrv.group.position.x, idleDrv.group.position.z, idleDrv.group.rotation.y, sampleElevSceneY);
           }
-          idleDrv.sim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
-          idleDrv.rig.sync();
+          if (idleDrv.sim.step(dt, PARKED_INPUT, roverEnv)) idleDrv.rig.sync();
         }
       }
 
@@ -4671,7 +4815,7 @@ export async function initHud3D(
     } else if (freeRoam) {
       const wasGrounded = player.grounded;
       const prevVy = phys.vy;
-      if (!isMapOpen() && !hasOpenModalOverlay()) {
+      if (!uiBlocked) {
         fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
         right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
         moveDir.set(0, 0, 0);
@@ -4701,7 +4845,7 @@ export async function initHud3D(
               wishZ: moveDir.z,
               run: keys.has("shift") || padRun,
               speedMultiplier: (devCfg.speedMultiplier || 1) * stickPace,
-              slopeLimitDeg: document.getElementById("toggle-strict-15")?.checked ? 15 : 20,
+              slopeLimitDeg: (strictSlopeEl ||= document.getElementById("toggle-strict-15"))?.checked ? 15 : 20,
               latDeg: zToLat(phys.z),
             },
             heightEnv
@@ -4782,8 +4926,7 @@ export async function initHud3D(
         if (Math.hypot(rsP.pos.x - drvR.group.position.x, rsP.pos.z - drvR.group.position.z) > 0.5) {
           drvR.sim.reset(drvR.group.position.x, drvR.group.position.z, drvR.group.rotation.y, sampleElevSceneY);
         }
-        drvR.sim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
-        drvR.rig.sync();
+        if (drvR.sim.step(dt, PARKED_INPUT, roverEnv)) drvR.rig.sync();
         const distR = Math.hypot(freePos.x - drvR.group.position.x, freePos.z - drvR.group.position.z);
         if (distR < minDistR) {
           minDistR = distR;
@@ -4940,7 +5083,9 @@ export async function initHud3D(
     if (step > 1e-5) {
       const fx = -Math.sin(yaw);
       const fz = -Math.cos(yaw);
-      gaitDir = { f: (mvx * fx + mvz * fz) / movedXZ, s: (mvx * -fz + mvz * fx) / movedXZ };
+      gaitDir = gaitDirScratch;
+      gaitDir.f = (mvx * fx + mvz * fz) / movedXZ;
+      gaitDir.s = (mvx * -fz + mvz * fx) / movedXZ;
     }
     fwd.set(0, 0, -1).applyAxisAngle(UP, yaw);
     right.set(1, 0, 0).applyAxisAngle(UP, yaw);
@@ -4954,16 +5099,17 @@ export async function initHud3D(
       brake = Math.min(1, -uphillAlign);
     }
     const feet = footSample(px, pz, yaw, player.y);
-    const strikes = [];
+    strikes.length = 0;
     groundSpeedSm += (groundSpeed - groundSpeedSm) * Math.min(1, dt * 9);
     if (groundSpeedSm < 0.03 && step === 0) groundSpeedSm = 0;
-    self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir, {
-      crouch: phys.crouch,
-      lean,
-      brake,
-      ...feet,
-      onStrike: (side) => strikes.push(side),
-    });
+    gaitOpts.crouch = phys.crouch;
+    gaitOpts.lean = lean;
+    gaitOpts.brake = brake;
+    gaitOpts.footDyL = feet.footDyL;
+    gaitOpts.footDyR = feet.footDyR;
+    gaitOpts.normalL = feet.normalL;
+    gaitOpts.normalR = feet.normalR;
+    self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir, gaitOpts);
     self.group.updateMatrixWorld(true);
     if (!drivingRover) {
       for (const side of strikes) {
@@ -5217,19 +5363,20 @@ export async function initHud3D(
     celestial.group.position.copy(camera.position);
     updateMoons(camera.position);
     footsteps.update(dt, phys.g || surfaceG);
-    rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
+    rockField.update(px, pz, sampleElevSceneY, gfx.sceneDetail);
     historicRovers.update(dt, { sampleElevY: sampleElevSceneY, observerPos: camera.position, clockT });
     if (npcManager.npcGroup.visible) {
       npcManager.update(dt, { x: px, z: pz, y: player.y }, clockT, {
         activeNpcId: npcDialogueUi.getActiveNpc()?.id || null,
         terrainSampler: sampleElevSceneY,
+        camera,
       });
     }
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
     lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
-    sun.castShadow = sunUpNow > 0.01;
+    sun.castShadow = gfx.shadowPx > 0 && sunUpNow > 0.01;
     // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
     if (now - sunStateStampMs > 30000) {
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });
@@ -5245,7 +5392,14 @@ export async function initHud3D(
         speedMs: drivingRover ? 0 : groundSpeed,
         gradePercent: phys.gradePercent,
       });
-      const metEl = document.getElementById("hud-metabolic");
+      if (!perfEl.hidden) {
+        const ri = renderer.info;
+        perfEl.textContent =
+          `${Math.round(1000 / Math.max(1, frameAvg))} fps · ${frameAvg.toFixed(1)} ms · ${gfx.level} · scale ${renderScale.toFixed(2)}\n` +
+          `draws ${perfDraws} · tris ${(perfTris / 1000).toFixed(0)}k · chunks ${chunkMeshes.size}\n` +
+          `geometries ${ri.memory.geometries} · textures ${ri.memory.textures} · shaders ${ri.programs?.length ?? 0}`;
+      }
+      const metEl = (metabolicEl ||= document.getElementById("hud-metabolic"));
       if (metEl) {
         const svf = skyViewFactor(sampleElevSceneY, px, pz);
         metEl.textContent = `METABOLIC: ${metW.toFixed(0)} W · ${oxygenLitresPerMin(metW).toFixed(2)} L/min O₂ (Pandolf stand-in) · SVF ${svf.toFixed(2)} illustrative`;
@@ -5257,7 +5411,7 @@ export async function initHud3D(
         updateHudReadouts(alongM, sample.lon, sample.lat);
       }
       if (optZoom > 1) {
-        const readout = document.getElementById("hud-zoom-readout");
+        const readout = (zoomReadoutEl ||= document.getElementById("hud-zoom-readout"));
         camera.getWorldDirection(lookDir);
         let dist = 1.5;
         let hit = null;
@@ -5273,7 +5427,7 @@ export async function initHud3D(
         }
         if (readout) readout.textContent = hit ? `${optZoom}×  ${hit.toFixed(0)} m` : `${optZoom}×`;
       }
-      if (!isMapOpen() && !hasOpenModalOverlay()) {
+      if (!uiBlocked) {
         const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
         const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
         const hitNpc = pickTargetNpc(aimX, aimY);
@@ -5324,7 +5478,8 @@ export async function initHud3D(
     if (evaLampOn && !drivingRover) {
       const autoBoost = sunState.elevationRad < 0.25 ? 1.55 : 1.0;
       evaLamp.intensity = 28.0 * autoBoost;
-      evaLamp.position.copy(camera.position).add(new THREE.Vector3(0, 0.14, 0));
+      evaLamp.position.copy(camera.position);
+      evaLamp.position.y += 0.14;
       evaLamp.target.position.copy(camera.position).addScaledVector(lookDir, 12);
       evaLamp.target.updateMatrixWorld();
     } else {
@@ -5341,7 +5496,7 @@ export async function initHud3D(
     const sunBearingDeg = (((Math.atan2(sunDir.x, -sunDir.z) * 180) / Math.PI) % 360 + 360) % 360;
     updateWaveguideOptics(headingDeg, pitchDeg, heightEnv.molaElevM(px, pz), stopBearingDeg, sunBearingDeg);
 
-    adaptResolution(dt * 1000, now);
+    adaptResolution(now);
     lensMat.uniforms.uTime.value = clockT;
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uGoldSlide.value = goldSlide;
@@ -5358,10 +5513,16 @@ export async function initHud3D(
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
     renderer.render(lensScene, lensCam);
+    perfDraws = renderer.info.render.calls;
+    perfTris = renderer.info.render.triangles;
   }
   // Stream in the 1 m terrain where the EVA starts before the first frame (veil still up).
+  await setLoadStage("Streaming 1 m terrain", "1 m arazi yükleniyor");
   if (routeCoords.length > 1) await warmCorridorAt(lonToX(routeCoords[0][0]), latToZ(routeCoords[0][1]));
   else await warmCorridorAt(freePos.x, freePos.z);
+  await setLoadStage("Loading suit and rover models", "Giysi ve araç modelleri yükleniyor");
+  if (!(await waitForLoads(45000))) console.warn("some assets were still loading after 45 s; starting without them");
+  await setLoadStage("Compiling shaders", "Gölgelendiriciler derleniyor");
   // ---------- no mid-game shader recompiles ----------
   // three.js builds every lit shader for the exact number of lights in view. Showing or hiding a
   // group that holds a light (the station, a rover's headlights, the lander's engine glow) changed
@@ -5385,6 +5546,14 @@ export async function initHud3D(
       console.info(`shaders compiled in ${Math.round(performance.now() - t0)} ms`);
     } catch (err) {
       console.warn("shader warm-up failed", err);
+    }
+    // one real frame behind the loading screen: uploads the textures and buffers the view needs
+    try {
+      renderer.setRenderTarget(rt);
+      renderer.render(scene, camera);
+      renderer.setRenderTarget(null);
+    } catch (err) {
+      console.warn("first-frame warm-up failed", err);
     }
     L.visible = wasVisible;
   }
@@ -5448,6 +5617,33 @@ export async function initHud3D(
         historic: historicRovers.getAllEntries().map((e) => [e.spec?.id, +Math.hypot(e.group.position.x - freePos.x, e.group.position.z - freePos.z).toFixed(1), e.group.visible]),
         npcDialog: document.querySelector(".npc-dialogue-backdrop.open") ? "open" : "closed",
       };
+    },
+    /** Visible meshes and triangles per top-level scene object: shows what the draw calls go to. */
+    sceneBreakdown: () => {
+      const rows = [];
+      for (const top of scene.children) {
+        let meshes = 0;
+        let tris = 0;
+        let casters = 0;
+        let twoPass = 0;
+        const walk = (o) => {
+          if (!o.visible) return;
+          if (o.isMesh || o.isPoints || o.isSprite || o.isLine) {
+            meshes += Array.isArray(o.material) ? o.material.length : 1;
+            const g = o.geometry;
+            const n = g?.index ? g.index.count : g?.attributes?.position?.count || 0;
+            tris += (n / 3) * (o.isInstancedMesh ? o.count : 1);
+            if (o.castShadow) casters++;
+            // three draws a transparent double-sided mesh twice (back faces, then front faces)
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const mt of mats) if (mt?.transparent && mt.side === THREE.DoubleSide && !mt.forceSinglePass) twoPass++;
+          }
+          for (const c of o.children) walk(c);
+        };
+        walk(top);
+        if (meshes) rows.push({ name: top.name || top.type, meshes, casters, twoPass, tris: Math.round(tris) });
+      }
+      return rows.sort((p, q) => q.meshes - p.meshes);
     },
     seekLanding: (t) => landing.seek(t),
     /** Camera drop from ~240 m to the visor after an Orbit-view descent. */
