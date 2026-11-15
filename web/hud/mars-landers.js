@@ -304,7 +304,7 @@ function infoTexture(THREE, hw, tr) {
   rows.forEach((r, i) => g.fillText(r, 20, 100 + i * 42));
   g.fillStyle = "#94a3b8";
   g.font = "18px monospace";
-  g.fillText(tr ? "[E] BİLGİ · ölçekli model, prosedürel arazi" : "[E] INFO · scale model on procedural relief", 20, 326);
+  g.fillText(tr ? "[E] / TIKLA BİLGİ · ölçekli model, prosedürel arazi" : "[E] / CLICK FOR INFO · scale model on procedural relief", 20, 326);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -314,6 +314,7 @@ function infoTexture(THREE, hw, tr) {
 export function buildInfoBeacon(THREE, hw, { tr = false } = {}) {
   const g = new THREE.Group();
   g.name = "infoBeacon";
+  g.userData.screenTarget = { kind: "hardwareInfo", hwId: hw.id };
   const glow = new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 2.2, roughness: 0.4 });
   const metal = new THREE.MeshStandardMaterial({ color: 0x30353c, roughness: 0.45, metalness: 0.85 });
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 0.12, 20), metal);
@@ -336,6 +337,13 @@ export function buildInfoBeacon(THREE, hw, { tr = false } = {}) {
   );
   panel.position.set(0, 1.25, 0.12);
   g.add(panel);
+  const hitCyl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.9, 0.9, 2.0, 10),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  hitCyl.position.y = 1.0;
+  hitCyl.userData.screenTarget = { kind: "hardwareInfo", hwId: hw.id };
+  g.add(hitCyl);
   g.userData.ring = ring;
   return g;
 }
@@ -368,6 +376,7 @@ function labelTexture(THREE, lines, color) {
 export function buildReturnPad(THREE, { tr = false } = {}) {
   const g = new THREE.Group();
   g.name = "returnPad";
+  g.userData.screenTarget = { kind: "returnPad" };
   const glow = new THREE.MeshStandardMaterial({ color: 0x34d399, emissive: 0x34d399, emissiveIntensity: 2.4, roughness: 0.4 });
   const plate = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.6, metalness: 0.7 });
   const pad = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.1, 0.08, 40), plate);
@@ -384,13 +393,20 @@ export function buildReturnPad(THREE, { tr = false } = {}) {
   const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.13), glow);
   core.position.set(0, 1.35, -1.2);
   g.add(pad, rim, pylon, halo, core);
-  const map = labelTexture(THREE, tr ? ["ÜSSE DÖNÜŞ", "[E] / [H]"] : ["RETURN TO HABITAT", "[E] / [H]"], "#34d399");
+  const map = labelTexture(THREE, tr ? ["ÜSSE DÖNÜŞ", "[E] / [H] / TIKLA"] : ["RETURN TO HABITAT", "[E] / [H] / CLICK"], "#34d399");
   const sign = new THREE.Mesh(
     new THREE.PlaneGeometry(1.5, 0.47),
     new THREE.MeshBasicMaterial({ map, color: map ? 0xffffff : 0x0a1a2a, transparent: true, side: THREE.DoubleSide, toneMapped: false })
   );
   sign.position.set(0, 1.95, -1.2);
   g.add(sign);
+  const hitCyl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.95, 0.95, 2.3, 10),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  hitCyl.position.set(0, 1.15, -1.2);
+  hitCyl.userData.screenTarget = { kind: "returnPad" };
+  g.add(hitCyl);
   g.userData.halo = halo;
   g.userData.core = core;
   return g;

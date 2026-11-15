@@ -35,6 +35,11 @@ import {
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
+import {
+  buildConceptHollowWheels,
+  buildNasaConceptRoverVisuals,
+  countGeometryTriangles,
+} from "../hud/concept-rover-model.js";
 import { HABITAT_LAYOUT, HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
 import { createRockField } from "../hud/MarsRockField.js";
 import {
@@ -804,6 +809,26 @@ test("NASA Mars Rover Concept builds rigged 6x6 hollow wheels and drives with ph
   });
   assert.equal(step.spec.id, "nasa_concept");
   assert.ok(step.vFwd > 0);
+
+  const bodyVisuals = buildNasaConceptRoverVisuals(THREE);
+  const spec = concept.getActiveSpec();
+  const wheelVisuals = buildConceptHollowWheels(THREE, spec.axles, spec.trackHalfW, spec.wheelRadius);
+  const bodyTris = countGeometryTriangles(bodyVisuals.procGroup);
+  const wheelTris = countGeometryTriangles(wheelVisuals.wheelGroup);
+  const totalTris = bodyTris + wheelTris;
+  assert.ok(bodyTris >= 500 && bodyTris <= 2600, `unexpected concept body tris: ${bodyTris}`);
+  assert.ok(wheelTris >= 800 && wheelTris <= 3500, `unexpected concept 6x6 wheel tris: ${wheelTris}`);
+  assert.ok(totalTris <= 6000, `concept rover should stay low-poly (<= 6000 tris), got ${totalTris}`);
+  assert.equal(wheelVisuals.pods.length, 6);
+  assert.ok(wheelVisuals.pods.every((pod) => pod.hubInset > 0));
+
+  const bodyBox = new THREE.Box3().setFromObject(bodyVisuals.procGroup);
+  const wheelBox = new THREE.Box3().setFromObject(wheelVisuals.wheelGroup);
+  const boundsOk = [bodyBox.min, bodyBox.max, wheelBox.min, wheelBox.max].every(
+    (v) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
+  );
+  assert.ok(boundsOk, "concept rover geometry bounds must be finite");
+  assert.ok(bodyBox.min.y >= 0.58, `belly clearance too low: ${bodyBox.min.y}`);
 });
 
 test("Mars Habitat Station follows the blueprint layout: 5 zones, raised decks, ramps, doors", () => {

@@ -659,7 +659,10 @@ async function boot() {
               id="rover-modal-visit-3d"
               class="btn primary"
               type="button"
+              disabled=${Boolean(hudApi?.isTaskActive?.())}
+              title=${hudApi?.isTaskActive?.() ? (tr ? "Görev aktifken ışınlanma kilitli" : "Teleport locked while a Task is active") : ""}
               onClick=${() => {
+                if (hudApi?.isTaskActive?.()) return hudApi.showTaskLockNotice?.();
                 closeModal();
                 dispatchVisitRoverSite(rover.id);
                 switchToHud();
@@ -1794,6 +1797,11 @@ async function boot() {
 
   let pendingLanding = null;
   function landFromOrbit(lon, lat, { sunMode = "local", roverId = null, hardwareId = null, siteId = null, stopId = null, globeSample = null } = {}) {
+    if (hudApi?.isTaskActive?.()) {
+      switchView("hud");
+      hudApi.showTaskLockNotice?.();
+      return;
+    }
     if (!hudApi) {
       pendingLanding = [lon, lat, { sunMode, roverId, hardwareId, siteId, stopId, globeSample }];
       switchView("hud");

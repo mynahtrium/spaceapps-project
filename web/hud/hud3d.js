@@ -47,6 +47,14 @@ import { formatHoursHM, moonFromSurface, sunStateAt } from "./MarsEphemeris.js";
 import { createCelestialSky } from "./MarsCelestialSky.js";
 import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
+import {
+  MARS_ATMO_HAZE_FRAG_APPLY,
+  MARS_ATMO_HAZE_FRAG_PARS,
+  MARS_ATMO_HAZE_VERT_PARS,
+  createAtmosphericHazeUniforms,
+  patchAtmosphericHaze,
+  updateAtmosphericHazeUniforms,
+} from "./MarsAtmosphereHaze.js";
 import { createLandingSequence } from "./landing-sequence.js";
 import { createRoverDynamics, roverParamsFor, roverParamsForHistoric } from "./rover-dynamics.js";
 import { resolveRoverObbCollision as obbPushOut } from "./experimental-rover.js";
@@ -54,7 +62,6 @@ import { attachSuspensionRig } from "./rover-rig.js";
 import { createRoverDash } from "./rover-dash.js";
 import { gamepad } from "../shared/gamepad.js";
 import { createFieldKits } from "./FieldKits.js";
-import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import {
   loadDevSettings,
@@ -91,6 +98,7 @@ import {
 } from "./experimental-rover.js";
 import { ENTRY_OFFSET_Z, createMarsHabitatStation } from "./mars-habitat.js";
 import { createRegolithDust } from "./regolith-dust.js";
+import { drawTelemetryScreenOnCtx } from "./habitat-textures.js";
 import { buildInfoBeacon, buildIngenuity, buildLanderById, buildReturnPad } from "./mars-landers.js";
 import {
   MARS_SURFACE_HARDWARE,
@@ -111,6 +119,16 @@ import {
 import { createHistoricRoverManager } from "./historic-rovers.js";
 import { createNpcManager } from "./npc-system.js";
 import { initNpcDialogueUi } from "./npc-dialogue-ui.js";
+import {
+  buildSiteElevationSampler,
+  computeTaskProgress,
+  generateVehicleRoutes,
+  getTaskTargetRover,
+  getTaskVehicleProfile,
+  isTeleportLockedForTask,
+  selectHabitatStagingSpot,
+} from "../shared/task-router.js";
+import { createTaskGuide3D, createTaskUiController } from "./hud-tasks.js";
 import { GaleCorridor, buildCorridorSubCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
 import { computeBvhForObject, createMarsPostPipeline, effectivePixelRatio, installBvhAcceleration } from "./post-pipeline.js";
 
@@ -398,7 +416,7 @@ const LENS_FRAG = /* glsl */ `
 
 export async function initHud3D(
   data,
-  { onOpenMenu = null, onBackToPlanner, onOpenPov, onOpenRoverInfo = null, mp = null, onLocalPose = null, onOpenOrbit = null }
+  { onOpenMenu = null, onBackToPlanner, onOpenPov, onOpenRoverInfo = null, onLocalPose = null, onOpenOrbit = null }
 ) {
   const openPauseMenu = onOpenMenu || onBackToPlanner;
   const { costMap, route, stops, telemetry, dose, alerts, weather, povIndex, assets } = data;
@@ -513,6 +531,8 @@ export async function initHud3D(
     const rad = Math.PI / 180;
     return -(lat - activeSiteRover.lat) * rad * MARS_RADIUS_MEAN_M;
   };
+  const galeLonToX = (lon) => ((lon - bounds.west_lon_deg) / (bounds.east_lon_deg - bounds.west_lon_deg) - 0.5) * worldW;
+  const galeLatToZ = (lat) => (0.5 - (lat - bounds.south_lat_deg) / (bounds.north_lat_deg - bounds.south_lat_deg)) * worldH;
   const xToLon = (x) => {
     if (isGaleSite()) {
       const u = x / worldW + 0.5;
@@ -698,6 +718,16 @@ export async function initHud3D(
 
   const ZENITH = new THREE.Color(0.23, 0.15, 0.12);
   const SKY_GROUND = new THREE.Color(0.3, 0.19, 0.13);
+  // height-layered aerial-perspective haze (MarsAtmosphereHaze.js), at the fixed dust optical depth
+  const atmoUniforms = createAtmosphericHazeUniforms(THREE, {
+    horizonColor: HORIZON,
+    zenithColor: ZENITH,
+    groundColor: SKY_GROUND,
+    sunDir,
+    sunElev: sunState.elevationRad,
+    tau: MARS_DUST_TAU,
+    baseY: 0.0,
+  });
   installBvhAcceleration(THREE);
   const sky = createMarsSkyDome(THREE, {
     zenith: ZENITH,
@@ -911,6 +941,27 @@ export async function initHud3D(
     return top + (bot - top) * ty - elevMin;
   }
 
+  /** Direct Gale HiRISE elevation query regardless of currently loaded procedural site. */
+  function sampleGaleGridSceneY(x, z) {
+    if (corridor && isGaleSite()) return rawSampleElevSceneY(x, z);
+    if (!elevGrid) return 0;
+    const fx = mirrorWrap(x / worldW + 0.5) * (imgW - 1);
+    const fy = mirrorWrap(z / worldH + 0.5) * (imgH - 1);
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const x1 = Math.min(imgW - 1, x0 + 1);
+    const y1 = Math.min(imgH - 1, y0 + 1);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const e00 = elevGrid[y0 * imgW + x0];
+    const e10 = elevGrid[y0 * imgW + x1];
+    const e01 = elevGrid[y1 * imgW + x0];
+    const e11 = elevGrid[y1 * imgW + x1];
+    const top = e00 + (e10 - e00) * tx;
+    const bot = e01 + (e11 - e01) * tx;
+    return top + (bot - top) * ty - elevMin;
+  }
+
   const initRouteCoords = route?.geometry?.coordinates || [];
   const initRouteOriginX = initRouteCoords.length > 0 ? lonToX(initRouteCoords[0][0]) : 0;
   const initRouteOriginZ = initRouteCoords.length > 0 ? latToZ(initRouteCoords[0][1]) : 0;
@@ -1043,6 +1094,36 @@ export async function initHud3D(
   // mirrored copies are seen from far away through fog: a third of the vertex density is plenty
   let copyGeom = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
 
+  function rebuildMainTerrainGeometries(includeHabitat) {
+    const nextMain = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat });
+    const nextRingCopy = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: false });
+    const nextCopy = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
+    terrainMesh.geometry = nextMain;
+    for (const child of endless.children) {
+      if (child.isMesh) {
+        child.geometry = child === endless.userData.centre ? nextMain : child.userData.ring <= 1 ? nextRingCopy : nextCopy;
+      }
+    }
+    terrainGeom.dispose();
+    ringCopyGeom.dispose();
+    copyGeom.dispose();
+    terrainGeom = nextMain;
+    ringCopyGeom = nextRingCopy;
+    copyGeom = nextCopy;
+  }
+
+  // ---------- far terrain shadows (baked) ----------
+  // The real-time shadow map only covers the ground near the walker. For the rest, march from every
+  // terrain cell towards the sun through the height grid and store how much of the sun is visible.
+  // The mirrored terrain repeats every 2 tiles in world space, so one mask over that period, sampled
+  // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
+  // This bake used to run in one go: about 0.7 M cells x up to 90 ray steps, a freeze of several
+  // seconds at start-up, again every 10 min, on every site change and sun-mode switch (the landing
+  // cut-scene from the Orbit view hit it). Now: one texel per 2 x 2 height cells (the edge is soft
+  // anyway), rays of 2-cell steps that stop once they are above the highest point, and the work is
+  // done in ~6 ms slices between frames. The new mask replaces the old one in one swap.
+  const SUN_MASK_SLICE_MS = 2;
+  const SUN_MASK_WORKER_SRC = `self.onmessage=function(e){var d=e.data,H=new Float32Array(d.H),NX=d.NX,NZ=d.NZ,MX=d.MX,MZ=d.MZ,stepM=d.stepM,dx=d.dx,dz=d.dz,maxSteps=d.maxSteps,tanSun=d.tanSun,SOFT=d.SOFT,hMax=d.hMax,out=new Uint8Array(MX*MZ*4),lim=tanSun+SOFT,inv2S=1/(2*SOFT);for(var mr=0;mr<MZ;mr++){var r=mr*2;if(r>=NZ)r=NZ-1;for(var mc=0;mc<MX;mc++){var c=mc*2;if(c>=NX)c=NX-1;var h0=H[r*NX+c],worst=-1e9;for(var k=1;k<=maxSteps;k++){var ks=k*stepM;if(h0+lim*ks>hMax)break;var fx=c+dx*k,fz=r+dz*k,x0=fx|0;if(fx<x0)x0--;var z0=fz|0;if(fz<z0)z0--;var tx=fx-x0,tz=fz-z0,a=x0%NX;if(a<0)a+=NX;var b=a+1;if(b>=NX)b-=NX;var rz0=z0%NZ;if(rz0<0)rz0+=NZ;var rz1=rz0+1;if(rz1>=NZ)rz1-=NZ;var ra=rz0*NX,rb=rz1*NX,h=(H[ra+a]*(1-tx)+H[ra+b]*tx)*(1-tz)+(H[rb+a]*(1-tx)+H[rb+b]*tx)*tz,t=(h-h0)/ks;if(t>worst){worst=t;if(worst>lim)break;}}var lit=(tanSun-worst)*inv2S+0.5;lit=lit<0?0:lit>1?1:lit;var o=(mr*MX+mc)*4;out[o]=out[o+1]=out[o+2]=(lit*255+0.5)|0;out[o+3]=255;}}self.postMessage(out.buffer,[out.buffer]);};`;
   let sunBakeJob = null;
   function startSunMaskBake(onDone) {
     const val = sunDir.y <= 0.0 ? 0 : 255;
@@ -1191,6 +1272,9 @@ export async function initHud3D(
   const curvInv2M = {
     value: 1 / (2 * (galeRadii.meridionalM + MARS_GEODESY.GALE_ANCHOR_ELEV_M)),
   };
+  patchAtmosphericHaze(THREE, galeVista, atmoUniforms, {
+    curvature: { uCurvAnchor: curvAnchor, uCurvInv2N: curvInv2N, uCurvInv2M: curvInv2M },
+  });
   const terrainMat = new THREE.MeshStandardMaterial({
     map: reliefTex,
     normalMap: pbr.dustNormalTex,
@@ -1255,14 +1339,15 @@ export async function initHud3D(
     shader.uniforms.uCov = covTexU;
     shader.uniforms.uCovOrigin = covOriginU;
     shader.uniforms.uCovCell = covCellU;
+    Object.assign(shader.uniforms, atmoUniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
+        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;\n${MARS_ATMO_HAZE_VERT_PARS}`
       )
       .replace(
         "#include <project_vertex>",
-        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nvRtWorldPos = mmWorld.xyz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
+        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nvRtWorldPos = mmWorld.xyz;\nvAtmoWorldPos = mmWorld.xyz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
       );
     const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
       "getDirectionalLightInfo( directionalLight, directLight );",
@@ -1271,7 +1356,7 @@ export async function initHud3D(
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\nuniform vec2 uMmUvScale;\nuniform float uCovOn;\nuniform sampler2D uCov;\nuniform vec2 uCovOrigin;\nuniform vec2 uCovCell;`
+        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\nuniform vec2 uMmUvScale;\nuniform float uCovOn;\nuniform sampler2D uCov;\nuniform vec2 uCovOrigin;\nuniform vec2 uCovCell;\n${MARS_ATMO_HAZE_FRAG_PARS}`
       )
       .replace(
         "#include <clipping_planes_fragment>",
@@ -1281,6 +1366,12 @@ export async function initHud3D(
           if (mmCc.x >= 0.0 && mmCc.y >= 0.0 && mmCc.x < ${COV_N}.0 && mmCc.y < ${COV_N}.0 &&
               texture2D(uCov, (floor(mmCc) + 0.5) / ${COV_N}.0).r > 0.5) discard;
         }`
+      )
+      .replace(
+        "#include <normal_fragment_maps>",
+        `#include <normal_fragment_maps>
+        float mmNormFade = smoothstep(220.0, 950.0, length(vRtWorldPos - cameraPosition));
+        normal = normalize(mix(normal, nonPerturbedNormal, 0.85 * mmNormFade));`
       )
       .replace(
         "#include <lights_fragment_begin>",
@@ -1297,6 +1388,19 @@ export async function initHud3D(
         #ifdef USE_MAP
           // World-space continuous detail UV so detail chunks, sub-chunks, mirrored copies and the
           // overview mesh share seamless procedural rock/dust/grit masks across every border.
+          float mmCamDist = length(vRtWorldPos - cameraPosition);
+          float mmNearDetail = 1.0 - smoothstep(240.0, 720.0, mmCamDist);
+          float mmFarSoft = smoothstep(420.0, 1550.0, mmCamDist);
+          if (mmFarSoft > 0.01) {
+            vec2 mmBlurR = vec2(0.0028) * mmFarSoft;
+            vec3 mmBlurTex = (
+              texture2D(map, clamp(vMapUv + vec2(mmBlurR.x, 0.0), vec2(0.002), vec2(0.998))).rgb +
+              texture2D(map, clamp(vMapUv - vec2(mmBlurR.x, 0.0), vec2(0.002), vec2(0.998))).rgb +
+              texture2D(map, clamp(vMapUv + vec2(0.0, mmBlurR.y), vec2(0.002), vec2(0.998))).rgb +
+              texture2D(map, clamp(vMapUv - vec2(0.0, mmBlurR.y), vec2(0.002), vec2(0.998))).rgb
+            ) * 0.25;
+            diffuseColor.rgb = mix(diffuseColor.rgb, mmBlurTex * diffuse, 0.88 * mmFarSoft);
+          }
           vec2 mmUv = (vMmWorldXZ - sunMaskOrigin) / ${UV_REF_M.toFixed(1)};
           float dA = texture2D(detailMap, mmUv * 173.0).r;
           float dB = texture2D(detailMap, mmUv * 911.0).r;
@@ -1304,8 +1408,8 @@ export async function initHud3D(
           vec2 mmElevWarp = (vec2(dA - 0.5, dB - 0.5) * 0.0020 + vec2(sin(vMmElev * 0.42), cos(vMmElev * 0.42)) * 0.0010) * mmSlopeMix;
           vec2 mmWarpedUv = clamp(vMapUv + mmElevWarp / max(uMmUvScale, vec2(0.05)), vec2(0.002), vec2(0.998));
           vec3 mmAltTex = texture2D(map, mmWarpedUv).rgb;
-          diffuseColor.rgb = mix(diffuseColor.rgb, mmAltTex, 0.45 * mmSlopeMix);
-          float detailGain = mix(0.46, 0.62, max(uSuperDetail, uRealisticTex * 0.90));
+          diffuseColor.rgb = mix(diffuseColor.rgb, mmAltTex, 0.45 * mmSlopeMix * mmNearDetail);
+          float detailGain = mix(0.46, 0.62, max(uSuperDetail, uRealisticTex * 0.90)) * mmNearDetail;
           diffuseColor.rgb *= (1.0 - detailGain * 0.65) + detailGain * dA * 0.6 + detailGain * dB * 0.4;
           // Close-range ground detail: ripples / pebbles on dust, slabs + veins on rock patches + fine sub-meter grit.
           vec3 mmDust = texture2D(pbrDust, mmUv * mix(720.0, 1080.0, max(uSuperDetail, uRealisticTex))).rgb;
@@ -1317,11 +1421,12 @@ export async function initHud3D(
           float mmMicroLum = dot(mmMicro, vec3(0.299, 0.587, 0.114)) / 0.40;
           float mmRichLum = mix(mmLum, pow(clamp(mmLum, 0.18, 2.1), 1.38), uRealisticTex);
           float mmMineralGlint = uRealisticTex * smoothstep(0.92, 0.995, dB) * 0.18;
-          diffuseColor.rgb *= mix(1.0, clamp(mmRichLum, 0.22, 1.95), mix(0.82, 0.98, max(uSuperDetail, uRealisticTex)));
-          diffuseColor.rgb *= mix(1.0, clamp(mmMicroLum, 0.62, 1.42), 0.42);
-          diffuseColor.rgb += vec3(mmMineralGlint, mmMineralGlint * 0.72, mmMineralGlint * 0.48);
+          diffuseColor.rgb *= mix(1.0, clamp(mmRichLum, 0.22, 1.95), mix(0.82, 0.98, max(uSuperDetail, uRealisticTex)) * mmNearDetail);
+          diffuseColor.rgb *= mix(1.0, clamp(mmMicroLum, 0.62, 1.42), 0.42 * mmNearDetail);
+          diffuseColor.rgb += vec3(mmMineralGlint, mmMineralGlint * 0.72, mmMineralGlint * 0.48) * mmNearDetail;
         #endif`
-      );
+      )
+      .replace("#include <fog_fragment>", MARS_ATMO_HAZE_FRAG_APPLY);
   }
   terrainMat.onBeforeCompile = patchTerrainShader;
 
@@ -2512,50 +2617,12 @@ export async function initHud3D(
     const crewEl = document.getElementById("hud-crew");
     const summaryEl = document.getElementById("hud-crew-summary");
     if (crewEl) {
-      const cs = mp?.callsign || "AST-1";
-      const txt = `${cs} · 1.80 M · ${suitLabel}`;
+      const txt = `AST-1 · 1.80 M · ${suitLabel}`;
       if (crewEl.textContent !== txt) crewEl.textContent = txt;
     }
-    if (summaryEl) {
-      const gTxt = `MARS g ${surfaceG.toFixed(3)} M/S²`;
-      if (remoteAvatars.size > 0) {
-        summaryEl.textContent = `${gTxt} · CREW: ${1 + remoteAvatars.size} LIVE · ROOM ${mp?.room || "GALE-01"}`;
-      } else {
-        summaryEl.textContent = `${gTxt} · CREW: 2 (BUDDY EVA)`;
-      }
-    }
+    if (summaryEl) summaryEl.textContent = `MARS g ${surfaceG.toFixed(3)} M/S² · CREW: 2 (BUDDY EVA)`;
   }
-
-  if (mp) {
-    for (const p of mp.peers.values()) ensureRemoteAvatar(p);
-    rebuildPingBeacons(mp.pins || []);
-    mp.on("peerjoin", (peer) => ensureRemoteAvatar(peer));
-    mp.on("peerstate", (peer) => {
-      const entry = ensureRemoteAvatar(peer);
-      const st = peer.state || {};
-      const tx = Number.isFinite(st.x) ? st.x : Number.isFinite(st.lon) ? lonToX(st.lon) : entry.target.x;
-      const tz = Number.isFinite(st.z) ? st.z : Number.isFinite(st.lat) ? latToZ(st.lat) : entry.target.z;
-      const ty = Number.isFinite(st.y) ? st.y : sampleElevSceneY(tx, tz);
-      entry.target = {
-        x: tx,
-        y: ty,
-        z: tz,
-        yaw: Number.isFinite(st.yaw) ? st.yaw : entry.target.yaw,
-        airborne: Boolean(st.airborne),
-        speed: Number(st.speed) || 0,
-      };
-    });
-    mp.on("peerleave", (peer) => removeRemoteAvatar(peer.id));
-    mp.on("pins", (pins) => rebuildPingBeacons(pins));
-    mp.on("status", () => {
-      const liveIds = new Set(mp.peers.keys());
-      for (const pid of [...remoteAvatars.keys()]) {
-        if (!liveIds.has(pid)) removeRemoteAvatar(pid);
-      }
-      updateCrewHudSummary();
-    });
-    updateCrewHudSummary();
-  }
+  updateCrewHudSummary();
 
   // ---------- EVA floodlamp & optical visor pass (zero 3D helmet frame) ----------
   const evaLamp = new THREE.SpotLight(0xfff5e4, 0, 52, Math.PI * 0.25, 0.52, 1.25);
@@ -2886,17 +2953,19 @@ export async function initHud3D(
   const hasOpenModalOverlay = () =>
     Boolean(
       document.querySelector(
-        ".modal-backdrop.open, #npc-dialogue-modal.open, #crew-drawer.open, #esc-menu.open, #hud-transit-panel.open, #hud-fleet-panel.open"
+        ".modal-backdrop.open, #npc-dialogue-modal.open, #crew-drawer.open, #esc-menu.open, #hud-transit-panel.open, #hud-fleet-panel.open, #hud-task-panel.open"
       )
     );
 
   const raycaster = new THREE.Raycaster();
   const rayNdc = new THREE.Vector2();
   const pickHistoricGroups = [];
+  const pickScreenRoots = [];
   const lastMouseClient = { x: 0, y: 0, valid: false };
   let cachedCanvasRect = null;
   let hoveredRoverSpec = null;
   let hoveredNpcEntry = null;
+  let hoveredScreenTarget = null;
 
   function setRaycasterFromView(clientX = null, clientY = null) {
     if (isPointerLocked() || clientX == null || clientY == null) {
@@ -2964,6 +3033,61 @@ export async function initHud3D(
       return rId ? getHistoricRoverById(rId) : null;
     }
     return null;
+  }
+
+  function pickInteractiveScreen(clientX = null, clientY = null) {
+    if (freecamActive || drivingRover) return null;
+    pickScreenRoots.length = 0;
+    if (habitatStation.group.visible) {
+      const habScreens = habitatStation.getInteractiveGroup?.();
+      if (habScreens) pickScreenRoots.push(habScreens);
+    }
+    if (hardwareSite) {
+      if (hardwareSite.beacon) pickScreenRoots.push(hardwareSite.beacon);
+      if (hardwareSite.pad) pickScreenRoots.push(hardwareSite.pad);
+    }
+    if (pickScreenRoots.length === 0) return null;
+    if (!setRaycasterFromView(clientX, clientY)) return null;
+    const maxRayDist = thirdPersonWalk ? 9.5 : 6.5;
+    const hits = raycaster.intersectObjects(pickScreenRoots, true);
+    for (let i = 0; i < hits.length; i++) {
+      const hit = hits[i];
+      if (hit.distance > maxRayDist) break;
+      let obj = hit.object;
+      while (obj && !obj.userData?.screenTarget) obj = obj.parent;
+      const target = obj?.userData?.screenTarget;
+      if (!target) continue;
+      if (Math.hypot(hit.point.x - freePos.x, hit.point.z - freePos.z) > 6.2) continue;
+      if (
+        habitatStation.group.visible &&
+        habitatStation.clipCameraSegment(freePos.x, freePos.y + 1.5, freePos.z, hit.point.x, hit.point.y, hit.point.z, 0.01) < 0.96
+      ) {
+        continue;
+      }
+      return target;
+    }
+    return null;
+  }
+
+  function activateScreenTarget(target) {
+    if (!target) return false;
+    if (target.kind === "taskScreen" || (target.kind === "wallScreen" && target.spec)) {
+      taskUi.open(target.spec || null);
+      return true;
+    }
+    if (target.kind === "terminal") {
+      openTransitPanel();
+      return true;
+    }
+    if (target.kind === "hardwareInfo") {
+      openTransitPanel({ infoId: target.hwId || hardwareSite?.hw?.id || null });
+      return true;
+    }
+    if (target.kind === "returnPad") {
+      returnToHabitat();
+      return true;
+    }
+    return false;
   }
 
   function findNearestDrivableEntry(x, z, maxDistM = 5.2) {
@@ -3076,6 +3200,11 @@ export async function initHud3D(
         openNpcDialogueSafe(hitNpc);
         return;
       }
+      const hitScreen = pickInteractiveScreen(cx, cy);
+      if (hitScreen && activateScreenTarget(hitScreen)) {
+        e.preventDefault?.();
+        return;
+      }
       const directHit = pickHistoricRover(cx, cy);
       if (directHit) {
         e.preventDefault?.();
@@ -3169,16 +3298,6 @@ export async function initHud3D(
     },
     { passive: false }
   );
-  const dropLocalPing = (label = "Science Beacon") => {
-    if (!mp) return null;
-    const x = player.init ? player.x : lonToX(routeCoords[0]?.[0] ?? 137.39);
-    const z = player.init ? player.z : latToZ(routeCoords[0]?.[1] ?? -4.8);
-    const lon = xToLon(x);
-    const lat = zToLat(z);
-    const elev = activeElevBaseM() + sampleElevSceneY(x, z);
-    return mp.dropPing({ lon, lat, elevM: elev, label });
-  };
-
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener("blur", () => {
     keys.clear();
@@ -3192,7 +3311,6 @@ export async function initHud3D(
   const btnTex = document.getElementById("hud-tex");
   const btnFreeRoam = document.getElementById("hud-freeroam");
   const btnBack = document.getElementById("hud-back-planner");
-  const btnPing = document.getElementById("hud-ping");
   const btnPov = document.getElementById("hud-pov-btn");
   const btnGold = document.getElementById("hud-gold-btn");
   const btnLamp = document.getElementById("hud-lamp-btn");
@@ -3200,7 +3318,6 @@ export async function initHud3D(
   const optLampPill = document.getElementById("hud-opt-lamp");
   const optZoomPill = document.getElementById("hud-opt-zoom");
 
-  btnPing?.addEventListener("click", () => dropLocalPing("EVA Waypoint"));
   const openNextPov = () => {
     const stop = nextPovStop;
     const entry = povIndex?.stops?.find((s) => s.stop_id === stop?.properties?.id) || povIndex?.stops?.[0];
@@ -3497,27 +3614,37 @@ export async function initHud3D(
 
   onTeleport(({ lon, lat }) => {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    if (isTaskLocked()) {
+      showTaskLockNotice();
+      return;
+    }
     visitLocation(lon, lat, { keepYaw: false });
   });
 
   function renderHudFleetPanel() {
     if (!fleetPanelEl) return;
     const tr = isTrLang();
+    const locked = isTaskLocked();
+    const disAttr = locked ? "disabled title='Teleports locked while Task active'" : "";
     fleetPanelEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
       <span style="font-size:9.5px;letter-spacing:0.15em;color:var(--faint);text-transform:uppercase;">${
         tr ? "MARS ÜSSÜ & ROVER FİLOSU (7 ARAÇ)" : "MARS HABITAT & ROVER FLEET (7 VEHICLES)"
-      }</span>
+      }${locked ? " · 🔒 TASK" : ""}</span>
       <div style="display:flex;gap:4px;">
-        <button id="hud-fleet-habitat" class="btn primary" type="button" style="padding:2px 7px;font-size:9px;">${
+        <button id="hud-fleet-habitat" class="btn primary" type="button" ${disAttr} style="padding:2px 7px;font-size:9px;">${
           tr ? "Üs Garajı" : "Habitat Bay"
         }</button>
-        <button id="hud-fleet-rescatter" class="btn" type="button" style="padding:2px 7px;font-size:9px;">${
+        <button id="hud-fleet-rescatter" class="btn" type="button" ${disAttr} style="padding:2px 7px;font-size:9px;">${
           tr ? "Karıştır" : "Rescatter"
         }</button>
       </div>
     </div>`;
     fleetPanelEl.querySelector("#hud-fleet-habitat")?.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      if (isTaskLocked()) {
+        showTaskLockNotice();
+        return;
+      }
       fleetPanelEl.classList.remove("open");
       if (drivingRover) {
         drivingRover = false;
@@ -3537,6 +3664,10 @@ export async function initHud3D(
     });
     fleetPanelEl.querySelector("#hud-fleet-rescatter")?.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      if (isTaskLocked()) {
+        showTaskLockNotice();
+        return;
+      }
       reScatterHistoricRovers(freePos.x, freePos.z);
       renderHudFleetPanel();
       showWrapNotice(
@@ -3557,6 +3688,7 @@ export async function initHud3D(
       )} m`;
       const row = document.createElement("div");
       row.className = `hud-fleet-row ${drivingRover && activeDriveRover === rInstance ? "current" : ""}`;
+      const lockedRow = isTaskLocked() ? "disabled title='Teleports locked while Task active'" : "";
       row.innerHTML = `
         <div style="display:flex;align-items:center;gap:7px;min-width:0;">
           <span class="fleet-dot" style="background:${vSpec.badgeColor};"></span>
@@ -3568,16 +3700,20 @@ export async function initHud3D(
           </div>
         </div>
         <div style="display:flex;gap:5px;flex:none;">
-          <button class="btn" type="button" data-drv-go style="padding:3px 7px;font-size:9.5px;">${
+          <button class="btn" type="button" data-drv-go ${lockedRow} style="padding:3px 7px;font-size:9.5px;">${
             tr ? "Git" : "Locate"
           }</button>
-          <button class="btn primary" type="button" data-drv-drive style="padding:3px 7px;font-size:9.5px;">${
+          <button class="btn primary" type="button" data-drv-drive ${lockedRow} style="padding:3px 7px;font-size:9.5px;">${
             tr ? "Sür" : "Drive"
           }</button>
         </div>
       `;
       row.querySelector("[data-drv-go]")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        if (isTaskLocked()) {
+          showTaskLockNotice();
+          return;
+        }
         fleetPanelEl.classList.remove("open");
         if (drivingRover) {
           drivingRover = false;
@@ -3597,6 +3733,10 @@ export async function initHud3D(
       });
       row.querySelector("[data-drv-drive]")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        if (isTaskLocked()) {
+          showTaskLockNotice();
+          return;
+        }
         fleetPanelEl.classList.remove("open");
         rInstance.group.visible = true;
         activeDriveRover = rInstance;
@@ -3641,7 +3781,7 @@ export async function initHud3D(
         </div>
         <div style="display:flex;gap:5px;flex:none;">
           <button class="btn" type="button" data-hud-info style="padding:3px 7px;font-size:9.5px;">${tr ? "Bilgi" : "Info"}</button>
-          <button class="btn primary" type="button" data-hud-go style="padding:3px 7px;font-size:9.5px;">${
+          <button class="btn primary" type="button" data-hud-go ${isTaskLocked() ? "disabled title='Teleports locked while Task active'" : ""} style="padding:3px 7px;font-size:9.5px;">${
             tr ? "Yanına Git" : "Locate"
           }</button>
         </div>
@@ -3653,6 +3793,10 @@ export async function initHud3D(
       });
       row.querySelector("[data-hud-go]")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        if (isTaskLocked()) {
+          showTaskLockNotice();
+          return;
+        }
         fleetPanelEl.classList.remove("open");
         visitRoverSite(r.id, { approachRover: true, switchTerrain: false });
       });
@@ -3682,6 +3826,7 @@ export async function initHud3D(
     sky.material.uniforms.uSunElev.value = sunState.elevationRad;
     sky.material.uniforms.uSunCos.value = Math.cos(sunState.sunAngularRad * 0.5);
     for (const moon of [phobos, deimos]) moon.material.uniforms.uSunElev.value = sunState.elevationRad;
+    updateAtmosphericHazeUniforms(atmoUniforms, { sunElev: sunState.elevationRad });
     celestial.update(sunState);
     const up = sunUp(sunState.elevationRad);
     // Night: no direct sun, a faint sky/starlight floor so the ground stays readable.
@@ -3757,22 +3902,8 @@ export async function initHud3D(
     }
     galeStopsGroup.visible = gale;
     fieldKits.visible = gfx.sceneDetail && gale;
-    galeVista.visible = gfx.sceneDetail && gale;
-    const nextMain = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: gale });
-    const nextRingCopy = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: false });
-    const nextCopy = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
-    terrainMesh.geometry = nextMain;
-    for (const child of endless.children) {
-      if (child.isMesh) {
-        child.geometry = child === endless.userData.centre ? nextMain : child.userData.ring <= 1 ? nextRingCopy : nextCopy;
-      }
-    }
-    terrainGeom.dispose();
-    ringCopyGeom.dispose();
-    copyGeom.dispose();
-    terrainGeom = nextMain;
-    ringCopyGeom = nextRingCopy;
-    copyGeom = nextCopy;
+    galeVista.visible = gale && (gfx.sceneDetail || gfx.level !== "low");
+    rebuildMainTerrainGeometries(gale);
 
     if (gale) {
       terrainMat.map = TEX[texMode].tex;
@@ -3840,6 +3971,10 @@ export async function initHud3D(
    */
   function visitLocation(lon, lat, { keepYaw = true, sun = null, globeSample = null } = {}) {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    if (isTaskLocked()) {
+      showTaskLockNotice();
+      return false;
+    }
     if (sun === "local" || sun === "day") sunMode = sun;
     if (drivingRover) {
       drivingRover = false;
@@ -3882,6 +4017,10 @@ export async function initHud3D(
   }
 
   function visitRoverSite(roverId, { approachRover = true, switchTerrain = false } = {}) {
+    if (isTaskLocked()) {
+      showTaskLockNotice();
+      return false;
+    }
     const spec = getHistoricRoverById(roverId) || getHistoricRoverById("curiosity");
     if (!spec) return;
     if (switchTerrain && spec.id !== activeSiteId) {
@@ -3978,6 +4117,10 @@ export async function initHud3D(
   }
 
   function deployToHardwareSite(hwId, { bringRover = transitBringRover } = {}) {
+    if (isTaskLocked()) {
+      showTaskLockNotice();
+      return false;
+    }
     const hw = getSurfaceHardwareById(hwId);
     if (!hw) return false;
     closeTransitPanel();
@@ -4040,6 +4183,10 @@ export async function initHud3D(
   }
 
   function returnToHabitat() {
+    if (isTaskLocked()) {
+      showTaskLockNotice();
+      return false;
+    }
     closeTransitPanel();
     leaveRoverForTransit();
     if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
@@ -4058,6 +4205,10 @@ export async function initHud3D(
   }
 
   function visitHabitatStation() {
+    if (isTaskLocked()) {
+      showTaskLockNotice();
+      return false;
+    }
     closeTransitPanel();
     leaveRoverForTransit();
     if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
@@ -4093,6 +4244,14 @@ export async function initHud3D(
     const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
     const here = hardwareSite?.hw?.id || null;
     const info = infoId ? getSurfaceHardwareById(infoId) : null;
+    const taskLocked = isTaskLocked();
+    const lockNote = taskLocked
+      ? `<p class="tp-note" style="color:#fbbf24;">🔒 ${
+          tr
+            ? "Aktif bir Görev yürütülürken saha konuşlanma / ışınlanma kilitlidir. Önce görevi tamamlayın veya iptal edin."
+            : "Site deployment / teleportation is locked while an EVA Task is active. Locate the target rover or abort the task first."
+        }</p>`
+      : "";
     let body = "";
     if (info) {
       body = `<div class="tp-card">
@@ -4114,23 +4273,26 @@ export async function initHud3D(
             ? "Ölçekli prosedürel model. Arazi tohumlanmış prosedürel yükseltidir, haritalanmış topoğrafya değildir."
             : "Procedural scale model. The ground here is seeded procedural relief, not mapped topography."
         } <a href="${esc(info.nasaUrl)}" target="_blank" rel="noopener">NASA</a></p>
+        ${lockNote}
         <div class="tp-actions">
-          ${here ? `<button class="btn primary" data-act="return" type="button">${tr ? "Üsse dön [H]" : "Return to habitat [H]"}</button>` : ""}
+          ${here && !taskLocked ? `<button class="btn primary" data-act="return" type="button">${tr ? "Üsse dön [H]" : "Return to habitat [H]"}</button>` : ""}
           <button class="btn" data-act="list" type="button">${tr ? "Tüm sahalar" : "All sites"}</button>
+          <button class="btn" data-act="tasks" type="button">${tr ? "🛰️ EVA Görev Ayarla (Tasks)" : "🛰️ Plan EVA Task"}</button>
         </div>
       </div>`;
     } else {
       const rows = MARS_SURFACE_HARDWARE.map(
-        (h, i) => `<button class="tp-row${h.id === here ? " current" : ""}" data-hw="${h.id}" type="button">
+        (h, i) => `<button class="tp-row${h.id === here ? " current" : ""}" data-hw="${h.id}" type="button" ${taskLocked ? "disabled" : ""}>
           <span class="tp-key">${i + 1}</span>
           <span class="tp-main"><b>${esc(h.name)}</b><i>${esc(h.mission)} · ${esc(h.years)} · ${h.kind === "rover" ? (tr ? "gezgin" : "rover") : tr ? "iniş aracı" : "lander"}</i></span>
           <span class="tp-coord">${esc(formatHardwareLatLon(h))}<i>${esc(h.site)}</i></span>
           <span class="tp-dim">${esc(formatHardwareDims(h))}<i>${h.massKg.toLocaleString("en-US")} kg</i></span>
-          <span class="tp-go">${h.id === here ? (tr ? "BURADASIN" : "HERE") : tr ? "IŞINLA ▸" : "DEPLOY ▸"}</span>
+          <span class="tp-go">${taskLocked ? (tr ? "🔒 KİLİTLİ" : "🔒 LOCKED") : h.id === here ? (tr ? "BURADASIN" : "HERE") : tr ? "IŞINLA ▸" : "DEPLOY ▸"}</span>
         </button>`
       ).join("");
       const drv = activeDriveRover?.getActiveSpec?.();
       body = `<div class="tp-rows">${rows}</div>
+        ${lockNote}
         <label class="tp-check"><input type="checkbox" data-act="bring" ${transitBringRover ? "checked" : ""}/> ${
           tr ? "Aktif aracı da getir" : "Bring the active rover"
         }${drv ? ` (${esc(drv.shortLabel)})` : ""}</label>
@@ -4139,13 +4301,38 @@ export async function initHud3D(
             ? "Hazırlık pisti donanımdan 15 m uzaktadır. Koordinatlar yayımlanmış iniş noktalarıdır; saha arazisi prosedüreldir (haritalanmış topoğrafya değil)."
             : "Staging pad is 15 m from the hardware. Coordinates are the published landing sites; site terrain is procedural relief, not mapped topography."
         }</p>
-        ${here ? `<div class="tp-actions"><button class="btn primary" data-act="return" type="button">${tr ? "Üsse dön [H]" : "Return to habitat [H]"}</button></div>` : ""}`;
+        <div class="tp-actions">
+          ${here && !taskLocked ? `<button class="btn primary" data-act="return" type="button">${tr ? "Üsse dön [H]" : "Return to habitat [H]"}</button>` : ""}
+          <button class="btn" data-act="tasks" type="button">${tr ? "🛰️ EVA Görev Ayarla (Tasks)" : "🛰️ Plan EVA Task"}</button>
+        </div>`;
     }
     transitPanelEl.innerHTML = `<div class="tp-head">
         <span>${info ? (tr ? "SAHA BİLGİSİ" : "SITE INFO") : tr ? "NASA SAHA KONUŞLANMA SEÇİCİ" : "NASA SITE DEPLOYMENT SELECTOR"}</span>
         <button class="btn" data-act="close" type="button">${tr ? "Kapat [Esc]" : "Close [Esc]"}</button>
       </div>${body}`;
     transitPanelEl.classList.add("open");
+  }
+  function openWallScreenPanel(spec) {
+    if (!spec) return;
+    const tr = isTrLang();
+    releasePointerLock();
+    keys.clear();
+    const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    transitPanelEl.innerHTML = `<div class="tp-head">
+        <span>${esc(spec.title || "TELEMETRY")} · ${esc(spec.tag || "HABITAT")}</span>
+        <button class="btn" data-act="close" type="button">${tr ? "Kapat [Esc]" : "Close [Esc]"}</button>
+      </div>
+      <div class="tp-card">
+        <canvas id="hud-wallscreen-canvas" width="768" height="432" style="width:100%;height:auto;display:block;border:1px solid rgba(34,211,238,0.28);background:#02060e;"></canvas>
+        <p class="tp-note">${esc(spec.footer || "")}</p>
+        <div class="tp-actions">
+          <button class="btn primary" data-act="tasks" type="button">${tr ? "🛰️ EVA Görev Ayarla (Tasks)" : "🛰️ Plan EVA Task"}</button>
+        </div>
+      </div>`;
+    transitPanelEl.classList.add("open");
+    const cv = transitPanelEl.querySelector("#hud-wallscreen-canvas");
+    const ctx = cv?.getContext?.("2d");
+    if (ctx) drawTelemetryScreenOnCtx(ctx, 0, 0, 768, 432, spec, "#f472b6");
   }
   transitPanelEl.addEventListener("click", (ev) => {
     const row = ev.target.closest?.("[data-hw]");
@@ -4160,10 +4347,14 @@ export async function initHud3D(
     if (act === "close") closeTransitPanel();
     else if (act === "return") returnToHabitat();
     else if (act === "list") openTransitPanel();
+    else if (act === "tasks") {
+      closeTransitPanel();
+      taskUi.open(null);
+    }
     else if (act === "bring") transitBringRover = Boolean(ev.target.checked);
   });
 
-  /** What [E] would do here: "terminal", "return", "info" or null. */
+  /** Nearby screen/pad target: "terminal", "return", "info" or null. */
   function transitTargetNearby() {
     if (drivingRover) return null;
     if (hardwareSite) {
@@ -4176,17 +4367,11 @@ export async function initHud3D(
     if (habitatStation.group.visible) {
       const t = habitatStation.getTransitPoints().terminal;
       if (Math.hypot(freePos.x - t.x, freePos.z - t.z) < 3.0) return "terminal";
+      if (findNearbyTaskScreen()) return "taskScreen";
     }
     return null;
   }
-  function tryTransitInteract() {
-    const target = transitTargetNearby();
-    if (target === "terminal") openTransitPanel();
-    else if (target === "return") returnToHabitat();
-    else if (target === "info") openTransitPanel({ infoId: hardwareSite.hw.id });
-    return Boolean(target);
-  }
-  /** Per frame: spin the markers, keep the walker out of a lander, and show the [E] prompt once. */
+  /** Per frame: spin the markers, keep the walker out of a lander, and show the click prompt once. */
   function updateTransit(dt) {
     if (hardwareSite) {
       const s = hardwareSite;
@@ -4209,7 +4394,7 @@ export async function initHud3D(
         }
       }
     }
-    const target = transitPanelIsOpen() ? transitPrompt : transitTargetNearby() || "";
+    const target = transitPanelIsOpen() || taskUi?.isOpen?.() ? transitPrompt : transitTargetNearby() || "";
     if (target !== transitPrompt) {
       transitPrompt = target;
       const tr = isTrLang();
@@ -4217,11 +4402,341 @@ export async function initHud3D(
       if (target === "terminal") showWrapNotice(tr ? `TRANSİT TERMİNALİ · SAHA SEÇİCİ İÇİN [${ek}]` : `TRANSIT TERMINAL · PRESS [${ek}] FOR SITE SELECTOR`);
       else if (target === "return") showWrapNotice(tr ? `DÖNÜŞ FENERİ · ÜSSE DÖNMEK İÇİN [${ek}]` : `RETURN BEACON · PRESS [${ek}] TO RETURN TO HABITAT`);
       else if (target === "info") showWrapNotice(tr ? `${hardwareSite.hw.name.toUpperCase()} · BİLGİ İÇİN [${ek}]` : `${hardwareSite.hw.name.toUpperCase()} · PRESS [${ek}] FOR INFO`);
+      else if (target === "taskScreen") {
+        const nearScr = findNearbyTaskScreen();
+        const titlePrefix = nearScr?.spec?.title ? `${nearScr.spec.title} · ` : "";
+        showWrapNotice(
+          tr
+            ? `${titlePrefix}EVA TASKS · GÖREV & ROTA AYARLAMAK İÇİN [${ek}] / TIKLA`
+            : `${titlePrefix}EVA TASKS · PRESS [${ek}] OR CLICK TO PLAN TASK`
+        );
+      }
     }
   }
 
+  // ---------- Pink Corridor Tasks system (mission routing, 3D paths, minimap & teleport lock) ----------
+  const taskGuide3d = createTaskGuide3D(THREE, scene);
+  let activeTask = null;
+  let latestTaskProgress = null;
+  let taskLastChunkRebuildCount = 0;
+
+  function isTaskLocked() {
+    return isTeleportLockedForTask(activeTask);
+  }
+  function showTaskLockNotice() {
+    showWrapNotice(
+      isTrLang()
+        ? "GÖREV AKTİF · HEDEF BULUNANA VEYA İPTAL EDİLENE KADAR IŞINLANMA KİLİTLİ"
+        : "TASK ACTIVE · TELEPORTS LOCKED UNTIL TARGET ROVER LOCATED OR ABORTED"
+    );
+  }
+
+  function planTaskForRoverAndVehicle(roverId, vehicleId) {
+    const targetRover = getTaskTargetRover(roverId);
+    const veh = getTaskVehicleProfile(vehicleId);
+    const targetX = targetRover.isHiRiseGaleSite ? galeLonToX(targetRover.lon) : 0;
+    const targetZ = targetRover.isHiRiseGaleSite ? galeLatToZ(targetRover.lat) : 0;
+    const sampler = buildSiteElevationSampler(targetRover, { galeSampleY: sampleGaleGridSceneY });
+    const staging = selectHabitatStagingSpot({ targetX, targetZ, sampleElevY: sampler });
+    const startX = staging.habX + (veh.id === "nasa_concept" ? 6 : -6);
+    const startZ = staging.habZ + 43;
+    const bundle = generateVehicleRoutes({
+      sampleElevY: sampler,
+      startX,
+      startZ,
+      targetX,
+      targetZ,
+      habX: staging.habX,
+      habZ: staging.habZ,
+      vehicleId: veh.id,
+      cellSizeM: 16,
+    });
+    return { targetRover, vehicle: bundle.vehicle, targetX, targetZ, staging, startX, startZ, bundle, sampler };
+  }
+
+  function deployHabitatAtTaskPose(siteSpec, habX, habZ, targetRover, targetX, targetZ, { habDx, habDy, habDz, keepYaw, keepPitch }) {
+    if (drivingRover) {
+      drivingRover = false;
+      resetRoverMotionState();
+      chaseCamInit = false;
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = suitRig != null;
+    }
+    if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
+    clearHardwareSite();
+    if (activeSiteId !== siteSpec.id) {
+      switchSite(siteSpec);
+    }
+
+    habitatStation.group.visible = true;
+    npcManager.npcGroup.visible = true;
+    habitatStation.setBasePose(habX, habZ, rawSampleElevSceneY);
+    if (siteSpec.isHiRiseGaleSite) invalidateCorridorChunks();
+    rebuildMainTerrainGeometries(true);
+    procDetailKey = "";
+    covWasProcedural = false;
+
+    const newPlayerX = habX + habDx;
+    const newPlayerZ = habZ + habDz;
+    updateCorridorChunks(newPlayerX, newPlayerZ, 0);
+    refreshRtHeightfield();
+
+    for (const r of drivableRovers) r.group.visible = true;
+    stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
+    partnerPos.set(habX, 0, habZ + 38);
+
+    // Keep the 4 non-target historic rovers in the Habitat garage bays; deploy ONLY the target rover in the wild.
+    const placements = habitatStation.getBayPlacements().historicPlacements.map((p) =>
+      p.id === targetRover.id ? { ...p, x: targetX, z: targetZ, yaw: -0.35 } : p
+    );
+    historicRovers.spawnAllScattered(placements, {
+      sampleElevY: sampleRenderedSurfaceY,
+      focusId: targetRover.id,
+    });
+    historicRovers.setFocusId(targetRover.id);
+
+    // Pre-select player's chosen drivable rover in Bay 02 or Bay 04
+    activeDriveRover = getTaskVehicleProfile(activeTask?.vehicleId).id === "nasa_concept" ? roverConcept : roverMmsev;
+    if (drvVehEl) drvVehEl.textContent = activeDriveRover.getActiveSpec().shortLabel;
+
+    // Keep player seamlessly at the exact same spot inside the Pink Corridor
+    teleportToLocal(newPlayerX, newPlayerZ, { keepYaw: true });
+    autoYaw = 0;
+    userYaw = keepYaw;
+    pitch = keepPitch;
+    if (Number.isFinite(habDy)) {
+      phys.y = habitatStation.baseY + habDy;
+      freePos.y = phys.y;
+      syncPlayerFromPhys();
+    }
+    thirdCamInit = false;
+  }
+
+  function startTaskMission({ plan, selectedRoute }) {
+    if (!plan || !selectedRoute) return;
+    closeTransitPanel();
+    taskUi.closeDebrief();
+    const tr = isTrLang();
+    const habDx = freePos.x - habitatStation.baseX;
+    const habDy = phys.y - habitatStation.baseY;
+    const habDz = freePos.z - habitatStation.baseZ;
+    const keepYaw = userYaw;
+    const keepPitch = pitch;
+
+    activeTask = {
+      id: `${plan.targetRover.id}-${plan.vehicle.id}-${selectedRoute.id}-${Date.now()}`,
+      status: "active",
+      targetRoverId: plan.targetRover.id,
+      vehicleId: plan.vehicle.id,
+      selectedRouteId: selectedRoute.id,
+      selectedRoute,
+      bundle: plan.bundle,
+      habX: plan.staging.habX,
+      habZ: plan.staging.habZ,
+      targetX: plan.targetX,
+      targetZ: plan.targetZ,
+      startX: plan.startX,
+      startZ: plan.startZ,
+      startTimeSec: clockT,
+      peakSlopeDeg: 0,
+      travelledM: 0,
+      lastX: freePos.x,
+      lastZ: freePos.z,
+      wrongVehicleWarned: false,
+    };
+
+    deployHabitatAtTaskPose(
+      plan.targetRover,
+      plan.staging.habX,
+      plan.staging.habZ,
+      plan.targetRover,
+      plan.targetX,
+      plan.targetZ,
+      { habDx, habDy, habDz, keepYaw, keepPitch }
+    );
+    activeTask.lastX = freePos.x;
+    activeTask.lastZ = freePos.z;
+
+    const bays = habitatStation.getBayPlacements().drivablePlacements;
+    const pickedBay = bays.find((b) => b.vehicleType === plan.vehicle.id);
+    taskLastChunkRebuildCount = chunkMeshes.size;
+    taskGuide3d.build({
+      routes: plan.bundle.routes,
+      selectedRouteId: selectedRoute.id,
+      targetRover: plan.targetRover,
+      targetX: plan.targetX,
+      targetZ: plan.targetZ,
+      sampleY: sampleRenderedSurfaceY,
+      bayPosition: pickedBay ? { x: pickedBay.x, z: pickedBay.z } : null,
+    });
+
+    if (plan.targetRover.isHiRiseGaleSite && corridor) {
+      const midX = (plan.staging.habX + plan.targetX) * 0.5;
+      const midZ = (plan.staging.habZ + plan.targetZ) * 0.5;
+      corridor.warmup(midX, midZ, 900, 6000).then(() => {
+        if (activeTask?.status === "active" && activeTask.targetRoverId === "curiosity") {
+          taskGuide3d.rebuildHeights(sampleRenderedSurfaceY);
+        }
+      });
+    }
+
+    latestTaskProgress = computeTaskProgress({
+      routePoints: selectedRoute.points,
+      curX: freePos.x,
+      curZ: freePos.z,
+      targetX: plan.targetX,
+      targetZ: plan.targetZ,
+      arriveRadiusM: 13.5,
+    });
+    renderHudFleetPanel();
+    if (fleetBtnEl) fleetBtnEl.textContent = tr ? `Görev: ${plan.targetRover.name}` : `Task: ${plan.targetRover.name}`;
+    showWrapNotice(
+      tr
+        ? `GÖREV BAŞLADI: ${plan.targetRover.name.toUpperCase()} ARANIYOR · ${plan.vehicle.shortLabel} (BAY 0${plan.vehicle.id === "nasa_concept" ? 4 : 2}) VE IŞIKLI ROTAYI TAKİP ET`
+        : `TASK STARTED: FIND ${plan.targetRover.name.toUpperCase()} · HEAD TO ${plan.vehicle.shortLabel} (BAY 0${plan.vehicle.id === "nasa_concept" ? 4 : 2}) & FOLLOW ROUTE`
+    );
+  }
+
+  function abortTaskMission() {
+    if (!activeTask || activeTask.status !== "active") return;
+    const wasInHabitat = isInsideHabitat(freePos.x, freePos.z);
+    const habDx = freePos.x - habitatStation.baseX;
+    const habDy = phys.y - habitatStation.baseY;
+    const habDz = freePos.z - habitatStation.baseZ;
+    const keepYaw = userYaw;
+    const keepPitch = pitch;
+
+    activeTask.status = "aborted";
+    latestTaskProgress = null;
+    taskGuide3d.clear();
+    taskUi.closeDebrief();
+    taskUi.updateMinimap(null, null, null, 0);
+
+    if (drivingRover) {
+      drivingRover = false;
+      resetRoverMotionState();
+      chaseCamInit = false;
+      syncDrivingCameraVisualState(false);
+      if (self?.group) self.group.visible = suitRig != null;
+    }
+
+    const gale = getHistoricRoverById("curiosity");
+    if (activeSiteId !== gale.id) {
+      switchSite(gale);
+    } else {
+      clearHardwareSite();
+      habitatStation.group.visible = true;
+      npcManager.npcGroup.visible = true;
+      habitatStation.setBasePose(initRouteOriginX, initRouteOriginZ - ENTRY_OFFSET_Z, rawSampleElevSceneY);
+      invalidateCorridorChunks();
+      rebuildMainTerrainGeometries(true);
+      refreshRtHeightfield();
+      stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
+    }
+    if (wasInHabitat) {
+      teleportToLocal(habitatStation.baseX + habDx, habitatStation.baseZ + habDz, { keepYaw: true });
+      autoYaw = 0;
+      userYaw = keepYaw;
+      pitch = keepPitch;
+      if (Number.isFinite(habDy)) {
+        phys.y = habitatStation.baseY + habDy;
+        freePos.y = phys.y;
+        syncPlayerFromPhys();
+      }
+    } else {
+      const pt = habitatStation.getTransitPoints().arrival;
+      teleportToLocal(pt.x, pt.z, { keepYaw: true });
+      autoYaw = 0;
+      userYaw = pt.yaw;
+      pitch = -0.05;
+    }
+    if (fleetBtnEl) fleetBtnEl.textContent = "Rovers (7)";
+    renderHudFleetPanel();
+    showWrapNotice(
+      isTrLang() ? "GÖREV İPTAL EDİLDİ · IŞINLANMA KİLİDİ AÇILDI" : "TASK ABORTED · TELEPORT LOCK RELEASED"
+    );
+  }
+
+  const taskUi = createTaskUiController({
+    hudView,
+    visorOverlay: document.getElementById("visor-overlay") || document.querySelector(".visor-overlay"),
+    isTrLang,
+    planForRoverAndVehicle: planTaskForRoverAndVehicle,
+    getActiveTask: () => activeTask,
+    onStartTask: startTaskMission,
+    onAbortTask: abortTaskMission,
+    onReturnToCorridor: () => {
+      if (drivingRover) {
+        drivingRover = false;
+        resetRoverMotionState();
+        chaseCamInit = false;
+        syncDrivingCameraVisualState(false);
+        if (self?.group) self.group.visible = suitRig != null;
+      }
+      const pt = habitatStation.getTransitPoints().arrival;
+      teleportToLocal(pt.x, pt.z, { keepYaw: true });
+      autoYaw = 0;
+      userYaw = pt.yaw;
+      pitch = -0.05;
+      thirdCamInit = false;
+    },
+    onReleasePointerLock: releasePointerLock,
+  });
+
+  function findNearbyTaskScreen() {
+    if (!habitatStation.group.visible || drivingRover || freecamActive) return null;
+    const list = habitatStation.getTaskScreens?.() || [];
+    let best = null;
+    let bestD = Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const scr = list[i];
+      const d = Math.hypot(freePos.x - scr.x, freePos.z - scr.z);
+      if (d >= 3.05 || Math.abs(freePos.y - (scr.y - 1.5)) >= 2.8) continue;
+      // Offset into the room along screen normal so the mounting wall itself doesn't self-occlude.
+      const nx = Math.sin(scr.ry || 0);
+      const nz = Math.cos(scr.ry || 0);
+      if (
+        habitatStation.clipCameraSegment?.(
+          freePos.x,
+          freePos.y + 1.5,
+          freePos.z,
+          scr.x + nx * 0.25,
+          scr.y,
+          scr.z + nz * 0.25,
+          0.01
+        ) < 0.96
+      ) {
+        continue;
+      }
+      if (d < bestD) {
+        bestD = d;
+        best = scr;
+      }
+    }
+    return best;
+  }
+
+  function tryTaskScreenInteract() {
+    const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
+    const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
+    const hit = pickInteractiveScreen(aimX, aimY);
+    if (hit?.kind === "taskScreen" || hit?.kind === "wallScreen") {
+      taskUi.open(hit.spec || null);
+      return true;
+    }
+    const near = !findNearestDrivableEntry(freePos.x, freePos.z, 5.2) ? findNearbyTaskScreen() : null;
+    if (near) {
+      taskUi.open(near.spec || null);
+      return true;
+    }
+    return false;
+  }
+
   onVisitRoverSite((detail) => {
-    if (detail?.roverId) visitRoverSite(detail.roverId, { approachRover: true, switchTerrain: true });
+    if (detail?.roverId) {
+      if (isTaskLocked()) showTaskLockNotice();
+      else visitRoverSite(detail.roverId, { approachRover: true, switchTerrain: true });
+    }
   });
   if (fleetBtnEl) fleetBtnEl.textContent = `Rovers (7)`;
   renderHudFleetPanel();
@@ -4312,18 +4827,25 @@ export async function initHud3D(
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
     const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
-    const crewOpen = document.getElementById("crew-drawer")?.classList.contains("open");
     const escMenuOpen = document.getElementById("esc-menu")?.classList.contains("open");
     const menuOpen = !document.getElementById("start-screen")?.classList.contains("hidden");
-    if (modalOpen || crewOpen || escMenuOpen || menuOpen || npcDialogueUi.isOpen()) return;
+    if (modalOpen || escMenuOpen || menuOpen || npcDialogueUi.isOpen()) return;
 
     const k = e.key.toLowerCase();
+    if (taskUi.handleKeyDown(e)) return;
     if (transitPanelIsOpen()) {
       e.preventDefault();
-      if (e.key === "Escape" || k === "e") closeTransitPanel();
+      if (e.key === "Escape") closeTransitPanel();
       else if (k === "h" && hardwareSite) returnToHabitat();
-      else if (/^[1-8]$/.test(k) && transitPanelEl.querySelector("[data-hw]")) deployToHardwareSite(MARS_SURFACE_HARDWARE[Number(k) - 1].id);
+      else if (/^[1-8]$/.test(k) && transitPanelEl.querySelector("[data-hw]") && !isTaskLocked()) {
+        deployToHardwareSite(MARS_SURFACE_HARDWARE[Number(k) - 1].id);
+      }
       if (e.key === "Escape") e.stopImmediatePropagation?.();
+      return;
+    }
+    if (k === "n" && !e.repeat && isTaskLocked()) {
+      e.preventDefault();
+      taskUi.toggleMinimapZoom();
       return;
     }
     if (k === "h" && !e.repeat) {
@@ -4454,7 +4976,7 @@ export async function initHud3D(
         return;
       }
 
-      if (tryTransitInteract()) return;
+      if (tryTaskScreenInteract()) return;
 
       const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
       const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
@@ -4464,9 +4986,12 @@ export async function initHud3D(
         return;
       }
 
+      // a Tasks wall screen in reach: E / Y opens the mission terminal (screens also take clicks)
+      if (tryTaskScreenInteract()) return;
+
       // standing next to a historic rover: E (or Y) drives it; from further away E still opens its card
       const histEntry = nearestHistoricEntry(freePos.x, freePos.z);
-      if (histEntry && !findNearestDrivableEntry(freePos.x, freePos.z, 5.8)) {
+      if (histEntry && !drivableHit) {
         preHistoricRover = activeDriveRover?.isHistoricAdapter ? preHistoricRover : activeDriveRover;
         activeDriveRover = makeHistoricDriveAdapter(histEntry);
         const hs = activeDriveRover.getActiveSpec();
@@ -4487,25 +5012,6 @@ export async function initHud3D(
             : `${hs.shortLabel} · TELEOPERATED DRIVE (THE REAL ROVER IS FAR SLOWER) · ${gamepad.usingPad ? "RT/LT · L-STICK" : "W/S · A/D"} · ${kh("E", "interact")} EXIT`
         );
         return;
-      }
-
-      const targetRover = hoveredRoverSpec || pickHistoricRover(aimX, aimY);
-      if (targetRover) {
-        openRoverInfoSafe(targetRover, { toggleKey: "e" });
-        return;
-      }
-
-      const drivableHit = findNearestDrivableEntry(freePos.x, freePos.z, 5.8);
-      const nearNpcHit = findNearbyTalkNpc();
-      const nearNpc = nearNpcHit?.npc || null;
-      if (nearNpc) {
-        const npcDist = Number.isFinite(nearNpcHit.distance)
-          ? nearNpcHit.distance
-          : Math.hypot(freePos.x - nearNpc.x, freePos.z - nearNpc.z);
-        if (!drivableHit || npcDist <= drivableHit.dist) {
-          openNpcDialogueSafe(nearNpc);
-          return;
-        }
       }
 
       const nearestDrivable = drivableHit?.rover || null;
@@ -4536,27 +5042,10 @@ export async function initHud3D(
         );
         return;
       }
-
-      let nearRover = null;
-      let bestRoverDist = MAX_ROVER_INTERACT_DIST_M;
-      for (const entry of historicRovers.getAllEntries()) {
-        if (!entry?.group || !entry?.spec) continue;
-        const dH = Math.hypot(freePos.x - entry.group.position.x, freePos.z - entry.group.position.z);
-        if (dH < bestRoverDist) {
-          bestRoverDist = dH;
-          nearRover = entry.spec;
-        }
-      }
-      if (nearRover) {
-        openRoverInfoSafe(nearRover, { toggleKey: "e" });
-      }
       return;
     }
 
     keys.add(k);
-    if (k === "p") {
-      dropLocalPing("EVA Waypoint");
-    }
     if (k === " " && drivingRover) {
       e.preventDefault();
     }
@@ -4709,16 +5198,35 @@ export async function initHud3D(
       if (el && el.textContent !== txt) el.textContent = txt;
     };
 
-    if (onRoute) {
+    if (isTaskLocked() && latestTaskProgress) {
+      const tr = isTrLang();
+      const tgtR = getTaskTargetRover(activeTask.targetRoverId);
+      setText("hud-dist", `${latestTaskProgress.directDistM.toFixed(0)} m`);
+      setText(
+        "hud-dist-sub",
+        tr
+          ? `rota kalan ${latestTaskProgress.remainingRouteM.toFixed(0)} m · sapma ${latestTaskProgress.offRouteM.toFixed(0)} m`
+          : `route left ${latestTaskProgress.remainingRouteM.toFixed(0)} m · off-rt ${latestTaskProgress.offRouteM.toFixed(0)} m`
+      );
+      setText("hud-next-stop", `${tr ? "HEDEF" : "FIND"} ${tgtR.name.toUpperCase()}`);
+      setText(
+        "hud-next-kind",
+        `${tr ? activeTask.selectedRoute.nameTr : activeTask.selectedRoute.nameEn} · ${activeTask.selectedRoute.suitabilityPct}%`
+      );
+    } else if (onRoute) {
       setText("hud-dist", `${sM.toFixed(1)} m`);
       const stopDistLabel = nextMode === "leg" ? "next stop" : "nearest stop";
       setText(
         "hud-dist-sub",
         `remaining ${rem.toFixed(1)} m · ${stopDistLabel} ${nextStopDist < Infinity ? nextStopDist.toFixed(0) + " m" : "—"}`
       );
+      setText("hud-next-stop", nextStop?.properties?.name || "—");
+      setText("hud-next-kind", nextStop?.properties?.kind || "—");
     } else {
       setText("hud-dist", "OFF-ROUTE");
       setText("hud-dist-sub", `EVA route is at Gale · here: ${activeSiteRover.siteShortName}`);
+      setText("hud-next-stop", "—");
+      setText("hud-next-kind", "no science stops at this site");
     }
     setText("hud-slope", `${Number(slopeDeg).toFixed(1)}°`);
     const badge = document.getElementById("hud-slope-badge");
@@ -4726,8 +5234,6 @@ export async function initHud3D(
       badge.textContent = slopeClass.id;
       badge.className = `slope-badge slope-${slopeClass.id}`;
     }
-    setText("hud-next-stop", nextStop?.properties?.name || "—");
-    setText("hud-next-kind", nextStop?.properties?.kind || (onRoute ? "—" : "no science stops at this site"));
 
     if (clockEl) {
       const t = Math.floor(sM / WALK_SPEED_MS);
@@ -4962,7 +5468,7 @@ export async function initHud3D(
     hemiLight.intensity = (wantSuper ? 0.28 : 0.22) * (0.32 + 0.68 * upNow);
     renderer.toneMappingExposure = (wantSuper ? 1.06 : 1.0) * (1 + 0.55 * (1 - upNow));
     rockField.group.visible = gfx.sceneDetail;
-    galeVista.visible = gfx.sceneDetail && isGaleSite();
+    galeVista.visible = isGaleSite() && (gfx.sceneDetail || gfx.level !== "low");
     fieldKits.visible = gfx.sceneDetail && isGaleSite();
     const tau = MARS_DUST_TAU;
     sky.material.uniforms.uTau.value = tau;
@@ -4971,6 +5477,7 @@ export async function initHud3D(
       moon.material.uniforms.uTau.value = tau;
       moon.material.uniforms.uSunElev.value = sunState.elevationRad;
     }
+    updateAtmosphericHazeUniforms(atmoUniforms, { sunElev: sunState.elevationRad, tau: MARS_DUST_TAU });
     scene.fog.density = 0.00042 * (0.55 + tau * 0.85);
     const alertCount = alerts?.alerts?.length ?? 0;
     lensMat.uniforms.uRay.value = alertCount > 0 ? 0.0018 : 0.00035;
@@ -5092,7 +5599,6 @@ export async function initHud3D(
   let svfLastX = NaN;
   let svfLastZ = NaN;
   let cachedSvf = 0.75;
-  const remotePoseScratch = { lx: 0, ly: 0, lz: 0, rx: 0, ry: 0, rz: 0, lean: 0.08 };
   const activeBeamDir = new THREE.Vector3();
 
   // scratch objects for the loop: nothing below allocates per frame
@@ -5268,9 +5774,6 @@ export async function initHud3D(
           rig.sync();
         };
         if (partner && partner.group.visible) pushOut(partner.group.position.x, partner.group.position.z, PARTNER_COLLISION_R + 0.08, partner.group.position.y);
-        for (const remote of remoteAvatars.values()) {
-          pushOut(remote.group.position.x, remote.group.position.z, PARTNER_COLLISION_R + 0.08, remote.group.position.y);
-        }
         for (const otherDrv of drivableRovers) {
           if (otherDrv === activeDriveRover || !otherDrv.group.visible) continue;
           pushOut(otherDrv.group.position.x, otherDrv.group.position.z, otherDrv.radius * 0.72, otherDrv.group.position.y);
@@ -5597,7 +6100,6 @@ export async function initHud3D(
           }
         }
       }
-      for (const remote of remoteAvatars.values()) pushApart(remote.group.position);
       const histCol = historicRovers.resolveCollision(
         freePos.x,
         freePos.z,
@@ -5952,31 +6454,7 @@ export async function initHud3D(
       npcManager.npcGroup.visible = habitatStation.group.visible;
     }
 
-    // Smoothly animate live multiplayer crewmates
-    const lerpAlpha = Math.min(1, dt * 12);
-    for (const remote of remoteAvatars.values()) {
-      const prevRx = remote.cur.x;
-      const prevRz = remote.cur.z;
-      remote.cur.x += (remote.target.x - remote.cur.x) * lerpAlpha;
-      remote.cur.y += (remote.target.y - remote.cur.y) * lerpAlpha;
-      remote.cur.z += (remote.target.z - remote.cur.z) * lerpAlpha;
-      remote.cur.yaw = lerpAngleRad(remote.cur.yaw, remote.target.yaw, lerpAlpha);
-      const rStep = Math.hypot(remote.cur.x - prevRx, remote.cur.z - prevRz);
-      const rSpeed = dt > 0 ? Math.max(rStep / dt, remote.target.speed * 0.5) : 0;
-      remote.group.position.set(remote.cur.x, remote.cur.y, remote.cur.z);
-      remote.group.rotation.y = remote.cur.yaw;
-      const remoteFeet = footSample(remote.cur.x, remote.cur.z, remote.cur.yaw, remote.cur.y);
-      remotePoseScratch.lx = remoteFeet.lx;
-      remotePoseScratch.ly = remoteFeet.ly;
-      remotePoseScratch.lz = remoteFeet.lz;
-      remotePoseScratch.rx = remoteFeet.rx;
-      remotePoseScratch.ry = remoteFeet.ry;
-      remotePoseScratch.rz = remoteFeet.rz;
-      remotePoseScratch.lean = 0.08;
-      remote.avatar.update(dt, rStep < 20 ? rStep : 0, rStep < 20 ? rSpeed : 0, remote.target.airborne, null, remotePoseScratch);
-    }
-
-    // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
+    // Throttled report of local position/yaw/mode to the app (orbit view needs it)
     const curLon = xToLon(px);
     const curLat = zToLat(pz);
     const movedOrTurned =
@@ -6000,7 +6478,6 @@ export async function initHud3D(
         freeRoam,
         alongM: Number(alongM.toFixed(1)),
       };
-      mp?.sendState(posePayload);
       onLocalPose?.(posePayload);
     }
     updateContactShadows();
@@ -6014,6 +6491,13 @@ export async function initHud3D(
       const tw = Math.max(0, Math.min(1, (sunState.elevationRad + 0.32) / 0.44));
       scene.fog.color.copy(HORIZON).multiplyScalar(0.025 + 0.975 * tw * tw * (3 - 2 * tw));
     }
+    updateAtmosphericHazeUniforms(atmoUniforms, {
+      sunElev: sunState.elevationRad,
+      tau: MARS_DUST_TAU,
+      fogDensity: scene.fog ? scene.fog.density : 0.00042,
+      baseY: isGaleSite() ? 0.0 : Math.min(0.0, camera.position.y - 25.0),
+      time: clockT,
+    });
 
     // sun, moons and shadow box follow the walker (or freecam)
     const texel = (2 * shadowHalfM) / shadowMapPx;
@@ -6099,6 +6583,37 @@ export async function initHud3D(
       } else {
         updateHudReadouts(alongM, sample.lon, sample.lat);
       }
+      if (typeof window !== "undefined" && window.MartianAudio?.update) {
+        let nearestRoverDistM = 40;
+        if (drivingRover) {
+          nearestRoverDistM = 0;
+        } else {
+          for (const drv of drivableRovers) {
+            if (!drv?.group?.visible) continue;
+            nearestRoverDistM = Math.min(
+              nearestRoverDistM,
+              Math.hypot(drv.group.position.x - px, drv.group.position.z - pz)
+            );
+          }
+          for (const hEntry of historicRovers.getAllEntries()) {
+            const hp = hEntry?.group?.position;
+            if (!hp || !hEntry.group.visible) continue;
+            nearestRoverDistM = Math.min(nearestRoverDistM, Math.hypot(hp.x - px, hp.z - pz));
+          }
+        }
+        const roverSimState = drivingRover ? activeDriveRover?.sim?.state : null;
+        window.MartianAudio.update({
+          speedKmh: roverSimState ? Math.abs(roverSimState.vLong) * 3.6 : 0,
+          walkSpeedMs: drivingRover ? 0 : groundSpeed,
+          slopeDeg: freeRoam ? phys.slopeDeg : 0,
+          isDriving: Boolean(drivingRover),
+          isThirdPerson: Boolean(thirdPersonWalk || drivingRover || freecamActive),
+          inHabitat: Boolean(isInsideHabitat(px, pz)),
+          motorLoad: roverSimState ? Math.min(1, (roverSimState.motorRpm || 0) / 4000) : 0,
+          nearestRoverDistM,
+          viewMode: isHudActive() ? "hud" : "orbit",
+        });
+      }
       if (optZoom > 1) {
         const readout = (zoomReadoutEl ||= document.getElementById("hud-zoom-readout"));
         camera.getWorldDirection(lookDir);
@@ -6119,15 +6634,18 @@ export async function initHud3D(
       if (!uiBlocked) {
         const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
         const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
-        const hitNpc = pickTargetNpc(aimX, aimY);
-        const nearNpcHit = hitNpc ? null : findNearbyTalkNpc();
-        const nearNpc = nearNpcHit?.npc || null;
-        const activeTargetNpc = hitNpc || nearNpc;
-        const hitSpec = activeTargetNpc ? null : pickHistoricRover(aimX, aimY);
-        if (activeTargetNpc !== hoveredNpcEntry || hitSpec !== hoveredRoverSpec) {
+        const activeTargetNpc = pickTargetNpc(aimX, aimY);
+        const hitScreen = activeTargetNpc ? null : pickInteractiveScreen(aimX, aimY);
+        const hitSpec = activeTargetNpc || hitScreen ? null : pickHistoricRover(aimX, aimY);
+        if (activeTargetNpc !== hoveredNpcEntry || hitScreen !== hoveredScreenTarget || hitSpec !== hoveredRoverSpec) {
           hoveredNpcEntry = activeTargetNpc;
+          hoveredScreenTarget = hitScreen;
           hoveredRoverSpec = hitSpec;
-          reticleEl?.classList.toggle("target-rover", Boolean(activeTargetNpc || hitSpec));
+          const anyHover = Boolean(activeTargetNpc || hitScreen || hitSpec);
+          reticleEl?.classList.toggle("target-rover", anyHover);
+          if (renderer?.domElement) {
+            renderer.domElement.style.cursor = anyHover && !isPointerLocked() ? "pointer" : "";
+          }
           if (roverTargetEl) {
             const tr = isTrLang();
             if (activeTargetNpc) {
@@ -6136,6 +6654,27 @@ export async function initHud3D(
               roverTargetEl.textContent = `${s.name.toUpperCase()}${roleText ? ` (${roleText})` : ""} · ${
                 tr ? `KONUŞ [${kh("E", "interact")}] / TIKLA` : `TALK [${kh("E", "interact")}] / CLICK`
               }`;
+              roverTargetEl.classList.add("visible");
+            } else if (hitScreen) {
+              if (hitScreen.kind === "taskScreen") {
+                roverTargetEl.textContent = tr
+                  ? "EVA TASKS · GÖREV & ROTA PLANLAYICI [E / TIKLA]"
+                  : "EVA TASKS · ROVER MISSION ROUTER [E / CLICK]";
+              } else if (hitScreen.kind === "terminal") {
+                roverTargetEl.textContent = tr
+                  ? "TRANSİT TERMİNALİ · SAHA & TASKS İÇİN TIKLA"
+                  : "TRANSIT TERMINAL · CLICK FOR SITES & TASKS";
+              } else if (hitScreen.kind === "wallScreen") {
+                roverTargetEl.textContent = `${hitScreen.spec?.title || "SCREEN"} · ${
+                  tr ? "EVA TASKS / TELEMETRİ [E / TIKLA]" : "EVA TASKS / TELEMETRY [E / CLICK]"
+                }`;
+              } else if (hitScreen.kind === "hardwareInfo") {
+                roverTargetEl.textContent = `${hardwareSite?.hw?.name?.toUpperCase() || "INFO"} · ${
+                  tr ? "BİLGİ İÇİN TIKLA" : "CLICK FOR INFO"
+                }`;
+              } else {
+                roverTargetEl.textContent = tr ? "ÜSSE DÖN · TIKLA" : "RETURN TO HABITAT · CLICK";
+              }
               roverTargetEl.classList.add("visible");
             } else if (hitSpec) {
               roverTargetEl.textContent = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
@@ -6147,11 +6686,13 @@ export async function initHud3D(
             }
           }
         }
-      } else if (hoveredNpcEntry || hoveredRoverSpec) {
+      } else if (hoveredNpcEntry || hoveredScreenTarget || hoveredRoverSpec) {
         hoveredNpcEntry = null;
+        hoveredScreenTarget = null;
         hoveredRoverSpec = null;
         reticleEl?.classList.remove("target-rover");
         roverTargetEl?.classList.remove("visible");
+        if (renderer?.domElement) renderer.domElement.style.cursor = "";
       }
     }
     curvAnchor.value.set(camera.position.x, camera.position.z);
@@ -6187,11 +6728,75 @@ export async function initHud3D(
       evaLamp.intensity = 0;
     }
 
+    if (activeTask?.status === "active" && !landing.active) {
+      const stepD = Math.hypot(px - activeTask.lastX, pz - activeTask.lastZ);
+      if (stepD < 180) activeTask.travelledM += stepD;
+      activeTask.lastX = px;
+      activeTask.lastZ = pz;
+      const curSlope = drivingRover ? computeLocalSlopeDeg(px, pz) : phys.slopeDeg;
+      if (Number.isFinite(curSlope)) activeTask.peakSlopeDeg = Math.max(activeTask.peakSlopeDeg, curSlope);
+
+      latestTaskProgress = computeTaskProgress({
+        routePoints: activeTask.selectedRoute.points,
+        curX: px,
+        curZ: pz,
+        targetX: activeTask.targetX,
+        targetZ: activeTask.targetZ,
+        arriveRadiusM: 13.5,
+      });
+
+      const chosenRover = activeTask.vehicleId === "nasa_concept" ? roverConcept : roverMmsev;
+      taskGuide3d.update(dt, clockT, px, pz, chosenRover.group.position.x, chosenRover.group.position.z);
+      if (isGaleSite() && chunkMeshes.size !== taskLastChunkRebuildCount) {
+        taskLastChunkRebuildCount = chunkMeshes.size;
+        taskGuide3d.rebuildHeights(sampleRenderedSurfaceY);
+      }
+
+      if (drivingRover && !activeTask.wrongVehicleWarned && activeDriveRover?.getActiveSpec?.()?.id !== activeTask.vehicleId) {
+        activeTask.wrongVehicleWarned = true;
+        const expected = getTaskVehicleProfile(activeTask.vehicleId).shortLabel;
+        showWrapNotice(
+          isTrLang()
+            ? `NOT: SEÇİLİ GÖREV ARACI ${expected} — ROTALAR BU ARACA GÖRE HESAPLANDI`
+            : `NOTE: TASK PLANNED FOR ${expected} — ROUTE SCORES REFLECT THAT VEHICLE`
+        );
+      }
+
+      if (latestTaskProgress.targetArrived) {
+        activeTask.status = "completed";
+        const tgtR = getTaskTargetRover(activeTask.targetRoverId);
+        const completionSummary = {
+          targetRoverId: activeTask.targetRoverId,
+          vehicleId: activeTask.vehicleId,
+          selectedRoute: activeTask.selectedRoute,
+          elapsedSec: Math.max(1, clockT - activeTask.startTimeSec),
+          travelledM: activeTask.travelledM,
+          peakSlopeDeg: activeTask.peakSlopeDeg,
+        };
+        taskGuide3d.clear();
+        taskUi.updateMinimap(null, null, null, now);
+        if (fleetBtnEl) fleetBtnEl.textContent = isGaleSite() ? `Rovers: ${tgtR.name} (7)` : `Site: ${tgtR.name}`;
+        renderHudFleetPanel();
+        showWrapNotice(
+          isTrLang()
+            ? `HEDEF ROVER BULUNDU: ${tgtR.name.toUpperCase()} · IŞINLANMA KİLİDİ AÇILDI`
+            : `TARGET ROVER LOCATED: ${tgtR.name.toUpperCase()} · TELEPORTS UNLOCKED`
+        );
+        taskUi.showDebrief(completionSummary);
+      } else {
+        taskUi.updateMinimap(activeTask, latestTaskProgress, { x: px, z: pz, yawRad: yaw }, now);
+      }
+    } else {
+      taskUi.updateMinimap(null, null, null, now);
+    }
+
     const headingDeg = (((-yaw * 180) / Math.PI) % 360 + 360) % 360;
     const pitchDeg = (pitch * 180) / Math.PI;
     const stopCoord = nextPovStop?.geometry?.coordinates;
     const stopBearingDeg =
-      Array.isArray(stopCoord) && stopCoord.length >= 2 && Number.isFinite(curLon) && Number.isFinite(curLat)
+      isTaskLocked() && latestTaskProgress
+        ? latestTaskProgress.bearingToNextDeg
+        : Array.isArray(stopCoord) && stopCoord.length >= 2 && Number.isFinite(curLon) && Number.isFinite(curLat)
         ? marsBearingDeg([curLon, curLat], stopCoord)
         : NaN;
     const sunBearingDeg = (((Math.atan2(sunDir.x, -sunDir.z) * 180) / Math.PI) % 360 + 360) % 360;
@@ -6282,13 +6887,19 @@ export async function initHud3D(
     onResize: () => {
       onResize();
     },
-    dropLocalPing,
     visitRoverSite,
     deployToHardwareSite,
     returnToHabitat,
     visitHabitatStation,
     getActiveSiteId: () => activeSiteId,
+    isTaskActive: isTaskLocked,
+    showTaskLockNotice,
+    abortTask: abortTaskMission,
     syncAlongM: (s) => {
+      if (isTaskLocked()) {
+        showTaskLockNotice();
+        return;
+      }
       // Crew route sync: move this walker onto the shared route position (the route is at Gale).
       const target = Math.max(0, Math.min(totalDist, Number(s) || 0));
       if (routeCoords.length < 2) return;

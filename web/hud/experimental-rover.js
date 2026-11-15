@@ -16,6 +16,7 @@
 import { mergeRigidParts, mergeStaticMeshes } from "./merge-static.js";
 import { resolveObbCollisionRapier, stepBallisticVertPhysics } from "../physics/MarsPhysicsWorld.js";
 import { stepAdvancedRoverPhysics as stepUnifiedAdvancedRoverPhysics } from "../physics/VehicleDynamics.js";
+import { buildConceptHollowWheels, buildNasaConceptRoverVisuals } from "./concept-rover-model.js";
 
 export const MARS_GRAVITY_MS2 = 3.71;
 export const ROVER_FLIGHT_G = 9.4;
@@ -35,24 +36,27 @@ export const DRIVABLE_VEHICLES = Object.freeze([
     topSpeedMs: 18.5,
     boostSpeedMs: 25.5,
     reverseSpeedMs: 9.0,
-    accelGain: 8.6,
-    brakeGain: 15.5,
-    steerRate: 1.78,
-    gripBase: 13.5,
-    driftGrip: 4.6,
+    roverMaxKmh: 38.6,
+    roverBoostKmh: 45.6,
+    roverReverseKmh: 14,
+    accelGain: 9.2,
+    brakeGain: 21.0,
+    steerRate: 1.85,
+    gripBase: 20.0,
+    driftGrip: 7.4,
     massKg: 1850,
     weightN: 1850 * MARS_GRAVITY_MS2,
-    powerW: 14000 * 1.75, // 24,500 W (24.5 kW, 1.75x)
-    boostPowerW: 19000 * 1.75, // 33,250 W (33.25 kW, 1.75x)
-    powerKw: (14000 * 1.75) / 1000,
-    boostPowerKw: (19000 * 1.75) / 1000,
-    hp: (14000 * 1.75) / 745.699872,
-    boostHp: (19000 * 1.75) / 745.699872,
+    powerW: 14000 * 2.25, // 31,500 W (31.5 kW, 2.25x)
+    boostPowerW: 19000 * 2.25, // 42,750 W (42.75 kW, 2.25x)
+    powerKw: (14000 * 2.25) / 1000,
+    boostPowerKw: (19000 * 2.25) / 1000,
+    hp: (14000 * 2.25) / 745.699872,
+    boostHp: (19000 * 2.25) / 745.699872,
     wheelTorqueMaxNm: 1173 * 2.25, // 2,639.25 N·m (2.25x)
-    motorTorqueMaxNm: 74.1 * 2.25, // 166.725 N·m (2.25x)
-    gearRatio: 18,
-    suspStiff: 40.0,
-    suspDamp: 7.6,
+    motorTorqueMaxNm: (1173 * 2.25) / (11.2 * 0.88), // ~267.8 N·m matched to 45 km/h gearing
+    gearRatio: 11.2,
+    suspStiff: 52.0,
+    suspDamp: 11.0,
     wheelRadius: 0.345,
     trackHalfW: 1.339,
     halfW: 1.66,
@@ -75,24 +79,27 @@ export const DRIVABLE_VEHICLES = Object.freeze([
     topSpeedMs: 22.0,
     boostSpeedMs: 31.0,
     reverseSpeedMs: 11.0,
-    accelGain: 9.8,
-    brakeGain: 16.5,
-    steerRate: 1.9,
-    gripBase: 14.5,
-    driftGrip: 5.0,
+    roverMaxKmh: 50.6,
+    roverBoostKmh: 60.6,
+    roverReverseKmh: 18,
+    accelGain: 10.6,
+    brakeGain: 22.5,
+    steerRate: 2.0,
+    gripBase: 22.0,
+    driftGrip: 8.0,
     massKg: 2250,
     weightN: 2250 * MARS_GRAVITY_MS2,
-    powerW: 20200 * 1.75, // 35,350 W (35.35 kW, 1.75x)
-    boostPowerW: 27400 * 1.75, // 47,950 W (47.95 kW, 1.75x)
-    powerKw: (20200 * 1.75) / 1000,
-    boostPowerKw: (27400 * 1.75) / 1000,
-    hp: (20200 * 1.75) / 745.699872,
-    boostHp: (27400 * 1.75) / 745.699872,
+    powerW: 20200 * 2.25, // 45,450 W (45.45 kW, 2.25x)
+    boostPowerW: 27400 * 2.25, // 61,650 W (61.65 kW, 2.25x)
+    powerKw: (20200 * 2.25) / 1000,
+    boostPowerKw: (27400 * 2.25) / 1000,
+    hp: (20200 * 2.25) / 745.699872,
+    boostHp: (27400 * 2.25) / 745.699872,
     wheelTorqueMaxNm: 2150 * 2.25, // 4,837.5 N·m (2.25x)
-    motorTorqueMaxNm: 135.7 * 2.25, // 305.325 N·m (2.25x)
-    gearRatio: 18,
-    suspStiff: 44.0,
-    suspDamp: 8.2,
+    motorTorqueMaxNm: (2150 * 2.25) / (12.6 * 0.88), // ~436.3 N·m matched to 60 km/h gearing
+    gearRatio: 12.6,
+    suspStiff: 56.0,
+    suspDamp: 11.8,
     wheelRadius: 0.52,
     trackHalfW: 1.48,
     halfW: 1.82,
@@ -546,552 +553,6 @@ function buildProceduralMmsevVisuals(THREE) {
   return { procGroup };
 }
 
-function makeConceptHexTireTexture(THREE) {
-  if (typeof document === "undefined") return null;
-  const c = document.createElement("canvas");
-  c.width = 512;
-  c.height = 512;
-  const g = c.getContext("2d");
-
-  g.fillStyle = "#14161a";
-  g.fillRect(0, 0, 512, 512);
-
-  // Diagonal tread block ribs
-  g.fillStyle = "#1d2026";
-  for (let y = 0; y < 512; y += 32) {
-    g.fillRect(0, y, 512, 26);
-    g.fillStyle = "#0a0b0e";
-    g.fillRect(0, y + 26, 512, 6);
-    g.fillStyle = "#1d2026";
-  }
-
-  // Central dual honeycomb hex tread pattern (matches NASA Mars Rover Concept tires)
-  const hexR = 11;
-  g.strokeStyle = "#3a404a";
-  g.lineWidth = 2;
-  for (let row = 0; row < 28; row++) {
-    const cy = row * 19 + ((row & 1) * 9);
-    for (const bandCx of [185, 220, 256, 292, 327]) {
-      const cx = bandCx + ((row & 1) ? 10 : -10);
-      g.beginPath();
-      for (let k = 0; k < 6; k++) {
-        const a = (k / 6) * Math.PI * 2;
-        const px = cx + Math.cos(a) * hexR;
-        const py = cy + Math.sin(a) * (hexR * 0.85);
-        if (k === 0) g.moveTo(px, py);
-        else g.lineTo(px, py);
-      }
-      g.closePath();
-      g.fillStyle = "#22262e";
-      g.fill();
-      g.stroke();
-    }
-  }
-
-  // Silver shoulder chevrons along outer/inner edges
-  g.fillStyle = "#c8ced6";
-  for (let y = 10; y < 512; y += 32) {
-    for (const sx of [26, 486]) {
-      g.beginPath();
-      g.moveTo(sx - 9, y);
-      g.lineTo(sx + 9, y + 6);
-      g.lineTo(sx - 9, y + 12);
-      g.closePath();
-      g.fill();
-    }
-  }
-
-  // Light Mars dust accumulation in recessed grooves
-  g.fillStyle = "rgba(156, 88, 56, 0.24)";
-  for (let y = 26; y < 512; y += 32) {
-    g.fillRect(14, y, 484, 5);
-  }
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1, 2);
-  return tex;
-}
-
-function makeConceptNasaBadgeTexture(THREE) {
-  if (typeof document === "undefined") return null;
-  const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 256;
-  const g = c.getContext("2d");
-
-  g.fillStyle = "#171a20";
-  g.fillRect(0, 0, 256, 256);
-
-  // Dark metallic circle + NASA meatball
-  g.fillStyle = "#0b3d91";
-  g.beginPath();
-  g.arc(128, 128, 92, 0, Math.PI * 2);
-  g.fill();
-
-  g.strokeStyle = "#cbd5e1";
-  g.lineWidth = 6;
-  g.beginPath();
-  g.arc(128, 128, 94, 0, Math.PI * 2);
-  g.stroke();
-
-  // White orbit swoosh
-  g.strokeStyle = "#f8fafc";
-  g.lineWidth = 5;
-  g.beginPath();
-  g.ellipse(128, 128, 108, 34, -0.35, 0, Math.PI * 2);
-  g.stroke();
-
-  // Red vector chevron
-  g.strokeStyle = "#fc3d21";
-  g.lineWidth = 10;
-  g.beginPath();
-  g.moveTo(58, 174);
-  g.lineTo(132, 62);
-  g.lineTo(192, 162);
-  g.stroke();
-
-  g.fillStyle = "#ffffff";
-  g.font = "bold 46px sans-serif";
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  g.fillText("NASA", 128, 132);
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeConceptCabSideTexture(THREE) {
-  if (typeof document === "undefined") return null;
-  const c = document.createElement("canvas");
-  c.width = 512;
-  c.height = 256;
-  const g = c.getContext("2d");
-
-  // Brushed gunmetal-silver cab flank
-  const grad = g.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, "#b4bbc4");
-  grad.addColorStop(0.55, "#8b939e");
-  grad.addColorStop(1, "#2a2e35");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 512, 256);
-
-  // Panel seams
-  g.strokeStyle = "#20242a";
-  g.lineWidth = 4;
-  g.strokeRect(8, 8, 496, 240);
-  g.beginPath();
-  g.moveTo(310, 12);
-  g.lineTo(310, 244);
-  g.stroke();
-
-  // Monochrome US Flag plate (matches Parker Bros / NASA Concept Rover photo)
-  const fx = 115;
-  const fy = 68;
-  const fw = 128;
-  const fh = 76;
-  g.fillStyle = "#f1f5f9";
-  g.fillRect(fx, fy, fw, fh);
-  g.fillStyle = "#475569";
-  for (let s = 0; s < 13; s += 2) {
-    g.fillRect(fx, fy + s * (fh / 13), fw, fh / 13);
-  }
-  g.fillStyle = "#334155";
-  g.fillRect(fx, fy, fw * 0.44, fh * 0.54);
-  g.fillStyle = "#ffffff";
-  for (let sy = 0; sy < 4; sy++) {
-    for (let sx = 0; sx < 5; sx++) {
-      g.fillRect(fx + 5 + sx * 10, fy + 5 + sy * 9, 3, 3);
-    }
-  }
-  g.strokeStyle = "#1e293b";
-  g.lineWidth = 3;
-  g.strokeRect(fx, fy, fw, fh);
-
-  // 2x3 six-cell silver-framed intake louver box on rear cab flank
-  const vx = 332;
-  const vy = 72;
-  const vw = 152;
-  const vh = 88;
-  g.fillStyle = "#111317";
-  g.fillRect(vx, vy, vw, vh);
-  g.strokeStyle = "#e2e8f0";
-  g.lineWidth = 4;
-  g.strokeRect(vx, vy, vw, vh);
-  const cellW = vw / 3;
-  const cellH = vh / 2;
-  for (let c0 = 0; c0 < 3; c0++) {
-    for (let r0 = 0; r0 < 2; r0++) {
-      g.strokeRect(vx + c0 * cellW + 3, vy + r0 * cellH + 3, cellW - 6, cellH - 6);
-      g.fillStyle = "#090b0f";
-      g.fillRect(vx + c0 * cellW + 6, vy + r0 * cellH + 6, cellW - 12, cellH - 12);
-    }
-  }
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeConceptLabSideTexture(THREE) {
-  if (typeof document === "undefined") return null;
-  const c = document.createElement("canvas");
-  c.width = 512;
-  c.height = 256;
-  const g = c.getContext("2d");
-
-  g.fillStyle = "#3d424b";
-  g.fillRect(0, 0, 512, 256);
-
-  // Upper metallic fairing strip
-  g.fillStyle = "#8a929e";
-  g.fillRect(0, 0, 512, 92);
-
-  // Framed honeycomb hex ventilation grille
-  const gx = 32;
-  const gy = 18;
-  const gw = 176;
-  const gh = 86;
-  g.fillStyle = "#171a20";
-  g.fillRect(gx, gy, gw, gh);
-  g.strokeStyle = "#d1d5db";
-  g.lineWidth = 5;
-  g.strokeRect(gx, gy, gw, gh);
-  g.fillStyle = "#07090c";
-  for (let hy = gy + 12; hy < gy + gh - 8; hy += 14) {
-    for (let hx = gx + 12; hx < gx + gw - 8; hx += 16) {
-      g.beginPath();
-      g.arc(hx + ((hy / 14) & 1) * 7, hy, 5, 0, Math.PI * 2);
-      g.fill();
-    }
-  }
-
-  // NASA Meatball medallion in center
-  g.fillStyle = "#ffffff";
-  g.beginPath();
-  g.arc(278, 128, 46, 0, Math.PI * 2);
-  g.fill();
-  g.strokeStyle = "#1e293b";
-  g.lineWidth = 4;
-  g.stroke();
-  g.fillStyle = "#0b3d91";
-  g.beginPath();
-  g.arc(278, 128, 38, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = "#ffffff";
-  g.font = "bold 20px sans-serif";
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  g.fillText("NASA", 278, 128);
-
-  // 3-slot side utility rail detail
-  g.fillStyle = "#cbd5e1";
-  g.fillRect(344, 152, 148, 36);
-  g.fillStyle = "#111827";
-  g.fillRect(352, 164, 38, 12);
-  g.fillRect(399, 164, 38, 12);
-  g.fillRect(446, 164, 38, 12);
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeConceptSolarTexture(THREE) {
-  if (typeof document === "undefined") return null;
-  const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 256;
-  const g = c.getContext("2d");
-  g.fillStyle = "#0e1c36";
-  g.fillRect(0, 0, 256, 256);
-  g.strokeStyle = "#64748b";
-  g.lineWidth = 3;
-  for (let x = 0; x <= 256; x += 32) {
-    g.beginPath();
-    g.moveTo(x, 0);
-    g.lineTo(x, 256);
-    g.stroke();
-  }
-  for (let y = 0; y <= 256; y += 32) {
-    g.beginPath();
-    g.moveTo(0, y);
-    g.lineTo(256, y);
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function buildConceptHollowWheels(THREE, axleLayout, trackHalfW, radius) {
-  const wheelGroup = new THREE.Group();
-  const tireTex = makeConceptHexTireTexture(THREE);
-
-  const tireMat = new THREE.MeshStandardMaterial({
-    map: tireTex,
-    color: 0xffffff,
-    roughness: 0.82,
-    metalness: 0.24,
-    side: THREE.DoubleSide,
-  });
-  const innerDrumMat = new THREE.MeshStandardMaterial({
-    color: 0x181b21,
-    roughness: 0.65,
-    metalness: 0.55,
-    side: THREE.DoubleSide,
-  });
-  const slatMat = new THREE.MeshStandardMaterial({
-    color: 0x262b33,
-    roughness: 0.52,
-    metalness: 0.68,
-  });
-  const silverRimMat = new THREE.MeshStandardMaterial({
-    color: 0xd0d6de,
-    roughness: 0.28,
-    metalness: 0.88,
-  });
-  const strutDarkMat = new THREE.MeshStandardMaterial({
-    color: 0x20242c,
-    roughness: 0.52,
-    metalness: 0.72,
-  });
-  const shockBlueMat = new THREE.MeshStandardMaterial({
-    color: 0x2563eb,
-    roughness: 0.34,
-    metalness: 0.6,
-  });
-
-  const tireW = 0.58;
-  // Open-ended outer barrel so you look straight through the wheel center
-  const outerBarrelGeom = new THREE.CylinderGeometry(radius, radius, tireW, 28, 1, true);
-  outerBarrelGeom.rotateZ(Math.PI / 2);
-
-  const innerBarrelGeom = new THREE.CylinderGeometry(radius * 0.72, radius * 0.72, tireW * 0.94, 24, 1, true);
-  innerBarrelGeom.rotateZ(Math.PI / 2);
-
-  const rimRingGeom = new THREE.TorusGeometry(radius * 0.75, 0.036, 10, 28);
-  rimRingGeom.rotateY(Math.PI / 2);
-
-  const slatGeom = new THREE.BoxGeometry(tireW * 0.9, radius * 0.24, 0.045);
-  const lugGeom = new THREE.BoxGeometry(0.03, 0.036, 0.042);
-  const swingArmGeom = new THREE.BoxGeometry(0.11, 0.14, 0.68);
-  const shockGeom = new THREE.CylinderGeometry(0.048, 0.048, 0.52, 10);
-
-  const wheels = [];
-  const frontSteerKnuckles = [];
-  const rearSteerKnuckles = [];
-  const pods = [];
-
-  for (const ax of axleLayout) {
-    for (const side of [-1, 1]) {
-      const podRoot = new THREE.Group();
-      podRoot.position.set(side * trackHalfW, radius, ax.z);
-      wheelGroup.add(podRoot);
-
-      const knuckle = new THREE.Group();
-      podRoot.add(knuckle);
-
-      // Inner chassis swing-arm & anodized blue shock (keeps wheel center open/hollow)
-      const arm = new THREE.Mesh(swingArmGeom, strutDarkMat);
-      arm.position.set(-side * 0.42, 0.12, ax.role === "rear" ? -0.18 : 0.18);
-      arm.rotation.z = side * -0.18;
-      arm.castShadow = true;
-      knuckle.add(arm);
-
-      const shock = new THREE.Mesh(shockGeom, shockBlueMat);
-      shock.position.set(-side * 0.36, 0.34, 0);
-      shock.rotation.z = side * 0.26;
-      shock.castShadow = true;
-      knuckle.add(shock);
-
-      const spinner = new THREE.Group();
-      knuckle.add(spinner);
-
-      const outerBarrel = new THREE.Mesh(outerBarrelGeom, tireMat);
-      outerBarrel.castShadow = true;
-      outerBarrel.receiveShadow = true;
-      spinner.add(outerBarrel);
-
-      const innerBarrel = new THREE.Mesh(innerBarrelGeom, innerDrumMat);
-      innerBarrel.castShadow = true;
-      innerBarrel.receiveShadow = true;
-      spinner.add(innerBarrel);
-
-      // Notched brushed-silver beadlock rings on outer & inner faces of the hollow drum
-      for (const faceSign of [-1, 1]) {
-        const ring = new THREE.Mesh(rimRingGeom, silverRimMat);
-        ring.position.x = faceSign * (tireW * 0.47);
-        ring.castShadow = true;
-        spinner.add(ring);
-
-        for (let b = 0; b < 18; b++) {
-          const ang = (b / 18) * Math.PI * 2;
-          const lug = new THREE.Mesh(lugGeom, silverRimMat);
-          lug.position.set(
-            faceSign * (tireW * 0.48),
-            Math.sin(ang) * (radius * 0.78),
-            Math.cos(ang) * (radius * 0.78)
-          );
-          lug.rotation.x = ang;
-          spinner.add(lug);
-        }
-      }
-
-      // 12 internal structural radial paddles around the hollow interior
-      for (let s = 0; s < 12; s++) {
-        const ang = (s / 12) * Math.PI * 2;
-        const slat = new THREE.Mesh(slatGeom, slatMat);
-        slat.position.set(0, Math.sin(ang) * (radius * 0.85), Math.cos(ang) * (radius * 0.85));
-        slat.rotation.x = -ang;
-        spinner.add(slat);
-      }
-      mergeStaticMeshes(THREE, spinner, { castShadow: true, receiveShadow: true });
-
-      wheels.push(spinner);
-      pods.push({
-        podRoot,
-        knuckle,
-        spinner,
-        lx: side * trackHalfW,
-        lz: ax.z,
-        baseY: radius,
-        role: ax.role,
-        smoothPodY: 0,
-      });
-      if (ax.role === "front") frontSteerKnuckles.push(knuckle);
-      else if (ax.role === "rear") rearSteerKnuckles.push(knuckle);
-    }
-  }
-
-  return { wheelGroup, wheels, frontSteerKnuckles, rearSteerKnuckles, pods };
-}
-
-function buildNasaConceptRoverVisuals(THREE) {
-  const procGroup = new THREE.Group();
-
-  const carbonMat = new THREE.MeshStandardMaterial({ color: 0x16191f, roughness: 0.7, metalness: 0.48 });
-  const gunmetalMat = new THREE.MeshStandardMaterial({ color: 0x2c323b, roughness: 0.46, metalness: 0.74 });
-  const silverArmorMat = new THREE.MeshStandardMaterial({ color: 0x9aa3af, roughness: 0.32, metalness: 0.78 });
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x38bdf8,
-    roughness: 0.1,
-    metalness: 0.55,
-    emissive: 0x0c4a6e,
-    emissiveIntensity: 0.48,
-    transparent: true,
-    opacity: 0.88,
-  });
-  const blueLedMat = new THREE.MeshStandardMaterial({
-    color: 0x38bdf8,
-    emissive: 0x0ea5e9,
-    emissiveIntensity: 2.2,
-    roughness: 0.2,
-  });
-  const whiteTankMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.34, metalness: 0.25 });
-  const nasaBadgeMat = new THREE.MeshStandardMaterial({
-    map: makeConceptNasaBadgeTexture(THREE),
-    color: 0xffffff,
-    roughness: 0.38,
-    metalness: 0.35,
-  });
-  const cabSideMat = new THREE.MeshStandardMaterial({
-    map: makeConceptCabSideTexture(THREE),
-    color: 0xffffff,
-    roughness: 0.36,
-    metalness: 0.65,
-  });
-  const labSideMat = new THREE.MeshStandardMaterial({
-    map: makeConceptLabSideTexture(THREE),
-    color: 0xffffff,
-    roughness: 0.42,
-    metalness: 0.62,
-  });
-  const solarMat = new THREE.MeshStandardMaterial({
-    map: makeConceptSolarTexture(THREE),
-    color: 0xffffff,
-    roughness: 0.22,
-    metalness: 0.45,
-  });
-
-  const addM = (geom, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
-    const m = new THREE.Mesh(geom, mat);
-    m.position.set(x, y, z);
-    m.rotation.set(rx, ry, rz);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    procGroup.add(m);
-    return m;
-  };
-
-  // Continuous low matte carbon belly chassis & frame rails
-  addM(new THREE.BoxGeometry(2.15, 0.28, 5.75), carbonMat, 0, 0.68, -0.05);
-  addM(new THREE.BoxGeometry(2.38, 0.48, 3.05), carbonMat, 0, 1.04, -1.32);
-
-  // Signature recessed trapezoidal lower front chin viewport + nose lip
-  addM(new THREE.BoxGeometry(1.88, 0.14, 0.46), carbonMat, 0, 1.12, -2.92);
-  addM(new THREE.BoxGeometry(1.76, 0.12, 0.34), carbonMat, 0, 0.62, -2.84);
-  addM(new THREE.BoxGeometry(1.62, 0.42, 0.08), glassMat, 0, 0.87, -2.82, 0.26, 0, 0);
-
-  // Aggressive forward-sloping nose hood + NASA badge
-  addM(new THREE.BoxGeometry(2.08, 0.24, 0.82), carbonMat, 0, 1.24, -2.58, -0.22, 0, 0);
-  addM(new THREE.BoxGeometry(0.46, 0.04, 0.46), nasaBadgeMat, 0, 1.36, -2.56, -0.22, 0, 0);
-
-  // Raked dual-pane cyan cockpit windshield (slopes up-back from nose to roof) + center mullion + wipers
-  addM(new THREE.BoxGeometry(1.94, 0.08, 1.48), glassMat, 0, 1.76, -1.66, -0.56, 0, 0);
-  addM(new THREE.BoxGeometry(0.11, 0.12, 1.5), carbonMat, 0, 1.77, -1.66, -0.56, 0, 0);
-  for (const wx of [-0.48, 0.48]) {
-    addM(new THREE.BoxGeometry(0.56, 0.03, 0.04), silverArmorMat, wx, 1.38, -2.26, -0.12, wx > 0 ? -0.2 : 0.2, 0);
-  }
-
-  // Faceted brushed-silver upper cab shell, roofline & A-pillar shoulders
-  addM(new THREE.BoxGeometry(2.14, 0.22, 1.42), gunmetalMat, 0, 2.24, -0.58, -0.06, 0, 0);
-  addM(new THREE.BoxGeometry(2.34, 0.34, 1.62), silverArmorMat, 0, 2.04, -0.45);
-  for (const sx of [-1.06, 1.06]) {
-    // Swept cab fender beam sloping cleanly forward-down from roof waist to nose bumper
-    addM(new THREE.BoxGeometry(0.24, 0.22, 2.15), silverArmorMat, sx, 1.56, -1.56, -0.46, 0, 0);
-    // Side cockpit glass & upper roof quarter window
-    addM(new THREE.BoxGeometry(0.06, 0.42, 1.15), glassMat, sx * 0.96, 1.76, -1.08, -0.2, 0, 0);
-    // Textured cab armor side flank (US flag + 6-cell louver)
-    addM(new THREE.PlaneGeometry(1.95, 0.88), cabSideMat, sx * 1.07, 1.54, -0.46, 0, sx < 0 ? -Math.PI / 2 : Math.PI / 2, 0);
-  }
-
-  // Twin roof brow air intakes with blue glowing LED accents
-  for (const ix of [-0.54, 0.54]) {
-    addM(new THREE.BoxGeometry(0.68, 0.2, 0.62), gunmetalMat, ix, 2.32, -1.16, -0.14, 0, 0);
-    addM(new THREE.BoxGeometry(0.54, 0.08, 0.06), blueLedMat, ix, 2.29, -1.46);
-  }
-
-  // Articulated waist bellows connecting front cab & detached rear science lab
-  for (let r = 0; r < 4; r++) {
-    addM(new THREE.BoxGeometry(2.04, 1.34, 0.11), carbonMat, 0, 1.56, 0.12 + r * 0.14);
-  }
-
-  // Rear detached science laboratory module (hex mesh, NASA emblem, solar roof, pressure tank)
-  addM(new THREE.BoxGeometry(2.42, 1.28, 2.18), gunmetalMat, 0, 1.62, 1.68);
-  addM(new THREE.BoxGeometry(2.14, 0.32, 1.98), silverArmorMat, 0, 2.34, 1.66);
-  addM(new THREE.BoxGeometry(1.22, 0.22, 0.72), glassMat, 0, 2.58, 1.42);
-  for (const sx of [-1, 1]) {
-    // Textured lab flanks
-    addM(new THREE.PlaneGeometry(2.12, 1.18), labSideMat, sx * 1.22, 1.62, 1.68, 0, sx < 0 ? -Math.PI / 2 : Math.PI / 2, 0);
-    // White shoulder oxygen/nitrogen pressure tank
-    addM(new THREE.CylinderGeometry(0.11, 0.11, 1.05, 12), whiteTankMat, sx * 1.12, 2.18, 1.32, 0.92, 0, 0);
-    // 2 angled photovoltaic solar panels per roof slope
-    addM(new THREE.BoxGeometry(0.76, 0.05, 0.88), solarMat, sx * 0.84, 2.28, 1.18, 0, 0, sx * -0.44);
-    addM(new THREE.BoxGeometry(0.76, 0.05, 0.88), solarMat, sx * 0.84, 2.28, 2.16, 0, 0, sx * -0.44);
-    // Protruding 3-slot side utility rail bumper
-    addM(new THREE.BoxGeometry(0.18, 0.24, 1.22), gunmetalMat, sx * 1.26, 1.32, 2.12);
-  }
-  // Stern bumper, rear airlock door & hex cutout step
-  addM(new THREE.BoxGeometry(2.2, 0.42, 0.38), carbonMat, 0, 1.16, 2.86);
-  addM(new THREE.BoxGeometry(0.92, 1.04, 0.08), silverArmorMat, 0, 1.68, 2.78);
-
-  return { procGroup };
-}
-
 export function createExperimentalRover(THREE, initialVehicleType = "mmsev", { withLights = true } = {}) {
   const group = new THREE.Group();
   const bodyRoot = new THREE.Group();
@@ -1205,7 +666,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev", { w
     conceptContainer.visible = isConcept;
 
     const lampY = isConcept ? 1.18 : 0.9;
-    const lampZ = isConcept ? -2.96 : -2.02;
+    const lampZ = isConcept ? -3.10 : -2.02;
     for (const lamp of headLamps) {
       lamp.position.y = lampY;
       lamp.position.z = lampZ;

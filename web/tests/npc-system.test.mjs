@@ -289,3 +289,30 @@ test("NPC Q&A interaction is blocked beyond close-range walking distance", () =>
   assert.ok(distMatch && Number(distMatch[1]) <= 6, "NPC_TALK_MAX_DIST_M must enforce close-range interaction");
   assert.doesNotMatch(hudSrc, /npcManager\.pickNpc\(raycaster,\s*38\)/);
 });
+
+test("NPC nameplate is compact name-only, and E / Y interacts with crew, rovers and screens (clicks work too)", () => {
+  const scene = new THREE.Scene();
+  const mgr = createNpcManager(THREE, scene, { sampleElevY: () => 0 });
+  for (const npc of mgr.getAllNpcs()) {
+    const sp = npc.nameplate?.sprite;
+    assert.ok(sp, `Missing nameplate sprite for ${npc.id}`);
+    assert.ok(sp.scale.x <= 1.6 && sp.scale.y <= 0.35, `Expected compact name-only sprite for ${npc.id}`);
+    assert.equal(sp.userData.npcId, npc.id);
+  }
+
+  const npcSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "npc-system.js"), "utf8");
+
+  const hudSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "hud3d.js"), "utf8");
+  const eBlockMatch = hudSrc.match(/if \(k === "e" && !e\.repeat\) \{[\s\S]*?\r?\n    \}\r?\n\r?\n    keys\.add\(k\);/);
+  assert.ok(eBlockMatch, "Expected k === 'e' handler block in hud3d.js");
+  const eBlock = eBlockMatch[0];
+  // agreed controls: E (keyboard) / Y (controller) interacts with vehicles AND people, and with screens
+  assert.match(eBlock, /openNpcDialogueSafe/, "E / Y talks to crew");
+  assert.match(eBlock, /tryTaskScreenInteract/, "E / Y opens Tasks screens");
+  assert.match(hudSrc, /pickInteractiveScreen\(cx, cy\)/, "pointerdown must pick interactive screens");
+  assert.match(hudSrc, /activateScreenTarget\(hitScreen\)/, "pointerdown must activate clicked screens");
+
+  const habSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "mars-habitat.js"), "utf8");
+  assert.match(habSrc, /getInteractiveGroup:\s*\(\)\s*=>\s*interactiveGroup/);
+  assert.match(habSrc, /\[E\] \/ CLICK SITE SELECTOR/);
+});

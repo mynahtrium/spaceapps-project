@@ -214,6 +214,15 @@ const SCREEN_SPECS = Object.freeze([
     lines: ["1  SUIT + PLSS CHECK", "2  INNER DOOR SEALED", "3  PUMP DOWN TO ~6 mbar (MARS)", "4  OUTER DOOR OPENS"],
     footer: "Mars surface ~6 mbar (NASA) · cycle steps illustrative",
   },
+  {
+    id: "tasks",
+    title: "EVA TASKS · ROTA",
+    tag: "[E] MISSION ROUTER",
+    kind: "tasks",
+    interactive: true,
+    accent: "#22d3ee",
+    footer: "Slope limits: NASA lunar ConOps stand-ins · ETA & energy illustrative",
+  },
 ]);
 
 // ---------------------------------------------------------------------------------------------
@@ -317,6 +326,10 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
   const hangarDoors = [];
   const airlockDoors = [];
   const beaconBeams = [];
+  const interactiveGroup = new THREE.Group();
+  interactiveGroup.name = "habitatInteractiveTargets";
+  group.add(interactiveGroup);
+  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   let holo = null;
   let craneBridge = null;
   let craneTrolley = null;
@@ -455,14 +468,16 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     opacity: decalAtlas.texture ? 1 : 0,
   });
 
+  const taskScreens = [];
   const screenRects = new Map();
   function allocScreenRect(idx) {
     const key = idx % SCREEN_SPECS.length;
     if (!screenRects.has(key)) {
       const spec = SCREEN_SPECS[key];
+      const accentHex = spec.accent || "#e6e9ee";
       screenRects.set(
         key,
-        screenAtlas.alloc(512, 288, (g, ox, oy, w, h) => drawTelemetryScreenOnCtx(g, ox, oy, w, h, spec, "#e6e9ee"))
+        screenAtlas.alloc(512, 288, (g, ox, oy, w, h) => drawTelemetryScreenOnCtx(g, ox, oy, w, h, spec, accentHex))
       );
     }
     return screenRects.get(key);
@@ -470,6 +485,7 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
 
   /** Wall-mounted monitor, tilted down a little. ry turns the screen's +Z normal to face the room. */
   function wallScreen(parent, idx, x, yc, z, ry, w = 2.0, accent = "#f472b6", ledMat = M.ledPink) {
+    const spec = SCREEN_SPECS[idx % SCREEN_SPECS.length];
     const h = (w * 9) / 16;
     const grp = new THREE.Group();
     grp.position.set(x, yc, z);
@@ -485,6 +501,26 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     grp.add(scr);
     mesh(grp, boxGeo(w * 0.6, 0.025, 0.02), ledMat, 0, -h / 2 - 0.085, 0.04);
     parent.add(grp);
+
+    // Unmerged mouse-pick proxy matching the front face of the wall monitor
+    const hitWrap = new THREE.Group();
+    hitWrap.position.set(x, yc, z);
+    hitWrap.rotation.order = "YXZ";
+    hitWrap.rotation.y = ry;
+    hitWrap.rotation.x = 0.1;
+    const hitPlane = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.14, h + 0.14), hitMat);
+    hitPlane.position.z = 0.05;
+    hitPlane.userData.screenTarget = {
+      kind: spec.interactive ? "taskScreen" : "wallScreen",
+      spec,
+      localX: x,
+      localY: yc,
+      localZ: z,
+    };
+    taskScreens.push({ localX: x, localY: yc, localZ: z, ry, spec });
+    hitWrap.add(hitPlane);
+    interactiveGroup.add(hitWrap);
+
     return grp;
   }
 
@@ -1086,13 +1122,15 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
 
     // telemetry wall screens (angled, cleared of pilasters and window/door frames)
     const ys = DECK + 2.05;
-    // north wall (to the cafeteria), between the arches
-    wallScreen(S, 0, -2.75, ys, 4.33, 0, 1.8);
+    // north wall (to the cafeteria), between the arches — central screen upgraded to interactive Tasks terminal
+    wallScreen(S, 8, -2.75, ys, 4.33, 0, 1.95, "#22d3ee", M.statusCyan);
+    signPlane(S, ["EVA TASKS · GÖREVLER", "[E] ROVER & ROTA SEÇ"], "#22d3ee", -2.75, ys + 0.88, 4.34, 0, 1.9, 0.36);
     wallScreen(S, 1, 9.0, ys, 4.33, 0);
     wallScreen(S, 3, 12.0, ys, 4.33, 0);
     wallScreen(S, 7, 15.0, ys, 4.33, 0);
-    // south wall (to the garage)
-    wallScreen(S, 2, -15.0, ys, 9.67, Math.PI);
+    // south wall (to the garage) — west junction screen upgraded to interactive Tasks terminal
+    wallScreen(S, 8, -15.0, ys, 9.67, Math.PI, 1.95, "#22d3ee", M.statusCyan);
+    signPlane(S, ["EVA TASKS · GÖREVLER", "[E] ROVER & ROTA SEÇ"], "#22d3ee", -15.0, ys + 0.88, 9.65, Math.PI, 1.9, 0.36);
     wallScreen(S, 5, -6.1, ys, 9.67, Math.PI, 1.55);
     wallScreen(S, 6, 6.1, ys, 9.67, Math.PI, 1.55);
     wallScreen(S, 4, 15.0, ys, 9.67, Math.PI);
@@ -1111,7 +1149,7 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     hang(["AIRLOCK →", "HAVA KİLİDİ"], 9.0, 7, Math.PI / 2);
     hang(["← DORM · CAFE", "YATAKHANE · KAFETERYA"], -3.0, 7, Math.PI / 2, 3.0);
     hang(["↑ DORMITORY", "3 KATLI KABİNLER"], -15, 0.0, 0);
-    hang(["TRANSIT TERMINAL", "[E] SITE SELECTOR"], TRANSIT_TERMINAL.x, TRANSIT_TERMINAL.z + 1.6, 0, 2.4);
+    hang(["TRANSIT TERMINAL", "[E] / CLICK SITE SELECTOR"], TRANSIT_TERMINAL.x, TRANSIT_TERMINAL.z + 1.6, 0, 2.4);
 
     // holographic terrain table at the corridor junction
     {
@@ -1141,6 +1179,11 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
       cone.position.y = -0.185;
       holo.add(cone);
       g.add(holo);
+
+      const termHit = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 1.9, 12), hitMat);
+      termHit.position.set(x, DECK + 0.95, z);
+      termHit.userData.screenTarget = { kind: "terminal", localX: x, localY: DECK + 0.95, localZ: z };
+      interactiveGroup.add(termHit);
     }
 
     pointLight(g, 0xffe6f2, 7, 18, 3, HUB_TOP - 0.6, 7);
@@ -2373,6 +2416,19 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     };
   }
 
+  /** World positions of all interactive Habitat wall screens (Tasks & Telemetry). */
+  function getTaskScreens() {
+    return taskScreens.map((t) => ({
+      x: baseX + t.localX,
+      y: baseY + t.localY,
+      z: baseZ + t.localZ,
+      localX: t.localX,
+      localZ: t.localZ,
+      ry: t.ry,
+      spec: t.spec,
+    }));
+  }
+
   // initial pose of the animated parts
   update(0, { actors: [] });
 
@@ -2400,6 +2456,8 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     update,
     getBayPlacements,
     getTransitPoints,
+    getTaskScreens,
+    getInteractiveGroup: () => interactiveGroup,
     hangarDoors,
     airlockDoors,
   };

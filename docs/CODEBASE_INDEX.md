@@ -22,10 +22,12 @@ Generated from a scan of tracked files. Excludes `AGENTS.md`, `CLAUDE.md`, `GEMI
 ### `web/hud/` (first-person EVA, three.js)
 - `hud3d.js`: main scene, camera as astronaut eyes, input, vehicle driving, ties every module below together.
 - Walker and crew: `astronaut-rig.js`, `footsteps.js`, `npc-system.js`, `npc-knowledge.js`, `npc-dialogue-ui.js`.
-- Vehicles: `experimental-rover.js` (drivable MMSEV), `rover-dynamics.js`, `rover-rig.js`, `rover-dash.js`, `historic-rovers.js` (Sojourner, Spirit, Opportunity, etc.), `mars-landers.js` (landers, Ingenuity, site markers).
+- Vehicles: `experimental-rover.js` (drivable MMSEV), `concept-rover-model.js` (sculpted NASA Mars Rover Concept 6x6 body and hollow wheels), `rover-dynamics.js`, `rover-rig.js`, `rover-dash.js`, `historic-rovers.js` (Sojourner, Spirit, Opportunity, etc.), `mars-landers.js` (landers, Ingenuity, site markers).
 - World: `GaleVista.js` (horizon), `MarsRockField.js`, `FieldKits.js`, `mars-habitat.js` + `habitat-textures.js`, `merge-static.js` (bakes rigid parts of a model into one mesh per material to cut draw calls).
 - Sky and atmosphere: `MarsEphemeris.js`, `MarsCelestialSky.js`, `regolith-dust.js` (kicked-up dust and tire tracks); `post-pipeline.js` (ambient occlusion, bloom, anti-aliasing, visor pass).
 - `landing-sequence.js`: entry, descent and landing cinematic.
+- `MarsAtmosphereHaze.js`: height-layered aerial-perspective haze patched into terrain and horizon materials.
+- `hud-tasks.js`: Tasks mission terminal (habitat monitors), terrain minimap, debrief card, 3D ground route guide.
 
 ### `web/map/` (terrain and map engine)
 - Terrain pipeline: `TileSourceRegistry.js` (fallback cascade), `MarsDemSampler.js`, `TerrainMeshBuilder.js`, `terrain.worker.js` + `TerrainWorkerPool.js`, `MarsPbrTextures.js`, `GaleCorridor.js` (streamed corridor chunks).
@@ -36,14 +38,14 @@ Generated from a scan of tracked files. Excludes `AGENTS.md`, `CLAUDE.md`, `GEMI
 `MarsConstants.js`, `MarsGravityField.js`, `MarsPhysicsWorld.js` (120 Hz walker), `VehicleDynamics.js`, `Terramechanics.js`, `SuitBiomechanics.js`, `MetabolicPlssModel.js`, `MarsAcoustics.js`.
 
 ### `web/shared/`
-`data-loader.js` (loads `data/processed` → `data/demo` → `docs/contracts` fallback), `route-bridge.js` (`mm:set-route` events, polyline utils), `multiplayer.js` (client; WebSocket + fallback transport), `mars-rovers.js` and `mars-hardware.js` (catalogues), `audioEngine.js` (procedural Web Audio), `gamepad.js` + `gamepad-ui.js`, `context-menu.js`, `dev-settings.js` (stored settings), `graphics-profile.js` (graphics presets: resolution, MSAA, shadows, terrain radius).
+`data-loader.js` (loads `data/processed` → `data/demo` → `docs/contracts` fallback), `route-bridge.js` (`mm:set-route` events, polyline utils), `multiplayer.js` (client; WebSocket + fallback transport), `mars-rovers.js` and `mars-hardware.js` (catalogues), `audioEngine.js` (procedural Web Audio), `gamepad.js` + `gamepad-ui.js`, `task-router.js` (Tasks staging and vehicle-aware route planner, no DOM), `context-menu.js`, `dev-settings.js` (stored settings), `graphics-profile.js` (graphics presets: resolution, MSAA, shadows, terrain radius).
 
 ### Other
 - `web/orbit/orbit-view.js`: Mars globe, landing-site picking.
 - `web/assets/`: 4k globe textures, NASA GLBs (Perseverance, MMSEV, spacesuits).
 - `web/vendor/`: three.module.js, GLTF/DRACO loaders, BufferGeometryUtils.
 - npm packages: `web/index.html` holds the import map that points bare imports (`three.quarks`, `postprocessing`, `simplex-noise`, …) at files in `node_modules/`, so run `npm install` first. Packages with no browser ES build go through a shim (`web/shared/seedrandom-esm.js`, `web/shared/tone-esm.js`). `web/tests/importmap.test.mjs` fails when an import is missing from the map.
-- `web/tests/` (Node test runner, `node --test web/tests/*.test.mjs`): context-menu, corridor, ephemeris, fallback, geodesy, multiplayer, npc-system, physics, route-bridge, rover-dynamics, vehicles.
+- `web/tests/` (Node test runner, `node --test web/tests/*.test.mjs`): context-menu, corridor, ephemeris, fallback, geodesy, multiplayer, npc-system, physics, route-bridge, rover-dynamics, server, task-router, atmosphere-haze, audio-engine, vehicles.
 
 ## scripts/
 - `server.mjs`: `createServerApp`, `startServer` (port 8000, host 0.0.0.0), MIME map, LAN IP listing, mounts multiplayer hub.
