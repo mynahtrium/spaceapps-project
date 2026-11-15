@@ -3120,14 +3120,17 @@ export async function initHud3D(
     const q = cfg.quality || "performance";
     // performance: 1 pixel per CSS pixel, no MSAA, 1024 px shadow map, lighter dust (aims at the
     // monitor's refresh rate); balanced: MSAA 2 and 2048 px shadows; quality: 1.25x resolution
-    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : q === "quality" ? 1.25 : 1.0);
+    // Super Graphics used to be 2x pixel ratio x 1.25 supersampling = 6x the pixels with 4x MSAA on
+    // top and no adaptive scaling: far too heavy for 120 Hz. Now 1.5x, no extra supersample, MSAA 2,
+    // a 2048 px soft shadow map, and the adaptive resolution stays on (floor 60 %).
+    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 1.5 : q === "quality" ? 1.25 : 1.0);
     windDust.setDetail(q === "quality" ? 1 : q === "balanced" ? 0.7 : 0.45);
     renderer.setPixelRatio(targetPr);
-    renderScale = wantSuper ? 1.25 : 1.0;
+    renderScale = Math.min(1, renderScale);
 
     // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
     // we switch to samples: 0 + DepthTexture (paired with FXAA + SSR/RTAO in LENS_FRAG).
-    const wantSamples = wantRt ? 0 : wantSuper ? 4 : q === "performance" ? 0 : 2;
+    const wantSamples = wantRt ? 0 : wantSuper ? 2 : q === "performance" ? 0 : 2;
     if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
       rtHasDepth = wantRt;
@@ -3149,7 +3152,7 @@ export async function initHud3D(
     }
     rtUniforms.uRtEnabled.value = wantRt ? 1 : 0;
 
-    const wantShadowPx = wantSuper ? 4096 : q === "performance" ? 1024 : SHADOW_MAP_PX;
+    const wantShadowPx = wantSuper ? 2048 : q === "performance" ? 1024 : SHADOW_MAP_PX;
     const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
     const wantShadowType = wantSuper ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     if (shadowMapPx !== wantShadowPx || shadowHalfM !== wantShadowHalf || renderer.shadowMap.type !== wantShadowType) {
@@ -3264,10 +3267,10 @@ export async function initHud3D(
     perfStats.refreshMs = refreshMs;
     if (frameMs > 70 || document.hidden) return; // a load stall or a background tab says nothing about the GPU
     frameAvg += (frameMs - frameAvg) * 0.08;
-    if (devCfg.superGraphics) return;
     if (now - lastScaleChange < 700) return;
+    const floor = devCfg.superGraphics ? 0.6 : 0.5;
     let next = renderScale;
-    if (frameAvg > refreshMs * 1.3 && renderScale > 0.5) next = Math.max(0.5, renderScale - 0.05);
+    if (frameAvg > refreshMs * 1.3 && renderScale > floor) next = Math.max(floor, renderScale - 0.05);
     else if (frameAvg < refreshMs * 1.12 && renderScale < 1) next = Math.min(1, renderScale + 0.025);
     if (next !== renderScale) {
       renderScale = next;

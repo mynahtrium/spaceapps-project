@@ -1154,3 +1154,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan reported that after pressing Begin the loading screen stays on "LOADING TERRAIN · NASA SUIT MODEL". I could not reproduce it (demo and normal mode, Begin pressed at once: the screen clears; suit ready in about 2.2 s here), so the fix makes a stuck load visible and bounded: the veil now names the step it is on (TERRAIN, NASA SUIT MODEL, SCENE); the height map and each suit model give up after 30 s / 25 s (then the next suit model, then the capsule stand-in); if the 3D view throws while starting, the veil shows `3D VIEW FAILED: <message>` and the error goes to the console. The suit load time is logged (`suit model ready in N ms`).
 - Commit: this commit
 - Next step: if it still sticks on Cagan's machine, he reports the text on the veil and the first red line in the browser console (F12).
+
+### 2026-11-15 Europe/Istanbul — PERF-02 Experimental Super Graphics made affordable
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PERF-02
+- Files changed: `web/hud/hud3d.js`, `web/app.js`, `docs/AI_USE_LOG.md`
+- Why: with Super Graphics on, the game still stuttered. It rendered 2x pixel ratio x 1.25 supersampling (about 6x the pixels), 4x MSAA on a half-float target, a 4096 px soft shadow map, and adaptive resolution was switched off. Now: pixel ratio up to 1.5, no extra supersampling, 2x MSAA, 2048 px soft shadows (about 3 cm texels), rocks and micro-detail unchanged, and the adaptive resolution stays on (floor 60 %) so it holds the screen's refresh rate. Ray tracing is a separate toggle and stays heavy (per-pixel height-field marching); the adaptive resolution also applies to it.
+- Commit: this commit
+- Next step: Cagan checks F3 with Super Graphics on; if the render scale sits at 60 % and fps is still low, turn off Ray Tracing or Realistic Textures, or use Balanced quality.

@@ -517,8 +517,8 @@ async function boot() {
             </div>
             <div class="dev-sub">${
               tr
-                ? "Uyarlamalı çözünürlük düşürmeyi kapatır, 2× DPR + 1.25× supersampling, 4× MSAA, 4096 px yumuşak güneş gölgeleri ve yüksek mikro-detay açar (GPU yoğun)."
-                : "Locks off adaptive downscale, enables up to 2× DPR + 1.25× supersampling, 4× MSAA, 4096 px PCFSoft sun shadows & high terrain micro-relief (heavy GPU)."
+                ? "En çok 1.5× piksel oranı, 2× MSAA, 2048 px yumuşak güneş gölgeleri, kayalar ve yüksek mikro-detay açar. Ekran yenileme hızını tutmak için çözünürlük en çok %60'a kadar otomatik düşer."
+                : "Up to 1.5× pixel ratio, 2× MSAA, 2048 px soft sun shadows, rocks and high terrain micro-relief. Resolution still drops automatically (down to 60 %) to hold the screen's refresh rate."
             }</div>
           </div>
           <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
