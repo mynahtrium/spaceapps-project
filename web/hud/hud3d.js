@@ -3173,10 +3173,32 @@ export async function initHud3D(
     return true;
   }
 
+  const NPC_TALK_MAX_DIST_M = 4.6;
+  function isNpcInTalkRange(entry) {
+    if (!entry) return false;
+    const distXZ = Math.hypot(entry.x - freePos.x, entry.z - freePos.z);
+    if (distXZ > NPC_TALK_MAX_DIST_M || Math.abs(entry.y - freePos.y) > 2.8) return false;
+    if (
+      habitatStation.group.visible &&
+      habitatStation.clipCameraSegment(freePos.x, freePos.y + 1.5, freePos.z, entry.x, entry.y + 1.5, entry.z) < 0.96
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function findNearbyTalkNpc() {
+    if (drivingRover || !npcManager.npcGroup.visible) return null;
+    const nearNpcHit = npcManager.getNearestInteractableNpc(freePos.x, freePos.z, NPC_TALK_MAX_DIST_M, freePos, lookDir);
+    return nearNpcHit?.npc && isNpcInTalkRange(nearNpcHit.npc) ? nearNpcHit : null;
+  }
+
   function pickTargetNpc(clientX = null, clientY = null) {
-    if (!npcManager.npcGroup.visible) return null;
+    if (!npcManager.npcGroup.visible || drivingRover) return null;
     if (!setRaycasterFromView(clientX, clientY)) return null;
-    return npcManager.pickNpc(raycaster, 38);
+    const maxRayDist = thirdPersonWalk ? 9.0 : NPC_TALK_MAX_DIST_M + 1.4;
+    const hit = npcManager.pickNpc(raycaster, maxRayDist);
+    return isNpcInTalkRange(hit) ? hit : null;
   }
 
   function pickHistoricRover(clientX = null, clientY = null) {
@@ -3250,6 +3272,7 @@ export async function initHud3D(
 
   function openNpcDialogueSafe(npcOrSpec) {
     if (!npcOrSpec) return;
+    if (Number.isFinite(npcOrSpec.x) && !isNpcInTalkRange(npcOrSpec)) return;
     keys.clear();
     dragging = false;
     releasePointerLock();
@@ -4762,9 +4785,7 @@ export async function initHud3D(
       }
 
       const drivableHit = findNearestDrivableEntry(freePos.x, freePos.z, 5.8);
-      const nearNpcHit = npcManager.npcGroup.visible
-        ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
-        : null;
+      const nearNpcHit = findNearbyTalkNpc();
       const nearNpc = nearNpcHit?.npc || null;
       if (nearNpc) {
         const npcDist = Number.isFinite(nearNpcHit.distance)
@@ -6364,10 +6385,7 @@ export async function initHud3D(
         const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
         const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
         const hitNpc = pickTargetNpc(aimX, aimY);
-        const nearNpcHit =
-          !hitNpc && !drivingRover && npcManager.npcGroup.visible
-            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
-            : null;
+        const nearNpcHit = hitNpc ? null : findNearbyTalkNpc();
         const nearNpc = nearNpcHit?.npc || null;
         const activeTargetNpc = hitNpc || nearNpc;
         const hitSpec = activeTargetNpc ? null : pickHistoricRover(aimX, aimY);

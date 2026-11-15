@@ -266,3 +266,23 @@ test("NPC overhead nameplate supports live speech text updates and EN/TR languag
   mgr.setLanguage("en");
   assert.equal(mgr.getNpc("npc_curiosity").speechText, "");
 });
+
+test("NPC Q&A interaction is blocked beyond close-range walking distance", () => {
+  const scene = new THREE.Scene();
+  const mgr = createNpcManager(THREE, scene, { sampleElevY: () => 0 });
+  const npc = mgr.anchorDrivableVehicleNpc("mmsev", 0, -10, Math.PI, { resetAnchor: true });
+  assert.ok(npc);
+
+  // Proximity check must ignore NPCs farther than maxDist
+  assert.equal(mgr.getNearestInteractableNpc(npc.x + 12, npc.z, 4.6), null);
+  assert.equal(mgr.getNearestInteractableNpc(npc.x + 2.5, npc.z, 4.6)?.npc, npc);
+
+  // Raycast picker must reject far hits when maxDist is bounded
+  const ray = new THREE.Raycaster(new THREE.Vector3(npc.x, 1.5, npc.z + 20), new THREE.Vector3(0, 0, -1));
+  assert.equal(mgr.pickNpc(ray, 6.0), null);
+
+  const hudSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "hud3d.js"), "utf8");
+  const distMatch = hudSrc.match(/const\s+NPC_TALK_MAX_DIST_M\s*=\s*(\d+(?:\.\d+)?)/);
+  assert.ok(distMatch && Number(distMatch[1]) <= 6, "NPC_TALK_MAX_DIST_M must enforce close-range interaction");
+  assert.doesNotMatch(hudSrc, /npcManager\.pickNpc\(raycaster,\s*38\)/);
+});
