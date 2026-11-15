@@ -22,6 +22,7 @@ import {
   computeRoverSurfaceDistanceKm,
   formatMarsLonLat,
   getHistoricRoverById,
+  makeCustomSiteSpec,
   sampleProceduralSiteHeightM,
   scatterHistoricRoverCoords,
 } from "../shared/mars-rovers.js";
@@ -608,6 +609,30 @@ test("MARS_HISTORIC_ROVERS defines all 5 unique Mars rovers at separated real Ma
   assert.equal(head, "glTF");
 });
 
+test("sampleProceduralSiteHeightM keeps a flat cliff-free landing pad at custom Orbit sites", () => {
+  const customNorth = makeCustomSiteSpec(-112.34, 9.233);
+  const customSouth = makeCustomSiteSpec(-112.34, -9.233);
+  for (const site of [customNorth, customSouth, "perseverance", "spirit", "opportunity"]) {
+    const label = typeof site === "string" ? site : site.id;
+    assert.equal(sampleProceduralSiteHeightM(site, 0, 0), 0, `${label} origin should sit cleanly at 0 m`);
+    let maxPadSlopeDeg = 0;
+    for (let x = -28; x <= 28; x += 2) {
+      for (let z = -28; z <= 28; z += 2) {
+        if (Math.hypot(x, z) > 25) continue;
+        const h = sampleProceduralSiteHeightM(site, x, z);
+        const hx = sampleProceduralSiteHeightM(site, x + 1, z);
+        const hz = sampleProceduralSiteHeightM(site, x, z + 1);
+        const deg = (Math.atan(Math.hypot(hx - h, hz - h)) * 180) / Math.PI;
+        if (deg > maxPadSlopeDeg) maxPadSlopeDeg = deg;
+      }
+    }
+    assert.ok(
+      maxPadSlopeDeg < 20,
+      `${label} landing zone max slope ${maxPadSlopeDeg.toFixed(1)}° must stay below 20° (no cliff moat)`
+    );
+  }
+});
+
 test("scatterHistoricRoverCoords spreads all 5 unique rovers safely across walkable terrain", () => {
   let seed = 42;
   const detRng = () => {
@@ -917,4 +942,39 @@ test("Mars Habitat Station follows the blueprint layout: 5 zones, raised decks, 
   }
   assert.ok(activeCount > 0, "expected rocks outside the habitat footprint");
   assert.equal(overlapCount, 0, `expected 0 rocks inside habitat footprint, got ${overlapCount}`);
+});
+
+test("Inside-habitat detection excludes indoor floors/ramps while preserving spawn apron and open regolith", () => {
+  const hab = createMarsHabitatStation(THREE, { originX: 0, originZ: 0, rawSampleElevY: () => 1.5 });
+  const isInside = (x, z) =>
+    hab.group.visible && (hab.zoneAt(x, z) !== null || hab.sampleDeckElev(x, z) !== null);
+
+  // Indoor modules and interior/bay steel ramps are inside the station
+  for (const [x, z] of [
+    [-8, -20], // purpleDormitory
+    [-15, -2], // pinkCorridor left wing
+    [0, 7], // pinkCorridor bottom wing
+    [5, -3], // yellowCafeteria
+    [25, 7], // redAirlock
+    [0, 16], // greenGarage
+    [0, 24.5], // garage bay steel ramp midpoint
+    [0, -6.75], // dormitory connecting ramp midpoint
+  ]) {
+    assert.equal(isInside(x, z), true, `expected (${x}, ${z}) to be inside habitat`);
+  }
+
+  // Outdoor spawn area (in front of bays on regolith pad) and open terrain are outside
+  assert.equal(isInside(0, HABITAT_LAYOUT.entryOffsetZ), false, "spawn apron stays outdoors for dust/footprints");
+  assert.equal(isInside(120, 120), false, "open terrain is outdoors");
+
+  // Hiding the station disables interior suppression
+  hab.group.visible = false;
+  assert.equal(isInside(0, 16), false, "hidden habitat must not suppress exterior dust/footprints");
+
+  const hudSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "hud3d.js"), "utf8");
+  assert.match(hudSrc, /function isInsideHabitat\(x,\s*z\)/);
+  assert.match(hudSrc, /if\s*\(\s*!isInsideHabitat\(footPos\.x,\s*footPos\.z\)\s*\)\s*\{\s*footsteps\.stamp\(/);
+  assert.match(hudSrc, /if\s*\(\s*devCfg\.realisticDust\s*&&\s*!isInsideHabitat\(px,\s*pz\)\s*\)/);
+  assert.match(hudSrc, /rs\.landingImpact\s*>\s*1\.0\s*&&\s*devCfg\.realisticDust\s*&&\s*!isInsideHabitat\(rs\.pos\.x,\s*rs\.pos\.z\)/);
+  assert.match(hudSrc, /!isInsideHabitat\(rs\.pos\.x,\s*rs\.pos\.z\)\s*&&\s*devCfg\.realisticDust/);
 });

@@ -1,5 +1,8 @@
 // Headless checks for the MMSEV rigid-body + suspension model (node web/tests/rover-dynamics.test.mjs).
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as THREE from "../vendor/three.module.js";
 import { createRoverDynamics, roverParamsFor, roverParamsForHistoric, ROVER_PARAMS } from "../hud/rover-dynamics.js";
 
@@ -199,10 +202,118 @@ console.log("rover-dynamics: all checks passed");
   const raised = { sampleY: () => 0.3, sampleNormal: flat.sampleNormal };
   run(rv, 4, parked, raised);
   assert.ok(Math.abs(rv.state.pos.y - y0 - 0.3) < 0.03, `follows the new ground (${(rv.state.pos.y - y0).toFixed(3)} m)`);
+
+  // ground changing only under the front wheels (center stays fixed) must also wake a parked rover
+  run(rv, 6, parked, flat);
+  assert.ok(rv.asleep, "sleeps back down on flat ground");
+  const edgeBump = { sampleY: (x, z) => (z < -1.0 ? 0.35 : 0), sampleNormal: flat.sampleNormal };
+  let wokeFromFrontWheel = false;
+  for (let k = 0; k < 45; k++) {
+    if (rv.step(1 / 60, parked, edgeBump)) {
+      wokeFromFrontWheel = true;
+      break;
+    }
+  }
+  assert.ok(wokeFromFrontWheel, "front-wheel terrain change wakes a parked rover");
   console.log("sleep ok");
 }
 
-// realistic torque (N*m), horsepower (HP), weight (kg / N) and zero wheel-floor clipping
+// 8) anti-clipping: nasa_concept long overhangs, centerline belly over sharp ridge, steep crater wall, hard drop & setPosition
+{
+  const conceptSpec = {
+    id: "nasa_concept",
+    massKg: 2250,
+    topSpeedMs: 22,
+    wheelRadius: 0.52,
+    trackHalfW: 1.48,
+    halfW: 1.82,
+    halfL: 3.15,
+    axles: [{ z: -1.95 }, { z: 0.42 }, { z: 1.98 }],
+  };
+  const ridgeH = (x, z) => 0.65 * Math.exp(-((z + 5.5) ** 2) / 0.55);
+  const ridgeEnv = {
+    sampleY: ridgeH,
+    sampleNormal: (x, z) => {
+      const e = 0.2;
+      const nx = ridgeH(x - e, z) - ridgeH(x + e, z);
+      const nz = ridgeH(x, z - e) - ridgeH(x, z + e);
+      const l = Math.hypot(nx, 2 * e, nz);
+      return { x: nx / l, y: (2 * e) / l, z: nz / l };
+    },
+  };
+  const rvConcept = createRoverDynamics(THREE, roverParamsFor(conceptSpec));
+  rvConcept.reset(0, 0, 0, ridgeEnv.sampleY);
+  const pt = new THREE.Vector3();
+  let worstBellyPen = 0;
+  run(rvConcept, 4.5, { ...idle, throttle: 1 }, ridgeEnv, () => {
+    for (const [bx, by, bz] of [
+      [0, 0.58, -3.02],
+      [0, 0.52, 0.42],
+      [0, 0.58, 3.02],
+    ]) {
+      pt.set(bx, by, bz).applyQuaternion(rvConcept.state.q).add(rvConcept.state.pos);
+      worstBellyPen = Math.max(worstBellyPen, ridgeH(pt.x, pt.z) - pt.y);
+    }
+  });
+  assert.ok(worstBellyPen < 0.03, `nasa_concept overhang/belly stays above ridge (worst pen ${worstBellyPen.toFixed(4)} m)`);
+
+  // steep 40-deg crater wall impact at boost speed + 3.5 m drop
+  const wallH = (x, z) => (z < -8 ? Math.min(4.5, (-8 - z) * 0.84) : 0);
+  const wallEnv = {
+    sampleY: wallH,
+    sampleNormal: (x, z) => {
+      const e = 0.25;
+      const nx = wallH(x - e, z) - wallH(x + e, z);
+      const nz = wallH(x, z - e) - wallH(x, z + e);
+      const l = Math.hypot(nx, 2 * e, nz);
+      return { x: nx / l, y: (2 * e) / l, z: nz / l };
+    },
+  };
+  const rvWall = createRoverDynamics(THREE);
+  rvWall.reset(0, 0, 0, wallEnv.sampleY);
+  let worstWheelPen = 0;
+  let maxHubY = -Infinity;
+  const maxAllowedHubY = rvWall.mountY - rvWall.params.restLen * 0.05 + 1e-6;
+  run(rvWall, 4.0, { ...idle, throttle: 1, boost: true }, wallEnv, () => {
+    for (const w of rvWall.wheels) {
+      maxHubY = Math.max(maxHubY, w.hubY);
+    }
+    pt.set(0, 0.58, -2.21).applyQuaternion(rvWall.state.q).add(rvWall.state.pos);
+    worstWheelPen = Math.max(worstWheelPen, wallH(pt.x, pt.z) - pt.y);
+  });
+  assert.ok(maxHubY <= maxAllowedHubY, `wheel hub never telescopes inside fender (${maxHubY.toFixed(3)} <= ${maxAllowedHubY.toFixed(3)})`);
+  assert.ok(worstWheelPen < 0.04, `nose does not spear deep into steep wall (${worstWheelPen.toFixed(4)} m)`);
+
+  // 3.5 m vertical drop onto flat ground: chassis belly and visual wheel bottoms never sink underground
+  rvWall.reset(0, 0, 0, flat.sampleY);
+  rvWall.state.pos.y = 3.5;
+  rvWall.state.vel.set(0, -6.0, 0);
+  let worstDropPen = 0;
+  run(rvWall, 1.5, idle, flat, () => {
+    for (const w of rvWall.wheels) {
+      assert.ok(w.hubY <= maxAllowedHubY, "hub stays below fender during hard landing");
+      const wheelBotY = rvWall.state.pos.y + w.hubY - rvWall.params.wheelRadius;
+      worstDropPen = Math.max(worstDropPen, -wheelBotY);
+    }
+    pt.set(0, 0.52, rvWall.params.cgZ).applyQuaternion(rvWall.state.q).add(rvWall.state.pos);
+    worstDropPen = Math.max(worstDropPen, -pt.y);
+  });
+  assert.ok(worstDropPen < 0.04, `hard drop recovers without wheel/belly sinking underground (${worstDropPen.toFixed(4)} m)`);
+
+  // setPosition with sampleY lifts a displaced rover onto elevated terrain
+  rvWall.setPosition(25, 25, () => 1.8);
+  assert.ok(rvWall.state.pos.y >= 1.75, `setPosition keeps ground clearance on elevated terrain (${rvWall.state.pos.y.toFixed(3)})`);
+
+  // hud3d wiring: roverEnv uses rendered surface sampler and passes it to setPosition
+  const __dir = path.dirname(fileURLToPath(import.meta.url));
+  const hudSrc = fs.readFileSync(path.resolve(__dir, "..", "hud", "hud3d.js"), "utf8");
+  assert.match(hudSrc, /roverEnv\s*=\s*\{\s*sampleY:\s*sampleRenderedSurfaceY/);
+  assert.match(hudSrc, /sim\.setPosition\([^)]*roverEnv\.sampleY/);
+  assert.match(hudSrc, /ringCopyGeom\s*=\s*buildTerrainGeometry\([^)]*includeHabitat:\s*false/);
+  console.log("anti-clipping ok");
+}
+
+// 9) realistic torque (N*m), horsepower (HP), weight (kg / N) and zero wheel-floor clipping
 {
   const rv = createRoverDynamics(THREE, roverParamsFor({ id: "mmsev", massKg: 2950 }));
   rv.reset(0, 0, 0, flat.sampleY);
