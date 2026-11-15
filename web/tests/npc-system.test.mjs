@@ -238,4 +238,31 @@ test("HUD dialogue modal DOM markup and overlay modal pause guards exist", () =>
   ]) {
     assert.ok(html.includes(`id="${id}"`), `index.html missing #${id}`);
   }
+
+  const css = fs.readFileSync(path.join(WEB_DIR, "styles.css"), "utf8");
+  assert.match(
+    css,
+    /body\.landing-active \.rover-dash\s*\{\s*visibility:\s*hidden;\s*\}\s*(?:\/\*[\s\S]*?\*\/\s*)?\.npc-dialogue-backdrop\s*\{/,
+    "Expected body.landing-active .rover-dash rule to close properly before .npc-dialogue-backdrop"
+  );
+
+  const hudSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "hud3d.js"), "utf8");
+  assert.doesNotMatch(hudSrc, /\bs\.roleTr\b/, "hud3d.js should read s.role?.tr instead of undefined s.roleTr");
+  assert.match(hudSrc, /nearNpcHit\?\.npc/, "hud3d.js should unwrap getNearestInteractableNpc().npc");
+  assert.match(hudSrc, /landing\.warmup\?\.\(renderer,\s*camera\)/, "hud3d.js should precompile lander shaders before veil lifts");
+  assert.match(hudSrc, /if\s*\(landing\.active\)\s*\{\s*followEndless\(freePos\);/, "hud3d.js should skip 1m chunk rebuilds while landing cinematic plays");
+
+  const landingSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "landing-sequence.js"), "utf8");
+  assert.match(landingSrc, /function warmup\(renderer, camera\)/, "landing-sequence.js should provide shader/texture warmup()");
+  assert.match(landingSrc, /s\.dustAcc\s*=\s*Math\.min\(/, "landing-sequence.js should cap per-frame dust bursts with clamped stepDt");
+});
+
+test("NPC overhead nameplate supports live speech text updates and EN/TR language switching", () => {
+  const scene = new THREE.Scene();
+  const mgr = createNpcManager(THREE, scene, { sampleElevY: () => 0 });
+  const ok = mgr.setNpcSpeech("npc_curiosity", "Gale Krateri çamurtaşlarında organik molekül kanıtları var.", "tr");
+  assert.equal(ok, true);
+  assert.equal(mgr.getNpc("npc_curiosity").speechText, "Gale Krateri çamurtaşlarında organik molekül kanıtları var.");
+  mgr.setLanguage("en");
+  assert.equal(mgr.getNpc("npc_curiosity").speechText, "");
 });

@@ -76,14 +76,22 @@ const FLAME_FRAG = /* glsl */ `
 function makeHullTextures(THREE) {
   const W = 1024;
   const H = 1024;
+  const TEX_W = 512;
+  const TEX_H = 512;
   const make = (draw) => {
     const c = document.createElement("canvas");
-    c.width = W;
-    c.height = H;
-    draw(c.getContext("2d"));
+    c.width = TEX_W;
+    c.height = TEX_H;
+    const g = c.getContext("2d");
+    if (g) {
+      g.save();
+      g.scale(TEX_W / W, TEX_H / H);
+      draw(g);
+      g.restore();
+    }
     const t = new THREE.CanvasTexture(c);
     t.wrapS = THREE.RepeatWrapping;
-    t.anisotropy = 8;
+    t.anisotropy = 4;
     return t;
   };
   let seed = 11;
@@ -93,9 +101,9 @@ function makeHullTextures(THREE) {
     g.fillStyle = "#d9d6cf";
     g.fillRect(0, 0, W, H);
     // brushed / painted panel mottling
-    for (let i = 0; i < 2600; i++) {
-      g.fillStyle = `rgba(${rnd() < 0.5 ? "255,255,255" : "90,86,80"},${0.015 + rnd() * 0.03})`;
-      g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 70, 1 + rnd() * 3);
+    for (let i = 0; i < 700; i++) {
+      g.fillStyle = `rgba(${rnd() < 0.5 ? "255,255,255" : "90,86,80"},${0.02 + rnd() * 0.035})`;
+      g.fillRect(rnd() * W, rnd() * H, 4 + rnd() * 72, 2 + rnd() * 4);
     }
     // vertical panel lines and horizontal welds, rivets along the welds
     g.strokeStyle = "rgba(60,58,54,0.55)";
@@ -147,9 +155,9 @@ function makeHullTextures(THREE) {
       g.stroke();
     }
     // wind-blown rust-coloured dust on the lower hull
-    for (let i = 0; i < 1400; i++) {
-      g.fillStyle = `rgba(170,105,64,${rnd() * 0.07})`;
-      g.fillRect(rnd() * W, H * (0.5 + rnd() * 0.5), 1 + rnd() * 8, 1 + rnd() * 3);
+    for (let i = 0; i < 380; i++) {
+      g.fillStyle = `rgba(170,105,64,${rnd() * 0.08})`;
+      g.fillRect(rnd() * W, H * (0.5 + rnd() * 0.5), 2 + rnd() * 10, 2 + rnd() * 4);
     }
   });
   map.colorSpace = THREE.SRGBColorSpace;
@@ -219,15 +227,15 @@ function buildLander(THREE) {
     [R * 0.2, 17.7],
     [0.0, 18.0],
   ].map(([x, y]) => new THREE.Vector2(x, y));
-  const body = add(g, new THREE.LatheGeometry(prof, 64), hull);
+  const body = add(g, new THREE.LatheGeometry(prof, 36), hull);
   // lathe v follows the profile length: stretch it so the texture seams land where drawn
   const uv = body.geometry.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * 1.0);
 
   // heat-scorched engine skirt, a gold thermal band, interstage ring
-  add(g, new THREE.CylinderGeometry(R * 1.04, R * 1.1, 1.5, 64, 1, true), scorched, 0, 2.2, 0);
-  add(g, new THREE.CylinderGeometry(R * 1.08, R * 1.08, 0.28, 64), gold, 0, 3.05, 0);
-  add(g, new THREE.TorusGeometry(R * 1.01, 0.07, 8, 64), steel, 0, 11.4, 0).rotation.x = Math.PI / 2;
+  add(g, new THREE.CylinderGeometry(R * 1.04, R * 1.1, 1.5, 36, 1, true), scorched, 0, 2.2, 0);
+  add(g, new THREE.CylinderGeometry(R * 1.08, R * 1.08, 0.28, 36), gold, 0, 3.05, 0);
+  add(g, new THREE.TorusGeometry(R * 1.01, 0.07, 6, 36), steel, 0, 11.4, 0, false).rotation.x = Math.PI / 2;
 
   // crew windows: a row of dark panes with frames
   for (let i = 0; i < 6; i++) {
@@ -279,7 +287,7 @@ function buildLander(THREE) {
     [0.58, 1.3],
     [0.68, 1.55],
   ].map(([x, y]) => new THREE.Vector2(x, y));
-  const bellGeom = new THREE.LatheGeometry(bellProf, 28);
+  const bellGeom = new THREE.LatheGeometry(bellProf, 16);
   const bellMat = new THREE.MeshStandardMaterial({
     color: 0x3b332c,
     roughness: 0.4,
@@ -303,7 +311,7 @@ function buildLander(THREE) {
     bell.position.y = 0;
     add(eng, new THREE.CylinderGeometry(0.24, 0.3, 0.5, 16), steel, 0, 0.2, 0, false);
     add(eng, new THREE.BoxGeometry(0.35, 0.3, 0.3), dark, 0.32, 0.45, 0, false);
-    add(eng, new THREE.TorusGeometry(0.43, 0.03, 8, 28), steel, 0, -0.95, 0, false).rotation.x = Math.PI / 2;
+    add(eng, new THREE.TorusGeometry(0.43, 0.03, 6, 16), steel, 0, -0.95, 0, false).rotation.x = Math.PI / 2;
     nozzle.push({ x: bx, z: bz, y: 3.2 - 1.55 });
   }
 
@@ -325,8 +333,8 @@ function buildLander(THREE) {
     const foot = new THREE.Group();
     foot.position.set(0, -4.35, 0);
     hinge.add(foot);
-    add(foot, new THREE.CylinderGeometry(0.62, 0.74, 0.14, 24), dark, 0, 0, 0);
-    add(foot, new THREE.CylinderGeometry(0.5, 0.5, 0.2, 24), gold, 0, 0.16, 0); // crush honeycomb
+    add(foot, new THREE.CylinderGeometry(0.62, 0.74, 0.14, 14), dark, 0, 0, 0, false);
+    add(foot, new THREE.CylinderGeometry(0.5, 0.5, 0.2, 14), gold, 0, 0.16, 0, false); // crush honeycomb
     const brace = add(g, braceGeom, steel, 0, 0, 0);
     legs.push({ hinge, a, brace, piston, foot, anchor: new THREE.Vector3(Math.cos(a) * R * 0.99, 7.4, Math.sin(a) * R * 0.99) });
   }
@@ -368,10 +376,10 @@ function buildLander(THREE) {
   const flameOuterMat = mkFlame(1);
   const flames = [];
   for (const n of nozzle) {
-    const inner = new THREE.ConeGeometry(0.55, 8.5, 28, 1, true);
+    const inner = new THREE.ConeGeometry(0.55, 8.5, 16, 1, true);
     inner.rotateX(Math.PI); // tip down
     inner.translate(0, -4.25, 0);
-    const outer = new THREE.ConeGeometry(0.95, 6.5, 28, 1, true);
+    const outer = new THREE.ConeGeometry(0.95, 6.5, 16, 1, true);
     outer.rotateX(Math.PI);
     outer.translate(0, -3.25, 0);
     for (const [geom, mat] of [
@@ -441,6 +449,7 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
 
   let s = null; // running state
   const tmp = new THREE.Vector3();
+  const startPos = new THREE.Vector3();
   const look = new THREE.Vector3();
   const eyePos = new THREE.Vector3();
   const eyeQuat = new THREE.Quaternion();
@@ -478,13 +487,14 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
    */
   function start(o) {
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
-    s = { t: reduced ? T_END - GLIDE_S * 0.4 : 0, ...o, groundY: sampleY(o.padX, o.padZ), shake: 0, dustAcc: 0, touched: false };
+    s = { t: reduced ? T_END - GLIDE_S * 0.4 : 0, ...o, groundY: sampleY(o.padX, o.padZ), shake: 0, dustAcc: 0, touched: false, isEnding: false };
     s.fogBase = scene.fog?.density ?? null;
     L.group.visible = true;
     L.group.position.set(o.padX, s.groundY + H_START, o.padZ);
     L.group.rotation.set(0, o.yaw + 0.7, 0);
     placeLegs(0);
     ui.sub.textContent = o.site || "GALE CRATER · MOUNT SHARP";
+    overlay.classList.remove("ending");
     overlay.classList.add("on");
     document.body.classList.add("landing-active");
     setFade(1);
@@ -495,7 +505,7 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     if (scene.fog && s.fogBase != null) scene.fog.density = s.fogBase;
     const pad = { x: s.padX, z: s.padZ };
     s = null;
-    overlay.classList.remove("on");
+    overlay.classList.remove("on", "ending");
     document.body.classList.remove("landing-active");
     setFade(0);
     L.flameMat.uniforms.uThrottle.value = 0;
@@ -523,9 +533,27 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
    * Advance and, while running, take over the camera. `camera` arrives already posed at the walker's
    * eyes for this frame (used as the end of the glide). Returns true while the cinematic runs.
    */
+  function warmup(renderer, camera) {
+    if (!renderer || !camera || typeof renderer.compile !== "function") return;
+    const wasVisible = L.group.visible;
+    const prevInner = L.flameMat.uniforms.uThrottle.value;
+    const prevOuter = L.flameOuterMat.uniforms.uThrottle.value;
+    L.group.visible = true;
+    L.flameMat.uniforms.uThrottle.value = 0.5;
+    L.flameOuterMat.uniforms.uThrottle.value = 0.5;
+    try {
+      renderer.compile(scene, camera);
+    } finally {
+      L.flameMat.uniforms.uThrottle.value = prevInner;
+      L.flameOuterMat.uniforms.uThrottle.value = prevOuter;
+      L.group.visible = wasVisible;
+    }
+  }
+
   function update(dt, camera, clockT) {
     if (!s) return false;
-    s.t += Math.min(0.05, dt);
+    const stepDt = Math.min(0.05, Math.max(0, Number(dt) || 0));
+    s.t += stepDt;
     const t = s.t;
     eyePos.copy(camera.position);
     eyeQuat.copy(camera.quaternion);
@@ -551,14 +579,16 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     // blasted regolith: the closer the engines get to the ground, the more and faster the dust
     if (marsFx && p.throttle > 0.05 && p.h < 70) {
       const k = 1 - p.h / 70;
-      s.dustAcc += dt * (40 + 260 * k) * p.throttle;
-      while (s.dustAcc >= 1) {
+      s.dustAcc = Math.min(3, s.dustAcc + stepDt * (16 + 64 * k) * p.throttle);
+      let bursts = 0;
+      while (s.dustAcc >= 1 && bursts < 3) {
         s.dustAcc -= 1;
+        bursts++;
         const a = Math.random() * Math.PI * 2;
         const r = 1 + Math.random() * (3 + 10 * k);
         const x = s.padX + Math.cos(a) * r;
         const z = s.padZ + Math.sin(a) * r;
-        marsFx.emitBurst(x, sampleY(x, z), z, 3, 1.2 + 2.2 * k, Math.cos(a) * 9 * k, Math.sin(a) * 9 * k);
+        marsFx.emitBurst(x, gy, z, 2, 1.2 + 2.2 * k, Math.cos(a) * 9 * k, Math.sin(a) * 9 * k);
       }
     }
     if (!s.touched && t >= T_TOUCH) {
@@ -575,7 +605,7 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
         vz: 0,
       });
     }
-    s.shake *= Math.exp(-dt * 2.2);
+    s.shake *= Math.exp(-stepDt * 2.2);
 
     // thinner haze while the camera is high, so the crater floor reads from the air
     if (scene.fog && s.fogBase != null) scene.fog.density = s.fogBase * (0.3 + 0.7 * Math.min(1, Math.max(0, 1 - (p.h - 60) / 300)));
@@ -613,13 +643,17 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
       const ang = 1.25;
       const cx = pad.x + Math.cos(ang) * 24;
       const cz = pad.z + Math.sin(ang) * 24;
-      const startPos = new THREE.Vector3(cx, sampleY(cx, cz) + 2.4, cz);
+      startPos.set(cx, sampleY(cx, cz) + 2.4, cz);
       camera.position.lerpVectors(startPos, eyePos, e);
       m4.lookAt(startPos, look.set(pad.x, gy + 6, pad.z), UP);
       camQ.setFromRotationMatrix(m4);
       camera.quaternion.slerpQuaternions(camQ, eyeQuat, e);
       setFade(0);
-      overlay.classList.toggle("ending", u > 0.4);
+      const endingNow = u > 0.4;
+      if (endingNow !== s.isEnding) {
+        s.isEnding = endingNow;
+        overlay.classList.toggle("ending", endingNow);
+      }
       if (u >= 1) {
         finish();
         return false;
@@ -637,6 +671,7 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
 
   return {
     start,
+    warmup,
     update,
     skip,
     seek,
