@@ -55,6 +55,37 @@ export const ROVER_PARAMS = Object.freeze({
   regenEfficiency: 0.6,
 });
 
+/**
+ * Parameters for another drivable vehicle from its spec (axles, track, wheel radius, mass, top speed):
+ * the MMSEV numbers above are the reference, forces scale with mass, speeds with the top speed.
+ */
+export function roverParamsFor(spec) {
+  if (!spec || spec.id === "mmsev") return ROVER_PARAMS;
+  const k = (spec.massKg || 1850) / 1850; // relative to the MMSEV spec
+  const sp = (spec.topSpeedMs || 18.5) / 18.5;
+  const axleZ = (spec.axles || []).map((a) => a.z);
+  const mid = axleZ.length === 3 ? axleZ[1] : ROVER_PARAMS.cgZ;
+  const r = spec.wheelRadius || ROVER_PARAMS.wheelRadius;
+  return Object.freeze({
+    ...ROVER_PARAMS,
+    massKg: Math.round(ROVER_PARAMS.massKg * k),
+    wheelRadius: r,
+    trackHalfW: spec.trackHalfW || ROVER_PARAMS.trackHalfW,
+    axleZ: axleZ.length === 3 ? axleZ : ROVER_PARAMS.axleZ,
+    cgZ: mid,
+    cgY: ROVER_PARAMS.cgY + (r - ROVER_PARAMS.wheelRadius),
+    restLen: ROVER_PARAMS.restLen + (r - ROVER_PARAMS.wheelRadius),
+    wheelForceMaxN: ROVER_PARAMS.wheelForceMaxN * k,
+    brakeForceN: ROVER_PARAMS.brakeForceN * k,
+    powerW: ROVER_PARAMS.powerW * k * sp,
+    boostPowerW: ROVER_PARAMS.boostPowerW * k * sp,
+    vMax: ROVER_PARAMS.vMax * sp,
+    vMaxBoost: ROVER_PARAMS.vMaxBoost * sp,
+    vMaxReverse: ROVER_PARAMS.vMaxReverse * sp,
+    dims: { w: (spec.halfW || 1.3) * 2, h: ROVER_PARAMS.dims.h, l: (spec.halfL || 2.3) * 2 },
+  });
+}
+
 const SUBSTEP = 1 / 240;
 
 export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
@@ -160,22 +191,24 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     // sit the body on the plane through the six wheel spots, so no wheel starts buried
     const cy = Math.cos(yaw);
     const sy = Math.sin(yaw);
-    let sh = 0;
+    // plane through the six wheel spots (least squares on heights relative to their mean, so the
+    // absolute terrain elevation does not matter)
+    const hs = [];
+    for (const wh of wheels) {
+      hs.push(sampleY(x + cy * wh.lx + sy * wh.lz, z - sy * wh.lx + cy * wh.lz));
+    }
+    const mean = hs.reduce((u, v) => u + v, 0) / hs.length;
     let shx = 0;
     let shz = 0;
     let sxx = 0;
     let szz = 0;
-    for (const wh of wheels) {
-      const gx = x + cy * wh.lx + sy * wh.lz;
-      const gz = z - sy * wh.lx + cy * wh.lz;
-      const gyW = sampleY(gx, gz);
-      sh += gyW;
-      shx += gyW * wh.lx;
-      shz += gyW * (wh.lz - P.cgZ);
+    wheels.forEach((wh, i) => {
+      const dz = wh.lz - P.cgZ;
+      shx += (hs[i] - mean) * wh.lx;
+      shz += (hs[i] - mean) * dz;
       sxx += wh.lx * wh.lx;
-      szz += (wh.lz - P.cgZ) * (wh.lz - P.cgZ);
-    }
-    const mean = sh / wheels.length;
+      szz += dz * dz;
+    });
     const slopeX = shx / sxx; // rise per metre to the right
     const slopeZ = shz / szz; // rise per metre to the back
     const pitch = Math.atan(-slopeZ); // nose up when the ground rises ahead (-Z)

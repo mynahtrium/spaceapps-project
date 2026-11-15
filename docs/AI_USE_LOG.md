@@ -1197,3 +1197,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Not re-added: the performance work, wind dust and rover dashboard that the team's merges removed from `hud3d.js` (Cagan: do not restore).
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-15 Europe/Istanbul — ROVER-02 vehicle physics back to the rigid-body suspension model
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: ROVER-02
+- Files changed: `web/hud/hud3d.js`, `web/hud/rover-dynamics.js`, `web/hud/experimental-rover.js`, `web/tests/rover-dynamics.test.mjs`, `docs/AI_USE_LOG.md`
+- Why: Cagan said the vehicle physics had been changed and asked for the version he got back. The team's merges had put the old scripted model (`stepAdvancedRoverPhysics`: blended speed, faked body motion) back into the driving code, while `rover-dynamics.js`, `rover-rig.js` and `rover-dash.js` were still in the repository but not connected. Now both drivable vehicles (MMSEV and the NASA concept rover) run on the rigid-body model with six spring-damper struts again, each with its own parameters from its spec (`roverParamsFor`: axles, track, wheel radius, mass, top speed), the visible control arms and coil springs follow the real strut travel, and the digital dashboard is shown while driving. The unused `web/physics/VehicleDynamics.js` (not imported anywhere) was left alone. Fixed on the way: the start pose fit used absolute heights, so on high terrain (about 526 m here) the vehicle started tilted and flew off; it is now computed from heights relative to their mean (regression test added). Parked vehicles are held on their springs too; a vehicle that is not driven is no longer updated while another one is being driven.
+- Commit: this commit
+- Next step: none.

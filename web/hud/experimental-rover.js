@@ -1730,6 +1730,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     },
     setVehicleType,
     getActiveSpec,
+    getActiveRig,
     attachRealModel,
     placeAt,
     spawnBeside,

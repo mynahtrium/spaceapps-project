@@ -1,7 +1,7 @@
 // Headless checks for the MMSEV rigid-body + suspension model (node web/tests/rover-dynamics.test.mjs).
 import assert from "node:assert/strict";
 import * as THREE from "../vendor/three.module.js";
-import { createRoverDynamics, ROVER_PARAMS } from "../hud/rover-dynamics.js";
+import { createRoverDynamics, roverParamsFor, ROVER_PARAMS } from "../hud/rover-dynamics.js";
 
 const flat = {
   sampleY: () => 0,
@@ -124,6 +124,24 @@ const idle = { throttle: 0, steer: 0, boost: false, handbrake: false };
   assert.ok(worstTilt < (35 * Math.PI) / 180, "stays upright on rough ground");
   assert.ok(minContacts < 6, "wheels articulate");
   assert.ok(rv.state.vLong > 1, "keeps moving");
+}
+
+// 6) high terrain (Gale sits ~500 m above the local datum) and the other vehicle's asymmetric axles:
+//    the start pose must not depend on the absolute elevation
+{
+  const high = { sampleY: () => 526.6, sampleNormal: () => ({ x: 0, y: 1, z: 0 }) };
+  for (const spec of [
+    { id: "nasa_concept", massKg: 2250, topSpeedMs: 22, wheelRadius: 0.52, trackHalfW: 1.48, halfW: 1.82, halfL: 3.15, axles: [{ z: -1.95 }, { z: 0.42 }, { z: 1.98 }] },
+  ]) {
+    const rv = createRoverDynamics(THREE, roverParamsFor(spec));
+    rv.reset(-59.85, 1515.17, 0.3, high.sampleY);
+    run(rv, 3, idle, high);
+    const a = rv.attitude();
+    console.log(`high ground (${spec.id}): y ${rv.state.pos.y.toFixed(2)}, pitch ${(a.pitch * 57.3).toFixed(2)}, roll ${(a.roll * 57.3).toFixed(2)}`);
+    assert.ok(Math.abs(rv.state.pos.y - 526.6) < 0.1, "sits on the ground");
+    assert.ok(Math.abs(a.pitch) < 0.02 && Math.abs(a.roll) < 0.02, "level on flat high ground");
+    assert.equal(rv.wheels.filter((w) => w.contact).length, 6, "all wheels down");
+  }
 }
 
 console.log("rover-dynamics: all checks passed");
