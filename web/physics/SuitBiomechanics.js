@@ -22,7 +22,7 @@ export const RUN_SPEED_MS = 4.4;
  * at Gale g (≈3.72 m/s²) it peaks near 0.9 m and stays up ~1.4 s. Gameplay value.
  */
 export const JUMP_SPEED_MS = 2.6;
-export const RESPONSE_TAU_S = 0.22;
+export const RESPONSE_TAU_S = 0.1;
 
 export const HIP_NEUTRAL_RAD = 12 * DEG;
 export const KNEE_NEUTRAL_RAD = 15 * DEG;

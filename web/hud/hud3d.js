@@ -46,7 +46,7 @@ import { createDustDevil } from "./DustDevil.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
-import { loadDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
+import { loadDevSettings, saveDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
 import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
@@ -73,6 +73,14 @@ import {
 } from "../shared/mars-rovers.js";
 import { createHistoricRoverManager } from "./historic-rovers.js";
 import { GaleCorridor, buildCorridorCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
+import {
+  RT_HEIGHT_GLSL,
+  RT_LENS_PARS_GLSL,
+  buildHeightfieldRtData,
+  buildHeightfieldRtTexture,
+  createRayTracerUniforms,
+  patchObjectRayTracer,
+} from "./ray-tracer.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -291,6 +299,8 @@ const LENS_FRAG = /* glsl */ `
   uniform float uRay;
   varying vec2 vUv;
 
+  ${RT_LENS_PARS_GLSL}
+
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -306,11 +316,21 @@ const LENS_FRAG = /* glsl */ `
     vec2 d = (c * dist * uFrameZoom) / max(1.0, uOptZoom);
     d.x /= aspect;
     vec2 uv = d + 0.5;
-
     vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
     float ca = uAberration * r2;
     vec3 col;
-    if (ca > 0.0001) {
+    if (uRtEnabled > 0.5) {
+      vec3 rtBase = rtFxaaSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution);
+      float rtJ = hash(gl_FragCoord.xy + fract(uTime * 13.7) * 97.0);
+      vec3 rtCol = rtScreenSpacePass(tDiffuse, rtBase, clamp(uv, 0.0, 1.0), uResolution, rtJ);
+      if (ca > 0.0001) {
+        col.r = mix(rtCol.r, texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r, 0.35);
+        col.g = rtCol.g;
+        col.b = mix(rtCol.b, texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b, 0.35);
+      } else {
+        col = rtCol;
+      }
+    } else if (ca > 0.0001) {
       col.r = texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r;
       col.g = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).g;
       col.b = texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b;
@@ -319,25 +339,26 @@ const LENS_FRAG = /* glsl */ `
     }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
 
-    // 20% default curved black visor frame (b = 1.0 => ~17% top/bottom center -> ~21% corners, ~8.5% -> ~14% sides)
+    // Thin curved black visor frame (default 20% strength => sleek thin visor border)
     float b = clamp(uBezelScale, 0.0, 1.5);
     float bezel = 1.0;
     float bezelRim = 0.0;
     if (b > 0.001) {
+      float bNorm = b <= 0.2 ? (b / 0.2) : (1.0 + (b - 0.2) * 0.65);
       vec2 q = (vUv - 0.5) * 2.0;
-      float bY = clamp(0.168 * b, 0.0, 0.30);
-      float bCornerY = clamp(0.214 * b, 0.0, 0.36);
-      float bX = clamp(0.085 * b, 0.0, 0.22);
-      float bCornerX = clamp(0.142 * b, 0.0, 0.28);
-      float yHalf = max(0.22, 1.0 - 2.0 * mix(bY, bCornerY, pow(abs(q.x), 1.85)));
-      float xHalf = max(0.32, 1.0 - 2.0 * mix(bX, bCornerX, pow(abs(q.y), 1.85)));
+      float bY = clamp(0.012 * bNorm, 0.0, 0.09);
+      float bCornerY = clamp(0.038 * bNorm, 0.0, 0.14);
+      float bX = clamp(0.015 * bNorm, 0.0, 0.08);
+      float bCornerX = clamp(0.034 * bNorm, 0.0, 0.12);
+      float yHalf = max(0.22, 1.0 - 2.0 * mix(bY, bCornerY, pow(max(abs(q.x), 1e-4), 1.85)));
+      float xHalf = max(0.32, 1.0 - 2.0 * mix(bX, bCornerX, pow(max(abs(q.y), 1e-4), 1.85)));
       vec2 pBox = vec2(abs(q.x) * aspect, abs(q.y));
       vec2 halfBox = vec2(xHalf * aspect, yHalf);
-      float cr = 0.13 * min(1.0, b);
+      float cr = 0.068 * min(1.0, bNorm);
       vec2 qBox = pBox - (halfBox - vec2(cr));
       float dPx = length(max(qBox, 0.0)) + min(max(qBox.x, qBox.y), 0.0) - cr;
-      bezel = 1.0 - smoothstep(-0.004, 0.008, dPx);
-      bezelRim = smoothstep(-0.08, 0.0, dPx) * min(1.0, b);
+      bezel = 1.0 - smoothstep(-0.003, 0.006, dPx);
+      bezelRim = smoothstep(-0.032, 0.0, dPx) * min(1.0, bNorm);
     }
 
     col *= uExposure;
@@ -749,6 +770,20 @@ export async function initHud3D(
     return top + (bot - top) * ty - elevMin;
   }
 
+  const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 192);
+  const rtUniforms = createRayTracerUniforms(THREE, worldW, worldH, sunDir, rtHeightInfo);
+  function refreshRtHeightfield() {
+    const packed = buildHeightfieldRtData(sampleElevSceneY, worldW, worldH, 192);
+    if (rtHeightInfo?.texture?.image?.data) {
+      rtHeightInfo.texture.image.data.set(packed.data);
+      rtHeightInfo.texture.needsUpdate = true;
+    }
+    rtUniforms.uRtElevMin.value = packed.minH;
+    rtUniforms.uRtElevSpan.value = packed.span;
+  }
+  patchObjectRayTracer(THREE, rockField.group, rtUniforms, { reflectScale: 0.35 });
+  patchObjectRayTracer(THREE, galeVista, rtUniforms, { reflectScale: 0.25 });
+
   function sampleNormal(x, z) {
     const e = 0.35;
     const nx = sampleElevSceneY(x - e, z) - sampleElevSceneY(x + e, z);
@@ -1158,14 +1193,15 @@ export async function initHud3D(
     shader.uniforms.uCov = covTexU;
     shader.uniforms.uCovOrigin = covOriginU;
     shader.uniforms.uCovCell = covCellU;
+    Object.assign(shader.uniforms, rtUniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
+        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform vec2 uCurvAnchor;\nuniform float uCurvInv2N;\nuniform float uCurvInv2M;"
       )
       .replace(
         "#include <project_vertex>",
-        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
+        "vMmSlope = 1.0 - clamp(abs(normal.y), 0.0, 1.0);\nvMmElev = transformed.y;\nvec4 mmWorld = modelMatrix * vec4(transformed, 1.0);\nvMmWorldXZ = mmWorld.xz;\nvRtWorldPos = mmWorld.xyz;\nfloat mmDx = mmWorld.x - uCurvAnchor.x;\nfloat mmDz = mmWorld.z - uCurvAnchor.y;\nmmWorld.y += -mmDx * mmDx * uCurvInv2N - mmDz * mmDz * uCurvInv2M;\nvec4 mvPosition = viewMatrix * mmWorld;\ngl_Position = projectionMatrix * mvPosition;"
       );
     const sunChunk = THREE.ShaderChunk.lights_fragment_begin.replace(
       "getDirectionalLightInfo( directionalLight, directLight );",
@@ -1174,7 +1210,7 @@ export async function initHud3D(
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec2 vMmWorldXZ;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\nuniform vec2 uMmUvScale;\nuniform float uCovOn;\nuniform sampler2D uCov;\nuniform vec2 uCovOrigin;\nuniform vec2 uCovCell;"
+        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\nuniform vec2 uMmUvScale;\nuniform float uCovOn;\nuniform sampler2D uCov;\nuniform vec2 uCovOrigin;\nuniform vec2 uCovCell;\n${RT_HEIGHT_GLSL}`
       )
       .replace(
         "#include <clipping_planes_fragment>",
@@ -1187,8 +1223,28 @@ export async function initHud3D(
       )
       .replace(
         "#include <lights_fragment_begin>",
-        "float mmSunVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\n" +
+        "float mmMaskVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\nfloat mmSunVis = mmMaskVis;\nif (uRtEnabled > 0.5) {\n  float rtShJ = rtIgn(gl_FragCoord.xy + fract(uRtTime) * 53.0);\n  float rtSh = rtTraceShadow(vRtWorldPos + vec3(0.0, 0.14, 0.0), uRtSunDir, 260.0, rtShJ);\n  mmSunVis = mix(rtSh, min(rtSh, mmMaskVis), 0.35);\n}\n" +
           sunChunk
+      )
+      .replace(
+        "#include <lights_fragment_end>",
+        `#include <lights_fragment_end>
+        if (uRtEnabled > 0.5) {
+          float rtJGi = rtIgn(gl_FragCoord.xy + fract(uRtTime * 1.37) * 79.0);
+          vec3 rtWN = normalize((vec4(geometryNormal, 0.0) * viewMatrix).xyz);
+          vec3 rtWV = normalize((vec4(geometryViewDir, 0.0) * viewMatrix).xyz);
+          float rtSkyVis;
+          vec3 rtBounce;
+          rtTraceGI(vRtWorldPos + rtWN * 0.08, rtWN, uRtSunDir, rtJGi, rtSkyVis, rtBounce);
+          reflectedLight.indirectDiffuse *= rtSkyVis;
+          reflectedLight.indirectDiffuse += diffuseColor.rgb * rtBounce;
+          float rtFresnel = pow(1.0 - clamp(dot(rtWN, rtWV), 0.0, 1.0), 5.0);
+          if (rtFresnel > 0.025) {
+            vec3 rtReflDir = reflect(-rtWV, rtWN);
+            vec3 rtSkySpec = rtMarsSky(rtReflDir, uRtSunDir);
+            reflectedLight.indirectSpecular += rtSkySpec * rtFresnel * 0.18 * rtSkyVis;
+          }
+        }`
       )
       .replace(
         "#include <map_pars_fragment>",
@@ -1612,6 +1668,7 @@ export async function initHud3D(
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
   scene.add(self.group); // single astronaut: you
+  patchObjectRayTracer(THREE, self.group, rtUniforms, { reflectScale: 1.0 });
 
   const suitMatBaselines = [];
   self.group.traverse((obj) => {
@@ -1651,9 +1708,14 @@ export async function initHud3D(
   const rover = createExperimentalRover(THREE);
   rover.group.visible = false;
   scene.add(rover.group);
-  rover.attachRealModel(sharedGltfLoader);
+  patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  rover.attachRealModel(sharedGltfLoader).then((ok) => {
+    if (ok) patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  });
 
-  const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene);
+  const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
+    onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
+  });
   function reScatterHistoricRovers(originX = 0, originZ = 0) {
     const placements = scatterHistoricRoverCoords({
       sampleElevY: sampleElevSceneY,
@@ -1795,6 +1857,7 @@ export async function initHud3D(
 
     const badge = makeCallsignBadgeFor(peer);
     avatar.group.add(badge.spr);
+    patchObjectRayTracer(THREE, avatar.group, rtUniforms, { reflectScale: 0.95 });
     remoteGroup.add(avatar.group);
 
     const st = peer.state || {};
@@ -1937,8 +2000,11 @@ export async function initHud3D(
   let evaLampOn = false;
   let goldSlide = 0;
 
+  const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  dummyDepthTex.needsUpdate = true;
   let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
   let rtSamples = 2;
+  let rtHasDepth = false;
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -1947,6 +2013,10 @@ export async function initHud3D(
     toneMapped: true,
     uniforms: {
       tDiffuse: { value: rt.texture },
+      tDepth: { value: dummyDepthTex },
+      uRtEnabled: rtUniforms.uRtEnabled,
+      uRtProj: { value: new THREE.Matrix4() },
+      uRtInvProj: { value: new THREE.Matrix4() },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uDistort: { value: 0.14 },
@@ -2077,9 +2147,6 @@ export async function initHud3D(
   const partnerPos = new THREE.Vector3(freePos.x, 0, freePos.z);
   let partnerYaw = userYaw;
   const player = { x: 0, y: 0, z: 0, vy: 0, grounded: true, init: false };
-  // Visor height eased toward the feet so stepping onto a ledge lifts the view over ~0.1 s
-  // instead of teleporting it. Snaps when airborne or after a teleport.
-  let eyeSmoothY = null;
   const phys = createMarsBody({ x: freePos.x, z: freePos.z, y: 0, grounded: true });
   const heightEnv = {
     sampleHeight: sampleElevSceneY,
@@ -2249,11 +2316,11 @@ export async function initHud3D(
     }
   }
 
-  function openRoverInfoSafe(spec) {
+  function openRoverInfoSafe(spec, opts = {}) {
     if (!spec) return;
     dragging = false;
     releasePointerLock();
-    if (onOpenRoverInfo) onOpenRoverInfo(spec);
+    if (onOpenRoverInfo) onOpenRoverInfo(spec, opts);
     else dispatchOpenRoverInfo(spec.id);
   }
 
@@ -2752,6 +2819,7 @@ export async function initHud3D(
     sunSite.lat = spec.lat;
     sunSite.lon = spec.lon;
     refreshSun({ rebake: true });
+    refreshRtHeightfield();
     return true;
   }
 
@@ -2928,6 +2996,16 @@ export async function initHud3D(
     if (modalOpen || crewOpen || escMenuOpen || menuOpen) return;
 
     const k = e.key.toLowerCase();
+    if (k === "5" && !e.repeat) {
+      if (fleetPanelEl) {
+        e.preventDefault();
+        releasePointerLock();
+        const nextOpen = !fleetPanelEl.classList.contains("open");
+        if (nextOpen) renderHudFleetPanel();
+        fleetPanelEl.classList.toggle("open", nextOpen);
+      }
+      return;
+    }
     if ((k === "m" || k === "o") && !e.repeat) {
       e.preventDefault();
       releasePointerLock();
@@ -2957,6 +3035,16 @@ export async function initHud3D(
     }
     if (k === "z" && !e.repeat) {
       cycleOpticalZoom();
+      return;
+    }
+    if (k === "r" && !e.repeat) {
+      const nextCfg = saveDevSettings({ rayTracing: !devCfg.rayTracing });
+      applyDevSettings(nextCfg);
+      showWrapNotice(
+        isTrLang()
+          ? `RAY TRACING: ${nextCfg.rayTracing ? "AÇIK (GPU YOĞUN)" : "KAPALI"}`
+          : `RAY TRACING: ${nextCfg.rayTracing ? "ON (HEAVY GPU)" : "OFF"}`
+      );
       return;
     }
 
@@ -3015,7 +3103,7 @@ export async function initHud3D(
           isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
         );
       if (targetRover) {
-        openRoverInfoSafe(targetRover);
+        openRoverInfoSafe(targetRover, { toggleKey: "e" });
         return;
       }
 
@@ -3052,7 +3140,7 @@ export async function initHud3D(
         }
       }
       if (nearRover) {
-        openRoverInfoSafe(nearRover);
+        openRoverInfoSafe(nearRover, { toggleKey: "e" });
       }
       return;
     }
@@ -3162,6 +3250,48 @@ export async function initHud3D(
   let frameAvg = 16;
   let lastScaleChange = 0;
 
+  function syncVisorSafeInsets(w, h, bezelScale) {
+    const host = hudView || document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
+    if (!host) return;
+    const width = Math.max(1, w || window.innerWidth);
+    const height = Math.max(1, h || window.innerHeight);
+    const b = Math.max(0, Math.min(1.5, bezelScale || 0));
+    if (b <= 0.001) {
+      host.style.setProperty("--visor-pad-top", "14px");
+      host.style.setProperty("--visor-pad-bottom", "14px");
+      host.style.setProperty("--visor-pad-x", "28px");
+      host.style.setProperty("--visor-compass-lift", "0px");
+      return;
+    }
+    const bNorm = b <= 0.2 ? b / 0.2 : 1.0 + (b - 0.2) * 0.65;
+    const bY = Math.min(0.09, 0.012 * bNorm);
+    const bCornerY = Math.min(0.14, 0.038 * bNorm);
+    const bX = Math.min(0.08, 0.015 * bNorm);
+    const bCornerX = Math.min(0.12, 0.034 * bNorm);
+    const cr = 0.068 * Math.min(1.0, bNorm);
+    const aspect = width / height;
+
+    const padXPct = Math.min(0.16, bCornerX + 0.016);
+    const qx = Math.max(0, 1 - 2 * padXPct);
+    const yHalf = Math.max(0.22, 1.0 - 2.0 * (bY + (bCornerY - bY) * Math.pow(Math.max(qx, 1e-4), 1.85)));
+    const xHalf = Math.max(0.32, 1.0 - 2.0 * (bX + (bCornerX - bX) * Math.pow(Math.max(yHalf, 1e-4), 1.85)));
+    const hx = xHalf * aspect;
+    const dx = Math.max(0, qx * aspect - Math.max(0, hx - cr));
+    const cornerDropY = cr - Math.sqrt(Math.max(0, cr * cr - Math.min(cr, dx) ** 2));
+    const clearY = Math.max(0.1, yHalf - cornerDropY);
+    const padYPct = Math.min(0.18, (1.0 - clearY) * 0.5 + 0.014);
+
+    const padX = Math.max(30, Math.round(width * padXPct));
+    const padY = Math.max(20, Math.round(height * padYPct));
+    const centerClearY = Math.round(height * (bY + 0.012));
+    const compassLift = Math.max(0, Math.min(14, padY - centerClearY));
+
+    host.style.setProperty("--visor-pad-top", `${padY}px`);
+    host.style.setProperty("--visor-pad-bottom", `${padY}px`);
+    host.style.setProperty("--visor-pad-x", `${padX}px`);
+    host.style.setProperty("--visor-compass-lift", `${compassLift}px`);
+  }
+
   const onResize = () => {
     const w = wrap.clientWidth || window.innerWidth;
     const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
@@ -3172,6 +3302,8 @@ export async function initHud3D(
     const pr = renderer.getPixelRatio() * renderScale;
     rt.setSize(Math.max(1, Math.floor(w * pr)), Math.max(1, Math.floor(h * pr)));
     lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
+    const activeScale = devCfg.frameEffect ? Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2)) : 0;
+    syncVisorSafeInsets(w, h, activeScale);
   };
 
   function syncDrivingCameraVisualState(isDriving3p) {
@@ -3179,25 +3311,31 @@ export async function initHud3D(
     if (visorOverlay) {
       visorOverlay.classList.toggle("driving-3p", Boolean(isDriving3p));
     }
+    const w = wrap.clientWidth || window.innerWidth;
+    const topOff = document.body.classList.contains("in-hud") ? 0 : 44;
+    const h = wrap.clientHeight || window.innerHeight - topOff;
     if (!devCfg.frameEffect) {
       lensMat.uniforms.uFrameZoom.value = 1.0;
       lensMat.uniforms.uBezelScale.value = 0.0;
       lensMat.uniforms.uDistort.value = 0.0;
       lensMat.uniforms.uAberration.value = 0.0;
       lensMat.uniforms.uVignette.value = 0.0;
+      syncVisorSafeInsets(w, h, 0);
       return;
     }
-    const strength = Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 1.0));
+    const strength = Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2));
+    const lensAmt = Math.max(0.45, Math.min(1.5, 0.35 + strength * 0.65));
     lensMat.uniforms.uFrameZoom.value = 1.0;
     lensMat.uniforms.uBezelScale.value = strength;
+    syncVisorSafeInsets(w, h, strength);
     if (isDriving3p) {
-      lensMat.uniforms.uDistort.value = 0.04 * strength;
-      lensMat.uniforms.uAberration.value = 0.0006 * strength;
-      lensMat.uniforms.uVignette.value = 0.45 * strength;
+      lensMat.uniforms.uDistort.value = 0.04 * lensAmt;
+      lensMat.uniforms.uAberration.value = 0.0006 * lensAmt;
+      lensMat.uniforms.uVignette.value = 0.45 * lensAmt;
     } else {
-      lensMat.uniforms.uDistort.value = 0.14 * strength;
-      lensMat.uniforms.uAberration.value = 0.0014 * strength;
-      lensMat.uniforms.uVignette.value = 0.72 * strength;
+      lensMat.uniforms.uDistort.value = 0.11 * lensAmt;
+      lensMat.uniforms.uAberration.value = 0.0012 * lensAmt;
+      lensMat.uniforms.uVignette.value = 0.68 * lensAmt;
     }
   }
 
@@ -3222,17 +3360,34 @@ export async function initHud3D(
     }
 
     const wantSuper = Boolean(cfg.superGraphics);
+    const wantRt = Boolean(cfg.rayTracing);
     const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : 1.25);
     renderer.setPixelRatio(targetPr);
     renderScale = wantSuper ? 1.25 : 1.0;
 
-    const wantSamples = wantSuper ? 4 : 2;
-    if (rtSamples !== wantSamples) {
+    // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
+    // we switch to samples: 0 + DepthTexture (paired with FXAA + SSR/RTAO in LENS_FRAG).
+    const wantSamples = wantRt ? 0 : wantSuper ? 4 : 2;
+    if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
+      rtHasDepth = wantRt;
+      rt.depthTexture?.dispose?.();
       rt.dispose();
-      rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
+      if (wantRt) {
+        const depthTex = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+        rt = new THREE.WebGLRenderTarget(1, 1, {
+          type: THREE.HalfFloatType,
+          samples: 0,
+          depthTexture: depthTex,
+        });
+        lensMat.uniforms.tDepth.value = depthTex;
+      } else {
+        rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
+        lensMat.uniforms.tDepth.value = dummyDepthTex;
+      }
       lensMat.uniforms.tDiffuse.value = rt.texture;
     }
+    rtUniforms.uRtEnabled.value = wantRt ? 1 : 0;
 
     const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
     const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
@@ -3348,6 +3503,8 @@ export async function initHud3D(
   let lastMpSendMs = 0;
   let lastSentPose = null;
   let hudTimer = 1;
+  let eyeBaseY = null;
+  let groundSpeedSm = 0;
 
   const pushApart = (targetPos, minRadius = PARTNER_COLLISION_R) => {
     if (!targetPos) return;
@@ -3747,7 +3904,9 @@ export async function initHud3D(
     }
     const feet = footSample(px, pz, yaw, player.y);
     const strikes = [];
-    self.update(dt, step, groundSpeed, !player.grounded, gaitDir, {
+    groundSpeedSm += (groundSpeed - groundSpeedSm) * Math.min(1, dt * 9);
+    if (groundSpeedSm < 0.03 && step === 0) groundSpeedSm = 0;
+    self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir, {
       crouch: phys.crouch,
       lean,
       brake,
@@ -3824,16 +3983,13 @@ export async function initHud3D(
       camera.position.set(chaseCamPos.x, chaseCamPos.y + Math.sin(clockT * 16) * shake, chaseCamPos.z);
       camera.lookAt(chaseLookTarget);
     } else {
-      if (eyeSmoothY === null || !player.grounded || snappedThisFrame || Math.abs(player.y - eyeSmoothY) > 1) {
-        eyeSmoothY = player.y;
-      } else {
-        eyeSmoothY += (player.y - eyeSmoothY) * (1 - Math.exp(-dt / 0.08));
-      }
       const tip = Math.max(0, -pitch);
       const eyeFwd = EYE_FORWARD_M + tip * 0.1;
+      if (eyeBaseY == null || snappedThisFrame || Math.abs(player.y - eyeBaseY) > 0.8) eyeBaseY = player.y;
+      else eyeBaseY += (player.y - eyeBaseY) * Math.min(1, dt * 14);
       camera.position.set(
         px + fwd.x * eyeFwd + right.x * swayX,
-        eyeSmoothY + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
+        eyeBaseY + EYE_HEIGHT_M - phys.crouch - tip * 0.07 + swayY,
         pz + fwd.z * eyeFwd + right.z * swayX
       );
       camera.rotation.order = "YXZ";
@@ -4055,6 +4211,12 @@ export async function initHud3D(
     lensMat.uniforms.uOptZoom.value = optZoom;
     lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir)) * sunUpNow;
     lensMat.uniforms.uExposure.value = 1.0;
+    rtUniforms.uRtTime.value = clockT;
+    rtUniforms.uRtSunDir.value.copy(sunDir);
+    if (devCfg.rayTracing) {
+      lensMat.uniforms.uRtProj.value.copy(camera.projectionMatrix);
+      lensMat.uniforms.uRtInvProj.value.copy(camera.projectionMatrixInverse);
+    }
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);

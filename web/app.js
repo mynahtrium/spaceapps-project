@@ -201,12 +201,18 @@ async function boot() {
   const modalBackdrop = document.getElementById("modal-backdrop");
   const modalTitle = document.getElementById("modal-title");
   const modalBody = document.getElementById("modal-body");
-  document.getElementById("modal-close").onclick = () => modalBackdrop.classList.remove("open");
+  let modalToggleKey = null;
+  function closeModal() {
+    modalBackdrop.classList.remove("open");
+    modalToggleKey = null;
+  }
+  document.getElementById("modal-close").onclick = closeModal;
   modalBackdrop.onclick = (e) => {
-    if (e.target === modalBackdrop) modalBackdrop.classList.remove("open");
+    if (e.target === modalBackdrop) closeModal();
   };
 
   function openPovModal(povEntry) {
+    modalToggleKey = null;
     modalTitle.textContent = `Curiosity Rover POV — ${povEntry.stop_name}`;
     const imgUrl = `${data.assets.povBaseUrl}/${povEntry.stop_id}.jpg`;
     modalBody.innerHTML = `
@@ -221,7 +227,7 @@ async function boot() {
     modalBackdrop.classList.add("open");
   }
 
-  function openHistoricRoverModal(roverOrId) {
+  function openHistoricRoverModal(roverOrId, { toggleKey = null } = {}) {
     if (document.pointerLockElement) {
       try {
         document.exitPointerLock?.();
@@ -229,6 +235,7 @@ async function boot() {
     }
     const rover = typeof roverOrId === "string" ? getHistoricRoverById(roverOrId) : roverOrId;
     if (!rover) return;
+    modalToggleKey = toggleKey || null;
     const tr = readLang() === "tr";
     const statusTr = rover.status === "ACTIVE" ? (tr ? "AKTİF GÖREV" : "ACTIVE") : tr ? "TAMAMLANDI" : "COMPLETED";
     const coordsText = formatMarsLonLat(rover.lon, rover.lat, 4);
@@ -295,20 +302,21 @@ async function boot() {
       </div>
     `;
     modalBody.querySelector("#rover-modal-visit-3d")?.addEventListener("click", () => {
-      modalBackdrop.classList.remove("open");
+      closeModal();
       dispatchVisitRoverSite(rover.id);
       switchToHud();
     });
     modalBody.querySelector("#rover-modal-show-orbit")?.addEventListener("click", () => {
-      modalBackdrop.classList.remove("open");
+      closeModal();
       switchToOrbit();
     });
     modalBackdrop.classList.add("open");
   }
 
-  onOpenRoverInfo((detail) => openHistoricRoverModal(detail?.roverId));
+  onOpenRoverInfo((detail) => openHistoricRoverModal(detail?.roverId, { toggleKey: detail?.toggleKey || null }));
 
   function openCreditsModal() {
+    modalToggleKey = null;
     modalTitle.textContent = "Data Sources, Citations & Honesty Notes";
     modalBody.innerHTML = `
       <div style="font-size:12px;line-height:1.55;">
@@ -345,6 +353,7 @@ async function boot() {
   btnCredits.onclick = openCreditsModal;
 
   function openDevSettingsModal() {
+    modalToggleKey = null;
     const tr = readLang() === "tr";
     const s = loadDevSettings();
     modalTitle.textContent = tr ? "GELİŞTİRİCİ AYARLARI // DENEYSEL" : "DEVELOPER SETTINGS // EXPERIMENTAL";
@@ -423,6 +432,21 @@ async function boot() {
             }</div>
           </div>
           <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row dev-row-exp">
+          <div>
+            <div class="dev-label">
+              ${tr ? "Gerçek Zamanlı Işın İzleme (Ray Tracing)" : "Real-Time Ray Tracing"}
+              <span class="dev-badge-exp">${tr ? "GPU RT" : "GPU RT"}</span>
+            </div>
+            <div class="dev-sub">${
+              tr
+                ? "Piksel başına GPU yükseklik alanı ışın yürütme: dinamik yumuşak gölgeler, 6 yönlü küresel aydınlatma (GI/AO), araç/vizör/arazi yansıma ışınları ve derinlik tamponu SSR/SSGI (ağır GPU yükü, FPS düşürebilir — R tuşuyla da aç/kapa)."
+                : "Per-pixel GPU heightfield ray marching & screen-space rays: dynamic penumbra soft shadows, 6-dir indirect bounce GI/AO, rover/visor/terrain reflection rays & depth SSR (heavy GPU cost, lowers FPS — toggle with R key)."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-ray-tracing" ${s.rayTracing ? "checked" : ""} />
         </label>
 
         <label class="dev-row dev-row-exp">
@@ -543,6 +567,7 @@ async function boot() {
     const roverSpeedRange = document.getElementById("dev-rover-speed");
     const roverSpeedVal = document.getElementById("dev-rover-speed-val");
     const superToggle = document.getElementById("dev-super-gfx");
+    const rtToggle = document.getElementById("dev-ray-tracing");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
@@ -569,6 +594,7 @@ async function boot() {
       if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
       if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (rtToggle) rtToggle.checked = cfg.rayTracing;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
@@ -598,6 +624,7 @@ async function boot() {
       );
     });
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    rtToggle?.addEventListener("change", () => syncUi(saveDevSettings({ rayTracing: rtToggle.checked })));
     expRoverToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
     );
@@ -1031,30 +1058,62 @@ async function boot() {
   document.getElementById("esc-lang-tr")?.addEventListener("click", () => start.setLang("tr"));
 
   window.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    if (document.pointerLockElement) return;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
-    if (modalBackdrop.classList.contains("open")) {
+    const k = e.key?.toLowerCase?.() || "";
+
+    if (!e.repeat && modalBackdrop.classList.contains("open") && modalToggleKey && k === modalToggleKey) {
       e.preventDefault();
-      modalBackdrop.classList.remove("open");
+      e.stopImmediatePropagation?.();
+      closeModal();
       return;
     }
-    if (crewDrawer?.classList.contains("open")) {
-      e.preventDefault();
-      crewDrawer.classList.remove("open");
+
+    if (e.key === "Escape") {
+      if (modalBackdrop.classList.contains("open")) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        closeModal();
+        return;
+      }
+      if (crewDrawer?.classList.contains("open")) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        crewDrawer.classList.remove("open");
+        return;
+      }
+      if (escMenu?.classList.contains("open")) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        toggleEscMenu(false);
+        return;
+      }
+      if (document.pointerLockElement) return;
+      const startScreen = document.getElementById("start-screen");
+      if (startScreen && !startScreen.classList.contains("hidden")) return;
+      if (orbitView?.classList.contains("active") || !hudApi) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+        toggleEscMenu(true);
+      }
       return;
     }
-    if (escMenu?.classList.contains("open")) {
-      e.preventDefault();
-      toggleEscMenu(false);
+
+    if (e.repeat) return;
+    if (
+      modalBackdrop.classList.contains("open") ||
+      crewDrawer?.classList.contains("open") ||
+      escMenu?.classList.contains("open")
+    ) {
       return;
     }
     const startScreen = document.getElementById("start-screen");
     if (startScreen && !startScreen.classList.contains("hidden")) return;
-    if (orbitView?.classList.contains("active") || !hudApi) {
+
+    if (k === "o" && orbitView?.classList.contains("active")) {
       e.preventDefault();
-      toggleEscMenu(true);
+      e.stopImmediatePropagation?.();
+      switchToHud();
     }
   });
 
@@ -1138,7 +1197,7 @@ async function boot() {
           }));
         }
         if (modalBackdrop.classList.contains("open")) {
-          return [{ label: t("Close window", "Pencereyi kapat"), hint: "Esc", action: () => modalBackdrop.classList.remove("open") }];
+          return [{ label: t("Close window", "Pencereyi kapat"), hint: "Esc", action: closeModal }];
         }
         if (escMenu?.classList.contains("open")) {
           return [{ label: t("Resume", "Devam et"), hint: "Esc", action: () => toggleEscMenu(false) }];
