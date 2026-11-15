@@ -1143,7 +1143,7 @@ async function boot() {
     setText("esc-lbl-eva", tr ? "EVA VE OPTİK KONTROLLER" : "EVA & OPTICS CONTROLS");
     setText("esc-lbl-system", tr ? "GÖREV VE AYARLAR" : "MISSION & SETTINGS");
     setText("esc-go-hud", tr ? "EVA Vücut Kamerası" : "EVA Bodycam");
-    setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
+    setText("esc-go-orbit", tr ? "Yörünge Görünümü (O)" : "Orbit View (O)");
     setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
     const activeTheme = loadDevSettings().hudTheme || "cyan";
@@ -1343,7 +1343,8 @@ async function boot() {
       return [
         { heading: t("BODYCAM", "VÜCUT KAMERASI") },
         { label: t("Drop waypoint pin", "Yol işareti bırak"), hint: "P", action: clickId("hud-ping") },
-        { label: t("Orbit view", "Yörünge görünümü"), hint: "M", action: clickId("hud-orbit-btn") },
+        { label: t("Orbit view", "Yörünge görünümü"), hint: "O", action: clickId("hud-orbit-btn") },
+        { label: t("Cycle weather", "Hava durumunu değiştir"), hint: "M", action: () => window.MartianWeather?.cycleState?.() },
         { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
         { label: btnLabel("hud-gold-btn", "Gold (G)"), action: clickId("hud-gold-btn") },
         { label: btnLabel("hud-lamp-btn", "Flashlight (F)"), action: clickId("hud-lamp-btn") },

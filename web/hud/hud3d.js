@@ -4486,11 +4486,11 @@ export async function initHud3D(
           (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
         const keySteer =
           (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
-        const mapBlocked = isMapOpen();
+        const mapBlocked = isMapOpen() || hasOpenModalOverlay();
         const throttle = mapBlocked ? 0 : keyThrottle || (rt - lt) || (Math.abs(st.y) > 0.2 ? st.y : 0);
         const steerIn = mapBlocked ? 0 : keySteer || -st.x;
         const handbrake = !mapBlocked && (keys.has(" ") || (padOk && gamepad.isDown("jump")));
-        const boost = keys.has("shift") || (padOk && gamepad.isDown("pin"));
+        const boost = !mapBlocked && (keys.has("shift") || (padOk && gamepad.isDown("pin")));
         prevRoverSteer = roverSteer;
         roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
@@ -4502,7 +4502,7 @@ export async function initHud3D(
         });
         const rs = sim.state;
 
-        // bumping into crewmates and the historic rovers: push the rover back out and bleed speed
+        // bumping into crewmates, other vehicles, habitat, historic rovers, and NPCs: push out and bleed speed
         rig.sync();
         const pushOut = (x, z, radius, y) => {
           const hit = activeDriveRover.resolveCollision(x, z, radius, y);
@@ -4515,12 +4515,29 @@ export async function initHud3D(
         for (const remote of remoteAvatars.values()) {
           pushOut(remote.group.position.x, remote.group.position.z, PARTNER_COLLISION_R + 0.08, remote.group.position.y);
         }
+        for (const otherDrv of drivableRovers) {
+          if (otherDrv === activeDriveRover || !otherDrv.group.visible) continue;
+          pushOut(otherDrv.group.position.x, otherDrv.group.position.z, otherDrv.radius * 0.72, otherDrv.group.position.y);
+        }
+        if (habitatStation.group.visible) {
+          const hitHab = habitatStation.resolveCollision(rs.pos.x, rs.pos.z, 1.75, rs.pos.y);
+          if (hitHab.hit) {
+            sim.setPosition(hitHab.x, hitHab.z);
+            sim.scaleVelocity(0.25);
+            rig.sync();
+          }
+        }
         for (const histEntry of historicRovers.getAllEntries()) {
           if (histEntry.group === activeDriveRover.group) continue; // the rover you are driving
           const hPos = histEntry.group?.position;
           const hSpec = histEntry.spec;
           if (!hPos || !hSpec) continue;
           pushOut(hPos.x, hPos.z, Math.max(hSpec.halfW || 1.2, hSpec.halfL || 1.3) * 0.72, hPos.y);
+        }
+        if (npcManager.npcGroup.visible) {
+          for (const npcEntry of npcManager.getAllNpcs()) {
+            pushOut(npcEntry.x, npcEntry.z, 0.52, npcEntry.y);
+          }
         }
 
         // endless terrain: the wrap moves activeDriveRover.group; carry the simulation with it
@@ -4596,6 +4613,24 @@ export async function initHud3D(
         if (drvSpdEl) drvSpdEl.textContent = String(Math.round(Math.abs(rs.vLong) * 3.6));
         if (drvGearEl) drvGearEl.textContent = rs.gear;
         if (drvRpmEl) drvRpmEl.style.width = `${Math.round(Math.min(1, rs.motorRpm / 4000) * 100)}%`;
+        if (drvSlipEl) {
+          const slipPct = Math.round(slipMax * 100);
+          drvSlipEl.classList.toggle("drifting", drifting);
+          drvSlipEl.textContent = rs.airborne
+            ? "AIRBORNE"
+            : drifting
+              ? `DRIFT ${slipPct}%`
+              : `GRIP ${Math.max(0, 100 - slipPct)}%`;
+        }
+        for (const idleDrv of drivableRovers) {
+          if (idleDrv === activeDriveRover || !idleDrv.group.visible) continue;
+          const rsIdle = idleDrv.sim.state;
+          if (Math.hypot(rsIdle.pos.x - idleDrv.group.position.x, rsIdle.pos.z - idleDrv.group.position.z) > 0.5) {
+            idleDrv.sim.reset(idleDrv.group.position.x, idleDrv.group.position.z, idleDrv.group.rotation.y, sampleElevSceneY);
+          }
+          idleDrv.sim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
+          idleDrv.rig.sync();
+        }
       }
 
       if (devCfg.realisticDust && !roverAirState.airborne && (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)) {
