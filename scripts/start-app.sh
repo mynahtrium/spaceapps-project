@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 PORT="${PORT:-8000}"
 URL="http://localhost:${PORT}/web/?demo=1"
 
-if command -v npm >/dev/null 2>&1 && [ ! -d node_modules ]; then
+if command -v npm >/dev/null 2>&1 && { [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ] || [ package.json -nt node_modules/.package-lock.json ]; }; then
   echo "Installing local npm packages for offline bundle..."
   npm install --no-audit --no-fund
 fi

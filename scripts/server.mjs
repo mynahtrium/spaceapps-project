@@ -6,6 +6,8 @@
  * and hosts WebSocket EVA multiplayer rooms on `/ws?room=<code>`.
  */
 
+import { execSync } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -73,6 +75,12 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
     } catch {
       res.writeHead(400, { "Content-Type": "text/plain" });
       res.end("Bad Request");
+      return;
+    }
+
+    if (pathname === "/" || pathname === "/web") {
+      res.writeHead(302, { Location: `/web/${reqUrl.search || ""}` });
+      res.end();
       return;
     }
 
@@ -153,6 +161,17 @@ export async function startServer({ port = 8000, host = "0.0.0.0", rootDir = DEF
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(DEFAULT_ROOT, "package.json"), "utf8"));
+    const deps = Object.keys(pkg.dependencies || {});
+    const missing = deps.some((d) => !fs.existsSync(path.join(DEFAULT_ROOT, "node_modules", d)));
+    if (missing) {
+      console.log("Installing missing npm packages in node_modules...");
+      execSync("npm install --no-audit --no-fund", { cwd: DEFAULT_ROOT, stdio: "inherit" });
+    }
+  } catch {
+    /* ignore auto-install check failure */
+  }
   const port = Number(process.env.PORT || process.argv[2] || 8000);
   const host = process.env.HOST || "0.0.0.0";
   const { port: boundPort } = await startServer({ port, host });

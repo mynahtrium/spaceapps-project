@@ -217,7 +217,7 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
     const token = ++typingToken;
     const titleStr = i18next.t("title", { lng: lang });
     const lineList = i18next.t("lines", { lng: lang, returnObjects: true }) || [];
-    menu.classList.remove("shown");
+    menu.classList.add("shown");
     render(null, linesEl);
     linesEl.textContent = "";
     const title = document.createElement("span");
@@ -229,25 +229,32 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const sleep = (ms) => (reduce || typingSkip ? Promise.resolve() : new Promise((r) => setTimeout(r, ms)));
     const type = async (el, text, ms) => {
-      for (let i = 0; i < text.length; i++) {
+      let i = 0;
+      let lastT = performance.now();
+      while (i < text.length) {
         if (token !== typingToken) return false;
-        if (typingSkip) {
-          el.textContent += text.slice(i);
+        if (typingSkip || reduce) {
+          el.textContent = text;
           break;
         }
-        el.textContent += text[i];
-        el.after(caret);
         await sleep(ms);
+        if (token !== typingToken) return false;
+        const now = performance.now();
+        const step = Math.max(1, Math.floor((now - lastT) / Math.max(1, ms)));
+        lastT = now;
+        i = Math.min(text.length, i + step);
+        el.textContent = text.slice(0, i);
+        el.after(caret);
       }
       el.after(caret);
       return true;
     };
-    if (!(await type(title, titleStr, 24))) return;
+    if (!(await type(title, titleStr, 18))) return;
     for (const line of lineList) {
       const row = document.createElement("div");
       linesEl.appendChild(row);
-      await sleep(60);
-      if (!(await type(row, line, 6))) return;
+      await sleep(30);
+      if (!(await type(row, line, 4))) return;
     }
     if (token === typingToken) menu.classList.add("shown");
   }
@@ -2167,9 +2174,6 @@ async function boot() {
 
   initAppContextMenu();
 
-  await mp.connect();
-  renderCrewUi();
-
   window.__MM_APP__ = {
     data,
     demSampler,
@@ -2183,6 +2187,10 @@ async function boot() {
       return orbitApi;
     },
   };
+
+  mp.connect()
+    .then(() => renderCrewUi())
+    .catch(() => renderCrewUi());
   try {
     hudApi = await initHud3D(data, {
       mp,

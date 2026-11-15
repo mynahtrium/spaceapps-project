@@ -59,7 +59,7 @@ test("?demo=1 makes zero external network requests, transitions Orbit <-> HUD cl
   // Open Settings modal and verify Tweakpane inspector mounted
   await page.locator("#btn-pad").click();
   await expect(page.locator("#modal-backdrop")).toHaveClass(/open/);
-  await expect(page.locator("#tweakpane-graphics-mount")).toBeAttached();
+  await expect(page.locator("#tweakpane-simulation-mount")).toBeAttached();
   await page.locator("#modal-close").click();
 
   expect(externalRequests).toEqual([]);
