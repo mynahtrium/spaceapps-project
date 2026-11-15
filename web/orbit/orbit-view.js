@@ -956,7 +956,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
         ? `${tr ? "Görünen zamanda güneş" : "Sun at shown time"}: ${(elev / DEG).toFixed(0)}°<br/>`
         : "") +
       `${tr ? "Arazi" : "Terrain"}: ${terrain}`;
-    const padHint = gamepad.connected;
+    const padHint = gamepad.usingPad;
     if (confirmGoBtn) confirmGoBtn.textContent = tr ? (padHint ? "Buraya in [A]" : "Buraya in") : padHint ? "Land here [A]" : "Land here";
     if (confirmCancelBtn) confirmCancelBtn.textContent = tr ? (padHint ? "İptal [B]" : "İptal") : padHint ? "Cancel [B]" : "Cancel";
     confirmEl.hidden = false;
@@ -1475,10 +1475,10 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     const altKm = Math.round((cam.dist - 1) * R_KM).toLocaleString();
     if (!hit) {
       hoverEl.textContent = tr
-        ? gamepad.connected
+        ? gamepad.usingPad
           ? `İRTİFA ${altKm} km · SOL ÇUBUK: HARİTA HAREKET · SAĞ ÇUBUK: KONUM İŞARETLE · RT/LT: YAKINLAŞ · A: ONAYLA`
           : `İRTİFA ${altKm} km · SÜRÜKLE: DÖNDÜR · TEKERLEK: YAKINLAŞ · YÜZEYE TIKLA: İNİŞ NOKTASI SEÇ`
-        : gamepad.connected
+        : gamepad.usingPad
         ? `ALT ${altKm} km · L-STICK: MOVE MAP · R-STICK: MARK SITE · RT/LT: ZOOM · A: CONFIRM`
         : `ALT ${altKm} km · DRAG TO ROTATE · SCROLL / PINCH TO ZOOM · CLICK THE SURFACE TO PICK A LANDING SITE`;
       return;

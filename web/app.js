@@ -439,8 +439,13 @@ async function boot() {
       }
       if (isBack || actions.includes("menu")) {
         document.getElementById("modal-close")?.click();
-      } else if (isConfirm && backdropEl.contains(document.activeElement)) {
-        document.activeElement.click();
+      } else if (isConfirm) {
+        if (backdropEl.contains(document.activeElement) && document.activeElement !== backdropEl) {
+          document.activeElement.click();
+        } else {
+          // nothing focused yet: A lands on the first control, so the modal works without a mouse
+          moveFocus(backdropEl, "down");
+        }
       }
       return;
     }
@@ -1255,18 +1260,31 @@ async function boot() {
 
             <div class="dev-sec-title" style="margin-top:8px;">${tr ? "Klavye & Xbox Kontrolcü Kısayolları" : "Keyboard & Xbox Controller Shortcuts"}</div>
             <div class="kbd-grid">
-              <div class="kbd-row"><span>${tr ? "Hareket / Kamera" : "Move / Camera"}</span><kbd class="kbd-key">WASD / LS · RS</kbd></div>
-              <div class="kbd-row"><span>${tr ? "Gaz / Fren (Araç)" : "Throttle / Brake"}</span><kbd class="kbd-key">W S / RT · LT</kbd></div>
-              <div class="kbd-row"><span>${tr ? "Hızlı Koşu" : "Fast Run / Boost"}</span><kbd class="kbd-key">Shift / RB</kbd></div>
-              <div class="kbd-row"><span>${tr ? "Zıplama / El Freni" : "Jump / Handbrake"}</span><kbd class="kbd-key">Space / LB</kbd></div>
-              <div class="kbd-row"><span>${tr ? "Etkileşim (Araçlar & İnsanlar)" : "Interact (Vehicles & Crew)"}</span><kbd class="kbd-key">E / Y</kbd></div>
-              <div class="kbd-row"><span>${tr ? "Landmark Bırakma" : "Drop Landmark"}</span><kbd class="kbd-key">P / X</kbd></div>
-              <div class="kbd-row"><span>${tr ? "Seç ve Onayla / Geri Git" : "Select & Confirm / Back"}</span><kbd class="kbd-key">Enter·A / Esc·B</kbd></div>
-              <div class="kbd-row"><span>${tr ? "3D Harita (Orbit)" : "3D Map (Orbit)"}</span><kbd class="kbd-key">M / 2▢ (View)</kbd></div>
-              <div class="kbd-row"><span>${tr ? "ESC Menü" : "ESC Menu"}</span><kbd class="kbd-key">Esc / ≡ (Menu)</kbd></div>
-              <div class="kbd-row"><span>${tr ? "1. / 3. Şahıs Kamera" : "1st / 3rd Person Camera"}</span><kbd class="kbd-key">V / RS</kbd></div>
-              <div class="kbd-row"><span>${tr ? "El Feneri / Vizör" : "Flashlight / Visor"}</span><kbd class="kbd-key">F · G / D-Pad</kbd></div>
-              <div class="kbd-row"><span>${tr ? "Optik Büyütme (Zoom)" : "Optical Zoom"}</span><kbd class="kbd-key">Z / D-Pad ▲</kbd></div>
+              ${[
+                ["Hareket", "Move", "WASD", "Left stick"],
+                ["Kamera", "Camera", "Mouse", "Right stick"],
+                ["ESC Menü", "ESC menu", "Esc", "≡ Menu (3 lines)"],
+                ["Harita (M)", "Map (M)", "M", "⧉ View (2 squares)"],
+                ["Seç ve Onayla", "Select & confirm", "Enter / click", "A"],
+                ["Landmark Bırakma", "Drop landmark", "P", "X"],
+                ["Etkileşim (araçlar ve insanlar)", "Interact (vehicles & people)", "E / click", "Y"],
+                ["Geri Git", "Go back", "Esc", "B"],
+                ["3D harita", "3D map", "Drag · click to mark", "Left stick moves · right stick marks · A confirms · LT/RT zoom"],
+                ["Gaz (araç)", "Throttle (driving)", "W", "RT"],
+                ["Fren (araç)", "Brake (driving)", "S", "LT"],
+                ["Hızlı Koşu", "Sprint", "Shift", "RB"],
+                ["Zıplama", "Jump", "Space", "LB"],
+                ["Far ve El Feneri", "Headlights & flashlight", "F", "R3"],
+                ["Kamera Değiştirme", "Camera switch", "V", "L3"],
+              ].map(
+                ([trLbl, enLbl, key, pad]) =>
+                  html`<div class="kbd-row"><span>${tr ? trLbl : enLbl}</span><kbd class="kbd-key">${key} · ${pad}</kbd></div>`
+              )}
+            </div>
+            <div class="dev-sub">
+              ${tr
+                ? "Ekrandaki ipuçları son kullandığınız cihaza göre klavye tuşlarını veya kumanda düğmelerini gösterir. Yalnız klavye: G altın vizör, Z optik yakınlaştırma, H üsse dönüş, aracı sürerken Space el freni ve Shift güç."
+                : "On-screen hints show keyboard keys or controller buttons, whichever you used last. Keyboard only: G gold visor, Z optical zoom, H return to habitat, and while driving Space handbrake and Shift boost."}
             </div>
           </div>
 

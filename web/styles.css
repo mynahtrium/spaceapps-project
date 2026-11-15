@@ -3089,3 +3089,9 @@ body.landing-active .rover-dash {
     flex-wrap: wrap;
   }
 }
+
+/* Controller navigation: make the focused control obvious while a controller is in use */
+body.input-pad :is(button, select, input, .gfx-preset, .esc-item):focus {
+  outline: 2px solid var(--cyan, #38bdf8);
+  outline-offset: 2px;
+}

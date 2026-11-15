@@ -1006,3 +1006,17 @@ test("Custom Orbit landing specs derive MOLA relief & surface tint without cloni
   assert.match(orbitSrc, /stopId:\s*"stop-mudstone-a"/);
   assert.match(orbitSrc, /stopId:\s*"stop-mudstone-b"/);
 });
+
+test("controller bindings match the agreed Xbox layout and old saves migrate", async () => {
+  const { ACTIONS, migrateBindings } = await import("../shared/gamepad.js");
+  const b = Object.fromEntries(ACTIONS.map((a) => [a.id, a.button]));
+  // A 0, B 1, X 2, Y 3, LB 4, RB 5, LT 6, RT 7, View 8, Menu 9, L3 10, R3 11
+  assert.deepEqual(
+    { confirm: b.confirm, back: b.back, pin: b.pin, interact: b.interact, jump: b.jump, run: b.run, brake: b.brake, throttle: b.throttle, map: b.map, menu: b.menu, camera: b.camera, lamp: b.lamp },
+    { confirm: 0, back: 1, pin: 2, interact: 3, jump: 4, run: 5, brake: 6, throttle: 7, map: 8, menu: 9, camera: 10, lamp: 11 }
+  );
+  assert.equal("texture" in b, false);
+  const migrated = migrateBindings({ texture: 10, pin: 2 });
+  assert.equal(migrated.camera, 10);
+  assert.equal("texture" in migrated, false);
+});

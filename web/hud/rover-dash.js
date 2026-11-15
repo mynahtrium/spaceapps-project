@@ -80,8 +80,8 @@ export function createRoverDash(host) {
       <div class="rd-pad-prompts" data-k="padPrompts" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;font-size:9px;letter-spacing:0.06em;">
         <span class="rd-flag" data-k="pThrottle">RT GAS</span>
         <span class="rd-flag" data-k="pBrake">LT BRK</span>
-        <span class="rd-flag" data-k="pBoost">RB BST</span>
-        <span class="rd-flag" data-k="pPark">LB PRK</span>
+        <span class="rd-flag" data-k="pBoost">SHIFT BST</span>
+        <span class="rd-flag" data-k="pPark">SPACE PRK</span>
         <span class="rd-flag" data-k="pLamp">R3 LMP</span>
       </div>
     </div>`;
@@ -102,13 +102,12 @@ export function createRoverDash(host) {
     if (!gamepad?.glyphFor) return;
     const gThrottle = gamepad.glyphFor("throttle");
     const gBrake = gamepad.glyphFor("brake");
-    const gBoost = gamepad.glyphFor("run");
-    const gPark = gamepad.glyphFor("jump");
     const gLamp = gamepad.glyphFor("lamp");
     if (k.pThrottle) k.pThrottle.textContent = `${gThrottle} GAS`;
     if (k.pBrake) k.pBrake.textContent = `${gBrake} BRK`;
-    if (k.pBoost) k.pBoost.textContent = `${gBoost} BST`;
-    if (k.pPark) k.pPark.textContent = `${gPark} PRK`;
+    // boost and handbrake are keyboard-only (Shift / Space): the bumpers belong to walking
+    if (k.pBoost) k.pBoost.textContent = "SHIFT BST";
+    if (k.pPark) k.pPark.textContent = "SPACE PRK";
     if (k.pLamp) k.pLamp.textContent = `${gLamp} LMP`;
   }
   renderPromptGlyphs();

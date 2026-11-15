@@ -128,18 +128,29 @@ export const ACTIONS = [
   { id: "back", label: "Go Back (B)", button: 1 },
   { id: "pin", label: "Drop Landmark (X)", button: 2 },
   { id: "interact", label: "Interact — vehicles & crew (Y)", button: 3 },
-  { id: "jump", label: "Jump / Handbrake (LB)", button: 4 },
-  { id: "run", label: "Fast Run / Boost (RB)", button: 5 },
-  { id: "brake", label: "Brake / Reverse (LT)", button: 6 },
-  { id: "throttle", label: "Throttle / Gas (RT)", button: 7 },
+  { id: "jump", label: "Jump (LB) — on foot", button: 4 },
+  { id: "run", label: "Sprint (RB) — on foot", button: 5 },
+  { id: "brake", label: "Brake / Reverse (LT) — driving", button: 6 },
+  { id: "throttle", label: "Throttle (RT) — driving", button: 7 },
   { id: "map", label: "Map (M) — 2 Squares (View)", button: 8 },
   { id: "menu", label: "ESC Menu — 3 Lines (Menu)", button: 9 },
-  { id: "texture", label: "Change surface layer (LS)", button: 10 },
+  { id: "camera", label: "Camera Switch (L3)", button: 10 },
   { id: "lamp", label: "Flashlight / Headlights (R3)", button: 11 },
   { id: "pov", label: "Rover POV photo (D-pad up)", button: 12 },
 ];
 
 const DEFAULT_BINDINGS = Object.fromEntries(ACTIONS.map((a) => [a.id, a.button]));
+
+/** Bindings saved before L3 became the camera switch: carry the old "texture" button over. */
+export function migrateBindings(saved = {}) {
+  const out = { ...DEFAULT_BINDINGS };
+  for (const [k, v] of Object.entries(saved || {})) {
+    if (k === "texture") continue;
+    if (k in DEFAULT_BINDINGS) out[k] = v;
+  }
+  if (saved && "texture" in saved && !("camera" in saved)) out.camera = saved.texture;
+  return out;
+}
 
 export const CONTROLLER_PRESETS = {
   "eva-default": {
@@ -351,7 +362,7 @@ function loadSettings() {
     return {
       ...structuredClone(DEFAULT_SETTINGS),
       ...s,
-      bindings: { ...DEFAULT_SETTINGS.bindings, ...(s.bindings || {}) },
+      bindings: migrateBindings(s.bindings),
       deviceProfiles: { ...(s.deviceProfiles || {}) },
     };
   } catch {
@@ -409,6 +420,10 @@ class GamepadInput {
     this.haptics = new ControllerHapticsManager();
     this.touchOverlay = null;
     this.joymap = null;
+    // "pad" after the last controller input, "kbm" after the last keyboard / mouse input:
+    // on-screen hints show the glyphs of whichever was used last.
+    this.inputMode = "kbm";
+    this.modeListeners = new Set();
 
     if (typeof window !== "undefined") {
       window.MartianGamepad = this;
@@ -436,6 +451,22 @@ class GamepadInput {
     if (this.settings.touchControls) {
       this.touchOverlay.setEnabled(true);
     }
+
+    // synthetic events (the Y button re-sent as an "e" key press) must not flip the hints back
+    const toKbm = (e) => {
+      if (e?.isTrusted !== false) this.setInputMode("kbm");
+    };
+    window.addEventListener("keydown", toKbm, true);
+    window.addEventListener("mousedown", toKbm, true);
+    window.addEventListener("wheel", toKbm, { capture: true, passive: true });
+    window.addEventListener(
+      "mousemove",
+      (e) => {
+        if (Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0) > 6) toKbm(e);
+      },
+      { capture: true, passive: true }
+    );
+    if (typeof document !== "undefined" && document.body) document.body.classList.add("input-kbm");
 
     if (typeof navigator !== "undefined" && navigator.getGamepads) {
       window.addEventListener("gamepadconnected", () => this.poll());
@@ -559,7 +590,44 @@ class GamepadInput {
       this.axes[i] = Math.abs(vw) > Math.abs(hw) ? vw : hw;
     }
 
+    if (pad) {
+      let active = false;
+      for (let i = 0; i < 17 && !active; i++) active = (norm.buttons[i] || 0) > 0.5;
+      for (let i = 0; i < 4 && !active; i++) active = Math.abs(norm.axes[i] || 0) > 0.35;
+      if (active) this.setInputMode("pad");
+    }
+
     this._processEdgesAndNav();
+  }
+
+  /** Switch hint glyphs between keyboard ("kbm") and controller ("pad"). */
+  setInputMode(mode) {
+    const next = mode === "pad" ? "pad" : "kbm";
+    if (next === this.inputMode) return;
+    this.inputMode = next;
+    if (typeof document !== "undefined" && document.body) {
+      document.body.classList.toggle("input-pad", next === "pad");
+      document.body.classList.toggle("input-kbm", next === "kbm");
+    }
+    for (const fn of this.modeListeners) fn(next);
+    if (typeof window !== "undefined" && typeof CustomEvent === "function") {
+      window.dispatchEvent(new CustomEvent("mm:input-mode", { detail: next }));
+    }
+  }
+
+  /** True while hints should show controller glyphs (a controller was the last input used). */
+  get usingPad() {
+    return this.inputMode === "pad" && this.connected;
+  }
+
+  onInputModeChange(fn) {
+    this.modeListeners.add(fn);
+    return () => this.modeListeners.delete(fn);
+  }
+
+  /** `keyLabel` for keyboard players, the bound button's glyph for controller players. */
+  hint(keyLabel, actionId) {
+    return this.usingPad ? this.glyphFor(actionId) : keyLabel;
   }
 
   _processEdgesAndNav() {
@@ -715,7 +783,7 @@ class GamepadInput {
   loadDeviceProfile(deviceId = this.pad?.id || this.connectedId) {
     const prof = deviceId && this.settings.deviceProfiles?.[deviceId];
     if (!prof) return false;
-    this.settings.bindings = { ...DEFAULT_BINDINGS, ...(prof.bindings || {}) };
+    this.settings.bindings = migrateBindings(prof.bindings);
     if (typeof prof.sensitivity === "number") this.settings.sensitivity = prof.sensitivity;
     if (typeof prof.invertY === "boolean") this.settings.invertY = prof.invertY;
     if (typeof prof.swapSticks === "boolean") this.settings.swapSticks = prof.swapSticks;

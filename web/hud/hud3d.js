@@ -413,6 +413,8 @@ export async function initHud3D(
   const withTimeout = (promise, ms, label) =>
     Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms / 1000} s`)), ms))]);
   let devCfg = loadDevSettings();
+  // hint text for the device used last: keyboard key, or the bound controller button's glyph
+  const kh = (key, action) => gamepad.hint(key, action);
   const isTrLang = () => {
     try {
       return localStorage.getItem("mm-lang") === "tr";
@@ -3555,7 +3557,7 @@ export async function initHud3D(
             <div style="font-size:11px;color:#fff;letter-spacing:0.06em;">${
               tr ? vSpec.nameTr : vSpec.nameEn
             } <span style="color:var(--faint);font-size:9.5px;">· ${dDist}</span></div>
-            <div style="font-size:9px;color:var(--faint);">${tr ? "Sürülebilir · [E] ile bin" : "Drivable · Press [E] to drive"}</div>
+            <div style="font-size:9px;color:var(--faint);">${tr ? `Sürülebilir · [${kh("E", "interact")}] ile bin` : `Drivable · Press [${kh("E", "interact")}] to drive`}</div>
           </div>
         </div>
         <div style="display:flex;gap:5px;flex:none;">
@@ -3584,7 +3586,7 @@ export async function initHud3D(
         autoYaw = 0;
         userYaw = Math.atan2(-(rx - stand.x), -(rz - stand.z));
         activeDriveRover = rInstance;
-        showWrapNotice(`${vSpec.shortLabel} · ${tr ? "BİNMEK İÇİN [E]" : "PRESS [E] TO DRIVE"}`);
+        showWrapNotice(`${vSpec.shortLabel} · ${tr ? `BİNMEK İÇİN [${kh("E", "interact")}]` : `PRESS [${kh("E", "interact")}] TO DRIVE`}`);
       });
       row.querySelector("[data-drv-drive]")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
@@ -4204,9 +4206,10 @@ export async function initHud3D(
     if (target !== transitPrompt) {
       transitPrompt = target;
       const tr = isTrLang();
-      if (target === "terminal") showWrapNotice(tr ? "TRANSİT TERMİNALİ · SAHA SEÇİCİ İÇİN [E]" : "TRANSIT TERMINAL · PRESS [E] FOR SITE SELECTOR");
-      else if (target === "return") showWrapNotice(tr ? "DÖNÜŞ FENERİ · ÜSSE DÖNMEK İÇİN [E] / [H]" : "RETURN BEACON · PRESS [E] / [H] TO RETURN TO HABITAT");
-      else if (target === "info") showWrapNotice(tr ? `${hardwareSite.hw.name.toUpperCase()} · BİLGİ İÇİN [E]` : `${hardwareSite.hw.name.toUpperCase()} · PRESS [E] FOR INFO`);
+      const ek = kh("E", "interact");
+      if (target === "terminal") showWrapNotice(tr ? `TRANSİT TERMİNALİ · SAHA SEÇİCİ İÇİN [${ek}]` : `TRANSIT TERMINAL · PRESS [${ek}] FOR SITE SELECTOR`);
+      else if (target === "return") showWrapNotice(tr ? `DÖNÜŞ FENERİ · ÜSSE DÖNMEK İÇİN [${ek}]` : `RETURN BEACON · PRESS [${ek}] TO RETURN TO HABITAT`);
+      else if (target === "info") showWrapNotice(tr ? `${hardwareSite.hw.name.toUpperCase()} · BİLGİ İÇİN [${ek}]` : `${hardwareSite.hw.name.toUpperCase()} · PRESS [${ek}] FOR INFO`);
     }
   }
 
@@ -4239,7 +4242,8 @@ export async function initHud3D(
     const lampShown = drivingRover ? roverHeadlightsActive() : evaLampOn;
     if (btnLamp) {
       const lampName = drivingRover ? "Headlights" : "Flashlight";
-      btnLamp.textContent = lampShown ? `${lampName}: ON (F / R3)` : `${lampName} (F / R3)`;
+      const lk = kh("F", "lamp");
+      btnLamp.textContent = lampShown ? `${lampName}: ON (${lk})` : `${lampName} (${lk})`;
       btnLamp.classList.toggle("is-active", lampShown);
     }
     if (optGoldPill) {
@@ -4406,15 +4410,7 @@ export async function initHud3D(
     }
 
     if (k === "v" && !e.repeat && !drivingRover) {
-      thirdPersonWalk = !thirdPersonWalk;
-      thirdCamInit = false;
-      self?.setHeadVisible?.(thirdPersonWalk);
-      document.getElementById("visor-overlay")?.classList.toggle("third-person", thirdPersonWalk);
-      showWrapNotice(
-        isTrLang()
-          ? thirdPersonWalk ? "3. ŞAHIS KAMERA · [V] KASK" : "KASK KAMERASI · [V] 3. ŞAHIS"
-          : thirdPersonWalk ? "3RD-PERSON CAMERA · [V] HELMET" : "HELMET CAMERA · [V] 3RD PERSON"
-      );
+      toggleWalkCamera();
       return;
     }
     if (k === "e" && !e.repeat) {
@@ -4447,7 +4443,7 @@ export async function initHud3D(
           activeDriveRover = preHistoricRover || roverConcept;
           preHistoricRover = null;
         }
-        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E / Y)" : "EXITED MARS ROVER (PRESS E / Y TO BOARD)");
+        showWrapNotice(tr ? `MARS ARACINDAN İNİLDİ (BİNMEK: ${kh("E", "interact")})` : `EXITED MARS ROVER (PRESS ${kh("E", "interact")} TO BOARD)`);
         return;
       }
 
@@ -4480,8 +4476,8 @@ export async function initHud3D(
         if (self?.group) self.group.visible = false;
         showWrapNotice(
           tr
-            ? `${hs.shortLabel} · UZAKTAN SÜRÜŞ (GERÇEKTE ÇOK DAHA YAVAŞ) · RT/LT · SOL ÇUBUK · E / Y İN`
-            : `${hs.shortLabel} · TELEOPERATED DRIVE (THE REAL ROVER IS FAR SLOWER) · RT/LT · L-STICK · E / Y EXIT`
+            ? `${hs.shortLabel} · UZAKTAN SÜRÜŞ (GERÇEKTE ÇOK DAHA YAVAŞ) · ${gamepad.usingPad ? "RT/LT · SOL ÇUBUK" : "W/S · A/D"} · ${kh("E", "interact")} İN`
+            : `${hs.shortLabel} · TELEOPERATED DRIVE (THE REAL ROVER IS FAR SLOWER) · ${gamepad.usingPad ? "RT/LT · L-STICK" : "W/S · A/D"} · ${kh("E", "interact")} EXIT`
         );
         return;
       }
@@ -4528,8 +4524,8 @@ export async function initHud3D(
         if (self?.group) self.group.visible = false;
         showWrapNotice(
           tr
-            ? `${drvSpec.shortLabel} · 3. ŞAHIS SÜRÜŞ · W/S VEYA RT/LT GAZ · SOL ÇUBUK DİREKSİYON · LB DRİFT · E / Y İN`
-            : `${drvSpec.shortLabel} · 3RD-PERSON DRIVE · W/S OR RT/LT DRIVE · L-STICK STEER · LB DRIFT · E / Y EXIT`
+            ? `${drvSpec.shortLabel} · 3. ŞAHIS SÜRÜŞ · ${gamepad.usingPad ? "RT GAZ · LT FREN · SOL ÇUBUK DİREKSİYON" : "W/S GAZ-FREN · A/D DİREKSİYON · SPACE DRİFT"} · ${kh("E", "interact")} İN`
+            : `${drvSpec.shortLabel} · 3RD-PERSON DRIVE · ${gamepad.usingPad ? "RT GAS · LT BRAKE · L-STICK STEER" : "W/S DRIVE · A/D STEER · SPACE DRIFT"} · ${kh("E", "interact")} EXIT`
         );
         return;
       }
@@ -4578,6 +4574,42 @@ export async function initHud3D(
   const padBlockedGiven = (uiBlocked) =>
     Boolean(padSetupEl?.classList.contains("open") || (startScreenEl && !startScreenEl.classList.contains("hidden")) || uiBlocked);
   const padBlocked = () => padBlockedGiven(hasOpenModalOverlay());
+  // One-line controls hint under the HUD: keyboard keys, or the controller layout once a pad is used.
+  const controlsHintEl = document.getElementById("hud-controls-hint");
+  function renderControlsHint() {
+    if (!controlsHintEl) return;
+    const tr = isTrLang();
+    const g = (a) => gamepad.glyphFor(a);
+    controlsHintEl.textContent = gamepad.usingPad
+      ? tr
+        ? `SOL ÇUBUK HAREKET · SAĞ ÇUBUK KAMERA · ${g("run")} HIZLI KOŞU · ${g("jump")} ZIPLA · ${g("interact")} ETKİLEŞİM · ${g("pin")} LANDMARK · ${g("camera")} KAMERA · ${g("lamp")} FAR/FENER · ${g("throttle")}/${g("brake")} GAZ/FREN · ${g("map")} HARİTA · ${g("menu")} MENÜ`
+        : `L-STICK MOVE · R-STICK CAMERA · ${g("run")} SPRINT · ${g("jump")} JUMP · ${g("interact")} INTERACT · ${g("pin")} LANDMARK · ${g("camera")} CAMERA · ${g("lamp")} LIGHTS · ${g("throttle")}/${g("brake")} GAS/BRAKE · ${g("map")} MAP · ${g("menu")} MENU`
+      : tr
+        ? "WASD HAREKET · SHIFT HIZLI KOŞU · SPACE ZIPLA · E ETKİLEŞİM (ARAÇLAR & İNSANLAR) · P LANDMARK · V KAMERA · F FENER · M HARİTA · ESC MENÜ"
+        : "WASD MOVE · SHIFT SPRINT · SPACE JUMP · E INTERACT (VEHICLES & CREW) · P LANDMARK · V CAMERA · F LIGHT · M MAP · ESC MENU";
+  }
+  renderControlsHint();
+  gamepad.onInputModeChange(() => {
+    renderControlsHint();
+    syncOpticsOverlayUi();
+  });
+  gamepad.onConnectionChange(renderControlsHint);
+
+  /** Helmet camera <-> third person while walking (V key, L3 on a controller). */
+  function toggleWalkCamera() {
+    if (drivingRover) return;
+    thirdPersonWalk = !thirdPersonWalk;
+    thirdCamInit = false;
+    self?.setHeadVisible?.(thirdPersonWalk);
+    document.getElementById("visor-overlay")?.classList.toggle("third-person", thirdPersonWalk);
+    const pad = kh("V", "camera");
+    showWrapNotice(
+      isTrLang()
+        ? thirdPersonWalk ? `3. ŞAHIS KAMERA · [${pad}] KASK` : `KASK KAMERASI · [${pad}] 3. ŞAHIS`
+        : thirdPersonWalk ? `3RD-PERSON CAMERA · [${pad}] HELMET` : `HELMET CAMERA · [${pad}] 3RD PERSON`
+    );
+  }
+
   gamepad.onPress(({ actions }) => {
     if (landing.active) return landing.skip();
     if (!isHudActive() || padBlocked()) return;
@@ -4601,6 +4633,8 @@ export async function initHud3D(
       camera.updateProjectionMatrix();
       hudView?.classList.remove("zoom-active");
     }
+    if (actions.includes("camera")) toggleWalkCamera();
+    // bumpers (jump, sprint) only act on foot; triggers only while driving
     if (drivingRover) return;
     for (const a of actions) {
       if (a === "jump") {
@@ -4616,8 +4650,7 @@ export async function initHud3D(
           player.grounded = false;
           gamepad.triggerHaptic?.(0.35, 55);
         }
-      } else if (a === "texture") document.getElementById("hud-tex")?.click();
-      else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
+      } else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
     }
   });
 
@@ -5190,7 +5223,8 @@ export async function initHud3D(
       {
         const sim = activeDriveRover.sim;
         const rig = activeDriveRover.rig;
-        // inputs: keyboard, or Xbox controller (RT throttle, LT brake/reverse, left stick steer, LB handbrake, RB boost)
+        // inputs: keyboard, or Xbox controller (RT throttle, LT brake/reverse, left stick steer).
+        // The bumpers belong to walking (LB jump, RB sprint); handbrake and boost stay on Space / Shift.
         const padOk = !padBusy;
         const st = padOk ? gamepad.move() : NO_STICK;
         const rt = padOk ? gamepad.analog("throttle") : 0;
@@ -5202,8 +5236,8 @@ export async function initHud3D(
         const mapBlocked = uiBlocked;
         const throttle = mapBlocked ? 0 : keyThrottle || (rt - lt);
         const steerIn = mapBlocked ? 0 : keySteer || -st.x;
-        const handbrake = !mapBlocked && (keys.has(" ") || (padOk && gamepad.isDown("jump")));
-        const boost = !mapBlocked && (keys.has("shift") || (padOk && gamepad.isDown("run")));
+        const handbrake = !mapBlocked && keys.has(" ");
+        const boost = !mapBlocked && keys.has("shift");
         prevRoverSteer = roverSteer;
         roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
@@ -5519,8 +5553,8 @@ export async function initHud3D(
         const nSpec = nearestR.getActiveSpec();
         showWrapNotice(
           isTrLang()
-            ? `${nSpec.nameTr.toUpperCase()} · BİNMEK İÇİN [E / Y] TUŞUNA BAS`
-            : `${nSpec.nameEn.toUpperCase()} · PRESS [E / Y] TO DRIVE`
+            ? `${nSpec.nameTr.toUpperCase()} · BİNMEK İÇİN [${kh("E", "interact")}] TUŞUNA BAS`
+            : `${nSpec.nameEn.toUpperCase()} · PRESS [${kh("E", "interact")}] TO DRIVE`
         );
       } else if (minDistR > 6.4) {
         nearRoverPrompted = false;
@@ -6086,12 +6120,12 @@ export async function initHud3D(
               const s = activeTargetNpc.spec;
               const roleText = (tr ? s.role?.tr || s.role?.en : s.role?.en) || s.tagText || "";
               roverTargetEl.textContent = `${s.name.toUpperCase()}${roleText ? ` (${roleText})` : ""} · ${
-                tr ? "KONUŞ [E / Y] / TIKLA" : "TALK [E / Y] / CLICK"
+                tr ? `KONUŞ [${kh("E", "interact")}] / TIKLA` : `TALK [${kh("E", "interact")}] / CLICK`
               }`;
               roverTargetEl.classList.add("visible");
             } else if (hitSpec) {
               roverTargetEl.textContent = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
-                tr ? "ETKİLEŞİM [E / Y] / TIKLA" : "INTERACT [E / Y] / CLICK"
+                tr ? `ETKİLEŞİM [${kh("E", "interact")}] / TIKLA` : `INTERACT [${kh("E", "interact")}] / CLICK`
               }`;
               roverTargetEl.classList.add("visible");
             } else {
