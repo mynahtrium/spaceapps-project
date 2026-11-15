@@ -47,7 +47,6 @@ import { formatHoursHM, moonFromSurface, sunStateAt } from "./MarsEphemeris.js";
 import { createCelestialSky } from "./MarsCelestialSky.js";
 import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
-import { createDustDevil } from "./DustDevil.js";
 import { createLandingSequence } from "./landing-sequence.js";
 import { createRoverDynamics, roverParamsFor, roverParamsForHistoric } from "./rover-dynamics.js";
 import { resolveRoverObbCollision as obbPushOut } from "./experimental-rover.js";
@@ -91,7 +90,7 @@ import {
   stepRoverBallisticPhysics,
 } from "./experimental-rover.js";
 import { ENTRY_OFFSET_Z, createMarsHabitatStation } from "./mars-habitat.js";
-import { createMarsFxSystem } from "./mars-fx.js";
+import { createRegolithDust } from "./regolith-dust.js";
 import { buildInfoBeacon, buildIngenuity, buildLanderById, buildReturnPad } from "./mars-landers.js";
 import {
   MARS_SURFACE_HARDWARE,
@@ -116,6 +115,9 @@ import { GaleCorridor, buildCorridorSubCellGeometry, chunkSlopeRgba } from "../m
 import { computeBvhForObject, createMarsPostPipeline, effectivePixelRatio, installBvhAcceleration } from "./post-pipeline.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
+// Column dust optical depth used for the sky, moons, haze and fog: a typical clear-season value
+// at Gale (Curiosity Mastcam tau is mostly 0.3-0.8 outside dust-storm season). Fixed: no weather.
+const MARS_DUST_TAU = 0.5;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
 const EYE_FORWARD_M = 0.36; // at the visor, ahead of the suit's deep chest so the legs show when looking down
 const PARTNER_AHEAD_M = 6;
@@ -799,8 +801,6 @@ export async function initHud3D(
   scene.add(rockField.group);
   const galeVista = createGaleVista(THREE);
   scene.add(galeVista);
-  const dustDevil = createDustDevil(THREE);
-  scene.add(dustDevil.points);
 
   // Image-based light from the same sky, so suits and rocks pick up the dusty sky and ground bounce.
   // Rebuilt whenever the sun moves enough to change the sky (time of day / site change).
@@ -2243,7 +2243,14 @@ export async function initHud3D(
   }
   stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
 
-  const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
+  // Dust kicked up by boots, wheels, jumps and landings, and fading tire tracks. It takes the
+  // colour of the ground it came from once a ground-colour sampler is set (setDustGroundColor).
+  let dustGroundColor = null;
+  const marsFx = createRegolithDust(THREE, scene, {
+    sampleGroundY: (x, z) => sampleRenderedSurfaceY(x, z),
+    sampleGroundColor: (x, z, out) => (dustGroundColor ? dustGroundColor(x, z, out) : false),
+  });
+  let roverTrackDist = 0;
   // rocket landing cinematic at the start of an EVA (landing-sequence.js); the lander stays as a landmark
   const landing = createLandingSequence(THREE, scene, { marsFx, sampleY: sampleElevSceneY });
   let landingHidNpcs = false;
@@ -4826,6 +4833,7 @@ export async function initHud3D(
     renderer.setSize(w, h);
     cachedCanvasRect = renderer.domElement.getBoundingClientRect();
     resizeRenderTarget();
+    marsFx.setViewportHeight(h * renderer.getPixelRatio(), camera.fov);
     const activeScale = devCfg.frameEffect ? Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2)) : 0;
     syncVisorSafeInsets(w, h, activeScale);
   };
@@ -4956,7 +4964,7 @@ export async function initHud3D(
     rockField.group.visible = gfx.sceneDetail;
     galeVista.visible = gfx.sceneDetail && isGaleSite();
     fieldKits.visible = gfx.sceneDetail && isGaleSite();
-    const tau = cfg.dustTau ?? 0.5;
+    const tau = MARS_DUST_TAU;
     sky.material.uniforms.uTau.value = tau;
     sky.material.uniforms.uSunElev.value = sunState.elevationRad;
     for (const moon of [phobos, deimos]) {
@@ -5322,7 +5330,7 @@ export async function initHud3D(
         };
 
         // dust when a wheel lands hard or the rover touches down after a crest
-        if (rs.landingImpact > 1.0 && devCfg.realisticDust && !isInsideHabitat(rs.pos.x, rs.pos.z)) {
+        if (rs.landingImpact > 1.0 && !isInsideHabitat(rs.pos.x, rs.pos.z)) {
           const rYawL = att.yaw;
           marsFx.emitJumpBurst(rs.pos.x, sampleRenderedSurfaceY(rs.pos.x, rs.pos.z), rs.pos.z, {
             mode: "land",
@@ -5388,7 +5396,6 @@ export async function initHud3D(
 
         if (
           !isInsideHabitat(rs.pos.x, rs.pos.z) &&
-          devCfg.realisticDust &&
           !roverAirState.airborne &&
           (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)
         ) {
@@ -5411,6 +5418,20 @@ export async function initHud3D(
               -fx * roverThrottleVel * 0.24 - Math.cos(rYaw) * roverLateralSpeed * 0.22,
               -fz * roverThrottleVel * 0.24 + Math.sin(rYaw) * roverLateralSpeed * 0.22
             );
+          }
+        }
+      }
+
+      // tire tracks: one segment per wheel side every ~0.45 m of travel, fading over minutes
+      if (!roverAirState.airborne && !isInsideHabitat(activeDriveRover.group.position.x, activeDriveRover.group.position.z)) {
+        roverTrackDist += Math.hypot(roverThrottleVel, roverLateralSpeed) * dt;
+        if (roverTrackDist >= 0.45) {
+          roverTrackDist = 0;
+          const tYaw = activeDriveRover.group.rotation.y;
+          const tw = Math.max(0.25, Math.min(0.6, (activeDriveRover.getActiveSpec().trackHalfW || 1) * 0.28));
+          for (const side of [-1, 1]) {
+            const w = activeDriveRover.getWheelDustEmitPoint(side);
+            marsFx.stampTrack(w.x, sampleRenderedSurfaceY(w.x, w.z), w.z, sampleNormal(w.x, w.z), tYaw, tw, 0.5);
           }
         }
       }
@@ -5617,7 +5638,7 @@ export async function initHud3D(
       px = phys.x;
       pz = phys.z;
 
-      if (devCfg.realisticDust && !isInsideHabitat(px, pz)) {
+      if (!isInsideHabitat(px, pz)) {
         const jYaw = autoYaw + userYaw;
         if (wasGrounded && !phys.grounded && phys.vy > 0.4) {
           marsFx.emitJumpBurst(px, phys.y, pz, {
@@ -5742,7 +5763,7 @@ export async function initHud3D(
         footsteps.play(side, phys.faciesId);
         if (!isInsideHabitat(footPos.x, footPos.z)) {
           footsteps.stamp(footPos.x, gy, footPos.z, n, lastMoveYaw ?? yaw, phys.faciesId, side);
-          if (devCfg.realisticDust && groundSpeed > 0.35 && movedXZ > 1e-5) {
+          if (groundSpeed > 0.35 && movedXZ > 1e-5) {
             const runFast = groundSpeed > 1.9;
             marsFx.emitBurst(
               footPos.x,
@@ -5984,17 +6005,11 @@ export async function initHud3D(
     }
     updateContactShadows();
 
-    // Update windblown Mars aerosol dust, kickup plumes & REMS atmospheric haze + dust optical depth
-    const atm = marsFx.update(dt, camera.position, clockT, {
-      dustEnabled: Boolean(devCfg.realisticDust),
-      weatherEnabled: Boolean(devCfg.realisticWeather),
-    });
-    const tau = devCfg.dustTau ?? 0.5;
-    const tauDim = Math.exp(-0.28 * (tau - 0.5));
-    const weatherDim = devCfg.realisticWeather ? 1.0 - atm.gustFactor * 0.14 : 1.0;
-    const tauFogScale = 0.55 + tau * 0.85;
+    // Kicked-up dust and grains, lit by the current sun. No weather: wind, gusts and storms are gone.
+    marsFx.update(dt, camera.position, { sunDir, sunUp: sunUp(sunState.elevationRad) });
+    const tauFogScale = 0.55 + MARS_DUST_TAU * 0.85;
     if (scene.fog) {
-      scene.fog.density = atm.fogDensity * tauFogScale;
+      scene.fog.density = 0.00042 * tauFogScale;
       // Fog takes the horizon colour, dimmed through twilight to near-black at night.
       const tw = Math.max(0, Math.min(1, (sunState.elevationRad + 0.32) / 0.44));
       scene.fog.color.copy(HORIZON).multiplyScalar(0.025 + 0.975 * tw * tw * (3 - 2 * tw));
@@ -6032,10 +6047,9 @@ export async function initHud3D(
         lang: isTrLang() ? "tr" : "en",
       });
     }
-    dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
     lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
     const sunUpNow = sunUp(sunState.elevationRad);
-    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
+    sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * sunTransit * sunUpNow;
     sun.castShadow = gfx.shadowPx > 0 && sunUpNow > 0.01;
     // Shadows render every frame: a throttled shadow map left moving crew, rovers and the suit
     // with shadows that lagged behind them ("floating silhouettes").

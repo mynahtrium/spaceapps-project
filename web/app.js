@@ -896,7 +896,7 @@ async function boot() {
               ${tr ? "Grafik" : "Graphics"}
             </button>
             <button class=${`settings-tab ${activeTab === "simulation" ? "active" : ""}`} type="button" role="tab" data-settings-tab="simulation">
-              ${tr ? "Ses, Fizik & Hava" : "Audio, Physics & Weather"}
+              ${tr ? "Ses & Fizik" : "Audio & Physics"}
             </button>
             <button class=${`settings-tab ${activeTab === "controls" ? "active" : ""}`} type="button" role="tab" data-settings-tab="controls">
               ${tr ? "Kontroller & Kumanda" : "Controls & Gamepad"}
@@ -1191,7 +1191,7 @@ async function boot() {
               <input type="checkbox" id="dev-audio-music" checked=${isMusicOn} />
             </label>
 
-            <div class="dev-sec-title">${tr ? "Mars Fizikleri & Atmosfer" : "Mars Physics & Atmosphere"}</div>
+            <div class="dev-sec-title">${tr ? "Mars Fizikleri" : "Mars Physics"}</div>
 
             <label class="dev-row">
               <div>
@@ -1205,52 +1205,6 @@ async function boot() {
               <input type="checkbox" id="dev-realistic-physics" checked=${s.realisticPhysics} />
             </label>
 
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Gerçekçi Toz Efektleri (Ayak, Tekerlek & Rüzgar)" : "Realistic Mars Dust FX (Boots, Wheels & Wind)"}</div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "Rüzgarla sürüklenen Mars aerosol toz tanecikleri ile adım ve tekerlek toz bulutlarını açar."
-                    : "Enables wind-drifted Martian aerosol dust grains plus bootstep & wheel dust plumes."}
-                </div>
-              </div>
-              <input type="checkbox" id="dev-realistic-dust" checked=${s.realisticDust} />
-            </label>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Gerçekçi Mars Havası (Atmosferik Pus & Rüzgar)" : "Realistic Mars Weather (Atmospheric Haze & Gusts)"}</div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "REMS verisiyle kalibreli tereyağı-hardal Mars atmosfer pusu ve rüzgarlarını simüle eder."
-                    : "Simulates REMS-calibrated butterscotch Martian dust haze fog and dynamic surface wind gust fronts."}
-                </div>
-              </div>
-              <input type="checkbox" id="dev-realistic-weather" checked=${s.realisticWeather} />
-            </label>
-
-            <div class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Toz Optik Derinliği τ" : "Dust optical depth τ"}</div>
-                <div class="dev-sub">
-                  <span id="dev-tau-val">${s.dustTau.toFixed(2)}</span>
-                  <span class="dev-presets">
-                    <button class="btn dev-tau-preset" type="button" data-tau="0.5">${tr ? "0.5 Açık" : "0.5 Clear"}</button>
-                    <button class="btn dev-tau-preset" type="button" data-tau="1.2">${tr ? "1.2 Puslu" : "1.2 Hazy"}</button>
-                    <button class="btn dev-tau-preset" type="button" data-tau="2.8">${tr ? "2.8 Fırtına" : "2.8 Storm"}</button>
-                  </span>
-                </div>
-              </div>
-              <input class="dev-range" type="range" id="dev-tau" min="0.35" max="3" step="0.05" value=${s.dustTau} />
-            </div>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Toz Şeytanı" : "Dust devil"}</div>
-                <div class="dev-sub">${tr ? "Tek bir görsel sütun. REMS girdabı değil." : "One visual column. Not a REMS vortex replay."}</div>
-              </div>
-              <input type="checkbox" id="dev-devil" checked=${s.dustDevil} />
-            </label>
           </div>
 
           <!-- TAB 4: CONTROLS & GAMEPAD -->
@@ -1438,16 +1392,11 @@ async function boot() {
     const perfToggle = document.getElementById("dev-show-perf");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
-    const realisticDustToggle = document.getElementById("dev-realistic-dust");
     const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
-    const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
     const audioMasterToggle = document.getElementById("dev-audio-master");
     const audioMusicToggle = document.getElementById("dev-audio-music");
     const fovRange = document.getElementById("dev-fov");
     const fovVal = document.getElementById("dev-fov-val");
-    const tauRange = document.getElementById("dev-tau");
-    const tauVal = document.getElementById("dev-tau-val");
-    const devilToggle = document.getElementById("dev-devil");
     const cleanToggle = document.getElementById("dev-clean-hud");
     const fullRealismBtn = document.getElementById("dev-full-realism");
     const resetBtn = document.getElementById("dev-reset");
@@ -1503,9 +1452,7 @@ async function boot() {
       if (perfToggle) perfToggle.checked = cfg.showPerf;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
-      if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
       if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
-      if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
       if (audioMasterToggle) audioMasterToggle.checked = !cfg.audioMuted;
       if (audioMusicToggle) {
         audioMusicToggle.checked = cfg.audioMusic !== false;
@@ -1513,9 +1460,6 @@ async function boot() {
       }
       if (fovRange) fovRange.value = String(cfg.fov);
       if (fovVal) fovVal.textContent = `${Math.round(cfg.fov)}°`;
-      if (tauRange) tauRange.value = String(cfg.dustTau);
-      if (tauVal) tauVal.textContent = cfg.dustTau.toFixed(2);
-      if (devilToggle) devilToggle.checked = cfg.dustDevil;
       if (cleanToggle) cleanToggle.checked = cfg.cleanHud;
       tpUpdating = true;
       for (const pane of activeTweakpanes) {
@@ -1531,15 +1475,9 @@ async function boot() {
     // Mount Tweakpane inspectors in Graphics, Simulation, and Developer tabs
     const simMount = document.getElementById("tweakpane-simulation-mount");
     if (simMount) {
-      const simPane = new Pane({ container: simMount, title: tr ? "Tweakpane Fizik & Atmosfer" : "Tweakpane Physics & Atmosphere" });
-      simPane.addBinding(tpModel, "dustTau", { label: tr ? "Toz Opaklığı τ" : "Dust Opacity τ", min: 0.35, max: 3, step: 0.05 }).on("change", (ev) => {
-        if (!tpUpdating) syncUi(saveDevSettings({ dustTau: ev.value }));
-      });
+      const simPane = new Pane({ container: simMount, title: tr ? "Tweakpane Fizik" : "Tweakpane Physics" });
       simPane.addBinding(tpModel, "realisticPhysics", { label: tr ? "Mars Fizikleri" : "Mars Physics" }).on("change", (ev) => {
         if (!tpUpdating) syncUi(saveDevSettings({ realisticPhysics: ev.value }));
-      });
-      simPane.addBinding(tpModel, "dustDevil", { label: tr ? "Toz Şeytanı" : "Dust Devil" }).on("change", (ev) => {
-        if (!tpUpdating) syncUi(saveDevSettings({ dustDevil: ev.value }));
       });
       activeTweakpanes.push(simPane);
     }
@@ -1574,11 +1512,6 @@ async function boot() {
         syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
       );
     });
-    modalBody.querySelectorAll(".dev-tau-preset").forEach((btn) => {
-      btn.addEventListener("click", () =>
-        syncUi(saveDevSettings({ dustTau: parseFloat(btn.dataset.tau) }))
-      );
-    });
     for (const btn of presetBtns) {
       btn.addEventListener("click", () => syncUi(saveDevSettings(gfxPresetPatch(btn.dataset.gfxPreset))));
     }
@@ -1592,14 +1525,8 @@ async function boot() {
     realisticTexToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticTextures: realisticTexToggle.checked }))
     );
-    realisticDustToggle?.addEventListener("change", () =>
-      syncUi(saveDevSettings({ realisticDust: realisticDustToggle.checked }))
-    );
     realisticPhysicsToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticPhysics: realisticPhysicsToggle.checked }))
-    );
-    realisticWeatherToggle?.addEventListener("change", () =>
-      syncUi(saveDevSettings({ realisticWeather: realisticWeatherToggle.checked }))
     );
     audioMasterToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ audioMuted: !audioMasterToggle.checked }))
@@ -1608,8 +1535,6 @@ async function boot() {
       syncUi(saveDevSettings({ audioMusic: audioMusicToggle.checked }))
     );
     fovRange?.addEventListener("input", () => syncUi(saveDevSettings({ fov: parseFloat(fovRange.value) })));
-    tauRange?.addEventListener("input", () => syncUi(saveDevSettings({ dustTau: parseFloat(tauRange.value) })));
-    devilToggle?.addEventListener("change", () => syncUi(saveDevSettings({ dustDevil: devilToggle.checked })));
     cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
     fullRealismBtn?.addEventListener("click", () => syncUi(saveDevSettings(FULL_REALISM_PRESET)));
     resetBtn?.addEventListener("click", () => {

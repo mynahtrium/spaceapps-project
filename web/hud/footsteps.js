@@ -10,9 +10,11 @@ import { marsAcousticFilterSpec } from "../physics/MarsAcoustics.js";
 import { gamepad } from "../shared/gamepad.js";
 import "../shared/audioEngine.js";
 
+const SPHERE_MOTES = false;
 const DUSTY = new Set(["SIDERITE_HOLLOW", "AEOLIAN_RIPPLE", "STEEP_SCREE"]);
 const N_DECAL = 256;
 const N_DUST = 48;
+const FOOTPRINT_FADE_S = 300; // loose regolith slumps and the light breeze softens prints
 
 export function createFootsteps(THREE, scene) {
   let enabled = true;
@@ -109,6 +111,25 @@ export function createFootsteps(THREE, scene) {
     decalMat.needsUpdate = true;
     tread = nextTex;
   }
+  // Boot prints fade out over FOOTPRINT_FADE_S: each instance keeps its birth time, and the
+  // material scales its alpha by age (the dust itself is drawn by regolith-dust.js).
+  const decalBirth = new Float32Array(N_DECAL).fill(-1);
+  decalGeom.setAttribute("aBirth", new THREE.InstancedBufferAttribute(decalBirth, 1));
+  const fadeTime = { value: 0 };
+  decalMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uFpTime = fadeTime;
+    shader.uniforms.uFpFade = { value: FOOTPRINT_FADE_S };
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float aBirth;\nvarying float vFpBirth;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvFpBirth = aBirth;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uFpTime;\nuniform float uFpFade;\nvarying float vFpBirth;")
+      .replace(
+        "#include <alphatest_fragment>",
+        "#include <alphatest_fragment>\nif (vFpBirth < 0.0) discard;\ndiffuseColor.a *= 1.0 - smoothstep(uFpFade * 0.4, uFpFade, uFpTime - vFpBirth);"
+      );
+  };
+  let clockS = 0;
   const decals = new THREE.InstancedMesh(decalGeom, decalMat, N_DECAL);
   decals.frustumCulled = false;
   decals.count = N_DECAL;
@@ -175,10 +196,13 @@ export function createFootsteps(THREE, scene) {
     slot.z = z;
     slot.yaw = yaw || 0;
     slot.side = side;
+    decalBirth[decalCursor] = clockS;
+    decalGeom.attributes.aBirth.needsUpdate = true;
     decalCursor = (decalCursor + 1) % N_DECAL;
     decals.instanceMatrix.needsUpdate = true;
 
-    if (!DUSTY.has(faciesId)) return;
+    // kicked-up dust is drawn by regolith-dust.js; the old sphere motes are kept off
+    if (!SPHERE_MOTES || !DUSTY.has(faciesId)) return;
     dustActive = true;
     dustMesh.visible = enabled;
     for (let k = 0; k < 4; k++) {
@@ -195,6 +219,8 @@ export function createFootsteps(THREE, scene) {
   }
 
   function update(dt, g = 3.72) {
+    clockS += Math.min(0.1, Math.max(0, dt || 0));
+    fadeTime.value = clockS;
     if (!enabled || !dustActive) return;
     const step = Math.min(0.05, dt);
     let anyAlive = false;
@@ -229,6 +255,7 @@ export function createFootsteps(THREE, scene) {
   function clear() {
     for (let i = 0; i < N_DECAL; i++) {
       stamped[i].active = false;
+      decalBirth[i] = -1;
       decals.setMatrixAt(i, hidden);
     }
     decalCursor = 0;

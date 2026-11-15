@@ -24,7 +24,7 @@ Generated from a scan of tracked files. Excludes `AGENTS.md`, `CLAUDE.md`, `GEMI
 - Walker and crew: `astronaut-rig.js`, `footsteps.js`, `npc-system.js`, `npc-knowledge.js`, `npc-dialogue-ui.js`.
 - Vehicles: `experimental-rover.js` (drivable MMSEV), `rover-dynamics.js`, `rover-rig.js`, `rover-dash.js`, `historic-rovers.js` (Sojourner, Spirit, Opportunity, etc.), `mars-landers.js` (landers, Ingenuity, site markers).
 - World: `GaleVista.js` (horizon), `MarsRockField.js`, `FieldKits.js`, `mars-habitat.js` + `habitat-textures.js`, `merge-static.js` (bakes rigid parts of a model into one mesh per material to cut draw calls).
-- Sky and atmosphere: `MarsEphemeris.js`, `MarsCelestialSky.js`, `mars-fx.js`, `DustDevil.js`; `post-pipeline.js` (ambient occlusion, bloom, anti-aliasing, visor pass).
+- Sky and atmosphere: `MarsEphemeris.js`, `MarsCelestialSky.js`, `regolith-dust.js` (kicked-up dust and tire tracks); `post-pipeline.js` (ambient occlusion, bloom, anti-aliasing, visor pass).
 - `landing-sequence.js`: entry, descent and landing cinematic.
 
 ### `web/map/` (terrain and map engine)

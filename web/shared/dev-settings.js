@@ -36,11 +36,7 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   roverSpeedMultiplier: 1.0,
   experimentalRover: false,
   realisticTextures: false,
-  realisticDust: true,
   realisticPhysics: true,
-  realisticWeather: true,
-  dustTau: 0.5,
-  dustDevil: false,
   fov: 78,
   cleanHud: false,
   audioMuted: false,
@@ -51,9 +47,7 @@ export const FULL_REALISM_PRESET = Object.freeze({
   quality: "ultra",
   experimentalRover: true,
   realisticTextures: true,
-  realisticDust: true,
   realisticPhysics: true,
-  realisticWeather: true,
 });
 
 const zEnumChoice = (allowed, fallback, mapLegacy = null) =>
@@ -94,11 +88,7 @@ const DevSettingsSchema = z.object({
   roverSpeedMultiplier: zClampedNumber(0.3, 4.0, DEFAULT_DEV_SETTINGS.roverSpeedMultiplier),
   experimentalRover: zBoolWithDefault(DEFAULT_DEV_SETTINGS.experimentalRover),
   realisticTextures: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticTextures),
-  realisticDust: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticDust),
   realisticPhysics: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticPhysics),
-  realisticWeather: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticWeather),
-  dustTau: zClampedNumber(0.35, 3, DEFAULT_DEV_SETTINGS.dustTau),
-  dustDevil: zBoolWithDefault(DEFAULT_DEV_SETTINGS.dustDevil),
   fov: zClampedNumber(60, 110, DEFAULT_DEV_SETTINGS.fov),
   cleanHud: zBoolWithDefault(DEFAULT_DEV_SETTINGS.cleanHud),
   audioMuted: zBoolWithDefault(DEFAULT_DEV_SETTINGS.audioMuted),

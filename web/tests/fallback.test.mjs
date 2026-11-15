@@ -369,8 +369,9 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
     speedMultiplier: 12,
     roverSpeedMultiplier: 9.5,
     ...FULL_REALISM_PRESET,
-    realisticDust: false,
     realisticPhysics: false,
+    // weather and dust settings from before the rework are dropped
+    realisticDust: false,
     realisticWeather: false,
     dustTau: 10,
     dustDevil: true,
@@ -386,11 +387,8 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal("dlss" in clean, false);
   assert.equal(clean.experimentalRover, true);
   assert.equal(clean.realisticTextures, true);
-  assert.equal(clean.realisticDust, false);
   assert.equal(clean.realisticPhysics, false);
-  assert.equal(clean.realisticWeather, false);
-  assert.equal(clean.dustTau, 3);
-  assert.equal(clean.dustDevil, true);
+  for (const gone of ["realisticDust", "realisticWeather", "dustTau", "dustDevil"]) assert.equal(gone in clean, false, gone);
   assert.equal(clean.fov, 60);
   assert.equal(clean.cleanHud, true);
   const defs = normalizeDevSettings();
@@ -406,12 +404,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(normalizeDevSettings({ gfxAntialias: "0" }).gfxAntialias, "off");
   assert.equal(defs.experimentalRover, false);
   assert.equal(defs.realisticTextures, false);
-  assert.equal(defs.realisticDust, true);
   assert.equal(defs.realisticPhysics, true);
-  assert.equal(defs.realisticWeather, true);
-  assert.equal(defs.dustTau, 0.5);
-  assert.equal(defs.dustDevil, false);
-  assert.equal(normalizeDevSettings({ dustTau: 0.05 }).dustTau, 0.35);
 });
 
 test("post pipeline exposes honest AO / AA choices and a real render scale", () => {
@@ -939,9 +932,9 @@ test("Inside-habitat detection excludes indoor floors/ramps while preserving spa
   const hudSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "hud3d.js"), "utf8");
   assert.match(hudSrc, /function isInsideHabitat\(x,\s*z\)/);
   assert.match(hudSrc, /if\s*\(\s*!isInsideHabitat\(footPos\.x,\s*footPos\.z\)\s*\)\s*\{\s*footsteps\.stamp\(/);
-  assert.match(hudSrc, /if\s*\(\s*devCfg\.realisticDust\s*&&\s*!isInsideHabitat\(px,\s*pz\)\s*\)/);
-  assert.match(hudSrc, /rs\.landingImpact\s*>\s*1\.0\s*&&\s*devCfg\.realisticDust\s*&&\s*!isInsideHabitat\(rs\.pos\.x,\s*rs\.pos\.z\)/);
-  assert.match(hudSrc, /!isInsideHabitat\(rs\.pos\.x,\s*rs\.pos\.z\)\s*&&\s*devCfg\.realisticDust/);
+  assert.match(hudSrc, /if\s*\(\s*!isInsideHabitat\(px,\s*pz\)\s*\)/);
+  assert.match(hudSrc, /rs\.landingImpact\s*>\s*1\.0\s*&&\s*!isInsideHabitat\(rs\.pos\.x,\s*rs\.pos\.z\)/);
+  assert.doesNotMatch(hudSrc, /realisticDust|realisticWeather|dustDevil|DustDevil/);
 });
 
 test("Custom Orbit landing specs derive MOLA relief & surface tint without cloning Gale habitat", () => {
@@ -1019,4 +1012,33 @@ test("controller bindings match the agreed Xbox layout and old saves migrate", a
   const migrated = migrateBindings({ texture: 10, pin: 2 });
   assert.equal(migrated.camera, 10);
   assert.equal("texture" in migrated, false);
+});
+
+test("regolith dust: grains fly ballistic arcs under Mars gravity and land; fine dust lingers and settles", async () => {
+  const { stepGrain, stepFine, MARS_G, DUST_PHYSICS } = await import("../hud/regolith-dust.js");
+  // a grain thrown up at 2 m/s with no drag would rise 2^2 / (2 g) = 0.54 m on Mars
+  const g = { x: 0, y: 0, z: 0, vx: 0.5, vy: 2, vz: 0 };
+  let peak = 0;
+  let t = 0;
+  while (stepGrain(g, 1 / 120, 0) && t < 5) {
+    peak = Math.max(peak, g.y);
+    t += 1 / 120;
+  }
+  assert.ok(peak > 0.4 && peak < 0.56, `peak ${peak}`);
+  assert.ok(t > 0.85 && t < 1.15, `flight ${t} s (1.08 s without drag)`);
+  assert.equal(g.y, 0);
+  assert.equal(MARS_G, 3.71);
+  // a fine puff slows within a second, then drifts with the breeze and sinks slowly
+  const f = { x: 0, y: 1, z: 0, vx: 2, vy: 1, vz: 0, r: 0.1, age: 0 };
+  for (let i = 0; i < 120; i++) stepFine(f, 1 / 60, 0);
+  assert.ok(Math.abs(f.vx - DUST_PHYSICS.breezeX) < 0.05, `vx ${f.vx}`);
+  assert.ok(f.vy < 0 && f.vy > -0.1, `settling ${f.vy}`);
+  assert.ok(f.y > 1, "a puff is still in the air after 2 s");
+  assert.ok(f.r > 0.4, `puff spreads (${f.r})`);
+});
+
+test("weather systems are gone", () => {
+  for (const rel of ["hud/DustDevil.js", "hud/mars-fx.js", "environment/marsWeather.js"]) {
+    assert.equal(fs.existsSync(path.join(WEB_DIR, rel)), false, rel);
+  }
 });
