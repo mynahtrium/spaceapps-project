@@ -2141,18 +2141,44 @@ export function createHistoricRoverManager(THREE, gltfLoader, scene, { onModelLo
     const fr = sampleWheel(hw, -hl);
     const mr = sampleWheel(hw, 0);
     const rr = sampleWheel(hw, hl);
-    const avgY = (fl + rl + fr + rr) * 0.25;
+    const avgY = (fl + ml + rl + fr + mr + rr) / 6;
     const frontY = (fl + fr) * 0.5;
     const backY = (rl + rr) * 0.5;
-    const leftY = (fl + rl) * 0.5;
-    const rightY = (fr + rr) * 0.5;
+    const leftY = (fl + ml + rl) / 3;
+    const rightY = (fr + mr + rr) / 3;
 
-    group.position.y = avgY;
+    const rx = Math.max(-0.42, Math.min(0.42, Math.atan2(frontY - backY, 2 * hl)));
+    const rz = Math.max(-0.42, Math.min(0.42, Math.atan2(rightY - leftY, 2 * hw)));
+    const sinRx = Math.sin(rx);
+    const sinRz = Math.sin(rz);
+    // Ensure no wheel clips into convex bumps or slopes
+    const wheelPts = [
+      [-hw, -hl, fl],
+      [-hw, 0, ml],
+      [-hw, hl, rl],
+      [hw, -hl, fr],
+      [hw, 0, mr],
+      [hw, hl, rr],
+    ];
+    let minBaseY = avgY;
+    for (const [lx, lz, wy] of wheelPts) {
+      const planeOff = -lz * sinRx + lx * sinRz;
+      minBaseY = Math.max(minBaseY, wy - planeOff);
+    }
+
+    group.position.y = minBaseY;
     group.rotation.order = "YXZ";
-    group.rotation.x = Math.max(-0.42, Math.min(0.42, Math.atan2(frontY - backY, 2 * hl)));
-    group.rotation.z = Math.max(-0.42, Math.min(0.42, Math.atan2(leftY - rightY, 2 * hw)));
+    group.rotation.x = rx;
+    group.rotation.z = rz;
 
-    entry.wheelDeltaHeights = [fl - avgY, ml - avgY, rl - avgY, fr - avgY, mr - avgY, rr - avgY];
+    entry.wheelDeltaHeights = [
+      fl - minBaseY,
+      ml - minBaseY,
+      rl - minBaseY,
+      fr - minBaseY,
+      mr - minBaseY,
+      rr - minBaseY,
+    ];
   }
 
   function groundAll(sampleElevY) {

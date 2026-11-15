@@ -189,4 +189,21 @@ test("128x128 sub-chunks select exact 32 nearest cells and match detail ground a
     assert.ok(Math.abs(pos.getY(mid) - expect) < 0.05);
     g.dispose();
   }
+
+  // Outer-edge blending (edgeMask = 0) smoothly matches the overview mesh on exposed borders
+  const [oa, ob] = [nearest[0].a, nearest[0].b];
+  const gEdge = buildCorridorSubCellGeometry(THREE, c, oa, ob, 64, c.elevMin, 30, null, 2, 0);
+  const posE = gEdge.attributes.position;
+  // Vertex 0 is on the north-west corner (u=0, v=0) -> exact overview height
+  const x0 = posE.getX(0);
+  const z0 = posE.getZ(0);
+  const ov0 = c.sampleOverview(x0, z0) - c.elevMin;
+  assert.ok(Math.abs(posE.getY(0) - ov0) < 1e-4, `outer border vertex matches overview (${posE.getY(0)} vs ${ov0})`);
+  // Center vertex (u=0.5, v=0.5, >10 m from edges) -> exact 1 m detail height
+  const midIdx = 32 * 65 + 32;
+  const xm = posE.getX(midIdx);
+  const zm = posE.getZ(midIdx);
+  const detM = c.sampleDetail(xm, zm) - c.elevMin;
+  assert.ok(Math.abs(posE.getY(midIdx) - detM) < 1e-4, `interior vertex matches detail (${posE.getY(midIdx)} vs ${detM})`);
+  gEdge.dispose();
 });

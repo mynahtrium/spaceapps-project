@@ -217,6 +217,12 @@ export function createVehicleBody(id, x, z, yaw, sampleHeight, g = GALE_G) {
     lateralSpeed: 0,
     slipRatio: 0,
     powerFrac: 0,
+    mechPowerW: 0,
+    hp: 0,
+    maxHp: spec.powerW / 745.699872,
+    wheelTorqueNm: 0,
+    maxWheelTorqueNm: spec.maxDriveForceN * spec.wheelRadius,
+    weightN: spec.massKg * g,
     lastImpact: 0,
     sleeping: false,
     stillT: 0,
@@ -321,7 +327,14 @@ function substep(body, input, env, h) {
   }
   const braking = input.brake || (throttle !== 0 && !movingWithThrottle);
   const hold = throttle === 0; // motors hold the wheels when no throttle (parking brake)
-  body.powerFrac = Math.min(1, Math.abs(driveTotal * vFwd) / power);
+  const mechPowerW = Math.abs(driveTotal * vFwd);
+  body.mechPowerW = mechPowerW;
+  body.hp = mechPowerW / 745.699872;
+  body.maxHp = power / 745.699872;
+  body.wheelTorqueNm = driveTotal * spec.wheelRadius;
+  body.maxWheelTorqueNm = spec.maxDriveForceN * spec.wheelRadius;
+  body.weightN = spec.massKg * g;
+  body.powerFrac = Math.min(1, mechPowerW / power);
 
   // centre of mass to chassis origin (ground level under the chassis at static ride height)
   const origin = sub(body.pos, scale(up, spec.comHeightM));

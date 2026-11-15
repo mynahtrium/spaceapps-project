@@ -18,13 +18,19 @@
  * Body frame: +X right, +Y up, -Z forward (same as the model). World: +Y up. Runs at a fixed 240 Hz.
  */
 
+export const WATTS_PER_HP = 745.699872;
+
 export const ROVER_PARAMS = Object.freeze({
   massKg: 2950,
+  weightN: 2950 * 3.71,
   dims: { w: 2.6, h: 2.2, l: 4.6 }, // for the box inertia
   cgY: 0.95, // centre of mass above the model origin (ground at rest)
   cgZ: 0.37, // over the middle axle (the wheel set is not centred on the model origin)
   g: 3.71,
   wheelRadius: 0.345,
+  tireHalfWidth: 0.22,
+  wheelMassKg: 28,
+  wheelInertiaKgM2: 6 * 0.5 * 28 * 0.345 * 0.345,
   trackHalfW: 1.339,
   axleZ: [-0.969, 0.37, 1.708], // front, mid, rear
   restLen: 0.5, // strut length with no load (top mount to hub)
@@ -39,8 +45,12 @@ export const ROVER_PARAMS = Object.freeze({
   corneringB: 7.5, // lateral force rises to full grip by about 8 degrees of slip
   gearRatio: 18,
   wheelForceMaxN: 3400, // whole vehicle, low-speed traction force at full pedal (~1.15 m/s^2)
+  wheelTorqueMaxNm: 3400 * 0.345, // 1,173 N·m total wheel torque across 6 hub drives
+  motorTorqueMaxNm: (3400 * 0.345) / (18 * 0.88), // ~74.1 N·m total motor shaft torque
   powerW: 14000,
   boostPowerW: 19000,
+  maxHp: 14000 / WATTS_PER_HP, // 18.77 HP continuous
+  boostHp: 19000 / WATTS_PER_HP, // 25.48 HP boost
   vMax: 20 / 3.6,
   vMaxBoost: 26 / 3.6,
   vMaxReverse: 8 / 3.6,
@@ -66,19 +76,37 @@ export function roverParamsFor(spec) {
   const axleZ = (spec.axles || []).map((a) => a.z);
   const mid = axleZ.length === 3 ? axleZ[1] : ROVER_PARAMS.cgZ;
   const r = spec.wheelRadius || ROVER_PARAMS.wheelRadius;
+  const massKg = Math.round(ROVER_PARAMS.massKg * k);
+  const wheelForceMaxN = ROVER_PARAMS.wheelForceMaxN * k;
+  const gearRatio = spec.gearRatio || ROVER_PARAMS.gearRatio;
+  const eff = ROVER_PARAMS.driveEfficiency;
+  const wheelTorqueMaxNm = wheelForceMaxN * r;
+  const motorTorqueMaxNm = wheelTorqueMaxNm / (gearRatio * eff);
+  const powerW = ROVER_PARAMS.powerW * k * sp;
+  const boostPowerW = ROVER_PARAMS.boostPowerW * k * sp;
+  const wheelMassKg = ROVER_PARAMS.wheelMassKg * (r / ROVER_PARAMS.wheelRadius) ** 2;
   return Object.freeze({
     ...ROVER_PARAMS,
-    massKg: Math.round(ROVER_PARAMS.massKg * k),
+    massKg,
+    weightN: massKg * ROVER_PARAMS.g,
     wheelRadius: r,
+    tireHalfWidth: Math.max(0.22, r * 0.5),
+    wheelMassKg,
+    wheelInertiaKgM2: 6 * 0.5 * wheelMassKg * r * r,
     trackHalfW: spec.trackHalfW || ROVER_PARAMS.trackHalfW,
     axleZ: axleZ.length === 3 ? axleZ : ROVER_PARAMS.axleZ,
     cgZ: mid,
     cgY: ROVER_PARAMS.cgY + (r - ROVER_PARAMS.wheelRadius),
     restLen: ROVER_PARAMS.restLen + (r - ROVER_PARAMS.wheelRadius),
-    wheelForceMaxN: ROVER_PARAMS.wheelForceMaxN * k,
+    wheelForceMaxN,
+    wheelTorqueMaxNm,
+    motorTorqueMaxNm,
     brakeForceN: ROVER_PARAMS.brakeForceN * k,
-    powerW: ROVER_PARAMS.powerW * k * sp,
-    boostPowerW: ROVER_PARAMS.boostPowerW * k * sp,
+    powerW,
+    boostPowerW,
+    maxHp: powerW / WATTS_PER_HP,
+    boostHp: boostPowerW / WATTS_PER_HP,
+    gearRatio,
     vMax: ROVER_PARAMS.vMax * sp,
     vMaxBoost: ROVER_PARAMS.vMaxBoost * sp,
     vMaxReverse: ROVER_PARAMS.vMaxReverse * sp,
@@ -106,23 +134,37 @@ export function roverParamsForHistoric(spec) {
   const mass = spec?.massKg || 900;
   const k = mass / ROVER_PARAMS.massKg;
   const vmax = (HISTORIC_VMAX_KMH[kind] ?? 8) / 3.6;
+  const wheelForceMaxN = ROVER_PARAMS.wheelForceMaxN * k;
+  const wheelTorqueMaxNm = wheelForceMaxN * r;
+  const motorTorqueMaxNm = wheelTorqueMaxNm / (ROVER_PARAMS.gearRatio * ROVER_PARAMS.driveEfficiency);
+  const powerW = ROVER_PARAMS.powerW * k;
+  const boostPowerW = ROVER_PARAMS.boostPowerW * k;
+  const wheelMassKg = Math.max(0.35, mass * 0.018);
   return Object.freeze({
     ...ROVER_PARAMS,
     massKg: mass,
+    weightN: mass * ROVER_PARAMS.g,
     dims: { w: hw * 2.4, h: Math.max(0.3, 2.2 * s), l: hl * 2.4 },
     cgY: Math.max(0.12, 0.95 * s),
     cgZ: 0,
     wheelRadius: r,
+    tireHalfWidth: Math.max(0.035, r * 0.45),
+    wheelMassKg,
+    wheelInertiaKgM2: 6 * 0.5 * wheelMassKg * r * r,
     trackHalfW: hw,
     axleZ: [-hl, 0, hl],
     restLen: 0.5 * s,
     sagM: 0.11 * s,
     maxComp: 0.34 * s,
     probeScale: s,
-    wheelForceMaxN: ROVER_PARAMS.wheelForceMaxN * k,
+    wheelForceMaxN,
+    wheelTorqueMaxNm,
+    motorTorqueMaxNm,
     brakeForceN: ROVER_PARAMS.brakeForceN * k,
-    powerW: ROVER_PARAMS.powerW * k,
-    boostPowerW: ROVER_PARAMS.boostPowerW * k,
+    powerW,
+    boostPowerW,
+    maxHp: powerW / WATTS_PER_HP,
+    boostHp: boostPowerW / WATTS_PER_HP,
     vMax: vmax,
     vMaxBoost: vmax * 1.3,
     vMaxReverse: vmax * 0.5,
@@ -166,6 +208,8 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
         angle: 0,
         slip: 0,
         hubY: P.wheelRadius, // hub height in model coords (for the rig)
+        worldHubY: P.wheelRadius,
+        groundY: 0,
       });
     }
   }
@@ -181,8 +225,22 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     batteryKWh: P.batteryKWh,
     odometerM: 0,
     powerW: 0,
+    mechPowerW: 0,
+    hp: 0,
+    maxHp: P.maxHp || P.powerW / WATTS_PER_HP,
     motorRpm: 0,
     torquePct: 0,
+    wheelTorqueNm: 0,
+    motorTorqueNm: 0,
+    maxWheelTorqueNm: P.wheelTorqueMaxNm || P.wheelForceMaxN * P.wheelRadius,
+    maxMotorTorqueNm:
+      P.motorTorqueMaxNm || (P.wheelForceMaxN * P.wheelRadius) / (P.gearRatio * P.driveEfficiency),
+    massKg: m,
+    weightN: m * P.g,
+    normalLoadN: m * P.g,
+    powerToWeightHpPerTon: (((P.maxHp || P.powerW / WATTS_PER_HP) * 1000) / m),
+    gradeForceN: 0,
+    rollingResistanceN: 0,
     vLong: 0,
     vLat: 0,
     airborne: false,
@@ -215,6 +273,8 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
   const euler = new THREE.Euler(0, 0, 0, "YXZ");
   const cgLocal = new THREE.Vector3(0, P.cgY, P.cgZ);
   const cgWorld = new THREE.Vector3();
+  const tireHalfW = P.tireHalfWidth || Math.max(0.04, P.wheelRadius * 0.45);
+  const minStrutLen = Math.max(0.03, P.restLen - P.maxComp * 1.08);
   // belly and bumper points (ground clearance ~0.55 m, like a high-riding pressurised rover)
   const probe = [
     [-0.9, 0.62, -2.25],
@@ -231,6 +291,24 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     [-1.1, 1.8, 1.8],
     [1.1, 1.8, 1.8],
   ];
+
+  function sampleWheelFootprintY(sampleY, hx, hz, steerRad) {
+    const g0 = sampleY(hx, hz);
+    const cs = Math.cos(steerRad);
+    const sn = Math.sin(steerRad);
+    // Wheel axis (lateral across dual/wide tire) and rolling axis in world XZ
+    const axX = right.x * cs + fwd.x * sn;
+    const axZ = right.z * cs + fwd.z * sn;
+    const fwX = fwd.x * cs - right.x * sn;
+    const fwZ = fwd.z * cs - right.z * sn;
+    const gL = sampleY(hx - axX * tireHalfW, hz - axZ * tireHalfW);
+    const gR = sampleY(hx + axX * tireHalfW, hz + axZ * tireHalfW);
+    const chord = P.wheelRadius * 0.38;
+    const arcRise = P.wheelRadius * 0.08;
+    const gF = sampleY(hx + fwX * chord, hz + fwZ * chord) - arcRise;
+    const gB = sampleY(hx - fwX * chord, hz - fwZ * chord) - arcRise;
+    return Math.max(g0, gL, gR, gF, gB);
+  }
 
   /** Put the rover at rest on the ground at (x, z), facing yaw. */
   function reset(x, z, yaw, sampleY) {
@@ -272,6 +350,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       wh.compVel = 0;
       wh.omega = 0;
       wh.steer = 0;
+      wh.hubY = P.wheelRadius;
     }
   }
 
@@ -332,28 +411,32 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     st.steerCmd += Math.max(-sr, Math.min(sr, steerTarget - st.steerCmd));
     wheelSteerAngles(st.steerCmd);
 
-    // motor demand for the whole vehicle
+    // motor torque & power demand for the whole vehicle (6 in-hub motors + planetary reduction)
     const boost = Boolean(inp.boost);
     const rawMult = Number(inp.speedMultiplier);
     const speedMult = Number.isFinite(rawMult) ? Math.max(0.3, Math.min(4.0, rawMult)) : 1;
     const vCap = (st.pedal >= 0 ? (boost ? P.vMaxBoost : P.vMax) : P.vMaxReverse) * speedMult;
     const governor = Math.max(0, Math.min(1, (vCap - speed) / 0.8));
     const wheelForceMaxN = P.wheelForceMaxN * speedMult;
-    const powerCap = ((boost ? P.boostPowerW : P.powerW) * speedMult) / Math.max(0.5, speed);
+    const availPowerW = (boost ? P.boostPowerW : P.powerW) * speedMult;
+    const powerCap = availPowerW / Math.max(0.5, speed);
     let driveTotal = Math.min(wheelForceMaxN, powerCap) * Math.abs(st.pedal) * governor;
     driveTotal *= Math.sign(st.pedal);
     const coastRegen = st.pedal === 0 && st.brake < 0.05 ? -Math.sign(vLong) * Math.min(1, speed / 0.6) * m * P.regenCoastG : 0;
 
     let contacts = 0;
+    let totalNormalLoad = 0;
+    let totalRollingDrag = 0;
     for (const wh of wheels) {
       // strut top in world space
       mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
-      // hub along the strut until the tyre touches the ground (two passes to follow the slope)
+      // hub along the strut until the tyre footprint touches the ground (two passes to follow the slope)
       let len = P.restLen;
+      let gy = 0;
       for (let k = 0; k < 2; k++) {
         const hx = mountW.x - up.x * len;
         const hz = mountW.z - up.z * len;
-        const gy = sampleY(hx, hz);
+        gy = sampleWheelFootprintY(sampleY, hx, hz, wh.steer);
         len = Math.min(P.restLen, (mountW.y - gy - P.wheelRadius) / Math.max(0.3, up.y));
       }
       const comp = Math.min(P.restLen * 0.95, P.restLen - len); // a strut cannot shorten past its body
@@ -372,7 +455,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       wh.contact = true;
       wh.comp = comp;
       wh.compVel = Math.max(-4, Math.min(4, (comp - prevComp) / dt));
-      wh.hubY = mountY - len;
+      wh.hubY = mountY - Math.max(minStrutLen, len);
 
       // contact point and its velocity
       const cx = mountW.x - up.x * (len + P.wheelRadius);
@@ -391,6 +474,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       nrm.set(n.x, n.y, n.z);
       const N = fs * Math.max(0.2, up.dot(nrm));
       wh.load = N;
+      totalNormalLoad += N;
 
       // wheel heading on the ground plane
       wf.copy(fwd).multiplyScalar(Math.cos(wh.steer)).addScaledVector(right, -Math.sin(wh.steer));
@@ -404,7 +488,9 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       const brakeN = st.brake * P.brakeForceN / 6;
       fl -= brakeN * Math.max(-1, Math.min(1, vl / 0.15));
       if (inp.handbrake && wh.axle === 2) fl -= P.muSlide * N * Math.max(-1, Math.min(1, vl / 0.08));
-      fl -= P.rollingCrr * N * Math.max(-1, Math.min(1, vl / 0.25));
+      const rollDrag = P.rollingCrr * N * Math.max(-1, Math.min(1, vl / 0.25));
+      fl -= rollDrag;
+      totalRollingDrag += Math.abs(rollDrag);
       // parking hold: no pedal and nearly stopped -> the motors hold the rover on a slope
       if (st.pedal === 0 && Math.abs(vLong) < 0.12 && !inp.handbrake) fl -= P.mu * N * Math.max(-1, Math.min(1, vl / 0.04));
 
@@ -483,13 +569,57 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     }
     st.pos.copy(cgWorld).sub(tmp.copy(cgLocal).applyQuaternion(st.q));
 
+    // Post-integration wheel & chassis floor constraint:
+    // Re-evaluate wheel hub heights at the integrated pose so wheels never clip through the floor
+    // on slopes, crests, or hard landings, and prevent the chassis from sinking past bump stops.
+    up.set(0, 1, 0).applyQuaternion(st.q);
+    fwd.set(0, 0, -1).applyQuaternion(st.q);
+    right.set(1, 0, 0).applyQuaternion(st.q);
+    let maxFloorLift = 0;
+    for (const wh of wheels) {
+      mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
+      const estLen = P.restLen - wh.comp;
+      const hx = mountW.x - up.x * estLen;
+      const hz = mountW.z - up.z * estLen;
+      const gy = sampleWheelFootprintY(sampleY, hx, hz, wh.steer);
+      const reqLen = (mountW.y - gy - P.wheelRadius) / Math.max(0.3, up.y);
+      if (reqLen < minStrutLen) {
+        maxFloorLift = Math.max(maxFloorLift, (minStrutLen - reqLen) * Math.max(0.3, up.y));
+      }
+    }
+    // Also ensure the central belly never penetrates underground
+    tmp.set(0, 0.35 * ps, P.cgZ).applyQuaternion(st.q).add(st.pos);
+    const bellyFloorPen = sampleY(tmp.x, tmp.z) - tmp.y;
+    if (bellyFloorPen > 0) maxFloorLift = Math.max(maxFloorLift, bellyFloorPen);
+
+    if (maxFloorLift > 0) {
+      st.pos.y += maxFloorLift;
+      cgWorld.y += maxFloorLift;
+      if (st.vel.y < 0) st.vel.y *= 0.2;
+      st.airborne = false;
+    }
+
+    // Finalize visual hubY for the integrated pose so rendered wheels sit cleanly on the surface
+    for (const wh of wheels) {
+      mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
+      const estLen = P.restLen - wh.comp;
+      const hx = mountW.x - up.x * estLen;
+      const hz = mountW.z - up.z * estLen;
+      const gy = sampleWheelFootprintY(sampleY, hx, hz, wh.steer);
+      const reqLen = (mountW.y - gy - P.wheelRadius) / Math.max(0.3, up.y);
+      const finalLen = wh.contact || maxFloorLift > 0 ? Math.max(minStrutLen, Math.min(P.restLen, reqLen)) : P.restLen;
+      wh.hubY = mountY - finalLen;
+      wh.worldHubY = mountW.y - finalLen * up.y;
+      wh.groundY = gy;
+    }
+
     if (st.airborne) st.airTime += dt;
     else {
       if (st.airTime > 0.15) st.landingImpact = Math.max(st.landingImpact, -prevVY);
       st.airTime = 0;
     }
 
-    // telemetry
+    // telemetry: RPM, Torque (N·m), Horsepower (HP & kW), and Weight / Normal Load (N)
     let wSum = 0;
     let driven = 0;
     for (const wh of wheels) {
@@ -503,7 +633,18 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     st.motorRpm = (wheelOmega * 60 * P.gearRatio) / (2 * Math.PI);
     const tractive = driveTotal + coastRegen;
     st.torquePct = Math.max(-1, Math.min(1, tractive / wheelForceMaxN));
+    st.maxWheelTorqueNm = wheelForceMaxN * P.wheelRadius;
+    st.maxMotorTorqueNm = st.maxWheelTorqueNm / (P.gearRatio * P.driveEfficiency);
+    st.wheelTorqueNm = tractive * P.wheelRadius;
+    st.motorTorqueNm = st.wheelTorqueNm / (P.gearRatio * P.driveEfficiency);
     const mech = tractive * vLong;
+    st.mechPowerW = mech;
+    st.hp = Math.abs(mech) / WATTS_PER_HP;
+    st.maxHp = availPowerW / WATTS_PER_HP;
+    st.powerToWeightHpPerTon = (st.maxHp * 1000) / m;
+    st.normalLoadN = totalNormalLoad;
+    st.gradeForceN = -m * P.g * fwd.y;
+    st.rollingResistanceN = totalRollingDrag;
     st.powerW = (mech >= 0 ? mech / P.driveEfficiency : mech * P.regenEfficiency) + P.hotelW;
     st.batteryKWh = Math.max(0, Math.min(P.batteryKWh, st.batteryKWh - (st.powerW * dt) / 3.6e6));
     st.odometerM += Math.abs(vLong) * dt;
@@ -582,10 +723,16 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     },
     attitude,
     /** Rover was moved from outside (world wrap, collision push): keep velocities, take the new spot. */
-    setPosition(x, z) {
+    setPosition(x, z, sampleY = null) {
       wake();
       st.pos.x = x;
       st.pos.z = z;
+      if (typeof sampleY === "function") {
+        const gy = sampleY(x, z);
+        if (Number.isFinite(gy) && st.pos.y < gy - P.maxComp) {
+          st.pos.y = gy;
+        }
+      }
     },
     scaleVelocity(s) {
       wake();

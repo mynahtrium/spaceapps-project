@@ -39,6 +39,14 @@ export const DRIVABLE_VEHICLES = Object.freeze([
     gripBase: 13.5,
     driftGrip: 4.6,
     massKg: 1850,
+    weightN: 1850 * MARS_GRAVITY_MS2,
+    powerW: 14000,
+    boostPowerW: 19000,
+    hp: 14000 / 745.699872,
+    boostHp: 19000 / 745.699872,
+    wheelTorqueMaxNm: 1173,
+    motorTorqueMaxNm: 74.1,
+    gearRatio: 18,
     suspStiff: 40.0,
     suspDamp: 7.6,
     wheelRadius: 0.345,
@@ -69,6 +77,14 @@ export const DRIVABLE_VEHICLES = Object.freeze([
     gripBase: 14.5,
     driftGrip: 5.0,
     massKg: 2250,
+    weightN: 2250 * MARS_GRAVITY_MS2,
+    powerW: 20200,
+    boostPowerW: 27400,
+    hp: 20200 / 745.699872,
+    boostHp: 27400 / 745.699872,
+    wheelTorqueMaxNm: 2150,
+    motorTorqueMaxNm: 135.7,
+    gearRatio: 18,
     suspStiff: 44.0,
     suspDamp: 8.2,
     wheelRadius: 0.52,
@@ -277,6 +293,24 @@ export function stepAdvancedRoverPhysics(
   state.gear = gear;
   state.rpmNorm = rpmNorm;
 
+  const availPowerW = ((boost ? spec.boostPowerW : spec.powerW) || 14000) * mult;
+  const maxTorqueNm = (spec.wheelTorqueMaxNm || 1173) * mult;
+  const speedAbs = Math.abs(vFwd);
+  const wheelOmega = Math.max(0.8, speedAbs / Math.max(0.2, spec.wheelRadius || 0.345));
+  const torqueAvail = Math.min(maxTorqueNm, availPowerW / wheelOmega);
+  const wheelTorqueNm = airborne ? 0 : throttle * torqueAvail;
+  const motorTorqueNm = wheelTorqueNm / ((spec.gearRatio || 18) * 0.88);
+  const mechPowerW = Math.abs(wheelTorqueNm * wheelOmega);
+  const hp = mechPowerW / 745.699872;
+  const maxHp = availPowerW / 745.699872;
+  const weightN = (spec.massKg || 1850) * MARS_GRAVITY_MS2;
+  state.wheelTorqueNm = wheelTorqueNm;
+  state.motorTorqueNm = motorTorqueNm;
+  state.mechPowerW = mechPowerW;
+  state.hp = hp;
+  state.maxHp = maxHp;
+  state.weightN = weightN;
+
   return {
     spec,
     vFwd,
@@ -285,6 +319,12 @@ export function stepAdvancedRoverPhysics(
     slipRatio,
     gear,
     rpmNorm,
+    wheelTorqueNm,
+    motorTorqueNm,
+    mechPowerW,
+    hp,
+    maxHp,
+    weightN,
     drifting: Boolean(state.drifting),
     braking: Boolean(handbrake || (throttle < 0 && vFwd > 0.5)),
   };
@@ -1717,7 +1757,8 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev", { w
       const minAntiSinkDiff = hPodMax + 0.022 - planeY;
       const targetPodDiff = airborne ? Math.max(-0.14, minAntiSinkDiff) : Math.max(-0.13, minAntiSinkDiff);
       const clampedDiff = Math.min(0.44, targetPodDiff);
-      pod.smoothPodY += (clampedDiff - (pod.smoothPodY || 0)) * Math.min(1, dt * 22);
+      const nextSmooth = (pod.smoothPodY || 0) + (clampedDiff - (pod.smoothPodY || 0)) * Math.min(1, dt * 22);
+      pod.smoothPodY = airborne ? nextSmooth : Math.max(Math.min(0.44, minAntiSinkDiff), nextSmooth);
       pod.podRoot.position.y = pod.baseY + pod.smoothPodY;
     }
   }
