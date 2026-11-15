@@ -114,9 +114,19 @@ class GamepadInput {
   }
 
   poll() {
-    const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
-    // prefer a pad with the standard (XInput-style) layout
-    const pad = pads.find((p) => p.connected && p.mapping === "standard") || pads.find((p) => p.connected) || null;
+    const rawPads = navigator.getGamepads ? navigator.getGamepads() : null;
+    let pad = null;
+    if (rawPads) {
+      for (let i = 0; i < rawPads.length; i++) {
+        const p = rawPads[i];
+        if (!p || !p.connected) continue;
+        if (p.mapping === "standard") {
+          pad = p;
+          break;
+        }
+        if (!pad) pad = p;
+      }
+    }
     const id = pad ? pad.id : null;
     if (id !== this.connectedId) {
       this.connectedId = id;
@@ -126,7 +136,10 @@ class GamepadInput {
     this.pad = pad;
     if (!pad) {
       this.buttons.fill(0);
-      this.axes = [0, 0, 0, 0];
+      this.axes[0] = 0;
+      this.axes[1] = 0;
+      this.axes[2] = 0;
+      this.axes[3] = 0;
       return;
     }
     for (let i = 0; i < this.buttons.length; i++) {

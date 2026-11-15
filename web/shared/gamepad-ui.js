@@ -1,12 +1,24 @@
 /**
- * Controller setup screen (`web/shared/gamepad-ui.js`).
+ * Controller setup screen & embedded Settings tab widget (`web/shared/gamepad-ui.js`).
  *
- * A black overlay with an Xbox-style controller silhouette that lights up live as buttons are
- * pressed and sticks move, a list of actions with their current button, and stick settings.
+ * Renders an Xbox-style controller silhouette that lights up live as buttons are pressed
+ * and sticks move, a list of actions with their current button, and stick settings.
  * Choose ASSIGN next to an action, then press the controller button to use for it.
  */
 
 import { ACTIONS, BUTTON_NAMES, gamepad } from "./gamepad.js";
+
+const ACTION_LABELS_TR = {
+  jump: "Zıpla (Menülerde A onaylar)",
+  run: "Koş (Basılı tut)",
+  pin: "İşaret bırak (Pin)",
+  texture: "Zemin görünümünü değiştir",
+  map: "Yörünge haritasını aç / kapat",
+  menu: "Komut menüsü (ESC)",
+  pov: "Gezgin POV fotoğrafı",
+  setup: "Ayarlar / Kumanda kurulumu",
+  interact: "Araca bin / in, konuş (E)",
+};
 
 // Silhouette drawn here (generic controller outline, no logos). viewBox 0 0 440 280.
 const PAD_SVG = `
@@ -34,7 +46,7 @@ const PAD_SVG = `
 </svg>`;
 
 const CSS = `
-/* crosshair used by the map controllers (planner map and the 3D Mars globe map) */
+/* crosshair used by the map controllers */
 .pad-crosshair { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; pointer-events: none;
   z-index: 6; display: none; }
 .pad-crosshair.on { display: block; }
@@ -49,31 +61,46 @@ const CSS = `
 #pad-setup.open { display: flex; }
 .pad-card { width: min(980px, 100%); max-height: 92vh; overflow-y: auto; border: 1px solid rgba(255,255,255,0.3);
   background: #000; padding: 24px 28px; display: grid; grid-template-columns: 1.15fr 1fr; gap: 28px; }
-@media (max-width: 820px) { .pad-card { grid-template-columns: 1fr; } }
-.pad-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
-.pad-head h3 { margin: 0; font-weight: 400; font-size: 12px; letter-spacing: 0.28em; }
-.pad-status { font-size: 10.5px; letter-spacing: 0.1em; color: rgba(255,255,255,0.55); }
-.pad-status.on { color: #fff; }
-.pad-svg { width: 100%; height: auto; display: block; }
-.pad-svg .pad-body { fill: #0b0b0b; stroke: rgba(255,255,255,0.55); stroke-width: 1.5; }
-.pad-svg rect, .pad-svg circle { fill: #000; stroke: rgba(255,255,255,0.55); stroke-width: 1.2; transition: fill 0.06s; }
-.pad-svg .pad-well { fill: #050505; stroke: rgba(255,255,255,0.25); }
-.pad-svg text { fill: rgba(255,255,255,0.75); font-size: 11px; text-anchor: middle; font-family: inherit; pointer-events: none; }
-.pad-svg .pad-small { font-size: 7.5px; letter-spacing: 0.12em; fill: rgba(255,255,255,0.45); }
-.pad-svg .lit rect, .pad-svg .lit circle:not(.pad-well) { fill: #fff; }
+.pad-embed-card { display: grid; grid-template-columns: 1.05fr 1fr; gap: 20px; padding: 14px;
+  border: 1px solid var(--line, rgba(255,255,255,0.22)); background: var(--tint-03, rgba(255,255,255,0.03)); }
+@media (max-width: 820px) {
+  .pad-card, .pad-embed-card { grid-template-columns: 1fr; }
+}
+.pad-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.pad-head h3 { margin: 0; font-weight: 400; font-size: 11px; letter-spacing: 0.16em; color: var(--cyan-bright, #fff); text-transform: uppercase; }
+.pad-status { font-size: 10.5px; letter-spacing: 0.1em; color: var(--muted, rgba(255,255,255,0.55)); }
+.pad-status.on { color: var(--cyan-bright, #fff); }
+.pad-svg { width: 100%; height: auto; display: block; max-width: 420px; margin: 0 auto; }
+.pad-svg .pad-body { fill: #0b0b0b; stroke: var(--line-strong, rgba(255,255,255,0.55)); stroke-width: 1.5; }
+.pad-svg rect, .pad-svg circle { fill: #000; stroke: var(--line-strong, rgba(255,255,255,0.55)); stroke-width: 1.2; transition: fill 0.06s; }
+.pad-svg .pad-well { fill: #050505; stroke: var(--line, rgba(255,255,255,0.25)); }
+.pad-svg text { fill: var(--cyan, rgba(255,255,255,0.75)); font-size: 11px; text-anchor: middle; font-family: inherit; pointer-events: none; }
+.pad-svg .pad-small { font-size: 7.5px; letter-spacing: 0.12em; fill: var(--muted, rgba(255,255,255,0.45)); }
+.pad-svg .lit rect, .pad-svg .lit circle:not(.pad-well) { fill: var(--cyan-bright, #fff); }
 .pad-svg .lit text { fill: #000; }
-.pad-svg .target rect, .pad-svg .target circle:not(.pad-well) { stroke: #fff; stroke-width: 2.5; animation: padblink 0.8s steps(1) infinite; }
+.pad-svg .target rect, .pad-svg .target circle:not(.pad-well) { stroke: var(--cyan-bright, #fff); stroke-width: 2.5; animation: padblink 0.8s steps(1) infinite; }
 @keyframes padblink { 50% { stroke-opacity: 0.2; } }
-.pad-hint { font-size: 10.5px; line-height: 1.6; color: rgba(255,255,255,0.55); margin-top: 12px; }
-.pad-list { display: grid; grid-template-columns: 1fr auto auto; gap: 8px 14px; align-items: center; font-size: 11.5px; }
-.pad-list .lbl { color: rgba(255,255,255,0.75); }
-.pad-list .key { color: #fff; letter-spacing: 0.08em; min-width: 92px; text-align: right; }
+.pad-hint { font-size: 10px; line-height: 1.55; color: var(--muted, rgba(255,255,255,0.55)); margin-top: 10px; }
+.pad-list { display: grid; grid-template-columns: 1fr auto auto; gap: 7px 12px; align-items: center; font-size: 11px; }
+.pad-list .lbl { color: var(--muted, rgba(255,255,255,0.75)); }
+.pad-list .key { color: var(--cyan-bright, #fff); letter-spacing: 0.08em; min-width: 82px; text-align: right; }
 .pad-list .key.wait { animation: padblink 0.8s steps(1) infinite; }
-.pad-sec { font-size: 9.5px; letter-spacing: 0.24em; color: rgba(255,255,255,0.45); margin: 18px 0 10px; text-transform: uppercase; }
-.pad-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11.5px; color: rgba(255,255,255,0.75); margin: 8px 0; }
-.pad-row input[type=range] { width: 150px; accent-color: #fff; }
-.pad-foot { display: flex; gap: 14px; justify-content: flex-end; margin-top: 18px; }
+.pad-sec { font-size: 9.5px; letter-spacing: 0.2em; color: var(--faint, rgba(255,255,255,0.45)); margin: 14px 0 8px; text-transform: uppercase; }
+.pad-sec:first-child { margin-top: 0; }
+.pad-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--muted, rgba(255,255,255,0.75)); margin: 7px 0; cursor: pointer; }
+.pad-row input[type=range] { width: 140px; accent-color: var(--cyan-accent, #fff); cursor: pointer; }
+.pad-foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
 `;
+
+let stylesInjected = false;
+function ensurePadStyles() {
+  if (stylesInjected || typeof document === "undefined" || !document.head) return;
+  stylesInjected = true;
+  const style = document.createElement("style");
+  style.id = "mm-gamepad-ui-styles";
+  style.textContent = CSS;
+  document.head.appendChild(style);
+}
 
 function el(html) {
   const t = document.createElement("template");
@@ -81,47 +108,70 @@ function el(html) {
   return t.content.firstElementChild;
 }
 
-export function initGamepadSetup() {
-  const style = document.createElement("style");
-  style.textContent = CSS;
-  document.head.appendChild(style);
+/**
+ * Mount the interactive controller layout, button rebinding list, and analog stick controls
+ * inside a parent container (such as the Controls tab of the unified Settings modal).
+ */
+export function mountGamepadSettings(container, { tr = false, showCloseButton = false, onClose = null } = {}) {
+  if (!container) return { cancel: () => {}, isCapturing: () => false, destroy: () => {} };
+  ensurePadStyles();
 
-  const root = el(`
-    <div id="pad-setup" role="dialog" aria-label="Controller setup">
-      <div class="pad-card">
-        <div class="pad-head">
-          <h3>CONTROLLER SETUP</h3>
-          <div class="pad-status" id="pad-status">NO CONTROLLER · CONNECT ONE AND PRESS ANY BUTTON</div>
-        </div>
-        <div>
-          ${PAD_SVG}
-          <div class="pad-hint">
-            LEFT STICK WALK · RIGHT STICK LOOK · BUTTONS LIGHT UP WHEN PRESSED.<br/>
-            IN MENUS AND ON THE MAP: A SELECTS / CONFIRMS, B GOES BACK (FIXED); D-PAD OR LEFT STICK MOVES.<br/>
-            TO CHANGE A BUTTON: CHOOSE ASSIGN, THEN PRESS THE BUTTON ON THE CONTROLLER (ESC CANCELS).<br/>
-            XBOX / XINPUT CONTROLLERS USE THIS LAYOUT; OTHER PADS MAY NAME BUTTONS DIFFERENTLY.
-          </div>
-        </div>
-        <div>
-          <div class="pad-sec">Actions</div>
-          <div class="pad-list" id="pad-list"></div>
-          <div class="pad-sec">Sticks</div>
-          <div class="pad-row"><span>Look sensitivity <span id="pad-sens-v"></span></span><input id="pad-sens" type="range" min="0.3" max="2.5" step="0.1"/></div>
-          <div class="pad-row"><span>Dead zone <span id="pad-dz-v"></span></span><input id="pad-dz" type="range" min="0.05" max="0.35" step="0.01"/></div>
-          <label class="pad-row"><span>Invert look up / down</span><input id="pad-inv" type="checkbox"/></label>
-          <label class="pad-row"><span>Swap sticks (walk on right)</span><input id="pad-swap" type="checkbox"/></label>
-          <div class="pad-foot">
-            <button class="btn" id="pad-reset">Defaults</button>
-            <button class="btn primary" id="pad-close">Done</button>
-          </div>
+  const card = el(`
+    <div class="${showCloseButton ? "pad-card" : "pad-embed-card"}">
+      <div class="pad-head">
+        <h3>${tr ? "OYUN KUMANDASI (GAMEPAD) KURULUMU" : "CONTROLLER / GAMEPAD SETUP"}</h3>
+        <div class="pad-status" id="pad-status">
+          ${
+            tr
+              ? "KUMANDA BAĞLI DEĞİL · BİR KUMANDA BAĞLAYIP HERHANGİ BİR TUŞA BASIN"
+              : "NO CONTROLLER · CONNECT ONE AND PRESS ANY BUTTON"
+          }
         </div>
       </div>
-    </div>`);
-  document.body.appendChild(root);
+      <div>
+        ${PAD_SVG}
+        <div class="pad-hint">
+          ${
+            tr
+              ? "SOL ÇUBUK YÜRÜR · SAĞ ÇUBUK BAKAR · BASILAN TUŞLAR ŞEMADA YANAR.<br/>MENÜLERDE: A SEÇER / ONAYLAR, B GERİ DÖNER (SABİT); D-PAD VEYA SOL ÇUBUK GEZİNİR.<br/>TUŞ DEĞİŞTİRMEK İÇİN: ATAMA SEÇİN, ARDINDAN KUMANDADAKİ TUŞA BASIN (ESC İPTAL EDER)."
+              : "LEFT STICK WALK · RIGHT STICK LOOK · BUTTONS LIGHT UP WHEN PRESSED.<br/>IN MENUS: A SELECTS / CONFIRMS, B GOES BACK (FIXED); D-PAD OR LEFT STICK MOVES.<br/>TO CHANGE A BUTTON: CHOOSE ASSIGN, THEN PRESS THE BUTTON ON THE CONTROLLER (ESC CANCELS)."
+          }
+        </div>
+      </div>
+      <div>
+        <div class="pad-sec">${tr ? "Eylemler & Tuş Atamaları" : "Actions & Button Bindings"}</div>
+        <div class="pad-list" id="pad-list"></div>
+        <div class="pad-sec">${tr ? "Analog Çubuklar" : "Analog Sticks"}</div>
+        <div class="pad-row">
+          <span>${tr ? "Bakış hassasiyeti" : "Look sensitivity"} <strong id="pad-sens-v"></strong></span>
+          <input id="pad-sens" type="range" min="0.3" max="2.5" step="0.1"/>
+        </div>
+        <div class="pad-row">
+          <span>${tr ? "Ölü bölge (Dead zone)" : "Dead zone"} <strong id="pad-dz-v"></strong></span>
+          <input id="pad-dz" type="range" min="0.05" max="0.35" step="0.01"/>
+        </div>
+        <label class="pad-row">
+          <span>${tr ? "Yukarı / aşağı bakışı ters çevir" : "Invert look up / down"}</span>
+          <input id="pad-inv" type="checkbox"/>
+        </label>
+        <label class="pad-row">
+          <span>${tr ? "Çubukları değiştir (sağ çubukla yürü)" : "Swap sticks (walk on right)"}</span>
+          <input id="pad-swap" type="checkbox"/>
+        </label>
+        <div class="pad-foot">
+          <button class="btn" type="button" id="pad-reset">${tr ? "Kumanda Varsayılanları" : "Controller Defaults"}</button>
+          ${showCloseButton ? `<button class="btn primary" type="button" id="pad-close">${tr ? "Tamam" : "Done"}</button>` : ""}
+        </div>
+      </div>
+    </div>
+  `);
 
-  const status = root.querySelector("#pad-status");
-  const list = root.querySelector("#pad-list");
-  const svg = root.querySelector(".pad-svg");
+  container.innerHTML = "";
+  container.appendChild(card);
+
+  const status = card.querySelector("#pad-status");
+  const list = card.querySelector("#pad-list");
+  const svg = card.querySelector(".pad-svg");
   const parts = [...svg.querySelectorAll("[data-b]")];
   const sticks = {
     left: svg.querySelector('[data-stick="left"] .pad-cap'),
@@ -137,11 +187,16 @@ export function initGamepadSetup() {
     list.innerHTML = "";
     for (const a of ACTIONS) {
       const b = gamepad.settings.bindings[a.id];
-      const lbl = el(`<span class="lbl">${a.label}</span>`);
-      const key = el(`<span class="key${waitingFor === a.id ? " wait" : ""}">${
-        waitingFor === a.id ? "PRESS…" : b == null ? "—" : BUTTON_NAMES[b]
-      }</span>`);
-      const btn = el(`<button class="btn">${waitingFor === a.id ? "Cancel" : "Assign"}</button>`);
+      const actionLabel = tr && ACTION_LABELS_TR[a.id] ? ACTION_LABELS_TR[a.id] : a.label;
+      const lbl = el(`<span class="lbl">${actionLabel}</span>`);
+      const waitTxt = tr ? "TUŞA BAS…" : "PRESS…";
+      const key = el(
+        `<span class="key${waitingFor === a.id ? " wait" : ""}">${
+          waitingFor === a.id ? waitTxt : b == null ? "—" : BUTTON_NAMES[b]
+        }</span>`
+      );
+      const btnTxt = waitingFor === a.id ? (tr ? "İptal" : "Cancel") : tr ? "Ata" : "Assign";
+      const btn = el(`<button class="btn" type="button" style="padding:2px 8px;font-size:10px;">${btnTxt}</button>`);
       btn.onclick = () => (waitingFor === a.id ? cancel() : assign(a.id));
       list.append(lbl, key, btn);
     }
@@ -162,22 +217,24 @@ export function initGamepadSetup() {
   }
 
   function cancel() {
+    if (!waitingFor) return false;
     waitingFor = null;
     gamepad.cancelCapture();
     renderList();
+    return true;
   }
 
-  const sens = root.querySelector("#pad-sens");
-  const dz = root.querySelector("#pad-dz");
-  const inv = root.querySelector("#pad-inv");
-  const swap = root.querySelector("#pad-swap");
+  const sens = card.querySelector("#pad-sens");
+  const dz = card.querySelector("#pad-dz");
+  const inv = card.querySelector("#pad-inv");
+  const swap = card.querySelector("#pad-swap");
   function syncSettings() {
     sens.value = gamepad.settings.sensitivity;
     dz.value = gamepad.settings.deadzone;
     inv.checked = gamepad.settings.invertY;
     swap.checked = gamepad.settings.swapSticks;
-    root.querySelector("#pad-sens-v").textContent = `${Number(gamepad.settings.sensitivity).toFixed(1)}x`;
-    root.querySelector("#pad-dz-v").textContent = `${Math.round(gamepad.settings.deadzone * 100)}%`;
+    card.querySelector("#pad-sens-v").textContent = `${Number(gamepad.settings.sensitivity).toFixed(1)}×`;
+    card.querySelector("#pad-dz-v").textContent = `${Math.round(gamepad.settings.deadzone * 100)}%`;
   }
   sens.oninput = () => {
     gamepad.set("sensitivity", Number(sens.value));
@@ -189,54 +246,94 @@ export function initGamepadSetup() {
   };
   inv.onchange = () => gamepad.set("invertY", inv.checked);
   swap.onchange = () => gamepad.set("swapSticks", swap.checked);
-  root.querySelector("#pad-reset").onclick = () => {
+  card.querySelector("#pad-reset").onclick = () => {
     cancel();
     gamepad.reset();
     syncSettings();
     renderList();
   };
+  const closeBtn = card.querySelector("#pad-close");
+  if (closeBtn && onClose) closeBtn.onclick = onClose;
+
+  syncSettings();
+  renderList();
+
+  let rafId = 0;
+  let destroyed = false;
+  function frame() {
+    if (destroyed || !card.isConnected) {
+      rafId = 0;
+      return;
+    }
+    for (const p of parts) p.classList.toggle("lit", gamepad.buttons[Number(p.dataset.b)] > 0.5);
+    const ax = gamepad.axes;
+    for (const [name, [ix, iy]] of [
+      ["left", [0, 1]],
+      ["right", [2, 3]],
+    ]) {
+      const [hx, hy] = stickHome[name];
+      sticks[name].setAttribute("cx", String(hx + (ax[ix] || 0) * 9));
+      sticks[name].setAttribute("cy", String(hy + (ax[iy] || 0) * 9));
+    }
+    status.textContent = gamepad.connected
+      ? `${tr ? "BAĞLI" : "CONNECTED"} · ${gamepad.connectedId.slice(0, 60).toUpperCase()}`
+      : tr
+        ? "KUMANDA BAĞLI DEĞİL · BİR KUMANDA BAĞLAYIP HERHANGİ BİR TUŞA BASIN"
+        : "NO CONTROLLER · CONNECT ONE AND PRESS ANY BUTTON";
+    status.classList.toggle("on", gamepad.connected);
+    rafId = requestAnimationFrame(frame);
+  }
+  rafId = requestAnimationFrame(frame);
+
+  return {
+    cancel,
+    sync: () => {
+      syncSettings();
+      renderList();
+    },
+    isCapturing: () => waitingFor != null,
+    destroy: () => {
+      destroyed = true;
+      cancel();
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+    },
+  };
+}
+
+export function initGamepadSetup({ onOpen = null } = {}) {
+  ensurePadStyles();
+  const root = el(`<div id="pad-setup" role="dialog" aria-label="Controller setup"></div>`);
+  document.body.appendChild(root);
+  let mounted = null;
 
   function close() {
-    cancel();
+    mounted?.destroy?.();
+    mounted = null;
     root.classList.remove("open");
+    root.innerHTML = "";
   }
-  root.querySelector("#pad-close").onclick = close;
+
   root.addEventListener("click", (e) => {
     if (e.target === root) close();
   });
   window.addEventListener("keydown", (e) => {
     if (!root.classList.contains("open") || e.key !== "Escape") return;
-    if (waitingFor) cancel();
+    if (mounted?.isCapturing?.()) mounted.cancel();
     else close();
   });
 
-  // live view of the controller while the screen is open
-  function frame() {
-    if (root.classList.contains("open")) {
-      for (const p of parts) p.classList.toggle("lit", gamepad.buttons[Number(p.dataset.b)] > 0.5);
-      const ax = gamepad.axes;
-      for (const [name, [ix, iy]] of [
-        ["left", [0, 1]],
-        ["right", [2, 3]],
-      ]) {
-        const [hx, hy] = stickHome[name];
-        sticks[name].setAttribute("cx", String(hx + (ax[ix] || 0) * 9));
-        sticks[name].setAttribute("cy", String(hy + (ax[iy] || 0) * 9));
-      }
-      status.textContent = gamepad.connected
-        ? `CONNECTED · ${gamepad.connectedId.slice(0, 60).toUpperCase()}`
-        : "NO CONTROLLER · CONNECT ONE AND PRESS ANY BUTTON";
-      status.classList.toggle("on", gamepad.connected);
-    }
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
-
   return {
     open() {
-      syncSettings();
-      renderList();
+      if (typeof onOpen === "function") {
+        onOpen();
+        return;
+      }
       root.classList.add("open");
+      mounted?.destroy?.();
+      mounted = mountGamepadSettings(root, { showCloseButton: true, onClose: close });
     },
     close,
     get isOpen() {

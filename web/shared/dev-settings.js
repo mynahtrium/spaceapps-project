@@ -39,6 +39,8 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   dustDevil: false,
   fov: 78,
   cleanHud: false,
+  audioMuted: false,
+  audioMusic: true,
 });
 
 export const FULL_REALISM_PRESET = Object.freeze({
@@ -139,6 +141,8 @@ export function normalizeDevSettings(raw = {}) {
     dustDevil: raw.dustDevil !== undefined ? Boolean(raw.dustDevil) : DEFAULT_DEV_SETTINGS.dustDevil,
     fov: clampNum(raw.fov, 60, 110, DEFAULT_DEV_SETTINGS.fov),
     cleanHud: raw.cleanHud !== undefined ? Boolean(raw.cleanHud) : DEFAULT_DEV_SETTINGS.cleanHud,
+    audioMuted: raw.audioMuted !== undefined ? Boolean(raw.audioMuted) : DEFAULT_DEV_SETTINGS.audioMuted,
+    audioMusic: raw.audioMusic !== undefined ? Boolean(raw.audioMusic) : DEFAULT_DEV_SETTINGS.audioMusic,
   };
 }
 

@@ -44,7 +44,18 @@ function cycleHudTheme() {
 }
 import { initContextMenu } from "./shared/context-menu.js";
 import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "./shared/gamepad.js";
-import { initGamepadSetup } from "./shared/gamepad-ui.js";
+import { initGamepadSetup, mountGamepadSettings } from "./shared/gamepad-ui.js";
+
+function applyAudioToEngine(cfg) {
+  const audio = typeof window !== "undefined" ? window.MartianAudio : null;
+  if (!audio) return;
+  if (typeof cfg?.audioMuted === "boolean" && audio.isMuted?.() !== cfg.audioMuted) {
+    audio.setMuted?.(cfg.audioMuted);
+  }
+  if (typeof cfg?.audioMusic === "boolean" && audio.isMusicEnabled?.() !== cfg.audioMusic) {
+    audio.setMusicEnabled?.(cfg.audioMusic);
+  }
+}
 
 const I18N = {
   en: {
@@ -210,15 +221,29 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
 
 async function boot() {
   document.body.classList.add("in-hud");
-  applyThemeToDom(loadDevSettings());
+  const initialCfg = loadDevSettings();
+  applyThemeToDom(initialCfg);
+  applyAudioToEngine(initialCfg);
   subscribeDevSettings((cfg) => {
     applyThemeToDom(cfg);
+    applyAudioToEngine(cfg);
     syncEscMenuRef();
+  });
+  window.addEventListener("click", (e) => {
+    const toggleBtn = e.target?.closest?.("#mm-audio-toggle");
+    if (toggleBtn && window.MartianAudio) {
+      setTimeout(() => {
+        saveDevSettings({ audioMuted: Boolean(window.MartianAudio.isMuted?.()) });
+      }, 0);
+    }
   });
   // Show the start screen at once; its actions wait until the data and views are ready.
   let resolveReady;
   const ready = new Promise((r) => (resolveReady = r));
   let syncEscMenuRef = () => {};
+  let openSettingsModalRef = () => {};
+  let activePadSettingsApi = null;
+  let currentSettingsTab = "general";
   const start = initStartScreen({
     onEva: () => ready.then((a) => a.eva()),
     onOrbit: () => ready.then((a) => a.orbit()),
@@ -230,8 +255,10 @@ async function boot() {
   // Controller routing (layout in shared/gamepad.js): Menu = Esc menu, View = map, A confirm, B back;
   // D-pad or left stick move through menus. In-game actions live in hud3d.js, the maps handle
   // their own stick / A / B once open.
-  const padSetup = initGamepadSetup();
-  document.getElementById("btn-pad").onclick = () => padSetup.open();
+  const padSetup = initGamepadSetup({
+    onOpen: () => openSettingsModalRef("controls"),
+  });
+  document.getElementById("btn-pad").onclick = () => openSettingsModalRef();
   const pressKey = (key) => window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
   const isOn = (id, cls) => document.getElementById(id)?.classList.contains(cls);
   const appReady = () => Boolean(window.__MM_APP__);
@@ -241,9 +268,9 @@ async function boot() {
     else if (isOn("orbit-view", "active")) document.getElementById("btn-tab-hud")?.click(); // back to 3D
   }
 
-  // move keyboard focus through the controls of an open panel (controller setup)
+  // move keyboard focus through the controls of an open panel (controller setup / settings modal)
   function moveFocus(rootEl, dir) {
-    const items = [...rootEl.querySelectorAll("button, input")].filter((e) => !e.disabled && e.offsetParent !== null);
+    const items = [...rootEl.querySelectorAll("button, input, select")].filter((e) => !e.disabled && e.offsetParent !== null);
     if (!items.length) return;
     const cur = items.indexOf(document.activeElement);
     const el = document.activeElement;
@@ -259,6 +286,8 @@ async function boot() {
 
   gamepad.onNav(({ dir }) => {
     if (padSetup.isOpen) return moveFocus(document.getElementById("pad-setup"), dir);
+    if (isOn("modal-backdrop", "open")) return moveFocus(document.getElementById("modal-backdrop"), dir);
+    if (isOn("esc-menu", "open")) return moveFocus(document.getElementById("esc-menu"), dir);
     if (!isOn("start-screen", "hidden")) {
       if (dir === "up") pressKey("ArrowUp");
       else if (dir === "down") pressKey("ArrowDown");
@@ -274,7 +303,19 @@ async function boot() {
       return;
     }
     if (isOn("modal-backdrop", "open")) {
-      if (button === CONFIRM_BUTTON || button === BACK_BUTTON) document.getElementById("modal-backdrop").classList.remove("open");
+      const backdropEl = document.getElementById("modal-backdrop");
+      const tabBtns = [...backdropEl.querySelectorAll(".settings-tab")];
+      if (tabBtns.length > 0 && (button === 4 || button === 5)) {
+        const curIdx = Math.max(0, tabBtns.findIndex((b) => b.classList.contains("active")));
+        const nextIdx = (curIdx + (button === 5 ? 1 : -1) + tabBtns.length) % tabBtns.length;
+        tabBtns[nextIdx]?.click();
+        return;
+      }
+      if (button === BACK_BUTTON) {
+        document.getElementById("modal-close")?.click();
+      } else if (button === CONFIRM_BUTTON && backdropEl.contains(document.activeElement)) {
+        document.activeElement.click();
+      }
       return;
     }
     if (!isOn("start-screen", "hidden")) {
@@ -284,7 +325,7 @@ async function boot() {
       return;
     }
     if (actions.includes("menu")) return start.show();
-    if (actions.includes("setup")) return padSetup.open();
+    if (actions.includes("setup")) return openSettingsModalRef("controls");
     if (actions.includes("map")) return toggleMap(); // opens and closes the map
     if (isOn("orbit-view", "active") && button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
   });
@@ -312,11 +353,14 @@ async function boot() {
   const btnCredits = document.getElementById("btn-credits");
 
   const modalBackdrop = document.getElementById("modal-backdrop");
+  const modalCard = modalBackdrop?.querySelector(".modal-card");
   const modalTitle = document.getElementById("modal-title");
   const modalBody = document.getElementById("modal-body");
   let modalToggleKey = null;
   function closeModal() {
     modalBackdrop.classList.remove("open");
+    modalCard?.classList.remove("settings-modal");
+    activePadSettingsApi = null;
     modalToggleKey = null;
   }
   document.getElementById("modal-close").onclick = closeModal;
@@ -465,333 +509,601 @@ async function boot() {
 
   btnCredits.onclick = openCreditsModal;
 
-  function openDevSettingsModal() {
+  function openDevSettingsModal(initialTab) {
+    if (document.pointerLockElement) {
+      try {
+        document.exitPointerLock?.();
+      } catch {}
+    }
     modalToggleKey = null;
+    const validTabs = ["general", "graphics", "simulation", "controls", "developer"];
+    const activeTab =
+      typeof initialTab === "string" && validTabs.includes(initialTab)
+        ? initialTab
+        : validTabs.includes(currentSettingsTab)
+          ? currentSettingsTab
+          : "general";
+    currentSettingsTab = activeTab;
+
     const tr = readLang() === "tr";
     const s = loadDevSettings();
+    const audio = typeof window !== "undefined" ? window.MartianAudio : null;
+    const isMuted = audio ? Boolean(audio.isMuted?.()) : Boolean(s.audioMuted);
+    const isMusicOn = audio ? Boolean(audio.isMusicEnabled?.()) : s.audioMusic !== false;
+
+    modalCard?.classList.add("settings-modal");
     modalTitle.textContent = tr ? "AYARLAR" : "SETTINGS";
+
+    const hudSunTxt = document.getElementById("hud-sun-btn")?.textContent?.trim() || (tr ? "Güneş: gündüz" : "Sun: day");
+    const hudGoldEl = document.getElementById("hud-gold-btn");
+    const hudLampEl = document.getElementById("hud-lamp-btn");
+    const hudTexTxt = document.getElementById("hud-tex")?.textContent?.trim() || (tr ? "Doku: kabartma" : "Tex: relief");
+
     modalBody.innerHTML = `
       <div class="dev-panel">
+        <div class="settings-tabs" role="tablist" aria-label="${tr ? "Ayar Sekmeleri" : "Settings Tabs"}">
+          <button class="settings-tab ${activeTab === "general" ? "active" : ""}" type="button" role="tab" data-settings-tab="general">
+            ${tr ? "Genel & Arayüz" : "General & HUD"}
+          </button>
+          <button class="settings-tab ${activeTab === "graphics" ? "active" : ""}" type="button" role="tab" data-settings-tab="graphics">
+            ${tr ? "Grafik" : "Graphics"}
+          </button>
+          <button class="settings-tab ${activeTab === "simulation" ? "active" : ""}" type="button" role="tab" data-settings-tab="simulation">
+            ${tr ? "Ses, Fizik & Hava" : "Audio, Physics & Weather"}
+          </button>
+          <button class="settings-tab ${activeTab === "controls" ? "active" : ""}" type="button" role="tab" data-settings-tab="controls">
+            ${tr ? "Kontroller & Kumanda" : "Controls & Gamepad"}
+          </button>
+          <button class="settings-tab ${activeTab === "developer" ? "active" : ""}" type="button" role="tab" data-settings-tab="developer">
+            ${tr ? "Geliştirici" : "Developer"}
+          </button>
+        </div>
+
         <div class="dev-note">
           ${
             tr
-              ? "Değişiklikler anlık olarak 3D EVA görünümüne uygulanır ve tarayıcıda saklanır."
-              : "Changes apply live to the 3D EVA view and persist locally in your browser."
+              ? "Tüm görünüm, grafik, ses, fizik, kontrol ve geliştirici ayarları tek merkezde toplanmıştır. Değişiklikler anlık olarak uygulanır ve tarayıcıda saklanır."
+              : "All display, graphics, audio, physics, control, and developer settings in one place. Changes apply live and persist locally in your browser."
           }
         </div>
 
-        <div class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "HUD Görsel Teması" : "HUD Visual Theme"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Buz mavisi vizör camı, Untitled mavi-siyah veya sade siyah-beyaz arayüz arasında geçer."
-                : "Switches between Ice-Cyan glass, Untitled blue-on-black, and Monochrome UI."
-            }</div>
+        <!-- TAB 1: GENERAL & HUD -->
+        <div class="settings-tab-pane ${activeTab === "general" ? "active" : ""}" data-settings-pane="general">
+          <div class="dev-sec-title">${tr ? "Dil & Tema" : "Language & Theme"}</div>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Arayüz Dili" : "Interface Language"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Menü, ayarlar ve astronot diyalog dilini değiştirir (veri kaynak atıfları İngilizce kalır)."
+                  : "Switches menus, settings, and astronaut dialogue between English and Turkish (source citations stay in English)."
+              }</div>
+            </div>
+            <span class="dev-presets">
+              <button class="btn dev-theme-btn ${!tr ? "active" : ""}" type="button" data-settings-lang="en">English (EN)</button>
+              <button class="btn dev-theme-btn ${tr ? "active" : ""}" type="button" data-settings-lang="tr">Türkçe (TR)</button>
+            </span>
           </div>
-          <span class="dev-presets">
-            <button class="btn dev-theme-btn" type="button" data-hud-theme="cyan">${getThemeLabel("cyan", tr)}</button>
-            <button class="btn dev-theme-btn" type="button" data-hud-theme="untitled">${getThemeLabel("untitled", tr)}</button>
-            <button class="btn dev-theme-btn" type="button" data-hud-theme="mono">${getThemeLabel("mono", tr)}</button>
-          </span>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "HUD Görsel Teması" : "HUD Visual Theme"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Buz mavisi vizör camı, Untitled mavi-siyah veya sade siyah-beyaz arayüz arasında geçer."
+                  : "Switches between Ice-Cyan glass, Untitled blue-on-black, and Monochrome UI."
+              }</div>
+            </div>
+            <span class="dev-presets">
+              <button class="btn dev-theme-btn" type="button" data-hud-theme="cyan">${getThemeLabel("cyan", tr)}</button>
+              <button class="btn dev-theme-btn" type="button" data-hud-theme="untitled">${getThemeLabel("untitled", tr)}</button>
+              <button class="btn dev-theme-btn" type="button" data-hud-theme="mono">${getThemeLabel("mono", tr)}</button>
+            </span>
+          </div>
+
+          <div class="dev-sec-title">${tr ? "Kamera & Vizör" : "Camera & Visor"}</div>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Kamera Görüş Açısı (FOV)" : "Camera Field of View (FOV)"}</div>
+              <div class="dev-sub"><span id="dev-fov-val">${Math.round(s.fov)}°</span></div>
+            </div>
+            <input class="dev-range" type="range" id="dev-fov" min="60" max="110" step="1" value="${s.fov}" />
+          </div>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Kask camı kenar çerçevesi, kromatik sapma, hafif film greni ve vinyet."
+                  : "Helmet glass vignette frame, subtle barrel distortion, chromatic aberration, and grain."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
+          </label>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Çerçeve / Lens Şiddeti" : "Lens & Frame Strength"}</div>
+              <div class="dev-sub"><span id="dev-frame-strength-val">${Math.round(s.frameStrength * 100)}%</span></div>
+            </div>
+            <input class="dev-range" type="range" id="dev-frame-strength" min="0.2" max="1.5" step="0.05" value="${s.frameStrength}" />
+          </div>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Sade Kamera (HUD Metinlerini Gizle)" : "Clean Camera (Hide HUD Telemetry)"}</div>
+              <div class="dev-sub">${
+                tr ? "3D ekrandaki telemetri yazılarını temiz ekran görüntüsü için gizler." : "Hides telemetry text overlays in 3D view for clean capture."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-clean-hud" ${s.cleanHud ? "checked" : ""} />
+          </label>
+
+          <div class="dev-sec-title">${tr ? "Kask Optikleri & Arazi Katmanı" : "Suit Optics & Surface Layer"}</div>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Güneş & Aydınlatma Modu" : "Sun & Lighting Mode"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Sabit 15:00 gündüz aydınlatması ile gerçek yerel Mars güneş zamanı arasında geçiş yapar."
+                  : "Toggles between fixed 15:00 daylight and real local Mars true solar time."
+              }</div>
+            </div>
+            <button class="btn dev-theme-btn" type="button" id="settings-sun-btn">${hudSunTxt}</button>
+          </div>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Kask Filtresi & El Feneri" : "Helmet Visor Filter & Flashlight"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Altın güneş filtresi (G) ve kask LED el fenerini (F) açıp kapatır."
+                  : "Toggles the gold sun visor filter (G) and suit LED headlamp (F)."
+              }</div>
+            </div>
+            <span class="dev-presets">
+              <button class="btn dev-theme-btn ${hudGoldEl?.classList.contains("active") ? "active" : ""}" type="button" id="settings-gold-btn">
+                ${hudGoldEl?.textContent?.trim() || (tr ? "Altın Vizör (G)" : "Gold (G)")}
+              </button>
+              <button class="btn dev-theme-btn ${hudLampEl?.classList.contains("active") ? "active" : ""}" type="button" id="settings-lamp-btn">
+                ${hudLampEl?.textContent?.trim() || (tr ? "El Feneri (F)" : "Flashlight (F)")}
+              </button>
+            </span>
+          </div>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Arazi Yüzey Katmanı" : "Terrain Surface Layer"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "HiRISE kabartma, Mars dokulu görünüm ve eğim haritası arasında geçiş yapar."
+                  : "Cycles between HiRISE shaded relief, Mars textured surface, and slope map."
+              }</div>
+            </div>
+            <button class="btn dev-theme-btn" type="button" id="settings-tex-btn">${hudTexTxt}</button>
+          </div>
         </div>
 
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Altın vizör filtresi (G), kask el feneri (F) ve optik büyütme (Z) ayarları."
-                : "Gold sun filter (G), EVA flashlight (F), optical zoom (Z), and subtle grain."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-frame-toggle" ${s.frameEffect ? "checked" : ""} />
-        </label>
+        <!-- TAB 2: GRAPHICS -->
+        <div class="settings-tab-pane ${activeTab === "graphics" ? "active" : ""}" data-settings-pane="graphics">
+          <div class="dev-sec-title">${tr ? "Kalite & Çözünürlük" : "Quality & Resolution"}</div>
 
-        <div class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Çerçeve / Lens Şiddeti" : "Lens & Frame Strength"}</div>
-            <div class="dev-sub"><span id="dev-frame-strength-val">${Math.round(s.frameStrength * 100)}%</span></div>
-          </div>
-          <input class="dev-range" type="range" id="dev-frame-strength" min="0.2" max="1.5" step="0.05" value="${s.frameStrength}" />
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Grafik Ön Ayarı" : "Graphics preset"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Otomatik, ekran kartına göre seçer. Düşük: eski ve tümleşik kartlar için (gölge haritası yok, yakın arazi, %75 çözünürlük). Ultra: 4096 px yumuşak gölgeler, kayalar, 1.25× çözünürlük."
+                  : "Auto picks one from your GPU. Low suits older and integrated GPUs (no shadow map, near terrain only, 75 % resolution). Ultra adds 4096 px soft shadows, rocks and 1.25× resolution."
+              }</div>
+            </div>
+            <select id="dev-quality">
+              <option value="auto">${tr ? "Otomatik" : "Auto"}</option>
+              <option value="low">${tr ? "Düşük" : "Low"}</option>
+              <option value="medium">${tr ? "Orta" : "Medium"}</option>
+              <option value="high">${tr ? "Yüksek" : "High"}</option>
+              <option value="ultra">Ultra</option>
+            </select>
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Gölgeler" : "Shadows"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Güneşin giysi, araç ve üs gölgeleri. Arazi gölgeleri her ayarda kalır."
+                  : "Sun shadows of the suit, rovers and habitat. Terrain shadows stay on at every setting."
+              }</div>
+            </div>
+            <select id="dev-gfx-shadows" data-gfx="gfxShadows">
+              <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+              <option value="off">${tr ? "Kapalı" : "Off"}</option>
+              <option value="low">${tr ? "Düşük (1024 px)" : "Low (1024 px)"}</option>
+              <option value="high">${tr ? "Yüksek (2048 px)" : "High (2048 px)"}</option>
+              <option value="ultra">${tr ? "Ultra (4096 px, yumuşak)" : "Ultra (4096 px, soft)"}</option>
+            </select>
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Ayrıntılı Arazi Mesafesi" : "Detailed terrain distance"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "1 m HiRISE arazisinin çizildiği yarıçap. Ötesinde 8 m genel görünüm kullanılır."
+                  : "Radius drawn from the 1 m HiRISE terrain. Beyond it the 8 m overview is used."
+              }</div>
+            </div>
+            <select id="dev-gfx-distance" data-gfx="gfxViewDistance">
+              <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+              <option value="near">350 m</option>
+              <option value="medium">600 m</option>
+              <option value="far">850 m</option>
+              <option value="max">1000 m</option>
+            </select>
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Çözünürlük" : "Render resolution"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "3D sahnenin çözünürlüğü. Ön ayarda bırakılırsa kare hızı düşünce kendiliğinden azalır; elle seçilen değer sabit kalır."
+                  : "Resolution of the 3D scene. Left on the preset it lowers itself when frames run slow; a value chosen here stays fixed."
+              }</div>
+            </div>
+            <select id="dev-gfx-scale" data-gfx="gfxRenderScale">
+              <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+              <option value="0.5">50 %</option>
+              <option value="0.75">75 %</option>
+              <option value="1">100 %</option>
+              <option value="1.25">125 %</option>
+            </select>
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Kenar Yumuşatma" : "Anti-aliasing"}</div>
+              <div class="dev-sub">${tr ? "Sahne üzerinde MSAA örnek sayısı." : "MSAA samples on the scene."}</div>
+            </div>
+            <select id="dev-gfx-aa" data-gfx="gfxAntialias">
+              <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+              <option value="0">${tr ? "Kapalı" : "Off"}</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Kare Hızı Sınırı" : "Frame rate limit"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Yüksek yenileme hızlı ekranlarda ekran kartı yükünü ve ısıyı azaltır."
+                  : "Cuts GPU load and heat on high refresh rate screens."
+              }</div>
+            </div>
+            <select id="dev-fps-limit" data-gfx="fpsLimit">
+              <option value="0">${tr ? "Ekranın hızı" : "Screen rate"}</option>
+              <option value="30">30 fps</option>
+              <option value="60">60 fps</option>
+              <option value="120">120 fps</option>
+            </select>
+          </label>
+
+          <div class="dev-sec-title">${tr ? "Gelişmiş Yüzey & Işın İzleme" : "Advanced Surface & Ray Tracing"}</div>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">
+                ${tr ? "Gerçekçi Dokular (PBR+)" : "Realistic Textures (PBR+)"}
+              </div>
+              <div class="dev-sub">${
+                tr
+                  ? "512 px yüksek çözünürlüklü prosedürel regolit ve çatlak kiltaşı normal haritası, derin kırık kontrastı, mineral parıltısı ve uzay giysisi mikro dokusunu açar."
+                  : "Upgrades terrain to 512 px procedural regolith & fractured mudstone normal maps, deep crack relief, mineral sheen & suit weave detail."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-realistic-tex" ${s.realisticTextures ? "checked" : ""} />
+          </label>
+
+          <label class="dev-row dev-row-exp">
+            <div>
+              <div class="dev-label">
+                ${tr ? "Gerçek Zamanlı Işın İzleme (Ray Tracing)" : "Real-Time Ray Tracing"}
+                <span class="dev-badge-exp">${tr ? "GPU RT" : "GPU RT"}</span>
+              </div>
+              <div class="dev-sub">${
+                tr
+                  ? "5 kademeli ölçeklenebilir RT sistemi: KAPALI, PERFORMANS (0.5× · 60+ FPS RTX 4060), DENGELİ (0.7×), YÜKSEK (1.0×) ve ULTRA (Sınırsız · 4+ sekme · 128 adım). R tuşu veya HUD rozeti ile geçiş yapın."
+                  : "5-tier scalable RT pipeline: OFF, PERFORMANCE (0.5× · 60+ FPS RTX 4060), BALANCED (0.7×), HIGH (1.0× native), and ULTRA (Unlimited · 4+ bounces · 128 steps). Press R or click the HUD pill to cycle."
+              }</div>
+            </div>
+            <select id="dev-ray-tracing">
+              <option value="off" ${(s.rayTracingMode || "off") === "off" ? "selected" : ""}>${tr ? "Seviye 0: Kapalı (OFF)" : "Tier 0: OFF"}</option>
+              <option value="performance" ${s.rayTracingMode === "performance" ? "selected" : ""}>${tr ? "Seviye 1: Performans (0.5×)" : "Tier 1: PERFORMANCE (0.5×)"}</option>
+              <option value="balanced" ${s.rayTracingMode === "balanced" ? "selected" : ""}>${tr ? "Seviye 2: Dengeli (0.7×)" : "Tier 2: BALANCED (0.7×)"}</option>
+              <option value="high" ${s.rayTracingMode === "high" ? "selected" : ""}>${tr ? "Seviye 3: Yüksek (1.0×)" : "Tier 3: HIGH (1.0×)"}</option>
+              <option value="ultra" ${s.rayTracingMode === "ultra" ? "selected" : ""}>${tr ? "Seviye 4: Ultra (Sınırsız)" : "Tier 4: ULTRA (Unlimited)"}</option>
+            </select>
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Performans Bilgisini Göster" : "Show performance stats"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Kare hızı, çizim çağrıları, üçgenler ve bellekteki geometri / doku sayısı. Kısayol: F3."
+                  : "Frame rate, draw calls, triangles, and the geometries and textures held in memory. Shortcut: F3."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-show-perf" ${s.showPerf ? "checked" : ""} />
+          </label>
         </div>
 
-        <div class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Yürüyüş & Koşu Hızı" : "Walk / Run Speed Multiplier"}</div>
-            <div class="dev-sub">
-              <span id="dev-speed-val">${s.speedMultiplier.toFixed(2)}×</span>
-              <span class="dev-presets">
-                <button class="btn dev-preset" type="button" data-speed="1">1×</button>
-                <button class="btn dev-preset" type="button" data-speed="2.5">2.5×</button>
-                <button class="btn dev-preset" type="button" data-speed="5">5×</button>
-              </span>
+        <!-- TAB 3: AUDIO, PHYSICS & WEATHER -->
+        <div class="settings-tab-pane ${activeTab === "simulation" ? "active" : ""}" data-settings-pane="simulation">
+          <div class="dev-sec-title">${tr ? "Ses & Atmosfer Müziği" : "Audio & Ambience"}</div>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Ana Ses & Efektler" : "Master Procedural Audio"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Mars rüzgarı, adım sesleri, kask solunumu, telsiz sesleri ve arayüz ses efektlerini açar."
+                  : "Enables WebAudio Martian wind, suit breathing, footsteps, rover drive, and UI telemetry chimes."
+              }</div>
             </div>
+            <input type="checkbox" id="dev-audio-master" ${!isMuted ? "checked" : ""} />
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Uzay & Mars Ambient Müziği" : "Ambient Space Music"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Arka planda hafif prosedürel uzay ve Mars ambiyans akorlarını çalar."
+                  : "Plays gentle procedural space & Martian harmonic pads in the background."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-audio-music" ${isMusicOn ? "checked" : ""} />
+          </label>
+
+          <div class="dev-sec-title">${tr ? "Mars Fizikleri & Atmosfer" : "Mars Physics & Atmosphere"}</div>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Ledges & Suspension)"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Adım ataleti/momentumu, yokuşta yavaşlama, basamak/çıkıntı tırmanma, iniş tepkisi ve rover süspansiyon yaylanmasını uygular."
+                  : "Applies walker inertia/momentum, grade slowdown, ledge step-up, landing shock & rover spring-damper suspension."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-realistic-physics" ${s.realisticPhysics ? "checked" : ""} />
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Gerçekçi Toz Efektleri (Ayak, Tekerlek & Rüzgar)" : "Realistic Mars Dust FX (Boots, Wheels & Wind)"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "Rüzgarla sürüklenen Mars aerosol toz tanecikleri ile adım, iniş ve tekerlek toz bulutlarını açar."
+                  : "Enables wind-drifted Martian aerosol dust grains plus bootstep, landing impact & wheel dust plumes."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-realistic-dust" ${s.realisticDust ? "checked" : ""} />
+          </label>
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Gerçekçi Mars Havası (Atmosferik Pus & Rüzgar)" : "Realistic Mars Weather (Atmospheric Haze & Gusts)"}</div>
+              <div class="dev-sub">${
+                tr
+                  ? "REMS verisiyle kalibreli tereyağı-hardal Mars atmosfer pusu ve döngüsel toz fırtınası rüzgarlarını simüle eder."
+                  : "Simulates REMS-calibrated butterscotch Martian dust haze fog and dynamic surface wind gust fronts."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-realistic-weather" ${s.realisticWeather ? "checked" : ""} />
+          </label>
+
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Toz Optik Derinliği τ" : "Dust optical depth τ"}</div>
+              <div class="dev-sub">
+                <span id="dev-tau-val">${s.dustTau.toFixed(2)}</span>
+                <span class="dev-presets">
+                  <button class="btn dev-tau-preset" type="button" data-tau="0.5">${tr ? "0.5 Açık" : "0.5 Clear"}</button>
+                  <button class="btn dev-tau-preset" type="button" data-tau="1.2">${tr ? "1.2 Puslu" : "1.2 Hazy"}</button>
+                  <button class="btn dev-tau-preset" type="button" data-tau="2.8">${tr ? "2.8 Fırtına" : "2.8 Storm"}</button>
+                </span>
+              </div>
+            </div>
+            <input class="dev-range" type="range" id="dev-tau" min="0.35" max="3" step="0.05" value="${s.dustTau}" />
           </div>
-          <input class="dev-range" type="range" id="dev-speed" min="0.5" max="8" step="0.25" value="${s.speedMultiplier}" />
+
+          <label class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Toz Şeytanı" : "Dust devil"}</div>
+              <div class="dev-sub">${
+                tr ? "Tek bir görsel sütun. REMS girdabı değil." : "One visual column. Not a REMS vortex replay."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-devil" ${s.dustDevil ? "checked" : ""} />
+          </label>
         </div>
 
-        <div class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Araç (Rover) Sürüş Hızı" : "Rover Drive Speed Multiplier"}</div>
-            <div class="dev-sub">
-              <span id="dev-rover-speed-val">${s.roverSpeedMultiplier.toFixed(2)}×</span>
-              <span class="dev-presets">
-                <button class="btn dev-rover-preset" type="button" data-rover-speed="0.5">0.5×</button>
-                <button class="btn dev-rover-preset" type="button" data-rover-speed="1">1×</button>
-                <button class="btn dev-rover-preset" type="button" data-rover-speed="1.5">1.5×</button>
-                <button class="btn dev-rover-preset" type="button" data-rover-speed="2.5">2.5×</button>
-                <button class="btn dev-rover-preset" type="button" data-rover-speed="3.5">3.5×</button>
-              </span>
-            </div>
+        <!-- TAB 4: CONTROLS & GAMEPAD -->
+        <div class="settings-tab-pane ${activeTab === "controls" ? "active" : ""}" data-settings-pane="controls">
+          <div class="dev-sec-title">${tr ? "Oyun Kumandası (Gamepad) Ayarları" : "Gamepad Configuration"}</div>
+          <div id="settings-pad-mount" class="settings-pad-mount"></div>
+
+          <div class="dev-sec-title" style="margin-top:8px;">${tr ? "Klavye & Fare Kısayolları" : "Keyboard & Mouse Shortcuts"}</div>
+          <div class="kbd-grid">
+            <div class="kbd-row"><span>${tr ? "Hareket / Sürüş" : "Move / Drive"}</span><kbd class="kbd-key">W A S D</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Koşu / Hızlanma" : "Sprint / Boost"}</span><kbd class="kbd-key">Shift</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Zıplama / El Freni" : "Jump / Handbrake"}</span><kbd class="kbd-key">Space</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Araca Bin / Astronotla Konuş" : "Board Rover / Talk to Crew"}</span><kbd class="kbd-key">E / RB</kbd></div>
+            <div class="kbd-row"><span>${tr ? "1. / 3. Şahıs Kamera" : "1st / 3rd Person Camera"}</span><kbd class="kbd-key">V</kbd></div>
+            <div class="kbd-row"><span>${tr ? "El Feneri" : "Suit Flashlight"}</span><kbd class="kbd-key">F</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Altın Güneş Vizörü" : "Gold Sun Visor"}</span><kbd class="kbd-key">G</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Optik Büyütme (Zoom)" : "Optical Zoom"}</span><kbd class="kbd-key">Z</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Ray Tracing Kademesi" : "Cycle Ray Tracing Tier"}</span><kbd class="kbd-key">R</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Yörünge Görünümü" : "Orbit View"}</span><kbd class="kbd-key">M / O</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Yol İşareti Bırak" : "Drop Waypoint Pin"}</span><kbd class="kbd-key">P</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Performans İstatistikleri" : "Performance Stats"}</span><kbd class="kbd-key">F3</kbd></div>
           </div>
-          <input class="dev-range" type="range" id="dev-rover-speed" min="0.3" max="4" step="0.1" value="${s.roverSpeedMultiplier}" />
         </div>
 
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Grafik ön ayarı" : "Graphics preset"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Otomatik, ekran kartına göre seçer. Düşük: eski ve tümleşik kartlar için (gölge haritası yok, yakın arazi, %75 çözünürlük). Ultra: 4096 px yumuşak gölgeler, kayalar, 1.25× çözünürlük."
-                : "Auto picks one from your GPU. Low suits older and integrated GPUs (no shadow map, near terrain only, 75 % resolution). Ultra adds 4096 px soft shadows, rocks and 1.25× resolution."
-            }</div>
-          </div>
-          <select id="dev-quality">
-            <option value="auto">${tr ? "Otomatik" : "Auto"}</option>
-            <option value="low">${tr ? "Düşük" : "Low"}</option>
-            <option value="medium">${tr ? "Orta" : "Medium"}</option>
-            <option value="high">${tr ? "Yüksek" : "High"}</option>
-            <option value="ultra">Ultra</option>
-          </select>
-        </label>
+        <!-- TAB 5: DEVELOPER -->
+        <div class="settings-tab-pane ${activeTab === "developer" ? "active" : ""}" data-settings-pane="developer">
+          <div class="dev-sec-title">${tr ? "Simülasyon Hız Çarpanları" : "Simulation Speed Multipliers"}</div>
 
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Gölgeler" : "Shadows"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Güneşin giysi, araç ve üs gölgeleri. Arazi gölgeleri her ayarda kalır."
-                : "Sun shadows of the suit, rovers and habitat. Terrain shadows stay on at every setting."
-            }</div>
-          </div>
-          <select id="dev-gfx-shadows" data-gfx="gfxShadows">
-            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-            <option value="off">${tr ? "Kapalı" : "Off"}</option>
-            <option value="low">${tr ? "Düşük (1024 px)" : "Low (1024 px)"}</option>
-            <option value="high">${tr ? "Yüksek (2048 px)" : "High (2048 px)"}</option>
-            <option value="ultra">${tr ? "Ultra (4096 px, yumuşak)" : "Ultra (4096 px, soft)"}</option>
-          </select>
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Ayrıntılı arazi mesafesi" : "Detailed terrain distance"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "1 m HiRISE arazisinin çizildiği yarıçap. Ötesinde 8 m genel görünüm kullanılır."
-                : "Radius drawn from the 1 m HiRISE terrain. Beyond it the 8 m overview is used."
-            }</div>
-          </div>
-          <select id="dev-gfx-distance" data-gfx="gfxViewDistance">
-            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-            <option value="near">350 m</option>
-            <option value="medium">600 m</option>
-            <option value="far">850 m</option>
-            <option value="max">1000 m</option>
-          </select>
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Çözünürlük" : "Render resolution"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "3D sahnenin çözünürlüğü. Ön ayarda bırakılırsa kare hızı düşünce kendiliğinden azalır; elle seçilen değer sabit kalır."
-                : "Resolution of the 3D scene. Left on the preset it lowers itself when frames run slow; a value chosen here stays fixed."
-            }</div>
-          </div>
-          <select id="dev-gfx-scale" data-gfx="gfxRenderScale">
-            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-            <option value="0.5">50 %</option>
-            <option value="0.75">75 %</option>
-            <option value="1">100 %</option>
-            <option value="1.25">125 %</option>
-          </select>
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Kenar yumuşatma" : "Anti-aliasing"}</div>
-            <div class="dev-sub">${tr ? "Sahne üzerinde MSAA örnek sayısı." : "MSAA samples on the scene."}</div>
-          </div>
-          <select id="dev-gfx-aa" data-gfx="gfxAntialias">
-            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-            <option value="0">${tr ? "Kapalı" : "Off"}</option>
-            <option value="2">2×</option>
-            <option value="4">4×</option>
-          </select>
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Kare hızı sınırı" : "Frame rate limit"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Yüksek yenileme hızlı ekranlarda ekran kartı yükünü ve ısıyı azaltır."
-                : "Cuts GPU load and heat on high refresh rate screens."
-            }</div>
-          </div>
-          <select id="dev-fps-limit" data-gfx="fpsLimit">
-            <option value="0">${tr ? "Ekranın hızı" : "Screen rate"}</option>
-            <option value="30">30 fps</option>
-            <option value="60">60 fps</option>
-            <option value="120">120 fps</option>
-          </select>
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Performans bilgisini göster" : "Show performance stats"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Kare hızı, çizim çağrıları, üçgenler ve bellekteki geometri / doku sayısı. Kısayol: F3."
-                : "Frame rate, draw calls, triangles, and the geometries and textures held in memory. Shortcut: F3."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-show-perf" ${s.showPerf ? "checked" : ""} />
-        </label>
-
-        <label class="dev-row dev-row-exp">
-          <div>
-            <div class="dev-label">
-              ${tr ? "Gerçek Zamanlı Işın İzleme (Ray Tracing)" : "Real-Time Ray Tracing"}
-              <span class="dev-badge-exp">${tr ? "GPU RT" : "GPU RT"}</span>
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Yürüyüş & Koşu Hızı" : "Walk / Run Speed Multiplier"}</div>
+              <div class="dev-sub">
+                <span id="dev-speed-val">${s.speedMultiplier.toFixed(2)}×</span>
+                <span class="dev-presets">
+                  <button class="btn dev-preset" type="button" data-speed="1">1×</button>
+                  <button class="btn dev-preset" type="button" data-speed="2.5">2.5×</button>
+                  <button class="btn dev-preset" type="button" data-speed="5">5×</button>
+                </span>
+              </div>
             </div>
-            <div class="dev-sub">${
-              tr
-                ? "5 kademeli ölçeklenebilir RT sistemi: KAPALI, PERFORMANS (0.5× · 60+ FPS RTX 4060), DENGELİ (0.7×), YÜKSEK (1.0×) ve ULTRA (Sınırsız · 4+ sekme · 128 adım). R tuşu veya HUD rozeti ile geçiş yapın."
-                : "5-tier scalable RT pipeline: OFF, PERFORMANCE (0.5× · 60+ FPS RTX 4060), BALANCED (0.7×), HIGH (1.0× native), and ULTRA (Unlimited · 4+ bounces · 128 steps). Press R or click the HUD pill to cycle."
-            }</div>
+            <input class="dev-range" type="range" id="dev-speed" min="0.5" max="8" step="0.25" value="${s.speedMultiplier}" />
           </div>
-          <select id="dev-ray-tracing">
-            <option value="off" ${(s.rayTracingMode || "off") === "off" ? "selected" : ""}>${tr ? "Seviye 0: Kapalı (OFF)" : "Tier 0: OFF"}</option>
-            <option value="performance" ${s.rayTracingMode === "performance" ? "selected" : ""}>${tr ? "Seviye 1: Performans (0.5×)" : "Tier 1: PERFORMANCE (0.5×)"}</option>
-            <option value="balanced" ${s.rayTracingMode === "balanced" ? "selected" : ""}>${tr ? "Seviye 2: Dengeli (0.7×)" : "Tier 2: BALANCED (0.7×)"}</option>
-            <option value="high" ${s.rayTracingMode === "high" ? "selected" : ""}>${tr ? "Seviye 3: Yüksek (1.0×)" : "Tier 3: HIGH (1.0×)"}</option>
-            <option value="ultra" ${s.rayTracingMode === "ultra" ? "selected" : ""}>${tr ? "Seviye 4: Ultra (Sınırsız)" : "Tier 4: ULTRA (Unlimited)"}</option>
-          </select>
-        </label>
 
-        <label class="dev-row dev-row-exp">
-          <div>
-            <div class="dev-label">
-              ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
-              <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+          <div class="dev-row">
+            <div>
+              <div class="dev-label">${tr ? "Araç (Rover) Sürüş Hızı" : "Rover Drive Speed Multiplier"}</div>
+              <div class="dev-sub">
+                <span id="dev-rover-speed-val">${s.roverSpeedMultiplier.toFixed(2)}×</span>
+                <span class="dev-presets">
+                  <button class="btn dev-rover-preset" type="button" data-rover-speed="0.5">0.5×</button>
+                  <button class="btn dev-rover-preset" type="button" data-rover-speed="1">1×</button>
+                  <button class="btn dev-rover-preset" type="button" data-rover-speed="1.5">1.5×</button>
+                  <button class="btn dev-rover-preset" type="button" data-rover-speed="2.5">2.5×</button>
+                  <button class="btn dev-rover-preset" type="button" data-rover-speed="3.5">3.5×</button>
+                </span>
+              </div>
             </div>
-            <div class="dev-sub">${
-              tr
-                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + E tuşuyla sürüş)."
-                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press E to drive)."
-            }</div>
+            <input class="dev-range" type="range" id="dev-rover-speed" min="0.3" max="4" step="0.1" value="${s.roverSpeedMultiplier}" />
           </div>
-          <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
-        </label>
 
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">
-              ${tr ? "Gerçekçi Dokular (PBR+)" : "Realistic Textures (PBR+)"}
+          <div class="dev-sec-title">${tr ? "Deneysel Özellikler" : "Experimental Features"}</div>
+
+          <label class="dev-row dev-row-exp">
+            <div>
+              <div class="dev-label">
+                ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
+                <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+              </div>
+              <div class="dev-sub">${
+                tr
+                  ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + E tuşuyla sürüş)."
+                  : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press E to drive)."
+              }</div>
             </div>
-            <div class="dev-sub">${
-              tr
-                ? "512 px yüksek çözünürlüklü prosedürel regolit ve çatlak kiltaşı normal haritası, derin kırık kontrastı, mineral parıltısı ve uzay giysisi mikro dokusunu açar."
-                : "Upgrades terrain to 512 px procedural regolith & fractured mudstone normal maps, deep crack relief, mineral sheen & suit weave detail."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-realistic-tex" ${s.realisticTextures ? "checked" : ""} />
-        </label>
+            <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
+          </label>
 
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Gerçekçi Toz Efektleri (Ayak, Tekerlek & Rüzgar)" : "Realistic Mars Dust FX (Boots, Wheels & Wind)"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Rüzgarla sürüklenen Mars aerosol toz tanecikleri ile adım, iniş ve tekerlek toz bulutlarını açar."
-                : "Enables wind-drifted Martian aerosol dust grains plus bootstep, landing impact & wheel dust plumes."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-realistic-dust" ${s.realisticDust ? "checked" : ""} />
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Ledges & Suspension)"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Adım ataleti/momentumu, yokuşta yavaşlama, basamak/çıkıntı tırmanma, iniş tepkisi ve rover süspansiyon yaylanmasını uygular."
-                : "Applies walker inertia/momentum, grade slowdown, ledge step-up, landing shock & rover spring-damper suspension."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-realistic-physics" ${s.realisticPhysics ? "checked" : ""} />
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Gerçekçi Mars Havası (Atmosferik Pus & Rüzgar)" : "Realistic Mars Weather (Atmospheric Haze & Gusts)"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "REMS verisiyle kalibreli tereyağı-hardal Mars atmosfer pusu ve döngüsel toz fırtınası rüzgarlarını simüle eder."
-                : "Simulates REMS-calibrated butterscotch Martian dust haze fog and dynamic surface wind gust fronts."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-realistic-weather" ${s.realisticWeather ? "checked" : ""} />
-        </label>
-
-        <div class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Kamera Görüş Açısı (FOV)" : "Camera Field of View (FOV)"}</div>
-            <div class="dev-sub"><span id="dev-fov-val">${Math.round(s.fov)}°</span></div>
-          </div>
-          <input class="dev-range" type="range" id="dev-fov" min="60" max="110" step="1" value="${s.fov}" />
+          <label class="dev-row dev-row-exp">
+            <div>
+              <div class="dev-label">
+                ${tr ? "Süper Grafik Zorlaması (Ultra Override)" : "Super Graphics Override"}
+                <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
+              </div>
+              <div class="dev-sub">${
+                tr
+                  ? "Otomatik grafik algılamasını devre dışı bırakıp tüm sahneyi Ultra ön ayarına zorlar."
+                  : "Overrides automatic GPU tier detection and forces the Ultra preset across the scene."
+              }</div>
+            </div>
+            <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
+          </label>
         </div>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Toz optik derinliği τ" : "Dust optical depth τ"}</div>
-            <div class="dev-sub"><span id="dev-tau-val">${s.dustTau.toFixed(2)}</span> · ${
-              tr ? "açık gün 0.5, fırtına 2.8" : "clear day 0.5, storm 2.8"
-            }</div>
-          </div>
-          <input class="dev-range" type="range" id="dev-tau" min="0.35" max="3" step="0.05" value="${s.dustTau}" />
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Toz şeytanı" : "Dust devil"}</div>
-            <div class="dev-sub">${
-              tr ? "Tek bir görsel sütun. REMS girdabı değil." : "One visual column. Not a REMS vortex replay."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-devil" ${s.dustDevil ? "checked" : ""} />
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Sade Kamera (HUD Metinlerini Gizle)" : "Clean Camera (Hide HUD Telemetry)"}</div>
-            <div class="dev-sub">${
-              tr ? "3D ekrandaki telemetri yazılarını temiz ekran görüntüsü için gizler." : "Hides telemetry text overlays in 3D view for clean capture."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-clean-hud" ${s.cleanHud ? "checked" : ""} />
-        </label>
 
         <div class="dev-actions">
           <button class="btn primary" type="button" id="dev-full-realism">${tr ? "Tüm Gerçekçiliği Aç" : "Enable Full Realism"}</button>
-          <button class="btn" type="button" id="dev-reset">${tr ? "Varsayılanlara Sıfırla" : "Reset Defaults"}</button>
+          <button class="btn" type="button" id="dev-reset">${tr ? "Tümünü Varsayılana Sıfırla" : "Reset All Defaults"}</button>
         </div>
       </div>
     `;
+
+    // Mount Gamepad Settings UI inside Tab 4
+    const padMountEl = document.getElementById("settings-pad-mount");
+    if (padMountEl) {
+      activePadSettingsApi = mountGamepadSettings(padMountEl, {
+        tr,
+        showCloseButton: false,
+      });
+    }
+
+    // Tab switching
+    const tabBtns = [...modalBody.querySelectorAll(".settings-tab")];
+    const tabPanes = [...modalBody.querySelectorAll(".settings-tab-pane")];
+    const switchSettingsTab = (tabId) => {
+      currentSettingsTab = tabId;
+      for (const b of tabBtns) b.classList.toggle("active", b.dataset.settingsTab === tabId);
+      for (const p of tabPanes) p.classList.toggle("active", p.dataset.settingsPane === tabId);
+    };
+    for (const b of tabBtns) {
+      b.addEventListener("click", () => switchSettingsTab(b.dataset.settingsTab));
+    }
+
+    // Language buttons inside General tab
+    modalBody.querySelectorAll("[data-settings-lang]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const nextLang = btn.dataset.settingsLang;
+        if (nextLang && nextLang !== readLang()) {
+          start.setLang(nextLang);
+          openDevSettingsModal(currentSettingsTab);
+        }
+      });
+    });
+
+    // Suit Optics & Surface Layer buttons inside General tab
+    const settingsSunBtn = document.getElementById("settings-sun-btn");
+    const settingsGoldBtn = document.getElementById("settings-gold-btn");
+    const settingsLampBtn = document.getElementById("settings-lamp-btn");
+    const settingsTexBtn = document.getElementById("settings-tex-btn");
+    const syncHudQuickButtons = () => {
+      const sunEl = document.getElementById("hud-sun-btn");
+      const goldEl = document.getElementById("hud-gold-btn");
+      const lampEl = document.getElementById("hud-lamp-btn");
+      const texEl = document.getElementById("hud-tex");
+      if (settingsSunBtn && sunEl) settingsSunBtn.textContent = sunEl.textContent.trim();
+      if (settingsGoldBtn && goldEl) {
+        settingsGoldBtn.textContent = goldEl.textContent.trim();
+        settingsGoldBtn.classList.toggle("active", goldEl.classList.contains("active"));
+      }
+      if (settingsLampBtn && lampEl) {
+        settingsLampBtn.textContent = lampEl.textContent.trim();
+        settingsLampBtn.classList.toggle("active", lampEl.classList.contains("active"));
+      }
+      if (settingsTexBtn && texEl) settingsTexBtn.textContent = texEl.textContent.trim();
+      syncEscMenuUi();
+    };
+    settingsSunBtn?.addEventListener("click", () => {
+      document.getElementById("hud-sun-btn")?.click();
+      syncHudQuickButtons();
+    });
+    settingsGoldBtn?.addEventListener("click", () => {
+      document.getElementById("hud-gold-btn")?.click();
+      syncHudQuickButtons();
+    });
+    settingsLampBtn?.addEventListener("click", () => {
+      document.getElementById("hud-lamp-btn")?.click();
+      syncHudQuickButtons();
+    });
+    settingsTexBtn?.addEventListener("click", () => {
+      document.getElementById("hud-tex")?.click();
+      syncHudQuickButtons();
+    });
 
     const frameToggle = document.getElementById("dev-frame-toggle");
     const frameStrength = document.getElementById("dev-frame-strength");
@@ -805,10 +1117,13 @@ async function boot() {
     const perfToggle = document.getElementById("dev-show-perf");
     const rtToggle = document.getElementById("dev-ray-tracing");
     const expRoverToggle = document.getElementById("dev-exp-rover");
+    const superGfxToggle = document.getElementById("dev-super-gfx");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
     const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
     const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
+    const audioMasterToggle = document.getElementById("dev-audio-master");
+    const audioMusicToggle = document.getElementById("dev-audio-music");
     const fovRange = document.getElementById("dev-fov");
     const fovVal = document.getElementById("dev-fov-val");
     const tauRange = document.getElementById("dev-tau");
@@ -817,7 +1132,7 @@ async function boot() {
     const cleanToggle = document.getElementById("dev-clean-hud");
     const fullRealismBtn = document.getElementById("dev-full-realism");
     const resetBtn = document.getElementById("dev-reset");
-    const themeBtns = [...modalBody.querySelectorAll(".dev-theme-btn")];
+    const themeBtns = [...modalBody.querySelectorAll(".dev-theme-btn[data-hud-theme]")];
 
     const syncUi = (cfg) => {
       for (const btn of themeBtns) {
@@ -838,10 +1153,16 @@ async function boot() {
       if (perfToggle) perfToggle.checked = cfg.showPerf;
       if (rtToggle) rtToggle.value = cfg.rayTracingMode || (cfg.rayTracing ? "high" : "off");
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
+      if (superGfxToggle) superGfxToggle.checked = Boolean(cfg.superGraphics);
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
       if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
       if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
+      if (audioMasterToggle) audioMasterToggle.checked = !cfg.audioMuted;
+      if (audioMusicToggle) {
+        audioMusicToggle.checked = cfg.audioMusic !== false;
+        audioMusicToggle.disabled = Boolean(cfg.audioMuted);
+      }
       if (fovRange) fovRange.value = String(cfg.fov);
       if (fovVal) fovVal.textContent = `${Math.round(cfg.fov)}°`;
       if (tauRange) tauRange.value = String(cfg.dustTau);
@@ -868,6 +1189,11 @@ async function boot() {
         syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
       );
     });
+    modalBody.querySelectorAll(".dev-tau-preset").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        syncUi(saveDevSettings({ dustTau: parseFloat(btn.dataset.tau) }))
+      );
+    });
     qualitySel?.addEventListener("change", () =>
       syncUi(saveDevSettings({ quality: qualitySel.value, superGraphics: false }))
     );
@@ -881,6 +1207,9 @@ async function boot() {
     expRoverToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
     );
+    superGfxToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ superGraphics: superGfxToggle.checked }))
+    );
     realisticTexToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticTextures: realisticTexToggle.checked }))
     );
@@ -893,15 +1222,26 @@ async function boot() {
     realisticWeatherToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticWeather: realisticWeatherToggle.checked }))
     );
+    audioMasterToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ audioMuted: !audioMasterToggle.checked }))
+    );
+    audioMusicToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ audioMusic: audioMusicToggle.checked }))
+    );
     fovRange?.addEventListener("input", () => syncUi(saveDevSettings({ fov: parseFloat(fovRange.value) })));
     tauRange?.addEventListener("input", () => syncUi(saveDevSettings({ dustTau: parseFloat(tauRange.value) })));
     devilToggle?.addEventListener("change", () => syncUi(saveDevSettings({ dustDevil: devilToggle.checked })));
     cleanToggle?.addEventListener("change", () => syncUi(saveDevSettings({ cleanHud: cleanToggle.checked })));
     fullRealismBtn?.addEventListener("click", () => syncUi(saveDevSettings(FULL_REALISM_PRESET)));
-    resetBtn?.addEventListener("click", () => syncUi(resetDevSettings()));
+    resetBtn?.addEventListener("click", () => {
+      gamepad.reset();
+      activePadSettingsApi?.refresh?.();
+      syncUi(resetDevSettings());
+    });
 
     modalBackdrop.classList.add("open");
   }
+  openSettingsModalRef = openDevSettingsModal;
 
   const initDev = loadDevSettings();
   const visorOverlayEl = document.querySelector(".visor-overlay");
@@ -1223,9 +1563,8 @@ async function boot() {
     setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
     setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
-    const activeTheme = loadDevSettings().hudTheme || "cyan";
-    setText("esc-theme", `${tr ? "Tema" : "Theme"}: ${getThemeLabel(activeTheme, tr)}`);
     setText("esc-dev", tr ? "Ayarlar" : "Settings");
+    setText("btn-pad", tr ? "Ayarlar" : "Settings");
     setText("esc-sources", tr ? "Kaynaklar ve Dürüstlük" : "Sources & Honesty");
     setText("esc-title-btn", tr ? "Başlangıç Ekranı" : "Title Screen");
     setText("esc-hint", tr ? "DEVAM ETMEK İÇİN ESC" : "PRESS ESC TO RESUME");
@@ -1317,12 +1656,14 @@ async function boot() {
     crewDrawer?.classList.add("open");
     renderCrewUi();
   });
-  document.getElementById("esc-theme")?.addEventListener("click", () => {
-    cycleHudTheme();
-    syncEscMenuUi();
+  document.getElementById("esc-dev")?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    openDevSettingsModal();
   });
-  document.getElementById("esc-dev")?.addEventListener("click", openDevSettingsModal);
-  document.getElementById("esc-sources")?.addEventListener("click", openCreditsModal);
+  document.getElementById("esc-sources")?.addEventListener("click", () => {
+    toggleEscMenu(false);
+    openCreditsModal();
+  });
   document.getElementById("esc-title-btn")?.addEventListener("click", () => {
     toggleEscMenu(false);
     start.show();
@@ -1458,15 +1799,8 @@ async function boot() {
         { label: t("Command menu", "Komut menüsü"), hint: "Esc", action: () => toggleEscMenu(true) },
         { separator: true },
         { label: btnCrew?.textContent?.trim() || "Crew", action: () => btnCrew?.click() },
-        {
-          label: `${t("Theme", "Tema")}: ${getThemeLabel(loadDevSettings().hudTheme, readLang() === "tr")}`,
-          action: () => {
-            cycleHudTheme();
-            syncEscMenuUi();
-          },
-        },
+        { label: t("Settings", "Ayarlar"), action: () => openDevSettingsModal() },
         { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
-        { label: t("Settings", "Ayarlar"), action: openDevSettingsModal },
         { label: t("Title screen", "Başlangıç ekranı"), action: () => start.show() },
       ];
     }
