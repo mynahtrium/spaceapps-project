@@ -2,9 +2,12 @@
  * Digital instrument cluster for the drivable MMSEV (`web/hud/rover-dash.js`).
  *
  * Shown along the bottom of the screen while you drive: speed, motor RPM arc, gear, motor power
- * (with regen), battery, pitch / roll attitude, the six struts' travel, wheel slip, and warnings
- * (airborne, wheelspin, handbrake, steep tilt). Values come from `rover-dynamics.js`.
+ * (with regen), battery, pitch / roll attitude, the six struts' travel, wheel slip, warnings
+ * (airborne, wheelspin, handbrake, steep tilt), and live console-accurate controller prompt pills
+ * (throttle, brake, boost, headlights, park brake). Values come from `rover-dynamics.js`.
  */
+
+import { gamepad } from "../shared/gamepad.js";
 
 const RPM_MAX = 4000;
 const ARC_START = 135; // degrees, SVG angle (0 = +x), clockwise
@@ -74,6 +77,13 @@ export function createRoverDash(host) {
       <span class="rd-flag" data-k="fHb">P-BRAKE</span>
       <span class="rd-flag" data-k="fTilt">TILT</span>
       <span class="rd-flag" data-k="fBoost">BOOST</span>
+      <div class="rd-pad-prompts" data-k="padPrompts" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;font-size:9px;letter-spacing:0.06em;">
+        <span class="rd-flag" data-k="pThrottle">RT GAS</span>
+        <span class="rd-flag" data-k="pBrake">LT BRK</span>
+        <span class="rd-flag" data-k="pBoost">RB BST</span>
+        <span class="rd-flag" data-k="pPark">LB PRK</span>
+        <span class="rd-flag" data-k="pLamp">R3 LMP</span>
+      </div>
     </div>`;
   host.appendChild(el);
   const k = Object.fromEntries([...el.querySelectorAll("[data-k]")].map((n) => [n.dataset.k, n]));
@@ -88,13 +98,38 @@ export function createRoverDash(host) {
     susp.push(b.firstChild);
   }
 
+  function renderPromptGlyphs() {
+    if (!gamepad?.glyphFor) return;
+    const gThrottle = gamepad.glyphFor("throttle");
+    const gBrake = gamepad.glyphFor("brake");
+    const gBoost = gamepad.glyphFor("run");
+    const gPark = gamepad.glyphFor("jump");
+    const gLamp = gamepad.glyphFor("lamp");
+    if (k.pThrottle) k.pThrottle.textContent = `${gThrottle} GAS`;
+    if (k.pBrake) k.pBrake.textContent = `${gBrake} BRK`;
+    if (k.pBoost) k.pBoost.textContent = `${gBoost} BST`;
+    if (k.pPark) k.pPark.textContent = `${gPark} PRK`;
+    if (k.pLamp) k.pLamp.textContent = `${gLamp} LMP`;
+  }
+  renderPromptGlyphs();
+  gamepad?.onConnectionChange?.(() => renderPromptGlyphs());
+
   let last = 0;
+  let wasAirborne = false;
   /**
    * @param {object} t telemetry: { speedKmh, rpm, gear, powerKw, torquePct, batteryPct, accel,
    *   pitchDeg, rollDeg, headingDeg, odoKm, struts:[0..1 x6, FL FR ML MR RL RR], slipPct,
    *   airborne, wheelspin, handbrake, boost }
    */
-  function update(t, now = performance.now()) {
+  function update(t, now = typeof performance !== "undefined" ? performance.now() : Date.now()) {
+    // Detect airborne -> touchdown transition even between 50ms UI refreshes
+    const landedNow = wasAirborne && !t.airborne;
+    wasAirborne = Boolean(t.airborne);
+    if (landedNow) {
+      const impactIntensity = Math.min(1, 0.48 + Math.abs(Number(t.accel) || 0) * 0.15);
+      gamepad?.triggerHaptic?.("land", impactIntensity);
+    }
+
     if (now - last < 50) return; // ~20 updates per second is plenty for a display
     last = now;
     k.speed.textContent = String(Math.round(Math.abs(t.speedKmh)));
@@ -136,12 +171,36 @@ export function createRoverDash(host) {
       susp[i].style.height = `${Math.round(v * 100)}%`;
       susp[i].classList.toggle("hot", v > 0.85 || v < 0.04);
     }
+    const steepTilt = Math.abs(t.pitchDeg) > 20 || Math.abs(t.rollDeg) > 15;
     k.slip.textContent = `GRIP ${Math.max(0, 100 - Math.round(t.slipPct))}%`;
-    k.fAir.classList.toggle("on", t.airborne);
-    k.fSpin.classList.toggle("on", t.wheelspin);
-    k.fHb.classList.toggle("on", t.handbrake);
-    k.fTilt.classList.toggle("on", Math.abs(t.pitchDeg) > 20 || Math.abs(t.rollDeg) > 15);
-    k.fBoost.classList.toggle("on", t.boost);
+    k.fAir.classList.toggle("on", Boolean(t.airborne));
+    k.fSpin.classList.toggle("on", Boolean(t.wheelspin));
+    k.fHb.classList.toggle("on", Boolean(t.handbrake));
+    k.fTilt.classList.toggle("on", steepTilt);
+    k.fBoost.classList.toggle("on", Boolean(t.boost));
+
+    // Update live controller prompt pills with current console glyphs & active state
+    renderPromptGlyphs();
+    k.pThrottle?.classList.toggle("on", (gamepad?.analog?.("throttle") || 0) > 0.1);
+    k.pBrake?.classList.toggle("on", (gamepad?.analog?.("brake") || 0) > 0.1);
+    k.pBoost?.classList.toggle("on", Boolean(t.boost));
+    k.pPark?.classList.toggle("on", Boolean(t.handbrake));
+    k.pLamp?.classList.toggle("on", Boolean(gamepad?.isDown?.("lamp")));
+
+    // Trigger haptics & DualSense adaptive triggers on wheelspin, boost, and steep tilt alerts
+    if (t.wheelspin) {
+      gamepad?.triggerHaptic?.("wheelspin", Math.min(1, 0.35 + (Number(t.slipPct) || 30) / 120));
+    }
+    if (t.boost && Math.abs(t.speedKmh) > 1) {
+      gamepad?.triggerHaptic?.("boost", 0.55);
+    }
+    if (steepTilt) {
+      gamepad?.triggerHaptic?.("slope-warning", 0.82);
+    }
+    gamepad?.updateDriveHaptics?.(t);
+    gamepad?.setSafetyLedState?.({
+      slopeDeg: Math.max(Math.abs(t.pitchDeg || 0), Math.abs(t.rollDeg || 0)),
+    });
   }
 
   return { el, update };

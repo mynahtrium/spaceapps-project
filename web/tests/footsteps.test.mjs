@@ -84,3 +84,54 @@ test("hud3d clears footsteps across large teleports/site changes and stamps on r
   // the walker pose is reset on a snap; hud3d reuses one options object, so it assigns the field
   assert.match(hudSrc, /reset\s*[:=]\s*snappedThisFrame/);
 });
+
+test("footsteps shares unified MartianAudio graph without duplicate AudioContext and triggers boot-thud haptics", async () => {
+  const footstepsSrc = fs.readFileSync(path.join(WEB_DIR, "hud", "footsteps.js"), "utf8");
+  assert.doesNotMatch(
+    footstepsSrc,
+    /new\s+(?:window\.)?(?:AudioContext|webkitAudioContext)/,
+    "footsteps.js must not instantiate a duplicate AudioContext"
+  );
+
+  await import("../shared/audioEngine.js");
+  const { gamepad } = await import("../shared/gamepad.js");
+  const { marsAcousticFilterSpec, lowPassCutoffHz, attenuationDbPerM } = await import("../physics/MarsAcoustics.js");
+
+  const specDusty = marsAcousticFilterSpec(1.1, { dusty: true });
+  const specFirm = marsAcousticFilterSpec(2.4, { dusty: false });
+  assert.ok(specDusty.cutoffHz > specFirm.cutoffHz || specDusty.cutoffHz === lowPassCutoffHz(1.1));
+  assert.ok(specDusty.attenuationDb >= 0 && attenuationDbPerM(500) > 0);
+
+  let hapticCalls = 0;
+  const effects = [];
+  gamepad.reset();
+  gamepad.pad = {
+    id: "Xbox Wireless Controller",
+    connected: true,
+    mapping: "standard",
+    vibrationActuator: {
+      playEffect: (type, params) => {
+        hapticCalls++;
+        effects.push({ type, params });
+        return Promise.resolve("complete");
+      },
+    },
+  };
+
+  withMockCanvasDocument(() => {
+    const scene = new THREE.Scene();
+    const footsteps = createFootsteps(THREE, scene);
+    footsteps.play("L", "AEOLIAN_RIPPLE");
+    assert.ok(hapticCalls >= 1, "Expected footsteps.play() to trigger subtle boot-thud haptic rumble");
+  });
+
+  // Verify unified MartianAudio operates offline-safely in Node
+  assert.ok(globalThis.MartianAudio, "Expected globalThis.MartianAudio to be registered");
+  const st = globalThis.MartianAudio.update({ speedKmh: 18, slopeDeg: 14, isDriving: true, inHabitat: false });
+  assert.equal(st.isDriving, true);
+  assert.ok(st.roverFreqHz > 55, "Expected rover frequency to scale with speed");
+  assert.ok(st.breathCadenceBpm > 14, "Expected breathing cadence to elevate above 12 deg slope");
+  assert.equal(typeof globalThis.MartianAudio.playFootstep, "function");
+  gamepad.reset();
+});
+

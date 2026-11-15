@@ -1,16 +1,20 @@
 /**
- * Suit-borne footfalls, a quiet Mars-air scuff, boot treads, and low-g dust.
- * No sample files. Silent while the tab is hidden.
+ * Suit-borne footfalls, a quiet Mars-air scuff, boot treads, and low-g dust (`web/hud/footsteps.js`).
+ *
+ * Uses the unified shared `MartianAudio` synthesis graph (`web/shared/audioEngine.js`) and
+ * `MarsAcoustics.js` CO2 attenuation/cutoff without a second AudioContext, plus subtle
+ * boot-thud controller rumble via `gamepad.triggerHaptic(...)`.
  */
 
-import { attenuationDbPerM, lowPassCutoffHz } from "../physics/MarsAcoustics.js";
+import { marsAcousticFilterSpec } from "../physics/MarsAcoustics.js";
+import { gamepad } from "../shared/gamepad.js";
+import "../shared/audioEngine.js";
 
 const DUSTY = new Set(["SIDERITE_HOLLOW", "AEOLIAN_RIPPLE", "STEEP_SCREE"]);
 const N_DECAL = 256;
 const N_DUST = 48;
 
 export function createFootsteps(THREE, scene) {
-  let ctx = null;
   let enabled = true;
 
   let suitProfile = { lengthM: 0.32, widthM: 0.19, kind: "mark-iii" };
@@ -139,79 +143,12 @@ export function createFootsteps(THREE, scene) {
   const qYaw = new THREE.Quaternion();
   const nrm = new THREE.Vector3();
 
-  function audio() {
-    if (ctx) return ctx;
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    ctx = new AC();
-    return ctx;
-  }
-
-  let noiseCtx = null;
-  let noiseDustyBuf = null;
-  let noiseFirmBuf = null;
-  function getNoiseBuffer(ac, dusty) {
-    if (noiseCtx !== ac) {
-      noiseCtx = ac;
-      noiseDustyBuf = null;
-      noiseFirmBuf = null;
-    }
-    let buf = dusty ? noiseDustyBuf : noiseFirmBuf;
-    if (buf) return buf;
-    const dur = dusty ? 0.18 : 0.09;
-    const rate = ac.sampleRate;
-    buf = ac.createBuffer(1, Math.max(1, Math.floor(rate * dur)), rate);
-    const data = buf.getChannelData(0);
-    let smooth = 0;
-    for (let i = 0; i < data.length; i++) {
-      const t = i / data.length;
-      const attack = Math.min(1, t / 0.22);
-      const decay = 1 - t;
-      const env = attack * decay * decay;
-      smooth = smooth * 0.78 + (Math.random() * 2 - 1) * 0.22;
-      data[i] = smooth * env;
-    }
-    if (dusty) noiseDustyBuf = buf;
-    else noiseFirmBuf = buf;
-    return buf;
-  }
-
   function play(side, faciesId) {
-    if (!enabled || document.hidden) return;
-    const ac = audio();
-    if (!ac) return;
-    if (ac.state === "suspended") ac.resume();
-    const now = ac.currentTime;
-
-    // Soft cushioned suit-borne thud with a smooth attack so there is no click.
-    const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    const jitter = (Math.random() - 0.5) * 3;
-    osc.type = "sine";
-    osc.frequency.setValueAtTime((side === "L" ? 54 : 60) + jitter, now);
-    osc.frequency.exponentialRampToValueAtTime(34, now + 0.11);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.055, now + 0.014);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
-    osc.connect(gain).connect(ac.destination);
-    osc.start(now);
-    osc.stop(now + 0.15);
-
-    // Gentle, muffled regolith brush (reused pre-generated noise buffer + smooth bell envelope).
+    if (!enabled || (typeof document !== "undefined" && document.hidden)) return;
     const dusty = DUSTY.has(faciesId);
-    const src = ac.createBufferSource();
-    src.buffer = getNoiseBuffer(ac, dusty);
-    const filter = ac.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.Q.value = 0.5;
-    const cutoff = lowPassCutoffHz(dusty ? 1.1 : 2.4);
-    filter.frequency.value = dusty ? Math.min(680, cutoff) : Math.min(340, cutoff);
-    const db = attenuationDbPerM(filter.frequency.value) * 1.6;
-    const att = Math.pow(10, -db / 20);
-    const sg = ac.createGain();
-    sg.gain.value = (dusty ? 0.045 : 0.018) * Math.min(1, att * 5);
-    src.connect(filter).connect(sg).connect(ac.destination);
-    src.start(now);
+    const spec = marsAcousticFilterSpec(dusty ? 1.1 : 2.4, { dusty });
+    globalThis.MartianAudio?.playFootstep?.(side, faciesId, spec);
+    gamepad?.triggerHaptic?.("footstep", dusty ? 0.35 : 0.25);
   }
 
   let dustActive = false;
@@ -328,5 +265,14 @@ export function createFootsteps(THREE, scene) {
     dustMesh.visible = enabled && dustActive;
   }
 
-  return { play, stamp, update, clear, reprojectAll, setEnabled, setSuitProfile, resume: () => audio()?.resume?.() };
+  return {
+    play,
+    stamp,
+    update,
+    clear,
+    reprojectAll,
+    setEnabled,
+    setSuitProfile,
+    resume: () => globalThis.MartianAudio?.unlock?.(),
+  };
 }
