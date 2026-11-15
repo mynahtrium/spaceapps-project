@@ -1,0 +1,19 @@
+{
+  "name": "nasathingamajig",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Martian Mappers — Gale Crater / Mount Sharp Marswalk EVA Simulator",
+  "scripts": {
+    "start": "node scripts/server.mjs",
+    "build": "node --check web/shared/gamepad.js && node --check web/shared/gamepad-ui.js && node --check web/shared/controller-haptics.js && node --check web/shared/touch-controls.js && node --check web/hud/rover-dash.js && node --check web/shared/audioEngine.js && node --check web/hud/footsteps.js && node --check web/physics/MarsAcoustics.js",
+    "test": "node --test web/tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@nkzw/joymap": "^5.0.0",
+    "dualsense-ts": "^6.15.38",
+    "gamepad_standardizer": "^1.0.5",
+    "nipplejs": "^0.10.2",
+    "tone": "^15.1.22"
+  }
+}
