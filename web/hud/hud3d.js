@@ -24,11 +24,10 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-// three/addons/loaders/KTX2Loader.js, three/addons/csm/CSM.js, three/addons/controls/PointerLockControls.js, three/addons/objects/Sky.js
+// three/addons/loaders/KTX2Loader.js, three/addons/csm/CSM.js, three/addons/controls/PointerLockControls.js
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { CSM } from "three/examples/jsm/csm/CSM.js";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
-import { Sky } from "three/examples/jsm/objects/Sky.js";
 import seedrandom from "seedrandom";
 import { createNoise2D } from "simplex-noise";
 import {
@@ -225,49 +224,75 @@ function makeDetailTexture(size = 512) {
   return tex;
 }
 
+const SKY_VERT = /* glsl */ `
+  varying vec3 vDir;
+  void main() {
+    vDir = normalize(position);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const SKY_FRAG = /* glsl */ `
+  uniform vec3 uZenith;
+  uniform vec3 uHorizon;
+  uniform vec3 uGround;
+  uniform vec3 uSunDir;
+  uniform float uTau;
+  uniform float uSunElev;
+  uniform float uSunCos;
+  varying vec3 vDir;
+  void main() {
+    vec3 d = normalize(vDir);
+    float h = d.y;
+    float tau = max(0.2, uTau);
+    vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
+    col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
+    col = mix(col, uGround, smoothstep(0.0, -0.08, h));
+    // Day/twilight/night: dusty Mars twilight lasts until the sun is ~18° down.
+    float day = smoothstep(-0.32, 0.12, uSunElev);
+    float above = smoothstep(-0.03, 0.01, uSunElev);
+    col *= mix(0.012, 1.0, day);
+    float s = max(dot(d, normalize(uSunDir)), 0.0);
+    float disc = smoothstep(uSunCos - 0.00002, min(0.9999992, uSunCos + 0.0000015), s);
+    col += vec3(1.6, 1.65, 1.8) * disc * exp(-0.18 * tau) * above;
+    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0 * above;
+    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6 * day;
+    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35 * day;
+    float lowSun = smoothstep(0.38, -0.02, uSunElev);
+    float fwd = smoothstep(0.90, 0.992, s);
+    // Blue Martian sunset glow around the sun, fading out through twilight.
+    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22) * smoothstep(-0.3, -0.02, uSunElev);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
 /**
- * Create a Three.js `Sky` (`three/addons/objects/Sky.js`) tuned for dusty Martian Rayleigh/Mie
- * scattering, while preserving `uZenith`, `uHorizon`, `uGround`, `uSunDir`, `uTau`, `uSunElev`,
- * and `uSunCos` uniforms so `refreshSun`, `applyDevSettings`, and `rebuildEnvironment` work seamlessly.
+ * Mars sky dome: the project's own butterscotch gradient shader (dust-tau tint, small solar disc,
+ * blue sunset glow, twilight and night). Driven by the `uZenith`, `uHorizon`, `uGround`, `uSunDir`,
+ * `uTau`, `uSunElev` and `uSunCos` uniforms that `refreshSun`, `applyDevSettings` and the
+ * environment rebuild write to.
  */
 function createMarsSkyDome(THREE, { zenith, horizon, ground, sunDir, sunState }) {
-  const sky = new Sky();
-  sky.scale.setScalar(12500);
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(12500, 48, 24),
+    new THREE.ShaderMaterial({
+      vertexShader: SKY_VERT,
+      fragmentShader: SKY_FRAG,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uZenith: { value: zenith },
+        uHorizon: { value: horizon },
+        uGround: { value: ground },
+        uSunDir: { value: sunDir },
+        uTau: { value: 0.5 },
+        uSunElev: { value: sunState.elevationRad },
+        uSunCos: { value: Math.cos(sunState.sunAngularRad * 0.5) },
+      },
+    })
+  );
   sky.renderOrder = -2;
-  const u = sky.material.uniforms;
-  // Dusty Martian atmosphere scattering defaults (Preetham/Hosek-Wilkie via three/addons/objects/Sky.js)
-  if (u.turbidity) u.turbidity.value = 12.5;
-  if (u.rayleigh) u.rayleigh.value = 1.65;
-  if (u.mieCoefficient) u.mieCoefficient.value = 0.018;
-  if (u.mieDirectionalG) u.mieDirectionalG.value = 0.82;
-  if (u.sunPosition) u.sunPosition.value.copy(sunDir);
-
-  // Expose compatibility uniforms for HUD environment & dust-tau updates
-  u.uZenith = { value: zenith };
-  u.uHorizon = { value: horizon };
-  u.uGround = { value: ground };
-  u.uSunDir = { value: sunDir };
-  u.uTau = { value: 0.5 };
-  u.uSunElev = { value: sunState.elevationRad };
-  u.uSunCos = { value: Math.cos(sunState.sunAngularRad * 0.5) };
-
-  sky.material.depthWrite = false;
-  sky.material.fog = false;
-
-  const syncSkyScattering = () => {
-    const tau = Math.max(0.2, Number(u.uTau?.value) || 0.5);
-    const elev = Number(u.uSunElev?.value) || 0;
-    if (u.turbidity) u.turbidity.value = 8.0 + tau * 9.0;
-    if (u.rayleigh) u.rayleigh.value = Math.max(0.35, 1.85 - tau * 0.35);
-    if (u.mieCoefficient) u.mieCoefficient.value = Math.min(0.08, 0.01 + tau * 0.016);
-    if (u.mieDirectionalG) u.mieDirectionalG.value = elev < 0.15 ? 0.88 : 0.8;
-    if (u.sunPosition && u.uSunDir?.value) {
-      u.sunPosition.value.copy(u.uSunDir.value);
-    }
-  };
-  syncSkyScattering();
-  sky.onBeforeRender = syncSkyScattering;
-  sky.userData.syncSkyScattering = syncSkyScattering;
   return sky;
 }
 
