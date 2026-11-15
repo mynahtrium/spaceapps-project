@@ -1234,6 +1234,9 @@ async function boot() {
     }
 
     if (e.key === "Escape") {
+      if (document.getElementById("npc-dialogue-modal")?.classList.contains("open")) {
+        return;
+      }
       if (modalBackdrop.classList.contains("open")) {
         e.preventDefault();
         e.stopImmediatePropagation?.();
@@ -1267,7 +1270,8 @@ async function boot() {
     if (
       modalBackdrop.classList.contains("open") ||
       crewDrawer?.classList.contains("open") ||
-      escMenu?.classList.contains("open")
+      escMenu?.classList.contains("open") ||
+      document.getElementById("npc-dialogue-modal")?.classList.contains("open")
     ) {
       return;
     }
@@ -1366,6 +1370,9 @@ async function boot() {
             label: b.textContent.trim(),
             action: () => b.click(),
           }));
+        }
+        if (document.getElementById("npc-dialogue-modal")?.classList.contains("open")) {
+          return [{ label: t("Close dialogue", "Konuşmayı kapat"), hint: "Esc", action: () => document.getElementById("npc-dlg-close")?.click() }];
         }
         if (modalBackdrop.classList.contains("open")) {
           return [{ label: t("Close window", "Pencereyi kapat"), hint: "Esc", action: closeModal }];

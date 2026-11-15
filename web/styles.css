@@ -2458,3 +2458,186 @@ body.in-hud .arrival-flash {
   white-space: pre;
   pointer-events: none;
 }
+
+/* Interactive Astronaut NPC Dialogue HUD Overlay */
+.npc-dialogue-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 4, 10, 0.66);
+  backdrop-filter: blur(5px);
+}
+.npc-dialogue-backdrop.open {
+  display: flex;
+}
+.npc-dialogue-panel {
+  width: min(720px, 100%);
+  max-height: min(86vh, 680px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 0 28px var(--glow-soft), inset 0 0 18px var(--tint-05);
+  color: var(--text);
+  font-family: var(--mono);
+}
+.npc-dlg-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.npc-dlg-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.npc-dlg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan-accent);
+  box-shadow: 0 0 8px var(--cyan-accent);
+  flex-shrink: 0;
+}
+.npc-dlg-name {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  color: var(--cyan-bright);
+  text-transform: uppercase;
+}
+.npc-dlg-role {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.npc-dlg-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.npc-dlg-vehicle-pill {
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--tint-08);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--cyan-bright);
+}
+.npc-dlg-messages {
+  flex: 1 1 auto;
+  min-height: 170px;
+  max-height: 310px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 3, 8, 0.56);
+}
+.npc-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 11px;
+  border-left: 2px solid var(--line-strong);
+  background: var(--tint-05);
+}
+.npc-msg.user {
+  align-self: flex-end;
+  max-width: 86%;
+  border-left: none;
+  border-right: 2px solid var(--cyan-bright);
+  background: var(--tint-14);
+}
+.npc-msg.npc {
+  align-self: flex-start;
+  max-width: 94%;
+}
+.npc-msg-sender {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.npc-msg-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #e8f7fb;
+  white-space: pre-line;
+}
+.npc-msg-source {
+  font-size: 9.5px;
+  color: var(--faint);
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+.npc-dlg-presets-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.npc-dlg-section-lbl {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+.npc-dlg-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.npc-preset-btn {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line-strong);
+  background: var(--tint-08);
+  color: var(--cyan-bright);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.npc-preset-btn:hover {
+  background: var(--tint-24);
+  border-color: var(--cyan-bright);
+  box-shadow: 0 0 10px var(--glow-soft);
+}
+.npc-dlg-form {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.npc-dlg-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  background: rgba(0, 4, 10, 0.85);
+  border: 1px solid var(--line-strong);
+  color: #f0fbff;
+  font: 12px/1.4 var(--mono);
+  outline: none;
+}
+.npc-dlg-input:focus {
+  border-color: var(--cyan-bright);
+  box-shadow: 0 0 10px var(--glow-soft);
+}
+.npc-dlg-input::placeholder {
+  color: var(--faint);
+}

@@ -60,6 +60,44 @@ export function getDrivableVehicleSpec() {
   return DRIVABLE_VEHICLES[0];
 }
 
+export const GARAGE_DRIVABLE_VEHICLES = Object.freeze([
+  DRIVABLE_VEHICLES[0],
+  {
+    id: "mars_robo_concept",
+    nameEn: "NASA Mars Robo Concept",
+    nameTr: "NASA Mars Robo Konsepti",
+    shortLabel: "ROBO CONCEPT",
+    badgeColor: "#38bdf8",
+    topSpeedMs: 21.0,
+    boostSpeedMs: 28.0,
+    reverseSpeedMs: 11.0,
+    accelGain: 9.8,
+    brakeGain: 16.5,
+    steerRate: 2.05,
+    gripBase: 14.2,
+    driftGrip: 5.0,
+    massKg: 620,
+    suspStiff: 42.0,
+    suspDamp: 7.4,
+    wheelRadius: 0.345,
+    trackHalfW: 1.339,
+    halfW: 1.58,
+    halfL: 2.25,
+    heightM: 2.35,
+    jumpBias: 1.05,
+    slopeTorque: 1.4,
+    axles: [
+      { z: -0.969, role: "front" },
+      { z: 0.37, role: "mid" },
+      { z: 1.708, role: "rear" },
+    ],
+  },
+]);
+
+export function getGarageVehicleSpec(vehicleType = "mmsev") {
+  return GARAGE_DRIVABLE_VEHICLES.find((v) => v.id === vehicleType) || GARAGE_DRIVABLE_VEHICLES[0];
+}
+
 const MMSEV_POD_AXLES = DRIVABLE_VEHICLES[0].axles;
 const MMSEV_TRACK_HALF_W = DRIVABLE_VEHICLES[0].trackHalfW;
 const MMSEV_POD_DROP_OFFSET_Y = 0.055;
@@ -110,7 +148,7 @@ export function stepAdvancedRoverPhysics(
     dt = 0.016,
   } = {}
 ) {
-  const spec = getDrivableVehicleSpec(vehicleType);
+  const spec = getGarageVehicleSpec(vehicleType);
   const safeDt = Math.max(0.001, Math.min(0.05, dt));
   const mult = Math.max(0.25, Math.min(5.0, Number(speedMultiplier) || 1));
 
@@ -702,51 +740,114 @@ function buildProceduralMmsevVisuals(THREE) {
   return { procGroup };
 }
 
-export function createExperimentalRover(THREE) {
+function buildProceduralRoboConceptVisuals(THREE) {
+  const procGroup = new THREE.Group();
+  const titaniumMat = new THREE.MeshStandardMaterial({ color: 0x1e2530, roughness: 0.42, metalness: 0.78 });
+  const shellMat = new THREE.MeshStandardMaterial({ color: 0xe8edf3, roughness: 0.34, metalness: 0.18 });
+  const cyanGlowMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    emissive: 0x0ea5e9,
+    emissiveIntensity: 1.9,
+    roughness: 0.25,
+  });
+  const goldFoilMat = new THREE.MeshStandardMaterial({ color: 0xd9a036, roughness: 0.28, metalness: 0.85 });
+  const opticMat = new THREE.MeshStandardMaterial({
+    color: 0x0b1624,
+    emissive: 0x075985,
+    emissiveIntensity: 0.65,
+    roughness: 0.12,
+    metalness: 0.72,
+  });
+  const decalMat = new THREE.MeshStandardMaterial({ map: makeDoorDecalTexture(THREE), roughness: 0.42, metalness: 0.08 });
+
+  const addM = (geom, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geom, mat);
+    m.position.set(x, y, z);
+    if (rx || ry || rz) m.rotation.set(rx, ry, rz);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    procGroup.add(m);
+    return m;
+  };
+
+  // Articulated carbon-titanium backbone spine & cantilevered science bay
+  addM(new THREE.BoxGeometry(1.42, 0.16, 3.35), titaniumMat, 0, 0.58, 0.25);
+  addM(new THREE.BoxGeometry(1.74, 0.38, 2.35), shellMat, 0, 0.92, 0.32);
+  addM(new THREE.BoxGeometry(1.62, 0.32, 0.92), shellMat, 0, 0.86, -1.05, 0.16, 0, 0);
+  // Cyan autonomous telemetry accent trim
+  addM(new THREE.BoxGeometry(1.80, 0.06, 2.42), cyanGlowMat, 0, 0.76, 0.32);
+  addM(new THREE.BoxGeometry(1.68, 0.055, 0.14), cyanGlowMat, 0, 0.96, -1.48);
+  // Forward crew-assist cockpit seat cowl / sensor cowl
+  addM(new THREE.BoxGeometry(1.26, 0.26, 0.56), opticMat, 0, 1.12, -0.78, -0.28, 0, 0);
+  // Side NASA decals
+  addM(new THREE.PlaneGeometry(1.18, 0.42), decalMat, -0.88, 0.95, 0.35, 0, -Math.PI / 2, 0);
+  addM(new THREE.PlaneGeometry(1.18, 0.42), decalMat, 0.88, 0.95, 0.35, 0, Math.PI / 2, 0);
+  // Gold MLI thermal louver deck + rear radiator fin
+  addM(new THREE.BoxGeometry(1.32, 0.16, 1.15), goldFoilMat, 0, 1.16, 0.95);
+  addM(new THREE.BoxGeometry(1.52, 0.05, 0.86), titaniumMat, 0, 1.28, 1.48, -0.22, 0, 0);
+  // Overhead autonomous LiDAR + Navcam dome mast
+  addM(new THREE.CylinderGeometry(0.065, 0.085, 0.92, 10), titaniumMat, 0, 1.54, -0.22);
+  addM(new THREE.BoxGeometry(0.62, 0.18, 0.24), shellMat, 0, 1.98, -0.24);
+  addM(new THREE.CylinderGeometry(0.14, 0.14, 0.14, 16), cyanGlowMat, 0, 2.13, -0.24);
+  // Rear 3-joint robotic sampling arm
+  addM(new THREE.BoxGeometry(0.12, 0.12, 0.72), titaniumMat, 0.48, 1.16, 1.65, 0.42, 0.15, 0);
+  addM(new THREE.CylinderGeometry(0.11, 0.11, 0.2, 12), goldFoilMat, 0.56, 0.98, 2.02, Math.PI / 2, 0, 0);
+
+  return { procGroup };
+}
+
+export function createExperimentalRover(THREE, vehicleType = "mmsev") {
+  const activeSpec = getGarageVehicleSpec(vehicleType);
+  const resolvedType = activeSpec.id;
+  const isRoboConcept = resolvedType === "mars_robo_concept";
+
   const group = new THREE.Group();
+  group.name = `drivable-${resolvedType}`;
+  group.userData.drivableVehicleId = resolvedType;
   const bodyRoot = new THREE.Group();
   group.add(bodyRoot);
 
   let hasRealMmsevModel = false;
   let nasaModelRoot = null;
 
-  // MMSEV root (NASA GLB + articulated 6x6 dual pods, with procedural fallback)
+  // Vehicle visual container (MMSEV NASA GLB or Mars Robo Concept futuristic deck)
   const mmsevContainer = new THREE.Group();
   bodyRoot.add(mmsevContainer);
-  const mmsevFallback = buildProceduralMmsevVisuals(THREE);
+  const mmsevFallback = isRoboConcept ? buildProceduralRoboConceptVisuals(THREE) : buildProceduralMmsevVisuals(THREE);
   mmsevContainer.add(mmsevFallback.procGroup);
 
   const mmsevWheels = buildArticulatedDualWheelPods(
     THREE,
-    MMSEV_POD_AXLES,
-    MMSEV_TRACK_HALF_W,
-    ROVER_WHEEL_RADIUS_M,
-    ROVER_WHEEL_RADIUS_M,
-    true,
-    0xb98a4a
+    activeSpec.axles,
+    activeSpec.trackHalfW,
+    activeSpec.wheelRadius,
+    activeSpec.wheelRadius,
+    !isRoboConcept,
+    isRoboConcept ? 0x38bdf8 : 0xb98a4a
   );
   mmsevWheels.wheelGroup.visible = true;
   mmsevContainer.add(mmsevWheels.wheelGroup);
 
   // Shared Headlights & Brake/Tailbar Rig
   const lampMat = new THREE.MeshStandardMaterial({
-    color: 0xfff3d6,
-    emissive: 0xffe4b5,
+    color: isRoboConcept ? 0xdbeafe : 0xfff3d6,
+    emissive: isRoboConcept ? 0x38bdf8 : 0xffe4b5,
     emissiveIntensity: 2.3,
     roughness: 0.2,
   });
+  const frontLampZ = isRoboConcept ? -1.48 : -2.02;
   for (const lx of [-0.58, 0.58]) {
     const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.06, 12), lampMat);
-    lamp.position.set(lx, 0.9, -2.02);
+    lamp.position.set(lx, 0.9, frontLampZ);
     lamp.rotation.x = Math.PI / 2;
     bodyRoot.add(lamp);
   }
-  const headlight = new THREE.PointLight(0xffdfb3, 2.0, 26, 1.5);
-  headlight.position.set(0, 1.15, -2.6);
+  const headlight = new THREE.PointLight(isRoboConcept ? 0xbfe9ff : 0xffdfb3, 2.0, 26, 1.5);
+  headlight.position.set(0, 1.15, frontLampZ - 0.55);
   bodyRoot.add(headlight);
 
-  const highBeam = new THREE.SpotLight(0xffe7c2, 5.4, 52, 0.58, 0.65, 1.3);
-  highBeam.position.set(0, 1.22, -2.18);
+  const highBeam = new THREE.SpotLight(isRoboConcept ? 0xdbeafe : 0xffe7c2, 5.4, 52, 0.58, 0.65, 1.3);
+  highBeam.position.set(0, 1.22, frontLampZ - 0.16);
   highBeam.target.position.set(0, 0.1, -20);
   bodyRoot.add(highBeam);
   bodyRoot.add(highBeam.target);
@@ -758,9 +859,10 @@ export function createExperimentalRover(THREE) {
     roughness: 0.24,
   });
   const tailBars = [];
+  const rearLampZ = isRoboConcept ? 1.52 : 1.98;
   for (const lx of [-0.52, 0.52]) {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.055, 0.045), tailBarMat);
-    bar.position.set(lx, 1.05, 1.98);
+    bar.position.set(lx, 1.0, rearLampZ);
     bar.castShadow = true;
     bar.receiveShadow = true;
     bodyRoot.add(bar);
@@ -769,11 +871,11 @@ export function createExperimentalRover(THREE) {
 
   function applyVehicleVisibility() {
     mmsevContainer.visible = true;
-    mmsevFallback.procGroup.visible = !hasRealMmsevModel;
+    mmsevFallback.procGroup.visible = isRoboConcept || !hasRealMmsevModel;
   }
 
   function getActiveSpec() {
-    return DRIVABLE_VEHICLES[0];
+    return activeSpec;
   }
 
   function getActiveRig() {
@@ -781,7 +883,7 @@ export function createExperimentalRover(THREE) {
   }
 
   async function attachRealModel(gltfLoader, url = "./assets/nasa-3d/mmsev-rover.glb") {
-    if (hasRealMmsevModel || !gltfLoader) return false;
+    if (isRoboConcept || hasRealMmsevModel || !gltfLoader) return false;
     try {
       const gltf = await gltfLoader.loadAsync(url);
       const model = gltf?.scene;
@@ -844,10 +946,9 @@ export function createExperimentalRover(THREE) {
   let accelSquat = 0;
   let cornerRoll = 0;
 
-  function spawnBeside(x, z, yaw, sampleElevY) {
-    const pos = computeSpawnBesideOffset(x, z, yaw, 3.8, 2.8);
-    const y = sampleElevY(pos.x, pos.z);
-    group.position.set(pos.x, y, pos.z);
+  function placeAt(x, z, yaw = 0, sampleElevY = null) {
+    const y = sampleElevY ? sampleElevY(x, z) : 0;
+    group.position.set(x, y, z);
     group.rotation.y = yaw;
     smoothGroundY = y;
     prevGroundY = y;
@@ -860,6 +961,11 @@ export function createExperimentalRover(THREE) {
     bodyRoot.position.set(0, 0, 0);
     bodyRoot.rotation.set(0, 0, 0);
     return group.position;
+  }
+
+  function spawnBeside(x, z, yaw, sampleElevY) {
+    const pos = computeSpawnBesideOffset(x, z, yaw, 3.8, 2.8);
+    return placeAt(pos.x, pos.z, yaw, sampleElevY);
   }
 
   function resolveCollision(entityX, entityZ, entityRadius = 0.42, entityY = null) {
@@ -1084,7 +1190,7 @@ export function createExperimentalRover(THREE) {
       return Math.max(getActiveSpec().halfW, getActiveSpec().halfL);
     },
     get vehicleType() {
-      return "mmsev";
+      return resolvedType;
     },
     get hasRealModel() {
       return hasRealMmsevModel;
@@ -1095,6 +1201,7 @@ export function createExperimentalRover(THREE) {
     getActiveSpec,
     getActiveRig,
     attachRealModel,
+    placeAt,
     spawnBeside,
     resolveCollision,
     getWheelDustEmitPoint,

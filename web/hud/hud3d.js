@@ -53,6 +53,7 @@ import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/M
 import { createMarsBody, stepPhysicsWorld } from "../physics/MarsPhysicsWorld.js";
 import { downhillLeanRad, JUMP_SPEED_MS, torsoLeanRad } from "../physics/SuitBiomechanics.js";
 import {
+  GARAGE_DRIVABLE_VEHICLES,
   ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
   createExperimentalRover,
@@ -60,9 +61,11 @@ import {
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "./experimental-rover.js";
-import { createRoverDynamics } from "./rover-dynamics.js";
+import { ROVER_PARAMS, createRoverDynamics } from "./rover-dynamics.js";
 import { attachSuspensionRig } from "./rover-rig.js";
 import { createRoverDash } from "./rover-dash.js";
+import { createNpcManager } from "./npc-system.js";
+import { initNpcDialogueUi } from "./npc-dialogue-ui.js";
 import { createMarsFxSystem } from "./mars-fx.js";
 import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
 import {
@@ -1452,15 +1455,46 @@ export async function initHud3D(
     }
   }
 
-  const rover = createExperimentalRover(THREE);
-  rover.group.visible = false;
+  const rover = createExperimentalRover(THREE, "mmsev");
+  rover.group.visible = true;
   scene.add(rover.group);
   // rigid-body chassis + six spring-damper struts (rover-dynamics.js), visible running gear
   // (rover-rig.js) and the digital instrument cluster shown while you drive (rover-dash.js)
   const roverSim = createRoverDynamics(THREE);
   const roverRig = attachSuspensionRig(THREE, rover, roverSim);
+
+  const conceptRover = createExperimentalRover(THREE, "mars_robo_concept");
+  conceptRover.group.visible = true;
+  scene.add(conceptRover.group);
+  const conceptRoverSim = createRoverDynamics(THREE, {
+    ...ROVER_PARAMS,
+    massKg: 620,
+    dims: { w: 2.2, h: 1.8, l: 4.1 },
+    vMax: 24 / 3.6,
+    vMaxBoost: 32 / 3.6,
+    vMaxReverse: 10 / 3.6,
+    wheelForceMaxN: 1050,
+    powerW: 11000,
+    boostPowerW: 15000,
+    steerMaxRad: (32 * Math.PI) / 180,
+  });
+  const conceptRoverRig = attachSuspensionRig(THREE, conceptRover, conceptRoverSim);
+
+  const drivableEntries = [
+    { id: "mmsev", vehicle: rover, sim: roverSim, rig: roverRig, spec: rover.getActiveSpec() },
+    {
+      id: "mars_robo_concept",
+      vehicle: conceptRover,
+      sim: conceptRoverSim,
+      rig: conceptRoverRig,
+      spec: conceptRover.getActiveSpec(),
+    },
+  ];
+  let activeDriveEntry = drivableEntries[0];
+
   const roverDash = createRoverDash(document.getElementById("visor-overlay") || document.querySelector(".visor-overlay") || hudView);
   patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  patchObjectRayTracer(THREE, conceptRover.group, rtUniforms, { reflectScale: 1.18 });
   rover.attachRealModel(sharedGltfLoader).then((ok) => {
     if (ok) patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
   });
@@ -1468,6 +1502,81 @@ export async function initHud3D(
   const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
     onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
   });
+  const npcManager = createNpcManager(THREE, scene, {
+    suitRig,
+    createAstronautFn: createAstronaut,
+    sampleElevY: sampleElevSceneY,
+  });
+  patchObjectRayTracer(THREE, npcManager.npcGroup, rtUniforms, { reflectScale: 0.95 });
+
+  let greenZoneBayAnchor = null;
+  function spawnGreenZoneVehicleBay(bayX, bayZ, bayYaw = 0, { resetDrivableAnchors = true } = {}) {
+    greenZoneBayAnchor = { x: bayX, z: bayZ, yaw: bayYaw };
+    const fwdX = -Math.sin(bayYaw);
+    const fwdZ = -Math.cos(bayYaw);
+    const rightX = Math.cos(bayYaw);
+    const rightZ = -Math.sin(bayYaw);
+
+    // 2 Drivable Vehicles parked neatly forward-left & forward-right in front of spawn bay
+    const mmsevX = bayX + fwdX * 12.6 - rightX * 3.8;
+    const mmsevZ = bayZ + fwdZ * 12.6 - rightZ * 3.8;
+    const mmsevYaw = Math.atan2(-(bayX - mmsevX), -(bayZ - mmsevZ));
+    rover.placeAt(mmsevX, mmsevZ, mmsevYaw, sampleElevSceneY);
+    roverSim.reset(mmsevX, mmsevZ, mmsevYaw, sampleElevSceneY);
+    roverRig.sync();
+
+    const conceptX = bayX + fwdX * 12.6 + rightX * 3.8;
+    const conceptZ = bayZ + fwdZ * 12.6 + rightZ * 3.8;
+    const conceptYaw = Math.atan2(-(bayX - conceptX), -(bayZ - conceptZ));
+    conceptRover.placeAt(conceptX, conceptZ, conceptYaw, sampleElevSceneY);
+    conceptRoverSim.reset(conceptX, conceptZ, conceptYaw, sampleElevSceneY);
+    conceptRoverRig.sync();
+
+    // CRITICAL Static Anchor Rule: NPC 1 & NPC 2 spawn neatly in front of initial parking spots,
+    // NOT parented to vehicles — driving either rover away leaves both NPCs stationary in the bay.
+    npcManager.anchorDrivableVehicleNpc("mmsev", mmsevX, mmsevZ, mmsevYaw, {
+      standoffM: 3.7,
+      sideOffsetM: 0.75,
+      resetAnchor: resetDrivableAnchors,
+    });
+    npcManager.anchorDrivableVehicleNpc("mars_robo_concept", conceptX, conceptZ, conceptYaw, {
+      standoffM: 3.7,
+      sideOffsetM: -0.75,
+      resetAnchor: resetDrivableAnchors,
+    });
+
+    // 5 Historic Mars Rovers arranged neatly in an accessible showcase semicircle beyond the drivable pad
+    const arcOrder = [
+      { id: "sojourner", deg: -50, dist: 20.5 },
+      { id: "spirit", deg: -25, dist: 21.8 },
+      { id: "curiosity", deg: 0, dist: 22.8 },
+      { id: "opportunity", deg: 25, dist: 21.8 },
+      { id: "perseverance", deg: 50, dist: 20.5 },
+    ];
+    const bayPlacements = arcOrder
+      .map((slot) => {
+        const spec = getHistoricRoverById(slot.id);
+        if (!spec) return null;
+        const rad = (slot.deg * Math.PI) / 180;
+        const cosA = Math.cos(rad);
+        const sinA = Math.sin(rad);
+        const rx = bayX + (fwdX * cosA + rightX * sinA) * slot.dist;
+        const rz = bayZ + (fwdZ * cosA + rightZ * sinA) * slot.dist;
+        const ryaw = Math.atan2(-(bayX - rx), -(bayZ - rz));
+        return { id: spec.id, spec, x: rx, z: rz, yaw: ryaw };
+      })
+      .filter(Boolean);
+
+    historicRovers.spawnAllScattered(bayPlacements, {
+      sampleElevY: sampleElevSceneY,
+      focusId: activeSiteId,
+    });
+    npcManager.syncHistoricRoverNpcs(historicRovers, { bayCenter: { x: bayX, z: bayZ } });
+
+    // Disabled / Placeholder for Pink Zone (Corridor) Info Screen NPCs — DO NOT SPAWN YET:
+    // npcManager.spawnCorridorScreenNPCs({ scene, suitRig, sampleElevY: sampleElevSceneY });
+  }
+
   function reScatterHistoricRovers(originX = 0, originZ = 0) {
     const placements = scatterHistoricRoverCoords({
       sampleElevY: sampleElevSceneY,
@@ -1482,9 +1591,9 @@ export async function initHud3D(
       sampleElevY: sampleElevSceneY,
       focusId: activeSiteId,
     });
+    npcManager.syncHistoricRoverNpcs(historicRovers, { bayCenter: { x: originX, z: originZ } });
     return placements;
   }
-  reScatterHistoricRovers(0, 0);
 
   const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
 
@@ -1968,7 +2077,7 @@ export async function initHud3D(
     airRollOffset: 0,
     lastSlopePitch: 0,
   };
-  function resetRoverMotionState() {
+  function resetRoverMotionState(targetEntry = activeDriveEntry) {
     roverThrottleVel = 0;
     roverVelX = 0;
     roverVelZ = 0;
@@ -1982,7 +2091,7 @@ export async function initHud3D(
     roverAirState.airTime = 0;
     roverAirState.peakLaunchVy = 0;
     roverAirState.landingCooldown = 0;
-    roverDynState.yaw = rover?.group?.rotation?.y || 0;
+    roverDynState.yaw = targetEntry?.vehicle?.group?.rotation?.y ?? rover?.group?.rotation?.y ?? 0;
     roverDynState.yawRate = 0;
     roverDynState.velX = 0;
     roverDynState.velZ = 0;
@@ -2011,6 +2120,7 @@ export async function initHud3D(
   phys.y = sampleElevSceneY(phys.x, phys.z);
   syncPlayerFromPhys();
   justTeleportedOrWrapped = false;
+  spawnGreenZoneVehicleBay(phys.x, phys.z, autoYaw + userYaw, { resetDrivableAnchors: true });
 
   const hudView = document.getElementById("hud-view");
   const reticleEl = document.querySelector(".hud-reticle");
@@ -2026,25 +2136,31 @@ export async function initHud3D(
   const isHudActive = () => Boolean(hudView?.classList.contains("active"));
   const isPointerLocked = () => document.pointerLockElement === renderer.domElement;
   const hasOpenModalOverlay = () =>
-    Boolean(document.querySelector(".modal-backdrop.open, #crew-drawer.open, #esc-menu.open"));
+    Boolean(document.querySelector(".modal-backdrop.open, #crew-drawer.open, #esc-menu.open, #npc-dialogue-modal.open"));
 
   const raycaster = new THREE.Raycaster();
   const rayNdc = new THREE.Vector2();
   const lastMouseClient = { x: 0, y: 0, valid: false };
   let hoveredRoverSpec = null;
+  let hoveredNpcEntry = null;
 
-  function pickHistoricRover(clientX = null, clientY = null) {
-    const groups = historicRovers.getInteractiveGroups();
-    if (!groups || groups.length === 0) return null;
+  function setRaycasterFromPointerOrCenter(clientX = null, clientY = null) {
     if (isPointerLocked() || clientX == null || clientY == null) {
       rayNdc.set(0, 0);
     } else {
       const rect = renderer.domElement.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return null;
+      if (rect.width <= 0 || rect.height <= 0) return false;
       rayNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       rayNdc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
     }
     raycaster.setFromCamera(rayNdc, camera);
+    return true;
+  }
+
+  function pickHistoricRover(clientX = null, clientY = null) {
+    const groups = historicRovers.getInteractiveGroups();
+    if (!groups || groups.length === 0) return null;
+    if (!setRaycasterFromPointerOrCenter(clientX, clientY)) return null;
     const hits = raycaster.intersectObjects(groups, true);
     if (hits.length > 0 && hits[0].distance <= 115) {
       let obj = hits[0].object;
@@ -2053,6 +2169,26 @@ export async function initHud3D(
       return rId ? getHistoricRoverById(rId) : null;
     }
     return null;
+  }
+
+  function pickTargetNpc(clientX = null, clientY = null, maxDist = 14.0) {
+    if (!setRaycasterFromPointerOrCenter(clientX, clientY)) return null;
+    return npcManager.pickNpc(raycaster, maxDist);
+  }
+
+  function findNearestDrivableEntry(x, z, maxDist = 5.4) {
+    let bestEntry = null;
+    let bestDist = maxDist;
+    for (const d of drivableEntries) {
+      const grp = d?.vehicle?.group;
+      if (!grp?.visible) continue;
+      const dist = Math.hypot(x - grp.position.x, z - grp.position.z);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        bestEntry = d;
+      }
+    }
+    return bestEntry ? { entry: bestEntry, distance: bestDist } : null;
   }
 
   let manualUnlockPending = false;
@@ -2066,6 +2202,26 @@ export async function initHud3D(
         document.exitPointerLock?.();
       } catch {}
     }
+  }
+
+  const npcDialogueUi = initNpcDialogueUi({
+    onOpen: () => {
+      keys.clear();
+      dragging = false;
+      releasePointerLock();
+    },
+    onClose: () => {
+      keys.clear();
+    },
+    getLang: () => (isTrLang() ? "tr" : "en"),
+  });
+
+  function openNpcDialogueSafe(npcOrSpec) {
+    if (!npcOrSpec) return;
+    keys.clear();
+    dragging = false;
+    releasePointerLock();
+    npcDialogueUi.openForNpc(npcOrSpec);
   }
 
   function openRoverInfoSafe(spec, opts = {}) {
@@ -2092,7 +2248,15 @@ export async function initHud3D(
     if (isMapOpen() || !isHudActive() || hasOpenModalOverlay()) return;
     if (fleetPanelEl?.classList.contains("open")) fleetPanelEl.classList.remove("open");
     if (e.button === 0) {
-      const directHit = pickHistoricRover(isPointerLocked() ? null : e.clientX, isPointerLocked() ? null : e.clientY);
+      const cx = isPointerLocked() ? null : e.clientX;
+      const cy = isPointerLocked() ? null : e.clientY;
+      const npcHit = pickTargetNpc(cx, cy, 14.0);
+      if (npcHit) {
+        e.preventDefault?.();
+        openNpcDialogueSafe(npcHit.spec);
+        return;
+      }
+      const directHit = pickHistoricRover(cx, cy);
       if (directHit) {
         e.preventDefault?.();
         openRoverInfoSafe(directHit);
@@ -2301,9 +2465,15 @@ export async function initHud3D(
       player.x += dx;
       player.z += dz;
     }
-    if (rover?.group) {
-      rover.group.position.x += dx;
-      rover.group.position.z += dz;
+    for (const d of drivableEntries) {
+      if (d.vehicle?.group) {
+        d.vehicle.group.position.x += dx;
+        d.vehicle.group.position.z += dz;
+      }
+    }
+    if (greenZoneBayAnchor) {
+      greenZoneBayAnchor.x += dx;
+      greenZoneBayAnchor.z += dz;
     }
     if (chaseCamInit) {
       chaseCamPos.x += dx;
@@ -2339,16 +2509,19 @@ export async function initHud3D(
       partnerPos.set(p.x, 0, p.z);
       snapPhys(p.x, p.z);
       drivingRover = false;
-      resetRoverMotionState();
+      activeDriveEntry = drivableEntries[0];
+      resetRoverMotionState(activeDriveEntry);
       chaseCamInit = false;
       syncDrivingCameraVisualState(false);
       if (self?.group) self.group.visible = suitRig != null;
-      if (devCfg.experimentalRover && rover) {
-        rover.group.visible = true;
-        rover.spawnBeside(p.x, p.z, userYaw, sampleElevSceneY);
-        roverDynState.yaw = rover.group.rotation.y;
-        nearRoverPrompted = false;
+      if (drvVehEl && activeDriveEntry?.spec) drvVehEl.textContent = activeDriveEntry.spec.shortLabel;
+      const farFromBay =
+        !greenZoneBayAnchor || Math.hypot(greenZoneBayAnchor.x - p.x, greenZoneBayAnchor.z - p.z) > 25;
+      if (farFromBay) {
+        spawnGreenZoneVehicleBay(p.x, p.z, userYaw, { resetDrivableAnchors: true });
       }
+      roverDynState.yaw = rover.group.rotation.y;
+      nearRoverPrompted = false;
     }
   });
 
@@ -2580,7 +2753,7 @@ export async function initHud3D(
     if (sun === "local" || sun === "day") sunMode = sun;
     if (drivingRover) {
       drivingRover = false;
-      resetRoverMotionState();
+      resetRoverMotionState(activeDriveEntry);
       chaseCamInit = false;
       syncDrivingCameraVisualState(false);
       if (self?.group) self.group.visible = suitRig != null;
@@ -2634,7 +2807,7 @@ export async function initHud3D(
     if (approachRover) {
       if (drivingRover) {
         drivingRover = false;
-        resetRoverMotionState();
+        resetRoverMotionState(activeDriveEntry);
         chaseCamInit = false;
         syncDrivingCameraVisualState(false);
         if (self?.group) self.group.visible = suitRig != null;
@@ -2648,8 +2821,12 @@ export async function initHud3D(
       userYaw = Math.atan2(-(rx - standX), -(rz - standZ));
       pitch = -0.09;
 
-      if (devCfg.experimentalRover && rover.group.visible) {
+      const farFromBay =
+        !greenZoneBayAnchor || Math.hypot(standX - greenZoneBayAnchor.x, standZ - greenZoneBayAnchor.z) > 45;
+      if (devCfg.experimentalRover && farFromBay && rover.group.visible) {
         rover.spawnBeside(standX, standZ, userYaw + Math.PI * 0.5, sampleElevSceneY);
+        roverSim.reset(rover.group.position.x, rover.group.position.z, rover.group.rotation.y, sampleElevSceneY);
+        roverRig.sync();
         roverDynState.yaw = rover.group.rotation.y;
       }
     }
@@ -2741,7 +2918,8 @@ export async function initHud3D(
     const crewOpen = document.getElementById("crew-drawer")?.classList.contains("open");
     const escMenuOpen = document.getElementById("esc-menu")?.classList.contains("open");
     const menuOpen = !document.getElementById("start-screen")?.classList.contains("hidden");
-    if (modalOpen || crewOpen || escMenuOpen || menuOpen) return;
+    const npcChatOpen = npcDialogueUi.isOpen();
+    if (modalOpen || crewOpen || escMenuOpen || menuOpen || npcChatOpen) return;
 
     const k = e.key.toLowerCase();
     if (k === "5" && !e.repeat) {
@@ -2798,22 +2976,24 @@ export async function initHud3D(
 
     if (k === "e" && !e.repeat) {
       const tr = isTrLang();
-      if (drivingRover && devCfg.experimentalRover && rover.group.visible) {
+      const curVeh = activeDriveEntry?.vehicle;
+      if (drivingRover && curVeh?.group?.visible) {
         drivingRover = false;
-        resetRoverMotionState();
+        activeDriveEntry.sim?.scaleVelocity?.(0);
+        resetRoverMotionState(activeDriveEntry);
         chaseCamInit = false;
         pitch = prevFirstPersonPitch;
         const exitPt = computeSpawnBesideOffset(
-          rover.group.position.x,
-          rover.group.position.z,
-          rover.group.rotation.y,
+          curVeh.group.position.x,
+          curVeh.group.position.z,
+          curVeh.group.rotation.y,
           -2.75,
           0.0
         );
         let wx = wrapSceneCoord(exitPt.x, worldW * 2).val;
         let wz = wrapSceneCoord(exitPt.z, worldH * 2).val;
         const wy = sampleElevSceneY(wx, wz);
-        const outCol = rover.resolveCollision(wx, wz, PARTNER_COLLISION_R + 0.08, wy);
+        const outCol = curVeh.resolveCollision(wx, wz, PARTNER_COLLISION_R + 0.08, wy);
         if (outCol.hit) {
           wx = wrapSceneCoord(outCol.x, worldW * 2).val;
           wz = wrapSceneCoord(outCol.z, worldH * 2).val;
@@ -2821,42 +3001,60 @@ export async function initHud3D(
         snapPhys(wx, wz);
         syncDrivingCameraVisualState(false);
         if (self?.group) self.group.visible = suitRig != null;
-        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E)" : "EXITED MARS ROVER (PRESS E TO BOARD)");
+        showWrapNotice(
+          tr
+            ? `${activeDriveEntry.spec.nameTr.toUpperCase()} İNİLDİ (BİNMEK: E)`
+            : `EXITED ${activeDriveEntry.spec.nameEn.toUpperCase()} (PRESS E TO BOARD)`
+        );
         return;
       }
 
-      const targetRover =
-        hoveredRoverSpec ||
-        pickHistoricRover(
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null,
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
-        );
+      const cx = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
+      const cy = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
+
+      const targetNpc = hoveredNpcEntry || pickTargetNpc(cx, cy, 14.0);
+      if (targetNpc?.spec) {
+        openNpcDialogueSafe(targetNpc.spec);
+        return;
+      }
+
+      const targetRover = hoveredRoverSpec || pickHistoricRover(cx, cy);
       if (targetRover) {
         openRoverInfoSafe(targetRover, { toggleKey: "e" });
         return;
       }
 
-      if (devCfg.experimentalRover && rover.group.visible) {
-        const dist = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
-        if (dist <= 5.4) {
-          drivingRover = true;
-          resetRoverMotionState();
-          roverSim.reset(rover.group.position.x, rover.group.position.z, rover.group.rotation.y, sampleElevSceneY);
-          prevFirstPersonPitch = pitch;
-          pitch = -0.25;
-          autoYaw = 0;
-          userYaw = rover.group.rotation.y;
-          roverDynState.yaw = rover.group.rotation.y;
-          chaseCamInit = false;
-          syncDrivingCameraVisualState(true);
-          if (self?.group) self.group.visible = false;
-          showWrapNotice(
-            tr
-              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN"
-              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT"
-          );
-          return;
-        }
+      camera.getWorldDirection(lookDir);
+      const nearNpcHit = npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir);
+      const nearDrivable = findNearestDrivableEntry(freePos.x, freePos.z, 5.4);
+
+      if (nearDrivable && (!nearNpcHit || nearDrivable.distance <= nearNpcHit.distance + 0.6)) {
+        const nextDrive = nearDrivable.entry;
+        const dVeh = nextDrive.vehicle;
+        activeDriveEntry = nextDrive;
+        drivingRover = true;
+        resetRoverMotionState(nextDrive);
+        nextDrive.sim.reset(dVeh.group.position.x, dVeh.group.position.z, dVeh.group.rotation.y, sampleElevSceneY);
+        if (drvVehEl && nextDrive.spec) drvVehEl.textContent = nextDrive.spec.shortLabel;
+        prevFirstPersonPitch = pitch;
+        pitch = -0.25;
+        autoYaw = 0;
+        userYaw = dVeh.group.rotation.y;
+        roverDynState.yaw = dVeh.group.rotation.y;
+        chaseCamInit = false;
+        syncDrivingCameraVisualState(true);
+        if (self?.group) self.group.visible = false;
+        showWrapNotice(
+          tr
+            ? `${nextDrive.spec.nameTr.toUpperCase()} · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN`
+            : `${nextDrive.spec.nameEn.toUpperCase()} · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT`
+        );
+        return;
+      }
+
+      if (nearNpcHit?.npc?.spec) {
+        openNpcDialogueSafe(nearNpcHit.npc.spec);
+        return;
       }
 
       let nearRover = null;
@@ -3215,30 +3413,32 @@ export async function initHud3D(
     const alertCount = alerts?.alerts?.length ?? 0;
     lensMat.uniforms.uRay.value = alertCount > 0 ? 0.0018 : 0.00035;
 
-    const vSpec = getDrivableVehicleSpec();
+    const vSpec = activeDriveEntry?.spec || getDrivableVehicleSpec();
     if (drvVehEl) drvVehEl.textContent = vSpec.shortLabel;
 
+    // Both Green Zone bay drivable vehicles (MMSEV & NASA Mars Robo Concept) stay visible so
+    // NPC 1 and NPC 2 always stand in front of their assigned bay vehicles.
+    rover.group.visible = true;
+    conceptRover.group.visible = true;
     const wantRover = Boolean(cfg.experimentalRover);
-    rover.group.visible = wantRover;
-    if (wantRover && !roverWasOn) {
-      resetRoverMotionState();
-      rover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleElevSceneY);
-      roverDynState.yaw = rover.group.rotation.y;
-      nearRoverPrompted = false;
-      if (hudView.classList.contains("active")) {
-        showWrapNotice(
-          isTrLang()
-            ? `${vSpec.nameTr.toUpperCase()} YANINDA OLUŞTU (BİN: E)`
-            : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (E TO BOARD)`
-        );
+    if (wantRover && !roverWasOn && greenZoneBayAnchor) {
+      const distPlayerToBay = Math.hypot(freePos.x - greenZoneBayAnchor.x, freePos.z - greenZoneBayAnchor.z);
+      const distMmsevToPlayer = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
+      if (distPlayerToBay > 45 && distMmsevToPlayer > 45) {
+        activeDriveEntry = drivableEntries[0];
+        resetRoverMotionState(activeDriveEntry);
+        rover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleElevSceneY);
+        roverSim.reset(rover.group.position.x, rover.group.position.z, rover.group.rotation.y, sampleElevSceneY);
+        roverDynState.yaw = rover.group.rotation.y;
+        nearRoverPrompted = false;
+        if (hudView.classList.contains("active")) {
+          showWrapNotice(
+            isTrLang()
+              ? `${vSpec.nameTr.toUpperCase()} YANINDA OLUŞTU (BİN: E)`
+              : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (E TO BOARD)`
+          );
+        }
       }
-    } else if (!wantRover && drivingRover) {
-      drivingRover = false;
-      resetRoverMotionState();
-      chaseCamInit = false;
-      snapPhys(freePos.x, freePos.z);
-      syncDrivingCameraVisualState(false);
-      if (self?.group) self.group.visible = suitRig != null;
     }
     roverWasOn = wantRover;
     onResize();
@@ -3363,8 +3563,12 @@ export async function initHud3D(
     const prevZ = player.z;
     let roverLateralSpeed = 0;
 
-    if (freeRoam && drivingRover && devCfg.experimentalRover && rover.group.visible) {
-      const rYaw0 = rover.group.rotation.y;
+    const curDrive = activeDriveEntry;
+    const curVeh = curDrive?.vehicle;
+    const curSim = curDrive?.sim;
+    const curRig = curDrive?.rig;
+    if (freeRoam && drivingRover && curVeh && curSim && curRig && curVeh.group.visible) {
+      const rYaw0 = curVeh.group.rotation.y;
       const fx0 = -Math.sin(rYaw0);
       const fz0 = -Math.cos(rYaw0);
       const rx0 = Math.cos(rYaw0);
@@ -3374,7 +3578,8 @@ export async function initHud3D(
       let dyn = null;
       {
         // inputs: keyboard, or controller (RT / LT or left stick for the pedals, left stick to steer)
-        const padOk = !padBlocked();
+        const driveBlocked = isMapOpen() || hasOpenModalOverlay();
+        const padOk = !driveBlocked && !padBlocked();
         const st = padOk ? gamepad.move() : { x: 0, y: 0 };
         const rt = padOk ? gamepad.buttons[7] || 0 : 0;
         const lt = padOk ? gamepad.buttons[6] || 0 : 0;
@@ -3382,17 +3587,16 @@ export async function initHud3D(
           (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
         const keySteer =
           (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
-        const mapBlocked = isMapOpen();
-        const throttle = mapBlocked ? 0 : keyThrottle || (rt - lt) || (Math.abs(st.y) > 0.2 ? st.y : 0);
-        const steerIn = mapBlocked ? 0 : keySteer || -st.x;
-        const handbrake = !mapBlocked && (keys.has(" ") || (padOk && gamepad.isDown("jump")));
-        const boost = keys.has("shift") || (padOk && gamepad.isDown("pin"));
+        const throttle = driveBlocked ? 0 : keyThrottle || (rt - lt) || (Math.abs(st.y) > 0.2 ? st.y : 0);
+        const steerIn = driveBlocked ? 0 : keySteer || -st.x;
+        const handbrake = driveBlocked || keys.has(" ") || (padOk && gamepad.isDown("jump"));
+        const boost = !driveBlocked && (keys.has("shift") || (padOk && gamepad.isDown("pin")));
         prevRoverSteer = roverSteer;
         roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
 
-        const prevYaw = roverSim.attitude().yaw;
-        roverSim.step(
+        const prevYaw = curSim.attitude().yaw;
+        curSim.step(
           dt,
           {
             throttle,
@@ -3406,20 +3610,28 @@ export async function initHud3D(
             sampleNormal,
           }
         );
-        const rs = roverSim.state;
+        const rs = curSim.state;
 
-        // bumping into crewmates and the historic rovers: push the rover back out and bleed speed
-        roverRig.sync();
+        // bumping into crewmates, parked vehicles, NPCs and historic rovers: push the rover back out
+        curRig.sync();
         const pushOut = (x, z, radius, y) => {
-          const hit = rover.resolveCollision(x, z, radius, y);
+          const hit = curVeh.resolveCollision(x, z, radius, y);
           if (!hit.hit) return;
-          roverSim.setPosition(rs.pos.x - hit.nx * hit.pen, rs.pos.z - hit.nz * hit.pen);
-          roverSim.scaleVelocity(0.25);
-          roverRig.sync();
+          curSim.setPosition(rs.pos.x - hit.nx * hit.pen, rs.pos.z - hit.nz * hit.pen);
+          curSim.scaleVelocity(0.25);
+          curRig.sync();
         };
         if (partner && partner.group.visible) pushOut(partner.group.position.x, partner.group.position.z, PARTNER_COLLISION_R + 0.08, partner.group.position.y);
         for (const remote of remoteAvatars.values()) {
           pushOut(remote.group.position.x, remote.group.position.z, PARTNER_COLLISION_R + 0.08, remote.group.position.y);
+        }
+        for (const otherD of drivableEntries) {
+          if (otherD === curDrive || !otherD.vehicle?.group?.visible) continue;
+          const oPos = otherD.vehicle.group.position;
+          pushOut(oPos.x, oPos.z, Math.max(otherD.spec?.halfW || 1.4, otherD.spec?.halfL || 1.8) * 0.78, oPos.y);
+        }
+        for (const npcEntry of npcManager.getAllNpcs()) {
+          pushOut(npcEntry.x, npcEntry.z, PARTNER_COLLISION_R + 0.14, npcEntry.y);
         }
         for (const histEntry of historicRovers.getAllEntries()) {
           const hPos = histEntry.group?.position;
@@ -3429,13 +3641,13 @@ export async function initHud3D(
         }
 
         // endless terrain: the wrap moves rover.group; carry the simulation with it
-        applySeamlessWorldWrap(rover.group.position.x, rover.group.position.z);
-        if (rover.group.position.x !== rs.pos.x || rover.group.position.z !== rs.pos.z) {
-          roverSim.setPosition(rover.group.position.x, rover.group.position.z);
-          roverRig.sync();
+        applySeamlessWorldWrap(curVeh.group.position.x, curVeh.group.position.z);
+        if (curVeh.group.position.x !== rs.pos.x || curVeh.group.position.z !== rs.pos.z) {
+          curSim.setPosition(curVeh.group.position.x, curVeh.group.position.z);
+          curRig.sync();
         }
 
-        const att = roverSim.attitude();
+        const att = curSim.attitude();
         let dYaw = att.yaw - prevYaw;
         dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
         userYaw += dYaw; // the chase camera turns with the rover
@@ -3450,7 +3662,7 @@ export async function initHud3D(
         roverAirState.velY = rs.vel.y;
         roverLandingImpact = rs.landingImpact;
         let slipMax = 0;
-        for (const wh of roverSim.wheels) if (wh.contact) slipMax = Math.max(slipMax, wh.slip);
+        for (const wh of curSim.wheels) if (wh.contact) slipMax = Math.max(slipMax, wh.slip);
         const drifting = Math.abs(rs.vLat) > 1.2 && Math.abs(rs.vLong) > 2;
         dyn = {
           drifting,
@@ -3458,7 +3670,7 @@ export async function initHud3D(
           slipRatio: slipMax,
           gear: rs.gear,
           rpmNorm: Math.min(1, rs.motorRpm / 4000),
-          spec: rover.getActiveSpec(),
+          spec: curVeh.getActiveSpec(),
         };
 
         // dust when a wheel lands hard or the rover touches down after a crest
@@ -3477,7 +3689,7 @@ export async function initHud3D(
         }
 
         // instrument cluster
-        const P = roverSim.params;
+        const P = curSim.params;
         const strutOrder = [0, 1, 2, 3, 4, 5]; // FL FR ML MR RL RR (dynamics order)
         roverDash.update({
           speedKmh: rs.vLong * 3.6,
@@ -3491,13 +3703,14 @@ export async function initHud3D(
           rollDeg: (att.roll * 180) / Math.PI,
           headingDeg: (-att.yaw * 180) / Math.PI,
           odoKm: rs.odometerM / 1000,
-          struts: strutOrder.map((i) => roverSim.wheels[i].comp / P.maxComp),
+          struts: strutOrder.map((i) => curSim.wheels[i].comp / P.maxComp),
           slipPct: slipMax * 100,
           airborne: rs.airborne,
           wheelspin: rs.tractionLimited && Math.abs(rs.pedal) > 0.3,
           handbrake,
           boost,
         });
+        if (drvVehEl && curDrive.spec) drvVehEl.textContent = curDrive.spec.shortLabel;
         if (drvSpdEl) drvSpdEl.textContent = String(Math.round(Math.abs(rs.vLong) * 3.6));
         if (drvGearEl) drvGearEl.textContent = rs.gear;
         if (drvRpmEl) drvRpmEl.style.width = `${Math.round(Math.min(1, rs.motorRpm / 4000) * 100)}%`;
@@ -3509,11 +3722,11 @@ export async function initHud3D(
         const burstCount = Math.floor(roverDustAcc);
         if (burstCount > 0) {
           roverDustAcc -= burstCount;
-          const rYaw = rover.group.rotation.y;
+          const rYaw = curVeh.group.rotation.y;
           const fx = -Math.sin(rYaw);
           const fz = -Math.cos(rYaw);
           const sideSign = Math.random() < 0.5 ? -1 : 1;
-          const emit = rover.getWheelDustEmitPoint(sideSign);
+          const emit = curVeh.getWheelDustEmitPoint(sideSign);
           marsFx.emitBurst(
             emit.x,
             sampleElevSceneY(emit.x, emit.z),
@@ -3526,9 +3739,9 @@ export async function initHud3D(
         }
       }
 
-      phys.x = rover.group.position.x;
-      phys.z = rover.group.position.z;
-      phys.y = rover.group.position.y;
+      phys.x = curVeh.group.position.x;
+      phys.z = curVeh.group.position.z;
+      phys.y = curVeh.group.position.y;
       phys.vx = roverVelX;
       phys.vz = roverVelZ;
       phys.vy = roverAirState.velY;
@@ -3541,7 +3754,7 @@ export async function initHud3D(
     } else if (freeRoam) {
       const wasGrounded = player.grounded;
       const prevVy = phys.vy;
-      if (!isMapOpen()) {
+      if (!isMapOpen() && !hasOpenModalOverlay()) {
         fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
         right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
         moveDir.set(0, 0, 0);
@@ -3628,8 +3841,12 @@ export async function initHud3D(
 
       freePos.set(phys.x, phys.y, phys.z);
       if (partner && partner.group.visible) pushApart(partner.group.position);
-      if (devCfg.experimentalRover && rover.group.visible) {
-        const col = rover.resolveCollision(
+      for (const d of drivableEntries) {
+        const dVeh = d?.vehicle;
+        const dSim = d?.sim;
+        const dRig = d?.rig;
+        if (!dVeh?.group?.visible || !dSim || !dRig) continue;
+        const col = dVeh.resolveCollision(
           freePos.x,
           freePos.z,
           PARTNER_COLLISION_R,
@@ -3644,22 +3861,39 @@ export async function initHud3D(
             phys.vz -= col.nz * vn;
           }
         }
-        // parked: the same suspension model holds it on its springs; if it was (re)spawned
-        // somewhere else, start the simulation from there
-        const rsP = roverSim.state;
-        if (Math.hypot(rsP.pos.x - rover.group.position.x, rsP.pos.z - rover.group.position.z) > 0.5) {
-          roverSim.reset(rover.group.position.x, rover.group.position.z, rover.group.rotation.y, sampleElevSceneY);
+        // Parked vehicle suspension: settle on springs; reset only if repositioned externally
+        const rsP = dSim.state;
+        if (Math.hypot(rsP.pos.x - dVeh.group.position.x, rsP.pos.z - dVeh.group.position.z) > 0.5) {
+          dSim.reset(dVeh.group.position.x, dVeh.group.position.z, dVeh.group.rotation.y, sampleElevSceneY);
         }
-        roverSim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
-        roverRig.sync();
-        const distR = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
-        if (distR <= 4.6 && !nearRoverPrompted) {
-          nearRoverPrompted = true;
-          showWrapNotice(
-            isTrLang() ? "DENEYSEL MARS ARACI · BİNMEK İÇİN [E] TUŞUNA BAS" : "EXPERIMENTAL MARS ROVER · PRESS [E] TO DRIVE"
-          );
-        } else if (distR > 6.2) {
-          nearRoverPrompted = false;
+        dSim.step(dt, { throttle: 0, steer: 0, boost: false, handbrake: true }, { sampleY: sampleElevSceneY, sampleNormal });
+        dRig.sync();
+      }
+      const nearDriveHint = findNearestDrivableEntry(freePos.x, freePos.z, 4.6);
+      if (nearDriveHint && !nearRoverPrompted) {
+        nearRoverPrompted = true;
+        const dSpec = nearDriveHint.entry.spec;
+        showWrapNotice(
+          isTrLang()
+            ? `${dSpec.nameTr.toUpperCase()} · BİNMEK İÇİN [E] TUŞUNA BAS`
+            : `${dSpec.nameEn.toUpperCase()} · PRESS [E] TO DRIVE`
+        );
+      } else if (!findNearestDrivableEntry(freePos.x, freePos.z, 6.2)) {
+        nearRoverPrompted = false;
+      }
+      const npcCol = npcManager.resolveCollision(
+        freePos.x,
+        freePos.z,
+        PARTNER_COLLISION_R * 0.85,
+        player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)
+      );
+      if (npcCol.hit) {
+        freePos.x = npcCol.x;
+        freePos.z = npcCol.z;
+        const vn = phys.vx * npcCol.nx + phys.vz * npcCol.nz;
+        if (vn < 0) {
+          phys.vx -= npcCol.nx * vn;
+          phys.vz -= npcCol.nz * vn;
         }
       }
       for (const remote of remoteAvatars.values()) pushApart(remote.group.position);
@@ -3829,9 +4063,9 @@ export async function initHud3D(
     const swayY = Math.sin(ph * 2) * 0.004 * amt;
     const swayX = Math.sin(ph) * 0.003 * amt;
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
-    if (drivingRover && rover.group.visible) {
-      const rPos = rover.group.position;
-      const rYaw = rover.group.rotation.y;
+    if (drivingRover && activeDriveEntry?.vehicle?.group?.visible) {
+      const rPos = activeDriveEntry.vehicle.group.position;
+      const rYaw = activeDriveEntry.vehicle.group.rotation.y;
       const camDist = 6.9 + Math.min(1.6, Math.abs(roverThrottleVel) * 0.065) + (roverAirState.airborne ? 0.75 : 0);
       const elevAng = Math.max(0.06, Math.min(1.08, -pitch));
       const horizDist = camDist * Math.cos(elevAng);
@@ -3931,6 +4165,11 @@ export async function initHud3D(
         lean: 0.08,
       });
     }
+
+    npcManager.update(dt, freePos, clockT, {
+      activeNpcId: npcDialogueUi.getActiveNpc()?.id || null,
+      terrainSampler: sampleElevSceneY,
+    });
 
     // Throttled broadcast of local position/yaw/mode to crewmates + 2D planner
     const curLon = xToLon(px);
@@ -4044,24 +4283,56 @@ export async function initHud3D(
         if (readout) readout.textContent = hit ? `${optZoom}×  ${hit.toFixed(0)} m` : `${optZoom}×`;
       }
       if (!isMapOpen() && !hasOpenModalOverlay()) {
-        const hitSpec = pickHistoricRover(
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null,
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
-        );
-        if (hitSpec !== hoveredRoverSpec) {
-          hoveredRoverSpec = hitSpec;
-          reticleEl?.classList.toggle("target-rover", Boolean(hitSpec));
-          if (roverTargetEl) {
-            if (hitSpec) {
-              const tr = isTrLang();
-              roverTargetEl.textContent = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
-                tr ? "ETKİLEŞİM [E] / TIKLA" : "INTERACT [E] / CLICK"
-              }`;
-              roverTargetEl.classList.add("visible");
-            } else {
-              roverTargetEl.classList.remove("visible");
+        const cx = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
+        const cy = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
+        const hitNpc = pickTargetNpc(cx, cy, 14.0);
+        const hitSpec = hitNpc ? null : pickHistoricRover(cx, cy);
+        hoveredNpcEntry = hitNpc;
+        hoveredRoverSpec = hitSpec;
+        reticleEl?.classList.toggle("target-rover", Boolean(hitNpc || hitSpec));
+
+        if (roverTargetEl) {
+          const tr = isTrLang();
+          const roleText = (s) =>
+            typeof s?.role === "string" ? s.role : tr ? s?.role?.tr || s?.role?.en || "" : s?.role?.en || s?.role?.tr || "";
+          let label = "";
+          if (hitNpc?.spec) {
+            const nName = String(hitNpc.spec.name || "Specialist");
+            const nRole = roleText(hitNpc.spec);
+            label = `${nName.toUpperCase()} · ${nRole.toUpperCase()} · ${tr ? "[E] KONUŞ / TIKLA" : "[E] TALK / CLICK"}`;
+          } else if (hitSpec) {
+            label = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
+              tr ? "ETKİLEŞİM [E] / TIKLA" : "INTERACT [E] / CLICK"
+            }`;
+          } else if (!drivingRover) {
+            camera.getWorldDirection(lookDir);
+            const nearNpcHit = npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir);
+            const nearDrivable = findNearestDrivableEntry(freePos.x, freePos.z, 5.4);
+            if (nearDrivable && (!nearNpcHit || nearDrivable.distance <= nearNpcHit.distance + 0.6)) {
+              const dSpec = nearDrivable.entry.spec;
+              const dName = tr ? dSpec.nameTr : dSpec.nameEn;
+              label = `${dName.toUpperCase()} · ${tr ? "[E] SÜR" : "[E] DRIVE"}`;
+            } else if (nearNpcHit?.npc?.spec) {
+              const nSpec = nearNpcHit.npc.spec;
+              const nName = String(nSpec.name || "Specialist");
+              const nRole = roleText(nSpec);
+              label = `${nName.toUpperCase()} · ${nRole.toUpperCase()} · ${tr ? "[E] KONUŞ" : "[E] TALK"}`;
             }
           }
+          if (roverTargetEl.dataset.label !== label) {
+            roverTargetEl.dataset.label = label;
+            roverTargetEl.textContent = label;
+            roverTargetEl.classList.toggle("visible", Boolean(label));
+          }
+        }
+      } else {
+        hoveredNpcEntry = null;
+        hoveredRoverSpec = null;
+        reticleEl?.classList.remove("target-rover");
+        if (roverTargetEl && roverTargetEl.classList.contains("visible")) {
+          roverTargetEl.dataset.label = "";
+          roverTargetEl.textContent = "";
+          roverTargetEl.classList.remove("visible");
         }
       }
     }

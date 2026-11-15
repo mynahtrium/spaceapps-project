@@ -288,6 +288,44 @@
     </div>
   </div>
 
+  <!-- Interactive Astronaut NPC Dialogue & Q&A HUD Overlay -->
+  <div id="npc-dialogue-modal" class="npc-dialogue-backdrop" role="dialog" aria-modal="true" aria-labelledby="npc-dlg-name">
+    <div class="npc-dialogue-panel">
+      <div class="npc-dlg-head">
+        <div class="npc-dlg-identity">
+          <div class="npc-dlg-kicker">
+            <span class="npc-dlg-dot" id="npc-dlg-dot"></span>
+            <span id="npc-dlg-channel">EVA COMMS // GREEN ZONE BAY</span>
+          </div>
+          <h3 id="npc-dlg-name" class="npc-dlg-name">—</h3>
+          <div id="npc-dlg-role" class="npc-dlg-role">—</div>
+        </div>
+        <div class="npc-dlg-head-right">
+          <span id="npc-dlg-vehicle" class="npc-dlg-vehicle-pill">—</span>
+          <button id="npc-dlg-close" class="btn" type="button">Close (ESC)</button>
+        </div>
+      </div>
+
+      <div id="npc-dlg-messages" class="npc-dlg-messages" aria-live="polite"></div>
+
+      <div class="npc-dlg-presets-wrap">
+        <div id="npc-dlg-presets-lbl" class="npc-dlg-section-lbl">QUICK QUESTIONS</div>
+        <div id="npc-dlg-presets" class="npc-dlg-presets"></div>
+      </div>
+
+      <form id="npc-dlg-form" class="npc-dlg-form" autocomplete="off">
+        <input
+          id="npc-dlg-input"
+          class="npc-dlg-input"
+          type="text"
+          maxlength="220"
+          placeholder="Ask anything about Mars, gravity, dust storms, radiation, or this rover…"
+        />
+        <button id="npc-dlg-send" class="btn primary" type="submit">Ask</button>
+      </form>
+    </div>
+  </div>
+
   <script src="./vendor/maplibre-gl.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
