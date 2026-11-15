@@ -585,11 +585,17 @@ async function boot() {
             </div>
             <div class="dev-sub">${
               tr
-                ? "Piksel başına GPU yükseklik alanı ışın yürütme: dinamik yumuşak gölgeler, 6 yönlü küresel aydınlatma (GI/AO), araç/vizör/arazi yansıma ışınları ve derinlik tamponu SSR/SSGI (ağır GPU yükü, FPS düşürebilir — R tuşuyla da aç/kapa)."
-                : "Per-pixel GPU heightfield ray marching & screen-space rays: dynamic penumbra soft shadows, 6-dir indirect bounce GI/AO, rover/visor/terrain reflection rays & depth SSR (heavy GPU cost, lowers FPS — toggle with R key)."
+                ? "5 kademeli ölçeklenebilir RT sistemi: KAPALI, PERFORMANS (0.5× · 60+ FPS RTX 4060), DENGELİ (0.7×), YÜKSEK (1.0×) ve ULTRA (Sınırsız · 4+ sekme · 128 adım). R tuşu veya HUD rozeti ile geçiş yapın."
+                : "5-tier scalable RT pipeline: OFF, PERFORMANCE (0.5× · 60+ FPS RTX 4060), BALANCED (0.7×), HIGH (1.0× native), and ULTRA (Unlimited · 4+ bounces · 128 steps). Press R or click the HUD pill to cycle."
             }</div>
           </div>
-          <input type="checkbox" id="dev-ray-tracing" ${s.rayTracing ? "checked" : ""} />
+          <select id="dev-ray-tracing">
+            <option value="off" ${(s.rayTracingMode || "off") === "off" ? "selected" : ""}>${tr ? "Seviye 0: Kapalı (OFF)" : "Tier 0: OFF"}</option>
+            <option value="performance" ${s.rayTracingMode === "performance" ? "selected" : ""}>${tr ? "Seviye 1: Performans (0.5×)" : "Tier 1: PERFORMANCE (0.5×)"}</option>
+            <option value="balanced" ${s.rayTracingMode === "balanced" ? "selected" : ""}>${tr ? "Seviye 2: Dengeli (0.7×)" : "Tier 2: BALANCED (0.7×)"}</option>
+            <option value="high" ${s.rayTracingMode === "high" ? "selected" : ""}>${tr ? "Seviye 3: Yüksek (1.0×)" : "Tier 3: HIGH (1.0×)"}</option>
+            <option value="ultra" ${s.rayTracingMode === "ultra" ? "selected" : ""}>${tr ? "Seviye 4: Ultra (Sınırsız)" : "Tier 4: ULTRA (Unlimited)"}</option>
+          </select>
         </label>
 
         <label class="dev-row dev-row-exp">
@@ -756,7 +762,7 @@ async function boot() {
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
       if (qualitySel) qualitySel.value = cfg.quality;
       if (superToggle) superToggle.checked = cfg.superGraphics;
-      if (rtToggle) rtToggle.checked = cfg.rayTracing;
+      if (rtToggle) rtToggle.value = cfg.rayTracingMode || (cfg.rayTracing ? "high" : "off");
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
@@ -791,7 +797,9 @@ async function boot() {
     });
     qualitySel?.addEventListener("change", () => syncUi(saveDevSettings({ quality: qualitySel.value })));
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
-    rtToggle?.addEventListener("change", () => syncUi(saveDevSettings({ rayTracing: rtToggle.checked })));
+    rtToggle?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ rayTracingMode: rtToggle.value, rayTracing: rtToggle.value !== "off" }))
+    );
     expRoverToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
     );

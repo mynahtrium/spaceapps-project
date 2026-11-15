@@ -12,6 +12,8 @@ import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
 import {
   DEFAULT_DEV_SETTINGS,
   FULL_REALISM_PRESET,
+  RT_MODES,
+  cycleRayTracingMode,
   normalizeDevSettings,
 } from "../shared/dev-settings.js";
 import {
@@ -36,7 +38,9 @@ import {
 import { HABITAT_LAYOUT, HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
 import {
   RT_HEIGHT_GLSL,
+  RT_INTERNAL_RESOLUTION_SCALE,
   RT_LENS_PARS_GLSL,
+  RT_QUALITY_PRESETS,
   buildHeightfieldRtData,
   createRayTracerUniforms,
 } from "../hud/ray-tracer.js";
@@ -406,6 +410,18 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(defs.speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
   assert.equal(defs.roverSpeedMultiplier, 1.0);
   assert.equal(defs.rayTracing, false);
+  assert.equal(defs.rayTracingMode, "off");
+  assert.deepEqual(RT_MODES, ["off", "performance", "balanced", "high", "ultra"]);
+  const stepPerf = cycleRayTracingMode(defs);
+  assert.deepEqual(stepPerf, { rayTracing: true, rayTracingMode: "performance" });
+  const stepBal = cycleRayTracingMode(stepPerf);
+  assert.deepEqual(stepBal, { rayTracing: true, rayTracingMode: "balanced" });
+  const stepHigh = cycleRayTracingMode(stepBal);
+  assert.deepEqual(stepHigh, { rayTracing: true, rayTracingMode: "high" });
+  const stepUltra = cycleRayTracingMode(stepHigh);
+  assert.deepEqual(stepUltra, { rayTracing: true, rayTracingMode: "ultra" });
+  const stepOff = cycleRayTracingMode(stepUltra);
+  assert.deepEqual(stepOff, { rayTracing: false, rayTracingMode: "off" });
   assert.equal(defs.experimentalRover, false);
   assert.equal(defs.realisticTextures, false);
   assert.equal(defs.realisticDust, true);
@@ -448,6 +464,19 @@ test("ray-tracer packs 16-bit mirrored heightfield accurately and exposes GLSL k
     span: packed.span,
   });
   assert.equal(uniforms.uRtEnabled.value, 0);
+  assert.equal(uniforms.uRtQuality.value, 0);
+  assert.equal(uniforms.uRtResScale.value, 0.5);
+  assert.equal(RT_INTERNAL_RESOLUTION_SCALE, 0.5);
+  assert.equal(RT_QUALITY_PRESETS.off.tier, 0);
+  assert.equal(RT_QUALITY_PRESETS.performance.resolutionScale, 0.5);
+  assert.equal(RT_QUALITY_PRESETS.performance.maxBounces, 1);
+  assert.equal(RT_QUALITY_PRESETS.balanced.resolutionScale, 0.7);
+  assert.equal(RT_QUALITY_PRESETS.balanced.maxBounces, 2);
+  assert.equal(RT_QUALITY_PRESETS.high.resolutionScale, 1.0);
+  assert.equal(RT_QUALITY_PRESETS.high.maxBounces, 3);
+  assert.equal(RT_QUALITY_PRESETS.ultra.tier, 4);
+  assert.equal(RT_QUALITY_PRESETS.ultra.maxBounces, 4);
+  assert.equal(RT_QUALITY_PRESETS.ultra.shadowSteps, 128);
   assert.equal(uniforms.uRtOrigin.value.x, -50);
   assert.equal(uniforms.uRtPeriod.value.x, 200);
 });

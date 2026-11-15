@@ -7,6 +7,7 @@ const STORAGE_KEY = "mm-dev-settings";
 export const DEV_SETTINGS_EVENT = "mm:dev-settings";
 
 export const QUALITY_LEVELS = Object.freeze(["performance", "balanced", "quality"]);
+export const RT_MODES = Object.freeze(["off", "performance", "balanced", "high", "ultra"]);
 
 export const DEFAULT_DEV_SETTINGS = Object.freeze({
   // graphics quality: "performance" aims at the screen's refresh rate (120 Hz+), see hud3d.js
@@ -18,6 +19,7 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   roverSpeedMultiplier: 1.0,
   superGraphics: false,
   rayTracing: false,
+  rayTracingMode: "off",
   experimentalRover: false,
   realisticTextures: false,
   realisticDust: true,
@@ -33,6 +35,7 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
 export const FULL_REALISM_PRESET = Object.freeze({
   superGraphics: true,
   rayTracing: true,
+  rayTracingMode: "high",
   experimentalRover: true,
   realisticTextures: true,
   realisticDust: true,
@@ -41,13 +44,64 @@ export const FULL_REALISM_PRESET = Object.freeze({
   realisticWeather: true,
 });
 
+// Always reset Ray Tracing to OFF on startup so a previous session never boots with RT active.
+try {
+  if (typeof localStorage !== "undefined") {
+    const bootText = localStorage.getItem(STORAGE_KEY);
+    if (bootText) {
+      const bootParsed = JSON.parse(bootText);
+      if (bootParsed && (bootParsed.rayTracing || (bootParsed.rayTracingMode && bootParsed.rayTracingMode !== "off"))) {
+        bootParsed.rayTracing = false;
+        bootParsed.rayTracingMode = "off";
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(bootParsed));
+      }
+    }
+  }
+} catch {
+  /* ignore storage errors */
+}
+
 function clampNum(v, min, max, fallback) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
 }
 
+function normalizeRtModeString(val) {
+  if (typeof val !== "string") return null;
+  const m = val.trim().toLowerCase();
+  if (m === "low" || m === "perf") return "performance";
+  if (RT_MODES.includes(m)) return m;
+  return null;
+}
+
+function resolveRayTracingState(raw = {}) {
+  const directMode = normalizeRtModeString(raw.rayTracing);
+  if (directMode) {
+    return { rayTracing: directMode !== "off", rayTracingMode: directMode };
+  }
+  const explicitMode = normalizeRtModeString(raw.rayTracingMode);
+  if (explicitMode) {
+    if (raw.rayTracing === false) return { rayTracing: false, rayTracingMode: "off" };
+    if (raw.rayTracing === true && explicitMode === "off") return { rayTracing: true, rayTracingMode: "high" };
+    return { rayTracing: explicitMode !== "off", rayTracingMode: explicitMode };
+  }
+  if (raw.rayTracing !== undefined) {
+    const on = Boolean(raw.rayTracing);
+    return { rayTracing: on, rayTracingMode: on ? "high" : "off" };
+  }
+  return { rayTracing: DEFAULT_DEV_SETTINGS.rayTracing, rayTracingMode: DEFAULT_DEV_SETTINGS.rayTracingMode };
+}
+
+export function cycleRayTracingMode(current = {}) {
+  const { rayTracingMode } = resolveRayTracingState(current);
+  const idx = RT_MODES.indexOf(rayTracingMode);
+  const nextMode = RT_MODES[(idx + 1) % RT_MODES.length] || "off";
+  return { rayTracing: nextMode !== "off", rayTracingMode: nextMode };
+}
+
 export function normalizeDevSettings(raw = {}) {
+  const rtState = resolveRayTracingState(raw);
   return {
     quality: QUALITY_LEVELS.includes(raw.quality) ? raw.quality : DEFAULT_DEV_SETTINGS.quality,
     hudTheme: ["cyan", "untitled", "mono"].includes(raw.hudTheme) ? raw.hudTheme : DEFAULT_DEV_SETTINGS.hudTheme,
@@ -56,7 +110,8 @@ export function normalizeDevSettings(raw = {}) {
     speedMultiplier: clampNum(raw.speedMultiplier, 0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
     roverSpeedMultiplier: clampNum(raw.roverSpeedMultiplier, 0.3, 4.0, DEFAULT_DEV_SETTINGS.roverSpeedMultiplier),
     superGraphics: raw.superGraphics !== undefined ? Boolean(raw.superGraphics) : DEFAULT_DEV_SETTINGS.superGraphics,
-    rayTracing: raw.rayTracing !== undefined ? Boolean(raw.rayTracing) : DEFAULT_DEV_SETTINGS.rayTracing,
+    rayTracing: rtState.rayTracing,
+    rayTracingMode: rtState.rayTracingMode,
     experimentalRover:
       raw.experimentalRover !== undefined ? Boolean(raw.experimentalRover) : DEFAULT_DEV_SETTINGS.experimentalRover,
     realisticTextures:
@@ -86,7 +141,15 @@ export function loadDevSettings() {
 }
 
 export function saveDevSettings(patch) {
-  const merged = normalizeDevSettings({ ...loadDevSettings(), ...(patch || {}) });
+  const nextPatch = { ...(patch || {}) };
+  if (nextPatch.rayTracingMode !== undefined && nextPatch.rayTracing === undefined) {
+    const mode = normalizeRtModeString(nextPatch.rayTracingMode) || "off";
+    nextPatch.rayTracingMode = mode;
+    nextPatch.rayTracing = mode !== "off";
+  } else if (typeof nextPatch.rayTracing === "boolean" && nextPatch.rayTracingMode === undefined) {
+    nextPatch.rayTracingMode = nextPatch.rayTracing ? "high" : "off";
+  }
+  const merged = normalizeDevSettings({ ...loadDevSettings(), ...nextPatch });
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
