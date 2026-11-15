@@ -70,7 +70,7 @@ import {
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "./experimental-rover.js";
-import { createMarsHabitatStation } from "./mars-habitat.js";
+import { ENTRY_OFFSET_Z, createMarsHabitatStation } from "./mars-habitat.js";
 import { createMarsFxSystem } from "./mars-fx.js";
 import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
 import {
@@ -795,14 +795,14 @@ export async function initHud3D(
   const initRouteOriginZ = initRouteCoords.length > 0 ? latToZ(initRouteCoords[0][1]) : 0;
   const habitatStation = createMarsHabitatStation(THREE, {
     originX: initRouteOriginX,
-    originZ: initRouteOriginZ - 33.5,
+    originZ: initRouteOriginZ - ENTRY_OFFSET_Z,
     rawSampleElevY: rawSampleElevSceneY,
   });
   scene.add(habitatStation.group);
 
-  /** Terrain height with the habitat's levelled pad and decks applied (when the station is shown). */
+  /** Terrain mesh height with the habitat's levelled pad (decks and ramps are station meshes). */
   function withHabitat(x, z, y) {
-    return habitatStation.group.visible ? habitatStation.sampleElevWithHabitat(x, z, y) : y;
+    return habitatStation.group.visible ? habitatStation.sampleTerrainWithHabitat(x, z, y) : y;
   }
 
   function sampleElevSceneY(x, z) {
@@ -2270,6 +2270,10 @@ export async function initHud3D(
   let justTeleportedOrWrapped = false;
   let lastMoveYaw = null;
   let drivingRover = false;
+  // [V] walking camera: helmet (first person) or over-the-shoulder (third person)
+  let thirdPersonWalk = false;
+  let thirdCamInit = false;
+  const thirdCamPos = new THREE.Vector3();
   let roverThrottleVel = 0;
   let roverVelX = 0;
   let roverVelZ = 0;
@@ -2981,7 +2985,7 @@ export async function initHud3D(
     habitatStation.group.visible = showRovers;
     if (showRovers) {
       const habX = gale ? initRouteOriginX : 0;
-      const habZ = gale ? initRouteOriginZ - 33.5 : -33.5;
+      const habZ = gale ? initRouteOriginZ - ENTRY_OFFSET_Z : -ENTRY_OFFSET_Z;
       habitatStation.setBasePose(habX, habZ, rawSampleElevSceneY);
       invalidateCorridorChunks(); // detail meshes carry the habitat pad; rebuild them
     }
@@ -3261,6 +3265,18 @@ export async function initHud3D(
       return;
     }
 
+    if (k === "v" && !e.repeat && !drivingRover) {
+      thirdPersonWalk = !thirdPersonWalk;
+      thirdCamInit = false;
+      self?.setHeadVisible?.(thirdPersonWalk);
+      document.getElementById("visor-overlay")?.classList.toggle("third-person", thirdPersonWalk);
+      showWrapNotice(
+        isTrLang()
+          ? thirdPersonWalk ? "3. ŞAHIS KAMERA · [V] KASK" : "KASK KAMERASI · [V] 3. ŞAHIS"
+          : thirdPersonWalk ? "3RD-PERSON CAMERA · [V] HELMET" : "HELMET CAMERA · [V] 3RD PERSON"
+      );
+      return;
+    }
     if (k === "e" && !e.repeat) {
       const tr = isTrLang();
       if (drivingRover && activeDriveRover?.group?.visible) {
@@ -3761,6 +3777,13 @@ export async function initHud3D(
     clockT += dt;
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
+    // habitat: bay doors / airlock doors open for the walker and the driven rover
+    if (habitatStation.group.visible) {
+      const actors = [{ x: freePos.x, z: freePos.z }];
+      if (drivingRover && activeDriveRover?.group) actors.push(activeDriveRover.group.position);
+      habitatStation.update(dt, { actors });
+    }
+
     // controller look (right stick), off while a menu, dialog or the setup screen has the pad
     const padBusy = padBlocked();
     const lk = padBusy ? { x: 0, y: 0 } : gamepad.look();
@@ -4121,7 +4144,7 @@ export async function initHud3D(
               wishZ: moveDir.z,
               run: keys.has("shift") || padRun,
               speedMultiplier: (devCfg.speedMultiplier || 1) * stickPace,
-              slopeLimitDeg: strict ? 15 : 20,
+              slopeLimitDeg: document.getElementById("toggle-strict-15")?.checked ? 15 : 20,
               latDeg: zToLat(phys.z),
             },
             heightEnv
@@ -4441,6 +4464,50 @@ export async function initHud3D(
       const shake = Math.min(0.025, Math.abs(roverThrottleVel) * 0.0022);
       camera.position.set(chaseCamPos.x, chaseCamPos.y + Math.sin(clockT * 16) * shake, chaseCamPos.z);
       camera.lookAt(chaseLookTarget);
+    } else if (thirdPersonWalk) {
+      if (eyeBaseY == null || snappedThisFrame || Math.abs(player.y - eyeBaseY) > 0.8) eyeBaseY = player.y;
+      else eyeBaseY += (player.y - eyeBaseY) * Math.min(1, dt * 14);
+      const headX = px;
+      const headY = eyeBaseY + EYE_HEIGHT_M - phys.crouch + 0.15;
+      const headZ = pz;
+      const cp = Math.cos(pitch);
+      const viewX = -Math.sin(yaw) * cp;
+      const viewY = Math.sin(pitch);
+      const viewZ = -Math.cos(yaw) * cp;
+      const dist = 3.4;
+      let camX = headX - viewX * dist + right.x * 0.55;
+      let camY = headY - viewY * dist + 0.3;
+      let camZ = headZ - viewZ * dist + right.z * 0.55;
+      if (habitatStation.group.visible) {
+        const t = habitatStation.clipCameraSegment(headX, headY, headZ, camX, camY, camZ);
+        if (t < 1) {
+          const k = Math.max(0, t - 0.04);
+          camX = headX + (camX - headX) * k;
+          camY = headY + (camY - headY) * k;
+          camZ = headZ + (camZ - headZ) * k;
+        }
+        const ceil = habitatStation.ceilingAt(camX, camZ);
+        if (ceil != null) camY = Math.min(camY, ceil - 0.25);
+      }
+      camY = Math.max(camY, sampleElevSceneY(camX, camZ) + 0.35);
+      if (!thirdCamInit || snappedThisFrame) {
+        thirdCamPos.set(camX, camY, camZ);
+        thirdCamInit = true;
+      } else {
+        // follow quickly, but snap inwards at once so walls never get between camera and walker
+        const k = Math.min(1, dt * 14);
+        thirdCamPos.x += (camX - thirdCamPos.x) * k;
+        thirdCamPos.y += (camY - thirdCamPos.y) * k;
+        thirdCamPos.z += (camZ - thirdCamPos.z) * k;
+        if (Math.hypot(camX - headX, camZ - headZ) < Math.hypot(thirdCamPos.x - headX, thirdCamPos.z - headZ)) {
+          thirdCamPos.set(camX, camY, camZ);
+        }
+      }
+      camera.position.copy(thirdCamPos);
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+      camera.rotation.z = 0;
     } else {
       const tip = Math.max(0, -pitch);
       const eyeFwd = EYE_FORWARD_M + tip * 0.1;

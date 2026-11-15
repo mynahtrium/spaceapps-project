@@ -33,7 +33,7 @@ import {
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
-import { HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
+import { HABITAT_LAYOUT, HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
 import {
   RT_HEIGHT_GLSL,
   RT_LENS_PARS_GLSL,
@@ -807,7 +807,7 @@ test("NASA Mars Rover Concept builds rigged 6x6 hollow wheels and drives with ph
   assert.ok(step.vFwd > 0);
 });
 
-test("Mars Habitat Station builds 5 zones, 7 bay/lane placements, elevated dorm deck, and walkable openings", () => {
+test("Mars Habitat Station follows the blueprint layout: 5 zones, raised decks, ramps, doors", () => {
   assert.equal(HABITAT_ZONES.length, 5);
   const hab = createMarsHabitatStation(THREE, { originX: 0, originZ: 0, rawSampleElevY: () => 1.5 });
   const zoneNames = new Set(hab.group.children.map((c) => c.name));
@@ -825,12 +825,49 @@ test("Mars Habitat Station builds 5 zones, 7 bay/lane placements, elevated dorm 
     ["mmsev", "nasa_concept"]
   );
 
-  // Pad levels ground around baseY=1.5 and Dormitory raises +0.8m to 2.3m
-  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 10, 4.0) - 1.5) < 0.05);
-  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, -21, 1.5) - 2.3) < 0.05);
+  // Zone layout matches the top-down plan (ÜST)
+  assert.equal(hab.zoneAt(-15, -2), "pinkCorridor"); // left leg of the L
+  assert.equal(hab.zoneAt(0, 7), "pinkCorridor"); // bottom leg of the L
+  assert.equal(hab.zoneAt(5, -3), "yellowCafeteria");
+  assert.equal(hab.zoneAt(-8, -20), "purpleDormitory");
+  assert.equal(hab.zoneAt(25, 7), "redAirlock");
+  assert.equal(hab.zoneAt(0, 16), "greenGarage");
 
-  // Open center bay doorway and airlock entrance must remain unobstructed, while solid west outer wall collides
-  assert.equal(hab.resolveCollision(0, 18, 0.4, 1.5).hit, false);
-  assert.equal(hab.resolveCollision(27, 2, 0.4, 1.5).hit, false);
-  assert.equal(hab.resolveCollision(-18, -5, 0.4, 1.5).hit, true);
+  // Pad at baseY=1.5; pressurized deck +0.5; dormitory deck +1.1; ramps in between
+  const { DECK, DORM_FLOOR } = HABITAT_LAYOUT;
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 40, 9.0) - 1.5) < 1e-6); // apron is levelled
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 16, 0.0) - (1.5 + DECK)) < 1e-6);
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(-8, -20, 0.0) - (1.5 + DORM_FLOOR)) < 1e-6);
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 24.5, 0.0) - (1.5 + DECK / 2)) < 1e-6); // garage ramp midpoint
+  const rampMid = hab.sampleElevWithHabitat(0, -6.75, 0.0);
+  assert.ok(rampMid > 1.5 + DECK && rampMid < 1.5 + DORM_FLOOR); // cafeteria ramp up to the dorm
+  // terrain mesh only sees the levelled pad, never the deck (no z-fighting with floors)
+  assert.ok(Math.abs(hab.sampleTerrainWithHabitat(0, 16, 7.0) - 1.5) < 1e-6);
+  assert.equal(hab.sampleTerrainWithHabitat(500, 500, 7.0), 7.0);
+
+  // Bay doors start open, close when nobody is near, and reopen for an approaching actor
+  const y = 1.5 + DECK;
+  assert.equal(hab.resolveCollision(0, 22, 0.4, y).hit, false);
+  for (let i = 0; i < 80; i++) hab.update(0.1, { actors: [{ x: 300, z: 300 }] });
+  assert.equal(hab.resolveCollision(0, 22, 0.4, y).hit, true);
+  for (let i = 0; i < 80; i++) hab.update(0.1, { actors: [{ x: 0, z: 30 }] });
+  assert.equal(hab.resolveCollision(0, 22, 0.4, y).hit, false);
+
+  // Airlock doors are interlocked: approaching the inner door opens it, the outer stays shut
+  assert.equal(hab.resolveCollision(32, 7, 0.4, y).hit, true);
+  for (let i = 0; i < 40; i++) hab.update(0.1, { actors: [{ x: 16.5, z: 7 }] });
+  assert.equal(hab.resolveCollision(18, 7, 0.4, y).hit, false);
+  for (let i = 0; i < 40; i++) hab.update(0.1, { actors: [{ x: 16.5, z: 7 }, { x: 33.5, z: 7 }] });
+  assert.equal(hab.resolveCollision(32, 7, 0.4, y).hit, true);
+  assert.equal(hab.resolveCollision(25, 7, 0.4, y).hit, false); // inside the chamber is clear
+
+  // Solid exterior walls, open crew doorways
+  assert.equal(hab.resolveCollision(-18, -5, 0.4, y).hit, true);
+  assert.equal(hab.resolveCollision(-12, -2.5, 0.4, y).hit, false); // corridor -> cafeteria door
+  assert.equal(hab.resolveCollision(-10.8, 10, 0.4, y).hit, false); // corridor -> garage door
+
+  // 3rd-person camera is pulled in front of a wall
+  const t = hab.clipCameraSegment(-15, 2.5, 0, -22, 2.5, 0);
+  assert.ok(t > 0.2 && t < 0.5, `camera clip t=${t}`);
+  assert.equal(hab.clipCameraSegment(0, 2.5, 40, 0, 2.5, 50), 1);
 });

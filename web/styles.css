@@ -799,6 +799,10 @@ svg.profile-svg {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.96), 0 0 8px rgba(0, 0, 0, 0.92);
 }
 
+.visor-overlay.third-person {
+  background: none;
+}
+
 .visor-overlay.gold-deployed {
   --wg: var(--cyan);
   --wg-dim: var(--muted);
