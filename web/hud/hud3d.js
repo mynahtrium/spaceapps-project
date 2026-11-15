@@ -324,6 +324,8 @@ const MOON_FRAG = /* glsl */ `
   uniform float uSunElev;
   uniform vec3 uBaseColor;
   uniform float uAlbedoBoost;
+  uniform sampler2D uMap;
+  uniform float uHasMap;
   varying vec3 vNormalW;
   varying vec3 vDirW;
   varying vec3 vLocalPos;
@@ -354,7 +356,11 @@ const MOON_FRAG = /* glsl */ `
 
     // Subtle regolith/crater tonal grain on the moon surface
     vec3 p = normalize(vLocalPos);
-    float mottling = 0.82 + 0.18 * sin(p.x * 11.0 + p.y * 7.0) * cos(p.z * 9.0 - p.x * 5.0);
+    // USGS Viking-based global map of the moon (equirectangular), when loaded
+    vec2 uvm = vec2(atan(p.z, p.x) / 6.2831853 + 0.5, asin(clamp(p.y, -1.0, 1.0)) / 3.1415927 + 0.5);
+    float mottling = uHasMap > 0.5
+      ? 0.3 + 1.15 * texture2D(uMap, uvm).r
+      : 0.82 + 0.18 * sin(p.x * 11.0 + p.y * 7.0) * cos(p.z * 9.0 - p.x * 5.0);
     float ndl = max(dot(n, sun), 0.0);
     float diffuse = smoothstep(0.0, 0.85, ndl) * uAlbedoBoost * mottling;
 
@@ -766,7 +772,17 @@ export async function initHud3D(
     return geom;
   }
 
-  function makeMoonMat(baseHex, albedoBoost) {
+  function makeMoonMat(baseHex, albedoBoost, mapUrl = null) {
+    const mapU = { value: null };
+    const hasMapU = { value: 0 };
+    if (mapUrl) {
+      new THREE.TextureLoader().load(mapUrl, (tex) => {
+        tex.colorSpace = THREE.NoColorSpace;
+        tex.wrapS = THREE.RepeatWrapping;
+        mapU.value = tex;
+        hasMapU.value = 1;
+      });
+    }
     return new THREE.ShaderMaterial({
       vertexShader: MOON_VERT,
       fragmentShader: MOON_FRAG,
@@ -782,19 +798,24 @@ export async function initHud3D(
         uSunElev: { value: sunState.elevationRad },
         uBaseColor: { value: new THREE.Color(baseHex) },
         uAlbedoBoost: { value: albedoBoost },
+        uMap: mapU,
+        uHasMap: hasMapU,
       },
     });
   }
 
   const skyMoons = new THREE.Group();
+  // True sizes: triaxial radii in km (Phobos 13.0 x 11.4 x 9.1, Deimos 7.8 x 6.0 x 5.1; Thomas 1989 /
+  // IAU WGCCRE). The long axis points at Mars (tidally locked), i.e. at the observer: local +z.
+  // Both are very dark (albedo ~0.07); the shader's boost keeps them visible against the day sky.
   const phobos = new THREE.Mesh(
-    buildMoonGeometry(16, [1.34, 0.9, 0.82], true),
-    makeMoonMat(0xd6cbc2, 1.35)
+    buildMoonGeometry(1, [11.4, 9.1, 13.0], true),
+    makeMoonMat(0xd6cbc2, 1.35, "./assets/moons/phobos-viking-usgs-2k.jpg")
   );
   phobos.renderOrder = -1;
   const deimos = new THREE.Mesh(
-    buildMoonGeometry(3.4, [1.14, 0.95, 0.9], false),
-    makeMoonMat(0xf0e4d8, 1.7)
+    buildMoonGeometry(1, [6.0, 5.1, 7.8], false),
+    makeMoonMat(0xf0e4d8, 1.7, "./assets/moons/deimos-viking-usgs-1k.jpg")
   );
   deimos.renderOrder = -1;
   skyMoons.add(phobos, deimos);
@@ -806,19 +827,26 @@ export async function initHud3D(
   const deimosDir = new THREE.Vector3();
   let sunStateStampMs = performance.now();
   // Real topocentric Phobos / Deimos directions (JPL-fitted ephemeris) for the sky time in `sunState.date`.
-  // Their sky sizes keep the old artistic scale; the directions and rise/set are real.
+  // Sizes are true too: the mesh (built in km) is scaled by sceneRadius / distance, so its angular
+  // size is the real one. A moon smaller than about a pixel is held at one pixel, like a star.
+  function placeMoon(mesh, dir, sceneR, distKm, camPos) {
+    mesh.position.copy(dir).multiplyScalar(sceneR);
+    const trueScale = sceneR / Math.max(1, distKm);
+    const pxRad = ((camera.fov * Math.PI) / 180) / Math.max(200, window.innerHeight || 900);
+    const minScale = (sceneR * Math.tan(pxRad * 0.6)) / 6; // ~6 km mean radius -> about one pixel
+    mesh.scale.setScalar(Math.max(trueScale, minScale));
+    mesh.lookAt(camPos);
+  }
   function updateMoons(camPos = camera.position) {
     const when = new Date(sunState.date.getTime() + (performance.now() - sunStateStampMs));
     const p = moonFromSurface("phobos", when, sunSite.lat, sunSite.lon);
     phobosDir.set(p.x, p.y, p.z).normalize();
-    phobos.position.copy(phobosDir).multiplyScalar(PHOBOS_ORBIT_R);
+    placeMoon(phobos, phobosDir, PHOBOS_ORBIT_R, p.distKm, camPos);
     phobos.visible = p.el > -0.05;
-    phobos.lookAt(camPos);
     const d = moonFromSurface("deimos", when, sunSite.lat, sunSite.lon);
     deimosDir.set(d.x, d.y, d.z).normalize();
-    deimos.position.copy(deimosDir).multiplyScalar(DEIMOS_ORBIT_R);
+    placeMoon(deimos, deimosDir, DEIMOS_ORBIT_R, d.distKm, camPos);
     deimos.visible = d.el > -0.05;
-    deimos.lookAt(camPos);
     const sep = Math.acos(Math.max(-1, Math.min(1, phobosDir.dot(sunDir))));
     const limit = sunState.sunAngularRad * 0.5 + 0.1 * (Math.PI / 180);
     sunTransit = sep < limit ? 1 - 0.35 * (1 - sep / limit) : 1;

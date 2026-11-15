@@ -49,7 +49,8 @@ import {
 } from "../shared/mars-hardware.js";
 
 const DEG = Math.PI / 180;
-const MOON_SIZE_EXAGGERATION = 8;
+// Moons are drawn at true size (no exaggeration); a label marks them when they are too small to see.
+const MOON_SIZE_EXAGGERATION = 1;
 const MIN_DIST = 1.00035; // ≈ 1.2 km altitude (allows zooming into the Gale HiRISE corridor)
 const MAX_DIST = 24;
 const HOME_DIST = 3.4;
@@ -609,8 +610,8 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
 
   // ---------- moons ----------
   const moonDefs = [
-    { name: "phobos", label: "Phobos", axes: [13.0, 11.4, 9.1], color: 0x8a7d72 },
-    { name: "deimos", label: "Deimos", axes: [7.8, 6.0, 5.1], color: 0xa89a8a },
+    { name: "phobos", label: "Phobos", axes: [13.0, 11.4, 9.1], color: 0x8a7d72, map: "./assets/moons/phobos-viking-usgs-2k.jpg" },
+    { name: "deimos", label: "Deimos", axes: [7.8, 6.0, 5.1], color: 0xa89a8a, map: "./assets/moons/deimos-viking-usgs-1k.jpg" },
   ];
   const moons = moonDefs.map((def, k) => {
     const rUnits = (1 / R_KM) * MOON_SIZE_EXAGGERATION;
@@ -618,6 +619,13 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       lumpyMoonGeometry(1, def.axes.map((a) => a * rUnits), k * 1.7 + 0.4),
       new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.95, metalness: 0 })
     );
+    // USGS Viking-based global map of the moon, wrapped by direction (the lumpy mesh keeps sphere UVs)
+    new THREE.TextureLoader().load(def.map, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      mesh.material.map = tex;
+      mesh.material.color.setRGB(0.55, 0.5, 0.46);
+      mesh.material.needsUpdate = true;
+    });
     scene.add(mesh);
     const ringGeo = new THREE.BufferGeometry();
     ringGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(257 * 3), 3));
@@ -1408,7 +1416,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       }
       for (const m of moons) {
         labelScratch.copy(m.mesh.position);
-        put(m.name, labelScratch, `${m.label} <span style="opacity:.55">×${MOON_SIZE_EXAGGERATION} size</span>`, "moon", false);
+        put(m.name, labelScratch, `${m.label} <span style="opacity:.55">${isTr() ? "gerçek boyut" : "true size"}</span>`, "moon", false);
       }
       for (const o of orbiters) {
         const alt = o.periKm === o.apoKm ? `${o.periKm} km` : `${o.periKm.toLocaleString()} × ${o.apoKm.toLocaleString()} km`;

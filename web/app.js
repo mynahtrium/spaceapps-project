@@ -799,8 +799,10 @@ async function boot() {
             bundled for offline use; during a landing zoom, online mode overlays ~330 m/px Viking tiles around the
             target. Day/night uses the real subsolar point from the NASA GISS Mars24 algorithm (Allison & McEwen 2000).
             Mars orientation follows the IAU WGCCRE pole and prime meridian. Phobos and Deimos positions come from a
-            series fitted to JPL Horizons vectors (agrees with Horizons to ~0.1°); their <em>sizes</em> are drawn 8×
-            larger than scale so they are visible, while orbits are to scale. Sun, Earth and the bright stars are real
+            series fitted to JPL Horizons vectors (agrees with Horizons to ~0.1°). Orbits and sizes are to scale (triaxial
+            radii from Thomas 1989 / IAU), in orbit and from the surface; a moon smaller than about a pixel is held at one
+            pixel. Surface maps: USGS Phobos Viking global mosaic, DLR-controlled, 40 px/deg (planetarymaps.usgs.gov,
+            fetched 2026-11-15) and the USGS Viking-based airbrush map of Deimos (fetched 2026-11-15). Sun, Earth and the bright stars are real
             directions; the faint background star field is decorative. Fine surface grain at very low altitude is
             procedural. Landing anywhere other than the Gale HiRISE tile uses seeded procedural relief, not mapped
             topography; the Bodycam sun then follows the real local true solar time of that spot (or a fixed 15:00
