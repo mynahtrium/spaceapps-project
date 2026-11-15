@@ -1143,3 +1143,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Not measured: GPU time. The preview pane is hidden and throttled, so absolute fps there means nothing; press F3 in the game on the real machine to see fps, CPU ms, draw calls and render scale.
 - Commit: this commit
 - Next step: Cagan checks F3 on the RTX 4060. If it is still under 120 fps with CPU under about 6 ms, the limit is the GPU (terrain shader / resolution); then lower the quality level or the render scale floor.
+
+### 2026-11-15 Europe/Istanbul — LOAD-01 loading screen stuck on "NASA SUIT MODEL"
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: LOAD-01
+- Files changed: `web/hud/hud3d.js`, `web/app.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan reported that after pressing Begin the loading screen stays on "LOADING TERRAIN · NASA SUIT MODEL". I could not reproduce it (demo and normal mode, Begin pressed at once: the screen clears; suit ready in about 2.2 s here), so the fix makes a stuck load visible and bounded: the veil now names the step it is on (TERRAIN, NASA SUIT MODEL, SCENE); the height map and each suit model give up after 30 s / 25 s (then the next suit model, then the capsule stand-in); if the 3D view throws while starting, the veil shows `3D VIEW FAILED: <message>` and the error goes to the console. The suit load time is logged (`suit model ready in N ms`).
+- Commit: this commit
+- Next step: if it still sticks on Cagan's machine, he reports the text on the veil and the first red line in the browser console (F12).

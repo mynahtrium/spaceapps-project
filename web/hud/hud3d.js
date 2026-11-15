@@ -434,6 +434,14 @@ export async function initHud3D(
   let surfaceG = 3.717;
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
+  // The veil names the step it is on, so a stuck load shows where; slow steps give up after a while
+  // (the suit falls back to the next model, then to a stand-in) instead of hanging forever.
+  const loadStage = (t) => {
+    if (loadingVeil) loadingVeil.textContent = `LOADING · ${t}`;
+  };
+  const withTimeout = (promise, ms, label) =>
+    Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms / 1000} s`)), ms))]);
+  loadStage("TERRAIN");
   let devCfg = loadDevSettings();
   const isTrLang = () => {
     try {
@@ -701,7 +709,7 @@ export async function initHud3D(
   let imgW = 0;
   let imgH = 0;
   try {
-    const hImg = await loadImage(assets.heightPreviewUrl);
+    const hImg = await withTimeout(loadImage(assets.heightPreviewUrl), 30000, "height map");
     imgW = hImg.width;
     imgH = hImg.height;
     const c = document.createElement("canvas");
@@ -1385,7 +1393,10 @@ export async function initHud3D(
   {
     for (const m of SUIT_MODELS) {
       try {
-        const rig = await loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M);
+        loadStage("NASA SUIT MODEL");
+        const suitT0 = performance.now();
+        const rig = await withTimeout(loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M), 25000, m.url);
+        console.info(`suit model ready in ${Math.round(performance.now() - suitT0)} ms (${m.url})`);
         suitRig = rig;
         if (rig.bootBounds) footsteps.setSuitProfile(rig.bootBounds);
         self = createAstronaut(rig, { hideHead: true });
@@ -1396,6 +1407,7 @@ export async function initHud3D(
       }
     }
   }
+  loadStage("SCENE");
   if (!self) {
     // Stand-in: a 1.80 m capsule, labelled in the HUD
     self = makeStandInAvatar();

@@ -1327,7 +1327,8 @@ async function boot() {
       return orbitApi;
     },
   };
-  hudApi = await initHud3D(data, {
+  try {
+    hudApi = await initHud3D(data, {
     mp,
     onLocalPose: (pose) => {
       lastSelfPose = pose;
@@ -1336,7 +1337,14 @@ async function boot() {
     onOpenPov: openPovModal,
     onOpenRoverInfo: openHistoricRoverModal,
     onOpenOrbit: switchToOrbit,
-  });
+    });
+  } catch (err) {
+    // never leave the loading screen up for ever: say what failed
+    console.error("3D view failed to start:", err);
+    const veil = document.getElementById("hud-loading");
+    if (veil) veil.textContent = `3D VIEW FAILED: ${String(err?.message || err).slice(0, 160)}`;
+    throw err;
+  }
   if (data.route) dispatchSetRoute(data.route, 0);
   if (pendingLanding) {
     const args = pendingLanding;
