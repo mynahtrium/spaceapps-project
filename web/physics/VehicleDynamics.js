@@ -81,14 +81,14 @@ export const VEHICLE_SPECS = Object.freeze({
     massKg: 2994 + 160, // + two crew inside in plain clothes (estimate)
     topSpeedMs: 10 / 3.6,
     reverseSpeedMs: 4 / 3.6, // estimate
-    powerW: 12000 * 1.75, // 21,000 W / 21.0 kW (1.75x)
-    powerKw: (12000 * 1.75) / 1000,
-    maxHp: (12000 * 1.75) / 745.699872,
+    powerW: 12000 * 2.25, // 27,000 W / 27.0 kW (2.25x)
+    powerKw: (12000 * 2.25) / 1000,
+    maxHp: (12000 * 2.25) / 745.699872,
     maxDriveForceN: 7500 * 2.25, // 16,875 N (2.25x)
     wheelTorqueMaxNm: 7500 * 2.25 * 0.345, // 5,821.875 N·m (2.25x)
-    brakeForceN: 9000, // estimate
-    mu: 0.55, // tyre on Mars regolith, illustrative
-    rollingResistance: 0.06, // loose regolith, illustrative
+    brakeForceN: 13500, // estimate
+    mu: 0.92, // high-traction tyre on Mars regolith
+    rollingResistance: 0.055,
     wheelRadius: 0.345, // matches the NASA 3D model pods (fact sheet: 39 in / 0.99 m wheels)
     trackHalfW: 1.339,
     axles: [-0.969, 0.37, 1.708], // from the NASA 3D model (fact sheet wheelbase: 13 ft)
@@ -98,8 +98,8 @@ export const VEHICLE_SPECS = Object.freeze({
     staticSagM: 0.07,
     droopM: 0.18,
     bumpM: 0.16,
-    damping: 0.55,
-    comHeightM: 1.25,
+    damping: 0.72,
+    comHeightM: 0.95,
     box: { halfW: 1.66, halfL: 2.42, height: 3.25, clearance: 0.42 },
     sources: "NASA SEV fact sheet FS-2011-08-045-JSC (mass, ~10 km/h, 360 deg pivoting wheels); NASA 3D Resources MMSEV model (geometry). Power, brakes, friction are estimates.",
   }),
@@ -112,14 +112,14 @@ export const VEHICLE_SPECS = Object.freeze({
     massKg: 1500 + 360, // chassis mass not published: estimate; + two suited crew (app suit model 180 kg each)
     topSpeedMs: 10 / 3.6,
     reverseSpeedMs: 4 / 3.6,
-    powerW: 12000 * 1.75, // 21,000 W / 21.0 kW (1.75x)
-    powerKw: (12000 * 1.75) / 1000,
-    maxHp: (12000 * 1.75) / 745.699872,
+    powerW: 12000 * 2.25, // 27,000 W / 27.0 kW (2.25x)
+    powerKw: (12000 * 2.25) / 1000,
+    maxHp: (12000 * 2.25) / 745.699872,
     maxDriveForceN: 7500 * 2.25, // 16,875 N (2.25x)
     wheelTorqueMaxNm: 7500 * 2.25 * 0.345, // 5,821.875 N·m (2.25x)
-    brakeForceN: 9000,
-    mu: 0.55,
-    rollingResistance: 0.06,
+    brakeForceN: 13500,
+    mu: 0.92,
+    rollingResistance: 0.055,
     wheelRadius: 0.345,
     trackHalfW: 1.339,
     axles: [-0.969, 0.37, 1.708],
@@ -129,8 +129,8 @@ export const VEHICLE_SPECS = Object.freeze({
     staticSagM: 0.06,
     droopM: 0.18,
     bumpM: 0.16,
-    damping: 0.55,
-    comHeightM: 0.8,
+    damping: 0.72,
+    comHeightM: 0.72,
     box: { halfW: 1.55, halfL: 2.3, height: 1.6, clearance: 0.42 },
     sources: "NASA SEV fact sheet FS-2011-08-045-JSC (Chariot chassis driven without the cabin). Mass without the cabin is an estimate.",
   }),
@@ -144,14 +144,14 @@ export const VEHICLE_SPECS = Object.freeze({
     massKg: 210 + 360, // + two suited crew (app suit model 180 kg each)
     topSpeedMs: 13 / 3.6,
     reverseSpeedMs: 5 / 3.6, // estimate
-    powerW: 4 * 186.4 * 1.75, // 1,304.8 W / 1.305 kW (1.75x)
-    powerKw: (4 * 186.4 * 1.75) / 1000,
-    maxHp: (4 * 186.4 * 1.75) / 745.699872,
+    powerW: 4 * 186.4 * 1.85, // 1,379.4 W / 1.38 kW (1.85x)
+    powerKw: (4 * 186.4 * 1.85) / 1000,
+    maxHp: (4 * 186.4 * 1.85) / 745.699872,
     maxDriveForceN: 1150 * 2.25, // 2,587.5 N (2.25x)
     wheelTorqueMaxNm: 1150 * 2.25 * 0.409, // 1,058.29 N·m (2.25x)
-    brakeForceN: 1500, // estimate
-    mu: 0.6,
-    rollingResistance: 0.06,
+    brakeForceN: 2100, // estimate
+    mu: 0.90,
+    rollingResistance: 0.055,
     wheelRadius: 0.409,
     trackHalfW: 0.915, // ~1.83 m tread, commonly cited (not on the NSSDC page)
     axles: [-1.15, 1.15],
@@ -161,8 +161,8 @@ export const VEHICLE_SPECS = Object.freeze({
     staticSagM: 0.06,
     droopM: 0.15,
     bumpM: 0.14,
-    damping: 0.5,
-    comHeightM: 0.65,
+    damping: 0.70,
+    comHeightM: 0.55,
     box: { halfW: 1.0, halfL: 1.55, height: 1.15, clearance: 0.36 },
     sources: "NASA NSSDC Apollo LRV page (mass, wheelbase, wheel size, motors, steering, clearance). Apollo numbers stand in for a Mars version, which does not exist.",
   }),
@@ -235,6 +235,8 @@ export function createVehicleBody(id, x, z, yaw, sampleHeight, g = GALE_G) {
     lastImpact: 0,
     sleeping: false,
     stillT: 0,
+    tippedT: 0,
+    selfRighting: false,
   };
   placeVehicle(body, x, z, yaw, sampleHeight);
   return body;
@@ -249,6 +251,8 @@ export function placeVehicle(body, x, z, yaw, sampleHeight) {
   body.acc = 0;
   body.sleeping = false;
   body.stillT = 0;
+  body.tippedT = 0;
+  body.selfRighting = false;
   // highest wheel footprint decides the ride height, so no wheel starts inside the ground
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
@@ -291,7 +295,8 @@ export function stepVehicle(body, input, env, dt) {
     body.acc -= VEHICLE_DT;
   }
   // Sleep when parked and settled, so a parked rover costs nothing and never creeps.
-  if (!active && body.contacts === body.wheels.length && len(body.vel) < 0.02 && len(body.w) < 0.02) {
+  const bodyUp = qRotate(body.q, v3(0, 1, 0));
+  if (!active && !body.selfRighting && bodyUp.y > 0.72 && body.contacts === body.wheels.length && len(body.vel) < 0.02 && len(body.w) < 0.02) {
     body.stillT += dt;
     if (body.stillT > 1.0) {
       body.sleeping = true;
@@ -319,11 +324,11 @@ function substep(body, input, env, h) {
   const back = qRotate(body.q, v3(0, 0, 1));
   const fwd = scale(back, -1);
 
-  // steering: slower at speed so a quick input does not flip a top-heavy rover
+  // steering: responsive turn-in with smooth high-speed stability
   const vFwd = dot(body.vel, fwd);
-  const speedLimit = spec.maxSteerRad / (1 + (vFwd * vFwd) / (3.5 * 3.5));
+  const speedLimit = spec.maxSteerRad / (1 + (vFwd * vFwd) / (8.5 * 8.5));
   const targetSteer = steerIn * Math.min(spec.maxSteerRad, speedLimit);
-  body.steer += Math.max(-1.2 * h, Math.min(1.2 * h, targetSteer - body.steer));
+  body.steer += Math.max(-1.8 * h, Math.min(1.8 * h, targetSteer - body.steer));
 
   // drive force available (motor torque, power kW/HP envelope, and speed governor)
   const vMax = (throttle >= 0 ? spec.topSpeedMs : spec.reverseSpeedMs) * mult;
@@ -372,23 +377,32 @@ function substep(body, input, env, h) {
 
     const hp = add(add(origin, scale(right, w.x)), scale(back, w.z)); // hub plane point at s = -r offset
     const ground = sampleHeight(hp.x, hp.z);
+    // wheel struts only push when pointed downward; wait until mostly upright during self-righting
+    if (up.y < (body.selfRighting ? 0.72 : 0.55)) {
+      w.sPrev = w.s;
+      w.s = -spec.droopM;
+      w.contact = false;
+      w.load = 0;
+      w.anchor = null;
+      continue;
+    }
     // suspension travel needed for the tyre to just touch the ground (positive = compressed)
-    const uy = Math.max(0.25, up.y);
-    let s = (ground + r - hp.y) / uy - r;
+    const rawS = (ground + r - hp.y) / up.y - r;
+    const s = Math.min(rawS, spec.bumpM + 0.08);
     w.sPrev = w.s;
-    if (s < -spec.droopM) {
+    if (rawS < -spec.droopM) {
       w.s = -spec.droopM;
       w.contact = false;
       w.load = 0;
       continue;
     }
+    const sVel = !w.contact && s > -spec.droopM + 0.05 ? Math.max(0, -body.vel.y) : (s - w.sPrev) / h;
     w.contact = true;
     contacts++;
-    const sVel = (s - w.sPrev) / h;
     let fs = d.k * s + d.wheelLoad + d.c * sVel;
     if (s > spec.bumpM) fs += d.kBump * (s - spec.bumpM) + 2 * d.c * Math.max(0, sVel); // bump stop
-    w.s = Math.min(s, spec.bumpM + 0.05);
-    fs = Math.max(0, fs);
+    w.s = s;
+    fs = Math.max(0, Math.min(d.wheelLoad * 18, fs));
     if (sVel < -3 && w.sPrev > -spec.droopM) body.lastImpact = Math.max(body.lastImpact, -sVel);
     else if (sVel > 1.5) body.lastImpact = Math.max(body.lastImpact, sVel);
 
@@ -411,9 +425,9 @@ function substep(body, input, env, h) {
     const vLat = dot(vc, tl);
 
     const fMax = spec.mu * load;
-    // lateral: slip angle with a smooth low-speed blend
-    const alpha = Math.atan2(vLat, Math.abs(vLong) + 0.5);
-    let fLat = -fMax * Math.tanh(alpha / 0.08);
+    // lateral: crisp slip angle with smooth low-speed blend
+    const alpha = Math.atan2(vLat, Math.abs(vLong) + 0.35);
+    let fLat = -fMax * Math.tanh(alpha / 0.055);
     // longitudinal: drive, brakes / hold, rolling resistance
     let fLong = 0;
     if (braking) fLong = -Math.min(spec.brakeForceN / driveWheels, fMax) * Math.tanh(vLong / 0.05);
@@ -464,27 +478,85 @@ function substep(body, input, env, h) {
   }
 
   // chassis underside against the ground (high-centring on ridges, never sinking into the terrain)
-  const { halfW, halfL, clearance } = spec.box;
-  for (const [bx, bz] of [
-    [-halfW, -halfL],
-    [halfW, -halfL],
-    [-halfW, halfL],
-    [halfW, halfL],
-    [0, 0],
-  ]) {
-    const p = add(add(add(origin, scale(right, bx)), scale(back, bz)), scale(up, clearance));
-    const gy = sampleHeight(p.x, p.z);
-    const pen = gy - p.y;
-    if (pen <= 0) continue;
-    const rc = sub(p, body.pos);
-    const vc = add(body.vel, cross(body.w, rc));
-    const kB = d.k * 8;
-    const fy = Math.max(0, kB * pen - 4 * d.c * vc.y);
-    const fr = v3(-vc.x * spec.massKg * 0.8, fy, -vc.z * spec.massKg * 0.8); // scraping friction
-    F.x += fr.x;
-    F.y += fr.y;
-    F.z += fr.z;
-    T = add(T, cross(rc, fr));
+  if (!body.selfRighting && up.y >= 0.35) {
+    const { halfW, halfL, clearance } = spec.box;
+    const maxBodyFy = spec.massKg * g * 3.5;
+    for (const [bx, bz] of [
+      [-halfW, -halfL],
+      [halfW, -halfL],
+      [-halfW, halfL],
+      [halfW, halfL],
+      [0, 0],
+    ]) {
+      const p = add(add(add(origin, scale(right, bx)), scale(back, bz)), scale(up, clearance));
+      const gy = sampleHeight(p.x, p.z);
+      const pen = gy - p.y;
+      if (pen <= 0) continue;
+      const rc = sub(p, body.pos);
+      const vc = add(body.vel, cross(body.w, rc));
+      const kB = d.k * 8;
+      const fy = Math.min(maxBodyFy, Math.max(0, kB * pen - 4 * d.c * vc.y));
+      const fr = v3(-vc.x * spec.massKg * 0.8, fy, -vc.z * spec.massKg * 0.8); // scraping friction
+      F.x += fr.x;
+      F.y += fr.y;
+      F.z += fr.z;
+      T = add(T, cross(rc, fr));
+    }
+  }
+
+  // Active rollover stabilization + automatic self-righting gyro recovery (vehicles never stay flipped)
+  const cNrm = groundNormal(sampleHeight, body.pos.x, body.pos.z);
+  const align = dot(up, cNrm);
+  const hasInp = Math.abs(throttle) > 0.05 || Math.abs(steerIn) > 0.05 || Boolean(input.brake);
+  if (up.y < 0.45) {
+    body.tippedT += h;
+    if (body.tippedT > (hasInp ? 0.08 : 0.2)) body.selfRighting = true;
+  } else if (body.selfRighting && (align < 0.94 || up.y < 0.85)) {
+    // finish righting smoothly onto all wheels before releasing gyro
+  } else {
+    body.tippedT = 0;
+    body.selfRighting = false;
+  }
+  if (body.selfRighting || up.y < 0.55) {
+    const sideDrop = Math.abs(right.y) * Math.max(spec.trackHalfW, spec.box.halfW);
+    const endDrop = Math.abs(back.y) * spec.box.halfL * 0.45;
+    const invDrop = up.y < 0 ? (-up.y) * Math.max(spec.comHeightM, spec.box.height - spec.comHeightM) : up.y * spec.comHeightM;
+    const rollClearY = Math.max(spec.comHeightM + 0.15, sideDrop + endDrop + invDrop + 0.18);
+    const floorY = sampleHeight(body.pos.x, body.pos.z) + rollClearY;
+    const liftErr = Math.max(-0.35, Math.min(1.5, floorY - body.pos.y));
+    F.y += Math.max(-spec.massKg * g * 0.4, spec.massKg * (g + 22 * liftErr - 8 * body.vel.y));
+    body.vel.x *= Math.exp(-h * 3.0);
+    body.vel.z *= Math.exp(-h * 3.0);
+  }
+  if (body.selfRighting) {
+    let ax = cross(up, cNrm);
+    if (len(ax) < 1e-3) ax = fwd;
+    const axBody = qConjRotate(body.q, norm(ax));
+    const wbCur = qConjRotate(body.q, body.w);
+    const targetRate = 3.2 * Math.max(0.25, Math.min(1, 1.05 - align));
+    const tauBody = v3(
+      d.I.x * (axBody.x * targetRate - wbCur.x) * 14.0,
+      d.I.y * (-wbCur.y * 8.0),
+      d.I.z * (axBody.z * targetRate - wbCur.z) * 14.0
+    );
+    T = add(T, qRotate(body.q, tauBody));
+  } else {
+    const steep = Math.max(0, 0.86 - align) + Math.max(0, 0.82 - up.y) * 1.35;
+    if (steep > 0) {
+      let ax = cross(up, cNrm);
+      if (len(ax) > 1e-4) {
+        const axBody = qConjRotate(body.q, norm(ax));
+        const wbCur = qConjRotate(body.q, body.w);
+        const kp = Math.min(18, steep * 28);
+        const kd = 3.5 + steep * 5.0;
+        const tauBody = v3(
+          d.I.x * (axBody.x * kp - wbCur.x * kd),
+          0,
+          d.I.z * (axBody.z * kp - wbCur.z * kd)
+        );
+        T = add(T, qRotate(body.q, tauBody));
+      }
+    }
   }
 
   // integrate linear motion

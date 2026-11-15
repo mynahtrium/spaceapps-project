@@ -16,8 +16,8 @@ function smoothstep(edge0, edge1, x) {
 export function createGaleVista(THREE) {
   const inner = 3600;
   const outer = 13600;
-  const rings = 32;
-  const segs = 216;
+  const rings = 44;
+  const segs = 256;
   const row = segs + 1;
   const vertCount = (rings + 1) * row;
   const positions = new Float32Array(vertCount * 3);

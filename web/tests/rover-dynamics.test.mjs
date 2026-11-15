@@ -56,10 +56,10 @@ const idle = { throttle: 0, steer: 0, boost: false, handbrake: false };
   const kmh = rv.state.vLong * 3.6;
   console.log(`after 1 s ${(v1 * 3.6).toFixed(1)} km/h, after 12 s ${kmh.toFixed(1)} km/h, peak accel ${maxAccel.toFixed(2)} m/s2, squat pitch ${(maxPitch * 57.3).toFixed(2)} deg, motor ${Math.round(rv.state.motorRpm)} rpm`);
   assert.ok(v1 * 3.6 < 6.0, "no instant launch");
-  assert.ok(maxAccel > 1.2 && maxAccel < 2.2, "high-torque Martian regolith acceleration");
-  assert.ok(kmh > 17 && kmh < 21, "governed near 20 km/h");
+  assert.ok(maxAccel > 1.4 && maxAccel < 2.8, "high-traction Martian regolith acceleration without spinout");
+  assert.ok(kmh > 34 && kmh < 40, `governed near 38 km/h (${kmh.toFixed(1)})`);
   assert.ok(maxPitch > 0.002, "nose lifts / rear squats under power");
-  assert.ok(rv.state.motorRpm > 2000 && rv.state.motorRpm < 3500, "motor rpm");
+  assert.ok(rv.state.motorRpm > 2000 && rv.state.motorRpm < 3600, `motor rpm (${Math.round(rv.state.motorRpm)})`);
 
   // brake: stops, nose dives
   let minPitch = 0;
@@ -321,7 +321,7 @@ console.log("rover-dynamics: all checks passed");
   console.log("anti-clipping ok");
 }
 
-// 9) realistic torque (N*m), horsepower (HP), weight (kg / N) and zero wheel-floor clipping
+// 9) realistic torque (N*m), horsepower (HP 2.25x), weight (kg / N), increased traction and zero wheel-floor clipping
 {
   const rv = createRoverDynamics(THREE, roverParamsFor({ id: "mmsev", massKg: 2950 }));
   rv.reset(0, 0, 0, flat.sampleY);
@@ -331,15 +331,15 @@ console.log("rover-dynamics: all checks passed");
   assert.ok(Math.abs(st0.weightN - 2950 * rv.params.g) < 1, `Martian weight N (${st0.weightN})`);
   assert.ok(Math.abs(st0.normalLoadN - st0.weightN) < 150, `settled normal load matches weight (${st0.normalLoadN} vs ${st0.weightN})`);
   assert.ok(Math.abs(st0.maxWheelTorqueNm - 3400 * 2.25 * 0.345) < 1, `2.25x max wheel torque N*m (${st0.maxWheelTorqueNm})`);
-  assert.ok(Math.abs(st0.maxPowerKw - 14 * 1.75) < 0.05, `1.75x max power kW (${st0.maxPowerKw})`);
-  assert.ok(st0.maxHp > 32, `1.75x max horsepower HP (${st0.maxHp})`);
+  assert.ok(Math.abs(st0.maxPowerKw - 14 * 2.25) < 0.05, `2.25x max power kW (${st0.maxPowerKw})`);
+  assert.ok(st0.maxHp > 42, `2.25x max horsepower HP (${st0.maxHp})`);
 
-  // Full throttle acceleration: positive wheel/motor torque and horsepower
+  // Full throttle acceleration: positive wheel/motor torque and higher horsepower
   run(rv, 3.0, { ...idle, throttle: 1, boost: true });
   assert.ok(rv.state.wheelTorqueNm > 400, `active wheel torque N*m (${rv.state.wheelTorqueNm})`);
   assert.ok(rv.state.motorTorqueNm > 20, `active motor torque N*m (${rv.state.motorTorqueNm})`);
-  assert.ok(rv.state.hp > 15, `active horsepower HP (${rv.state.hp})`);
-  assert.ok(Math.abs(rv.state.maxPowerKw - 19 * 1.75) < 0.05, `1.75x boost power kW (${rv.state.maxPowerKw})`);
+  assert.ok(rv.state.hp > 20, `active horsepower HP (${rv.state.hp})`);
+  assert.ok(Math.abs(rv.state.maxPowerKw - 19 * 2.25) < 0.05, `2.25x boost power kW (${rv.state.maxPowerKw})`);
 
   // Sharp step / bump obstacle: wheel bottom never clips below ground under tire footprint
   const stepEnv = {
@@ -364,21 +364,124 @@ console.log("rover-dynamics: all checks passed");
     }
   }
 
-  // Verify 2.25x torque and >= 1.75x kW/HP across DRIVABLE_VEHICLES and historic rovers
+  // Verify 2.25x torque and 2.25x kW/HP + boosted traction across DRIVABLE_VEHICLES and historic rovers
   assert.equal(TORQUE_MULTIPLIER, 2.25);
-  assert.ok(POWER_MULTIPLIER >= 1.75);
+  assert.equal(POWER_MULTIPLIER, 2.25);
+  assert.ok(ROVER_PARAMS.mu >= 1.0, `high tire grip mu >= 1.0 (${ROVER_PARAMS.mu})`);
+  assert.ok(ROVER_PARAMS.corneringB >= 12, `sharp lateral cornering stiffness (${ROVER_PARAMS.corneringB})`);
+  assert.ok(ROVER_PARAMS.antiRollRatio >= 0.5, `per-axle anti-roll bar enabled (${ROVER_PARAMS.antiRollRatio})`);
   const mmsevSpec = DRIVABLE_VEHICLES.find((v) => v.id === "mmsev");
   const conceptSpec = DRIVABLE_VEHICLES.find((v) => v.id === "nasa_concept");
   assert.equal(mmsevSpec.wheelTorqueMaxNm, 1173 * 2.25);
-  assert.equal(mmsevSpec.powerW, 14000 * 1.75);
-  assert.equal(mmsevSpec.boostPowerW, 19000 * 1.75);
+  assert.equal(mmsevSpec.powerW, 14000 * 2.25);
+  assert.equal(mmsevSpec.boostPowerW, 19000 * 2.25);
   assert.equal(conceptSpec.wheelTorqueMaxNm, 2150 * 2.25);
-  assert.equal(conceptSpec.powerW, 20200 * 1.75);
-  assert.equal(conceptSpec.boostPowerW, 27400 * 1.75);
+  assert.equal(conceptSpec.powerW, 20200 * 2.25);
+  assert.equal(conceptSpec.boostPowerW, 27400 * 2.25);
   const conceptParams = roverParamsFor(conceptSpec);
   assert.equal(conceptParams.wheelTorqueMaxNm, 2150 * 2.25);
-  assert.equal(conceptParams.powerKw, (20200 * 1.75) / 1000);
+  assert.equal(conceptParams.powerKw, (20200 * 2.25) / 1000);
   const curParams = roverParamsForHistoric({ modelKind: "curiosity", massKg: 899 });
   assert.ok(Math.abs(curParams.wheelTorqueMaxNm - 3400 * 2.25 * (899 / 2950) * 0.255) < 0.01);
-  assert.ok(Math.abs(curParams.powerKw - (14 * 1.75 * 899) / 2950) < 0.01);
+  assert.ok(Math.abs(curParams.powerKw - (14 * 2.25 * 899) / 2950) < 0.01);
+}
+
+// 10) Anti-rollover stability & automatic self-righting recovery for all rovers (MMSEV, Concept, Historic)
+{
+  const duneEnv = {
+    sampleY: (x, z) => 0.48 * Math.sin(x * 0.55) * Math.cos(z * 0.45) + 0.18 * Math.sin(x * 1.4 - z * 1.1),
+    sampleNormal: (x, z) => {
+      const h = (px, pz) => 0.48 * Math.sin(px * 0.55) * Math.cos(pz * 0.45) + 0.18 * Math.sin(px * 1.4 - pz * 1.1);
+      const e = 0.25;
+      const nx = h(x - e, z) - h(x + e, z);
+      const nz = h(x, z - e) - h(x, z + e);
+      const l = Math.hypot(nx, 2 * e, nz);
+      return { x: nx / l, y: (2 * e) / l, z: nz / l };
+    },
+  };
+
+  const mmsevSpec = DRIVABLE_VEHICLES.find((v) => v.id === "mmsev");
+  const conceptSpec = DRIVABLE_VEHICLES.find((v) => v.id === "nasa_concept");
+  const historicCur = { id: "curiosity", modelKind: "curiosity", massKg: 899, halfW: 1.45, halfL: 1.55 };
+
+  // Verify calibrated boost top speeds: MMSEV ~45 km/h, NASA Concept ~60 km/h
+  for (const [label, params, minKmh, maxKmh] of [
+    ["mmsev", roverParamsFor(mmsevSpec), 43.5, 46.0],
+    ["nasa_concept", roverParamsFor(conceptSpec), 58.0, 61.0],
+  ]) {
+    const rvTop = createRoverDynamics(THREE, params);
+    rvTop.reset(0, 0, 0, flat.sampleY);
+    run(rvTop, 14.0, { ...idle, throttle: 1, boost: true }, flat);
+    const topKmh = rvTop.state.vLong * 3.6;
+    assert.ok(topKmh >= minKmh && topKmh <= maxKmh, `${label} boost top speed ${topKmh.toFixed(2)} km/h in [${minKmh}, ${maxKmh}]`);
+    assert.ok(rvTop.state.motorRpm < 4000, `${label} stays within 4000 RPM tachometer (${Math.round(rvTop.state.motorRpm)})`);
+  }
+
+  // Steep climb with boost unlocks up to 5000 RPM climb rev & over-torque surge
+  const slope18 = Math.tan((18 * Math.PI) / 180);
+  const climbEnv = {
+    sampleY: (x, z) => Math.max(0, (-z - 3) * slope18),
+    sampleNormal: (x, z) =>
+      z < -3 ? { x: 0, y: Math.cos((18 * Math.PI) / 180), z: Math.sin((18 * Math.PI) / 180) } : { x: 0, y: 1, z: 0 },
+  };
+  for (const [label, params] of [
+    ["mmsev", roverParamsFor(mmsevSpec)],
+    ["nasa_concept", roverParamsFor(conceptSpec)],
+  ]) {
+    const rvClimb = createRoverDynamics(THREE, params);
+    rvClimb.reset(0, 0, 0, climbEnv.sampleY);
+    let maxRpm = 0;
+    let maxTrq = 0;
+    run(rvClimb, 5.0, { ...idle, throttle: 1, boost: true }, climbEnv, () => {
+      if (rvClimb.state.pos.z < -4) {
+        maxRpm = Math.max(maxRpm, rvClimb.state.motorRpm);
+        maxTrq = Math.max(maxTrq, rvClimb.state.wheelTorqueNm);
+      }
+    });
+    assert.ok(maxRpm >= 4600 && maxRpm <= 5005, `${label} boost climb hits 5000 RPM band (${Math.round(maxRpm)})`);
+    assert.ok(maxTrq > params.wheelTorqueMaxNm * 1.25, `${label} boost climb unlocks extra wheel torque (${Math.round(maxTrq)} > ${Math.round(params.wheelTorqueMaxNm)})`);
+  }
+
+  // Aggressive full-boost zig-zag slalom over dunes never flips any drivable vehicle
+  for (const [label, params] of [
+    ["mmsev", roverParamsFor(mmsevSpec)],
+    ["nasa_concept", roverParamsFor(conceptSpec)],
+  ]) {
+    const rv = createRoverDynamics(THREE, params);
+    rv.reset(0, 0, 0, duneEnv.sampleY);
+    const up = new THREE.Vector3();
+    let minUpY = 1;
+    for (let i = 0; i < 600; i++) {
+      const steer = Math.sin(i / 36);
+      rv.step(1 / 60, { throttle: 1, steer, boost: true, speedMultiplier: 1.6 }, duneEnv);
+      up.set(0, 1, 0).applyQuaternion(rv.state.q);
+      minUpY = Math.min(minUpY, up.y);
+      assert.ok(Number.isFinite(rv.state.pos.y));
+    }
+    assert.ok(minUpY > 0.72, `${label} stays upright on aggressive slalom (min up.y ${minUpY.toFixed(3)})`);
+
+    // Deliberately flip 180 deg upside-down and 90 deg onto side: must self-right & resume driving
+    for (const [poseName, angleRad] of [
+      ["upside-down", Math.PI],
+      ["side-tipped", Math.PI / 2],
+    ]) {
+      rv.reset(0, 0, 0, flat.sampleY);
+      const qFlip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), angleRad);
+      rv.state.q.copy(qFlip);
+      rv.state.pos.y = poseName === "upside-down" ? 2.1 : 1.4;
+      run(rv, 3.0, { ...idle, throttle: 0.8 }, flat);
+      up.set(0, 1, 0).applyQuaternion(rv.state.q);
+      assert.ok(up.y > 0.9, `${label} auto-rights from ${poseName} (up.y ${up.y.toFixed(3)})`);
+      assert.ok(rv.state.vLong > 1.0, `${label} drives forward cleanly after self-righting from ${poseName}`);
+    }
+  }
+
+  // Historic rover also automatically recovers from being flipped upside-down
+  const curRv = createRoverDynamics(THREE, roverParamsForHistoric(historicCur));
+  curRv.reset(0, 0, 0, flat.sampleY);
+  curRv.state.q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI);
+  curRv.state.pos.y = 1.2;
+  run(curRv, 3.0, { ...idle, throttle: 0.6 }, flat);
+  const curUp = new THREE.Vector3(0, 1, 0).applyQuaternion(curRv.state.q);
+  assert.ok(curUp.y > 0.9, `historic curiosity auto-rights from upside-down (up.y ${curUp.y.toFixed(3)})`);
 }

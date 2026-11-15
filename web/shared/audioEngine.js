@@ -26,19 +26,19 @@
   const hasDocument = typeof document !== "undefined";
 
   // Acoustic & synthesis constants
-  const WIND_MIN_HZ = 80;
-  const WIND_MAX_HZ = 260;
-  const WIND_CENTER_HZ = (WIND_MIN_HZ + WIND_MAX_HZ) * 0.5; // 170 Hz
-  const WIND_LFO_DEPTH_HZ = (WIND_MAX_HZ - WIND_MIN_HZ) * 0.5; // 90 Hz
+  const WIND_MIN_HZ = 120;
+  const WIND_MAX_HZ = 460;
+  const WIND_CENTER_HZ = (WIND_MIN_HZ + WIND_MAX_HZ) * 0.5; // 290 Hz
+  const WIND_LFO_DEPTH_HZ = (WIND_MAX_HZ - WIND_MIN_HZ) * 0.5; // 170 Hz
   const WIND_LFO_RATE_HZ = 0.085; // ~11.8 s gust filter sweep period
   const WIND_GUST_RATE_HZ = 0.032; // ~31 s secondary amplitude swell
 
-  const BREATH_BASE_BPM = 14; // ~14 breaths/min nominal EVA rest/walk cadence
-  const BREATH_MAX_BPM = 22; // elevated cadence on steep grades (>12 deg)
+  const BREATH_BASE_BPM = 15; // ~15 breaths/min nominal EVA rest/walk cadence
+  const BREATH_MAX_BPM = 24; // elevated cadence on steep grades (>12 deg) or fast walking
   const BREATH_SLOPE_THRESHOLD_DEG = 12;
   const SUIT_HUM_HZ = 60;
 
-  const ROVER_MIN_HZ = 55;
+  const ROVER_MIN_HZ = 68;
   const ROVER_MAX_HZ = 240;
   const ROVER_REF_TOP_SPEED_KMH = 42;
 
@@ -47,6 +47,7 @@
   const HAZARD_COOLDOWN_MS = 20000;
 
   const UI_CLICK_HZ = 1200;
+  const MASTER_ACTIVE_GAIN = 1.45; // +3.2 dB overall game volume boost with limiter safety
 
   function clamp(val, min, max) {
     const n = Number(val);
@@ -70,15 +71,20 @@
 
   const telemetry = {
     speedKmh: 0,
+    walkSpeedMs: 0,
     slopeDeg: 0,
     isDriving: false,
+    isThirdPerson: false,
     inHabitat: false,
     isAlert: false,
     motorLoad: 0,
+    nearestRoverDistM: 12,
     viewMode: "hud",
+    windGain: 0.24,
     breathCadenceBpm: BREATH_BASE_BPM,
+    breathGain: 0.19,
     roverFreqHz: ROVER_MIN_HZ,
-    roverGain: 0,
+    roverGain: 0.068,
   };
 
   /**
@@ -211,13 +217,24 @@
 
     const now = ac.currentTime || 0;
 
-    // Master output bus
+    // Master output bus with gentle safety limiter so boosted decibels never clip
     const masterGain = ac.createGain();
-    masterGain.gain.setValueAtTime(muted ? 0.0001 : 1.0, now);
-    masterGain.connect(ac.destination);
+    masterGain.gain.setValueAtTime(muted ? 0.0001 : MASTER_ACTIVE_GAIN, now);
+    if (typeof ac.createDynamicsCompressor === "function") {
+      const limiter = ac.createDynamicsCompressor();
+      limiter.threshold.setValueAtTime(-4, now);
+      limiter.knee.setValueAtTime(10, now);
+      limiter.ratio.setValueAtTime(8, now);
+      limiter.attack.setValueAtTime(0.005, now);
+      limiter.release.setValueAtTime(0.12, now);
+      masterGain.connect(limiter);
+      limiter.connect(ac.destination);
+    } else {
+      masterGain.connect(ac.destination);
+    }
 
     // =========================================================================
-    // LAYER 1: Martian Thin-Atmosphere Wind Ambience (80 Hz – 260 Hz LFO LPF)
+    // LAYER 1: Martian Thin-Atmosphere Wind Ambience (120 Hz – 460 Hz LFO LPF + Air Shear)
     // =========================================================================
     const windSource = ac.createBufferSource();
     windSource.buffer = createBrownPinkNoiseBuffer(ac, 7.0);
@@ -228,7 +245,7 @@
     windFilter.frequency.setValueAtTime(WIND_CENTER_HZ, now);
     windFilter.Q.setValueAtTime(1.15, now);
 
-    // Slow LFO sweeping low-pass filter between 80 Hz and 260 Hz (170 ± 90 Hz)
+    // Slow LFO sweeping low-pass filter between 120 Hz and 460 Hz (290 ± 170 Hz)
     const windLfo = ac.createOscillator();
     windLfo.type = "sine";
     windLfo.frequency.setValueAtTime(WIND_LFO_RATE_HZ, now);
@@ -238,28 +255,45 @@
     windLfo.connect(windLfoGain);
     windLfoGain.connect(windFilter.frequency);
 
+    // Secondary thin-CO2 surface air-shear band (300 Hz – 660 Hz) for speaker clarity
+    const windAirFilter = ac.createBiquadFilter();
+    windAirFilter.type = "bandpass";
+    windAirFilter.frequency.setValueAtTime(480, now);
+    windAirFilter.Q.setValueAtTime(0.85, now);
+
+    const windAirLfoGain = ac.createGain();
+    windAirLfoGain.gain.setValueAtTime(180, now);
+    windLfo.connect(windAirLfoGain);
+    windAirLfoGain.connect(windAirFilter.frequency);
+
+    const windAirMix = ac.createGain();
+    windAirMix.gain.setValueAtTime(0.28, now);
+
     // Secondary slow gust amplitude swell
     const windGustOsc = ac.createOscillator();
     windGustOsc.type = "sine";
     windGustOsc.frequency.setValueAtTime(WIND_GUST_RATE_HZ, now);
 
     const windGustDepth = ac.createGain();
-    windGustDepth.gain.setValueAtTime(0.035, now);
+    windGustDepth.gain.setValueAtTime(0.055, now);
 
     const windGain = ac.createGain();
-    windGain.gain.setValueAtTime(0.16, now);
+    windGain.gain.setValueAtTime(0.26, now);
     windGustOsc.connect(windGustDepth);
     windGustDepth.connect(windGain.gain);
 
     windSource.connect(windFilter);
+    windSource.connect(windAirFilter);
     windFilter.connect(windGain);
+    windAirFilter.connect(windAirMix);
+    windAirMix.connect(windGain);
     windGain.connect(masterGain);
 
     // =========================================================================
-    // LAYER 2: Spacesuit Helmet Life-Support (60 Hz Hum + ~14 BPM Breathing)
+    // LAYER 2: Spacesuit Helmet Life-Support (60 Hz Hum + Continuous Breathing)
     // =========================================================================
     const suitBusGain = ac.createGain();
-    suitBusGain.gain.setValueAtTime(telemetry.inHabitat ? 0.0001 : 1.0, now);
+    suitBusGain.gain.setValueAtTime(telemetry.inHabitat ? 0.85 : 1.0, now);
     suitBusGain.connect(masterGain);
 
     // Faint 60 Hz PLSS circulation fan / pump hum
@@ -269,10 +303,10 @@
 
     const suitHumFilter = ac.createBiquadFilter();
     suitHumFilter.type = "lowpass";
-    suitHumFilter.frequency.setValueAtTime(110, now);
+    suitHumFilter.frequency.setValueAtTime(135, now);
 
     const suitHumGain = ac.createGain();
-    suitHumGain.gain.setValueAtTime(0.018, now);
+    suitHumGain.gain.setValueAtTime(0.032, now);
 
     suitHumOsc.connect(suitHumFilter);
     suitHumFilter.connect(suitHumGain);
@@ -285,12 +319,12 @@
 
     const breathBandpass = ac.createBiquadFilter();
     breathBandpass.type = "bandpass";
-    breathBandpass.frequency.setValueAtTime(480, now);
-    breathBandpass.Q.setValueAtTime(1.5, now);
+    breathBandpass.frequency.setValueAtTime(540, now);
+    breathBandpass.Q.setValueAtTime(1.05, now);
 
     const breathLowpass = ac.createBiquadFilter();
     breathLowpass.type = "lowpass";
-    breathLowpass.frequency.setValueAtTime(1050, now);
+    breathLowpass.frequency.setValueAtTime(1450, now);
 
     // Envelope VCA controlled by breathLfo -> WaveShaperNode
     const breathEnvVca = ac.createGain();
@@ -305,11 +339,11 @@
     breathShaper.oversample = "2x";
 
     const breathDepthGain = ac.createGain();
-    breathDepthGain.gain.setValueAtTime(0.032, now);
+    breathDepthGain.gain.setValueAtTime(0.115, now);
 
     // Subtle formant shift between inhale (+detune) and exhale (-detune)
     const breathFormantGain = ac.createGain();
-    breathFormantGain.gain.setValueAtTime(160, now); // cents
+    breathFormantGain.gain.setValueAtTime(200, now); // cents
     breathLfo.connect(breathFormantGain);
     if (breathBandpass.detune) {
       breathFormantGain.connect(breathBandpass.detune);
@@ -325,7 +359,7 @@
     breathEnvVca.connect(suitBusGain);
 
     // =========================================================================
-    // LAYER 3: Electric Rover Drivetrain Hum (55 Hz – 240 Hz Sine + Triangle)
+    // LAYER 3: Electric Rover Drivetrain Hum (Continuous Idle + Drive Scaling)
     // =========================================================================
     const roverOscSine = ac.createOscillator();
     roverOscSine.type = "sine";
@@ -338,24 +372,33 @@
       roverOscTri.detune.setValueAtTime(4, now); // Warm +4 cent chorus
     }
 
+    const roverOscHarmonic = ac.createOscillator();
+    roverOscHarmonic.type = "triangle";
+    roverOscHarmonic.frequency.setValueAtTime(ROVER_MIN_HZ * 2, now);
+
     const roverSineMix = ac.createGain();
-    roverSineMix.gain.setValueAtTime(0.65, now);
+    roverSineMix.gain.setValueAtTime(0.55, now);
 
     const roverTriMix = ac.createGain();
-    roverTriMix.gain.setValueAtTime(0.35, now);
+    roverTriMix.gain.setValueAtTime(0.32, now);
+
+    const roverHarmonicMix = ac.createGain();
+    roverHarmonicMix.gain.setValueAtTime(0.18, now);
 
     const roverFilter = ac.createBiquadFilter();
     roverFilter.type = "lowpass";
-    roverFilter.frequency.setValueAtTime(180, now);
+    roverFilter.frequency.setValueAtTime(280, now);
     roverFilter.Q.setValueAtTime(1.25, now);
 
     const roverGain = ac.createGain();
-    roverGain.gain.setValueAtTime(0.0001, now);
+    roverGain.gain.setValueAtTime(0.048, now);
 
     roverOscSine.connect(roverSineMix);
     roverOscTri.connect(roverTriMix);
+    roverOscHarmonic.connect(roverHarmonicMix);
     roverSineMix.connect(roverFilter);
     roverTriMix.connect(roverFilter);
+    roverHarmonicMix.connect(roverFilter);
     roverFilter.connect(roverGain);
     roverGain.connect(masterGain);
 
@@ -406,6 +449,7 @@
     breathLfo.start(now);
     roverOscSine.start(now);
     roverOscTri.start(now);
+    roverOscHarmonic.start(now);
     musicLfo.start(now);
     for (const o of padOscs) o.start(now);
 
@@ -413,6 +457,9 @@
       masterGain,
       windSource,
       windFilter,
+      windAirFilter,
+      windAirLfoGain,
+      windAirMix,
       windLfo,
       windLfoGain,
       windGustOsc,
@@ -426,6 +473,7 @@
       breathDepthGain,
       roverOscSine,
       roverOscTri,
+      roverOscHarmonic,
       roverFilter,
       roverGain,
       musicBusGain,
@@ -719,6 +767,7 @@
       speedKmh: 0,
       slopeDeg: 0,
       isDriving: false,
+      isThirdPerson: false,
       inHabitat: false,
       isAlert: false,
       motorLoad: 0,
@@ -733,6 +782,7 @@
         if (Number.isFinite(Number(gState.speedKmh))) fallback.speedKmh = Number(gState.speedKmh);
         if (Number.isFinite(Number(gState.slopeDeg))) fallback.slopeDeg = Number(gState.slopeDeg);
         if (typeof gState.isDriving === "boolean") fallback.isDriving = gState.isDriving;
+        if (typeof gState.isThirdPerson === "boolean") fallback.isThirdPerson = gState.isThirdPerson;
         if (typeof gState.inHabitat === "boolean") fallback.inHabitat = gState.inHabitat;
         if (typeof gState.isAlert === "boolean") fallback.isAlert = gState.isAlert;
         if (Number.isFinite(Number(gState.motorLoad))) fallback.motorLoad = Number(gState.motorLoad);
@@ -749,10 +799,11 @@
         }
       }
 
-      // 3. Detect driving state from #visor-overlay.driving-3p or active rover dashboard
+      // 3. Detect driving & 3rd-person state from #visor-overlay.driving-3p
       const visorEl = document.getElementById("visor-overlay");
       if (visorEl && visorEl.classList.contains("driving-3p")) {
         fallback.isDriving = true;
+        fallback.isThirdPerson = true;
       }
 
       // 4. Read vehicle speed (km/h) from #hud-drv-spd or .rover-dash [data-k="speed"]
@@ -780,14 +831,14 @@
         }
       }
 
-      // 5. Check habitat state from body dataset or HUD notices
+      // 5. Check habitat state from body dataset or currently visible HUD notices
       if (document.body && document.body.dataset && document.body.dataset.inHabitat === "true") {
         fallback.inHabitat = true;
       } else {
         const noticeEl = document.getElementById("hud-wrap-notice");
-        if (noticeEl && noticeEl.textContent) {
+        if (noticeEl && noticeEl.classList.contains("visible") && noticeEl.textContent) {
           const txt = noticeEl.textContent.toUpperCase();
-          if (txt.includes("TRANSIT TERMINAL") || txt.includes("DORMITORY") || txt.includes("CAFETERIA")) {
+          if (txt.includes("DORMITORY") || txt.includes("CAFETERIA")) {
             fallback.inHabitat = true;
           }
         }
@@ -819,24 +870,44 @@
     // Compute derived DSP targets even before AudioContext is unlocked (for state inspection/tests)
     const slope = clamp(telemetry.slopeDeg, 0, 90);
     const speed = clamp(telemetry.speedKmh, 0, 140);
+    const walkSpeedMs = clamp(telemetry.walkSpeedMs, 0, 12);
+    const nearestRoverDistM = clamp(telemetry.nearestRoverDistM, 0, 500);
+    const thirdPerson = Boolean(telemetry.isThirdPerson);
 
-    // Breathing cadence: ~14 BPM at <= 12° slope, scaling up to 22 BPM on steeper slopes
+    // Breathing cadence: ~15 BPM at rest, scaling up to 24 BPM with steep slope or walking/running.
+    // Louder inside 1st-person helmet; silent in 3rd-person camera.
     const slopeExcess = Math.max(0, slope - BREATH_SLOPE_THRESHOLD_DEG);
-    const cadenceBoost = clamp(slopeExcess / 12, 0, 1) * (BREATH_MAX_BPM - BREATH_BASE_BPM);
+    const slopeEffort = clamp(slopeExcess / 12, 0, 1);
+    const walkEffort = clamp(walkSpeedMs / 4.2, 0, 1);
+    const breathEffort = Math.max(slopeEffort, walkEffort * 0.85);
+    const cadenceBoost = breathEffort * (BREATH_MAX_BPM - BREATH_BASE_BPM);
     telemetry.breathCadenceBpm = Number((BREATH_BASE_BPM + cadenceBoost).toFixed(2));
+    telemetry.breathGain = thirdPerson
+      ? 0
+      : Number((0.19 + breathEffort * 0.07).toFixed(4));
 
-    // Rover drivetrain frequency (55 Hz – 240 Hz) and gain
+    // Mars wind ambience: deep & muffled inside 1st-person helmet, louder & open-air in 3rd-person
+    telemetry.windGain = thirdPerson
+      ? telemetry.inHabitat ? 0.26 : 0.42
+      : telemetry.inHabitat ? 0.15 : 0.24;
+
+    // Electric rover drivetrain hum: continuous idle/nearby hum + full driving modulation
     const speedNorm = clamp(speed / ROVER_REF_TOP_SPEED_KMH, 0, 1);
     const slopeLoad = clamp(slope / 25, 0, 1);
     const motorLoad = Math.max(slopeLoad, clamp(telemetry.motorLoad, 0, 1));
-    const excitation = clamp(speedNorm * 0.82 + motorLoad * (speedNorm > 0.01 ? 0.18 : 0.06), 0, 1);
+    const excitation = telemetry.isDriving
+      ? clamp(speedNorm * 0.82 + motorLoad * (speedNorm > 0.01 ? 0.18 : 0.06), 0, 1)
+      : 0;
+
+    const proximity = 1 - clamp(nearestRoverDistM / 40, 0, 1);
+    const idleRoverGain = 0.056 + proximity * 0.028;
 
     telemetry.roverFreqHz = Number(
       (ROVER_MIN_HZ + (ROVER_MAX_HZ - ROVER_MIN_HZ) * excitation).toFixed(2)
     );
     telemetry.roverGain = telemetry.isDriving
-      ? Number((0.024 + excitation * 0.115).toFixed(4))
-      : 0;
+      ? Number((0.095 + excitation * 0.125).toFixed(4))
+      : Number(idleRoverGain.toFixed(4));
 
     // 880 Hz dual-pulse hazard chime: ONE beep when you step onto a steep slope (> 20 deg, the
     // walking limit), not every 4 s while you stand or walk on it (most of the HiRISE terrain is
@@ -855,35 +926,52 @@
     const now = ctx.currentTime || 0;
     const isHidden = hasDocument && Boolean(document.hidden);
 
-    // Master mute / tab visibility ducking
-    const targetMaster = muted || isHidden ? 0.0001 : 1.0;
+    // Master mute / tab visibility ducking (boosted overall game gain)
+    const targetMaster = muted || isHidden ? 0.0001 : MASTER_ACTIVE_GAIN;
     nodes.masterGain.gain.setTargetAtTime(targetMaster, now, 0.06);
 
-    // 1. Martian Wind Ambience (muffled inside habitat, full outside)
-    const targetWindGain = telemetry.inHabitat ? 0.032 : 0.16;
-    const targetWindCenterHz = telemetry.inHabitat ? 110 : WIND_CENTER_HZ;
-    const targetWindDepthHz = telemetry.inHabitat ? 30 : WIND_LFO_DEPTH_HZ;
-    nodes.windGain.gain.setTargetAtTime(targetWindGain, now, 0.35);
-    nodes.windFilter.frequency.setTargetAtTime(targetWindCenterHz, now, 0.35);
-    nodes.windLfoGain.gain.setTargetAtTime(targetWindDepthHz, now, 0.35);
+    // 1. Martian Wind Ambience (1st-person: deep & muffled helmet rumble; 3rd-person: louder open wind)
+    const targetWindGain = telemetry.windGain;
+    const targetWindCenterHz = thirdPerson
+      ? (telemetry.inHabitat ? 250 : 340)
+      : (telemetry.inHabitat ? 105 : 125);
+    const targetWindDepthHz = thirdPerson
+      ? (telemetry.inHabitat ? 110 : 190)
+      : (telemetry.inHabitat ? 35 : 50);
+    const targetWindAirMix = thirdPerson
+      ? (telemetry.inHabitat ? 0.22 : 0.38)
+      : 0.04;
+    const targetWindAirHz = thirdPerson
+      ? (telemetry.inHabitat ? 400 : 520)
+      : 280;
+    nodes.windGain.gain.setTargetAtTime(targetWindGain, now, 0.28);
+    nodes.windFilter.frequency.setTargetAtTime(targetWindCenterHz, now, 0.28);
+    nodes.windLfoGain.gain.setTargetAtTime(targetWindDepthHz, now, 0.28);
+    if (nodes.windAirMix) {
+      nodes.windAirMix.gain.setTargetAtTime(targetWindAirMix, now, 0.28);
+    }
+    if (nodes.windAirFilter) {
+      nodes.windAirFilter.frequency.setTargetAtTime(targetWindAirHz, now, 0.28);
+    }
 
-    // 2. Spacesuit Life-Support & Breathing (active outside habitat, silent inside)
-    const targetSuitBus = telemetry.inHabitat ? 0.0001 : 1.0;
-    nodes.suitBusGain.gain.setTargetAtTime(targetSuitBus, now, 0.28);
+    // 2. Spacesuit Life-Support & Breathing (louder in 1st-person; muted in 3rd-person)
+    const targetSuitBus = thirdPerson ? 0.0001 : (telemetry.inHabitat ? 0.90 : 1.0);
+    nodes.suitBusGain.gain.setTargetAtTime(targetSuitBus, now, 0.14);
     nodes.breathLfo.frequency.setTargetAtTime(telemetry.breathCadenceBpm / 60, now, 0.25);
-    const breathDepth = 0.030 + clamp(slopeExcess / 15, 0, 1) * 0.014;
-    nodes.breathDepthGain.gain.setTargetAtTime(breathDepth, now, 0.25);
+    nodes.breathDepthGain.gain.setTargetAtTime(thirdPerson ? 0.0001 : telemetry.breathGain, now, 0.14);
 
-    // 3. Electric Rover Drivetrain Hum (55 Hz – 240 Hz, fades out cleanly when exiting rover)
+    // 3. Electric Rover Drivetrain Hum (continuously audible idle + scales with speed/load)
     nodes.roverOscSine.frequency.setTargetAtTime(telemetry.roverFreqHz, now, 0.08);
     nodes.roverOscTri.frequency.setTargetAtTime(telemetry.roverFreqHz, now, 0.08);
+    if (nodes.roverOscHarmonic) {
+      nodes.roverOscHarmonic.frequency.setTargetAtTime(telemetry.roverFreqHz * 2, now, 0.08);
+    }
 
-    const roverCutoffHz = 165 + excitation * 440;
+    const roverCutoffHz = (telemetry.isDriving ? 340 : 270) + excitation * 560;
     nodes.roverFilter.frequency.setTargetAtTime(roverCutoffHz, now, 0.1);
 
-    const targetRoverGain = telemetry.isDriving ? telemetry.roverGain : 0.0001;
     const fadeTimeConstant = telemetry.isDriving ? 0.08 : 0.18;
-    nodes.roverGain.gain.setTargetAtTime(targetRoverGain, now, fadeTimeConstant);
+    nodes.roverGain.gain.setTargetAtTime(telemetry.roverGain, now, fadeTimeConstant);
 
     // 4. Procedural Ambient Space Music (warmer in Orbit/Start, ducks softly when driving fast or on alerts)
     if (nodes.musicBusGain) {
@@ -891,11 +979,11 @@
       if (!musicEnabled) {
         targetMusic = 0.0001;
       } else if (telemetry.isAlert) {
-        targetMusic = 0.022;
-      } else if (telemetry.isDriving && speed > 4) {
         targetMusic = 0.028;
+      } else if (telemetry.isDriving && speed > 4) {
+        targetMusic = 0.032;
       } else if (telemetry.inHabitat) {
-        targetMusic = 0.056;
+        targetMusic = 0.055;
       }
       nodes.musicBusGain.gain.setTargetAtTime(targetMusic, now, 0.55);
     }
@@ -914,10 +1002,13 @@
 
       const hasExplicit =
         input.speedKmh !== undefined ||
+        input.walkSpeedMs !== undefined ||
         input.slopeDeg !== undefined ||
         input.isDriving !== undefined ||
+        input.isThirdPerson !== undefined ||
         input.inHabitat !== undefined ||
-        input.isAlert !== undefined;
+        input.isAlert !== undefined ||
+        input.nearestRoverDistM !== undefined;
 
       if (hasExplicit) {
         lastExplicitUpdateMs = nowMs;
@@ -931,6 +1022,12 @@
           ? Math.abs(Number(input.speedKmh))
           : fb.speedKmh;
 
+      if (input.walkSpeedMs !== undefined && Number.isFinite(Number(input.walkSpeedMs))) {
+        telemetry.walkSpeedMs = Math.abs(Number(input.walkSpeedMs));
+      } else if (telemetry.isDriving) {
+        telemetry.walkSpeedMs = 0;
+      }
+
       telemetry.slopeDeg =
         input.slopeDeg !== undefined && Number.isFinite(Number(input.slopeDeg))
           ? Math.abs(Number(input.slopeDeg))
@@ -938,6 +1035,11 @@
 
       telemetry.isDriving =
         typeof input.isDriving === "boolean" ? input.isDriving : Boolean(fb.isDriving);
+
+      telemetry.isThirdPerson =
+        typeof input.isThirdPerson === "boolean"
+          ? input.isThirdPerson
+          : Boolean(fb.isThirdPerson || telemetry.isDriving);
 
       telemetry.inHabitat =
         typeof input.inHabitat === "boolean" ? input.inHabitat : Boolean(fb.inHabitat);
@@ -949,6 +1051,10 @@
         input.motorLoad !== undefined && Number.isFinite(Number(input.motorLoad))
           ? clamp(Number(input.motorLoad), 0, 1)
           : fb.motorLoad;
+
+      if (input.nearestRoverDistM !== undefined && Number.isFinite(Number(input.nearestRoverDistM))) {
+        telemetry.nearestRoverDistM = Math.max(0, Number(input.nearestRoverDistM));
+      }
 
       // Play subtle tactile transition sound when entering/exiting habitat or rover
       if (unlocked && (prevInHabitat !== telemetry.inHabitat || prevIsDriving !== telemetry.isDriving)) {
@@ -971,7 +1077,7 @@
       unlock();
     } else if (ctx && nodes) {
       const now = ctx.currentTime || 0;
-      nodes.masterGain.gain.setTargetAtTime(muted ? 0.0001 : 1.0, now, 0.05);
+      nodes.masterGain.gain.setTargetAtTime(muted ? 0.0001 : MASTER_ACTIVE_GAIN, now, 0.05);
       if (!muted && ctx.state === "suspended" && typeof ctx.resume === "function") {
         ctx.resume().catch(() => {});
       }
@@ -1134,9 +1240,7 @@
           target.hasAttribute("data-drv-drive");
         if (id === "orbit-confirm-go") {
           playDescentWhoosh();
-        } else if (id === "hud-ping" || id === "esc-pin" || id === "mp-drop-ping") {
-          playScienceChime();
-        } else if (id === "npc-dlg-send" || target.closest("#mp-chat-form")) {
+        } else if (id === "npc-dlg-send") {
           playRadioSquelch();
         } else {
           playUiClick({ airlock: isTransitBtn });
@@ -1229,12 +1333,17 @@
       musicEnabled,
       contextState: ctx ? ctx.state : "uninitialized",
       speedKmh: telemetry.speedKmh,
+      walkSpeedMs: telemetry.walkSpeedMs,
       slopeDeg: telemetry.slopeDeg,
       isDriving: telemetry.isDriving,
+      isThirdPerson: telemetry.isThirdPerson,
       inHabitat: telemetry.inHabitat,
       isAlert: telemetry.isAlert,
+      nearestRoverDistM: telemetry.nearestRoverDistM,
       windCutoffRangeHz: [WIND_MIN_HZ, WIND_MAX_HZ],
+      windGain: telemetry.windGain,
       breathCadenceBpm: telemetry.breathCadenceBpm,
+      breathGain: telemetry.breathGain,
       suitHumHz: SUIT_HUM_HZ,
       roverFreqHz: telemetry.roverFreqHz,
       roverGain: telemetry.roverGain,

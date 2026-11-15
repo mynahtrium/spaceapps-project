@@ -6,7 +6,7 @@
  * (airborne, wheelspin, handbrake, steep tilt). Values come from `rover-dynamics.js`.
  */
 
-const RPM_MAX = 4000;
+const RPM_MAX = 5000;
 const ARC_START = 135; // degrees, SVG angle (0 = +x), clockwise
 const ARC_SWEEP = 270;
 
@@ -23,11 +23,11 @@ export function createRoverDash(host) {
   el.className = "rover-dash";
   el.setAttribute("aria-live", "off");
   const ticks = [];
-  for (let i = 0; i <= 8; i++) {
-    const a = ((ARC_START + (ARC_SWEEP * i) / 8) * Math.PI) / 180;
+  for (let i = 0; i <= 10; i++) {
+    const a = ((ARC_START + (ARC_SWEEP * i) / 10) * Math.PI) / 180;
     const r0 = i % 2 === 0 ? 40 : 43;
     ticks.push(
-      `<line x1="${(60 + r0 * Math.cos(a)).toFixed(1)}" y1="${(60 + r0 * Math.sin(a)).toFixed(1)}" x2="${(60 + 47 * Math.cos(a)).toFixed(1)}" y2="${(60 + 47 * Math.sin(a)).toFixed(1)}" class="rd-tick${i >= 7 ? " red" : ""}"/>`
+      `<line x1="${(60 + r0 * Math.cos(a)).toFixed(1)}" y1="${(60 + r0 * Math.sin(a)).toFixed(1)}" x2="${(60 + 47 * Math.cos(a)).toFixed(1)}" y2="${(60 + 47 * Math.sin(a)).toFixed(1)}" class="rd-tick${i >= 8 ? " red" : ""}"/>`
     );
     if (i % 2 === 0) {
       ticks.push(
@@ -105,7 +105,7 @@ export function createRoverDash(host) {
     }
     const rpmFrac = Math.min(1, Math.abs(t.rpm) / RPM_MAX);
     k.rpmArc.setAttribute("d", arcPath(60, 60, 50, ARC_START, ARC_START + Math.max(0.1, ARC_SWEEP * rpmFrac)));
-    k.rpmArc.classList.toggle("red", rpmFrac > 0.85);
+    k.rpmArc.classList.toggle("red", rpmFrac > 0.8);
     k.rpm.textContent = (Math.abs(t.rpm) / 1000).toFixed(2);
     k.gear.textContent = t.gear;
     const maxPwrKw = Number.isFinite(t.maxPowerKw) && t.maxPowerKw > 0 ? t.maxPowerKw : 35;

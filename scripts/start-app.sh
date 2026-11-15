@@ -21,7 +21,6 @@ fi
 echo "Starting Martian Mappers local server on port ${PORT}..."
 echo "Demo-safe URL : ${URL}"
 echo "Normal URL    : http://localhost:${PORT}/web/"
-echo "Multiplayer   : ${SERVER_CMD[*]}"
 echo "Press Ctrl+C to stop."
 
 if command -v start >/dev/null 2>&1; then

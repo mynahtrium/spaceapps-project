@@ -20,17 +20,17 @@
 
 export const WATTS_PER_HP = 745.699872;
 export const TORQUE_MULTIPLIER = 2.25;
-export const POWER_MULTIPLIER = 1.75;
+export const POWER_MULTIPLIER = 2.25;
 
 const BASE_WHEEL_FORCE_MAX_N = 3400 * TORQUE_MULTIPLIER; // 7,650 N (2.25x baseline tractive force)
-const BASE_POWER_W = 14000 * POWER_MULTIPLIER; // 24,500 W / 24.5 kW (1.75x baseline continuous power)
-const BASE_BOOST_POWER_W = 19000 * POWER_MULTIPLIER; // 33,250 W / 33.25 kW (1.75x baseline boost power)
+const BASE_POWER_W = 14000 * POWER_MULTIPLIER; // 31,500 W / 31.5 kW (2.25x baseline continuous power)
+const BASE_BOOST_POWER_W = 19000 * POWER_MULTIPLIER; // 42,750 W / 42.75 kW (2.25x baseline boost power)
 
 export const ROVER_PARAMS = Object.freeze({
   massKg: 2950,
   weightN: 2950 * 3.71,
   dims: { w: 2.6, h: 2.2, l: 4.6 }, // for the box inertia
-  cgY: 0.95, // centre of mass above the model origin (ground at rest)
+  cgY: 0.72, // low battery-pack centre of mass above model origin (strong rollover resistance)
   cgZ: 0.37, // over the middle axle (the wheel set is not centred on the model origin)
   g: 3.71,
   wheelRadius: 0.345,
@@ -42,31 +42,32 @@ export const ROVER_PARAMS = Object.freeze({
   restLen: 0.5, // strut length with no load (top mount to hub)
   sagM: 0.11, // static compression
   maxComp: 0.34, // bump stop starts here
-  bumpRatio: 0.72, // bump damping vs the critical-ish value
-  reboundRatio: 1.3,
-  dampingZeta: 0.38,
-  mu: 0.58, // tyre on loose regolith (peak); sliding is a little lower
-  muSlide: 0.48,
-  rollingCrr: 0.075, // soft-soil rolling resistance coefficient
-  corneringB: 7.5, // lateral force rises to full grip by about 8 degrees of slip
-  gearRatio: 18,
+  bumpRatio: 0.85, // athletic compression damping ratio
+  reboundRatio: 1.45, // controlled rebound without pogo bounce
+  dampingZeta: 0.68, // tuned near-critical damping for planted rough-terrain landings
+  antiRollRatio: 0.62, // left-right sway-bar coupling per axle to stay flat in turns
+  mu: 1.15, // high-traction grouser / wire-mesh tyres on Martian regolith
+  muSlide: 0.92, // controlled sliding grip during powerslides
+  rollingCrr: 0.055, // efficient rolling resistance
+  corneringB: 15.0, // crisp lateral slip-angle bite (~4 deg peak)
+  gearRatio: 11.2,
   wheelForceMaxN: BASE_WHEEL_FORCE_MAX_N, // whole vehicle low-speed traction force from 2.25x torque
   wheelTorqueMaxNm: BASE_WHEEL_FORCE_MAX_N * 0.345, // 2,639.25 N·m total wheel torque across 6 hub drives (2.25x)
-  motorTorqueMaxNm: (BASE_WHEEL_FORCE_MAX_N * 0.345) / (18 * 0.88), // ~166.62 N·m total motor shaft torque (2.25x)
+  motorTorqueMaxNm: (BASE_WHEEL_FORCE_MAX_N * 0.345) / (11.2 * 0.88), // ~267.8 N·m motor shaft torque matched to 45 km/h redline
   powerW: BASE_POWER_W,
   boostPowerW: BASE_BOOST_POWER_W,
-  powerKw: BASE_POWER_W / 1000, // 24.5 kW continuous (1.75x)
-  boostPowerKw: BASE_BOOST_POWER_W / 1000, // 33.25 kW boost (1.75x)
-  maxHp: BASE_POWER_W / WATTS_PER_HP, // ~32.85 HP continuous (1.75x)
-  boostHp: BASE_BOOST_POWER_W / WATTS_PER_HP, // ~44.59 HP boost (1.75x)
-  vMax: 20 / 3.6,
-  vMaxBoost: 26 / 3.6,
-  vMaxReverse: 8 / 3.6,
-  brakeForceN: 9000,
+  powerKw: BASE_POWER_W / 1000, // 31.5 kW continuous (2.25x)
+  boostPowerKw: BASE_BOOST_POWER_W / 1000, // 42.75 kW boost (2.25x)
+  maxHp: BASE_POWER_W / WATTS_PER_HP, // ~42.24 HP continuous (2.25x)
+  boostHp: BASE_BOOST_POWER_W / WATTS_PER_HP, // ~57.33 HP boost (2.25x)
+  vMax: 38.6 / 3.6, // ~38 km/h cruise steady-state under regolith drag
+  vMaxBoost: 45.6 / 3.6, // ~45 km/h max speed steady-state (boost)
+  vMaxReverse: 14 / 3.6,
+  brakeForceN: 16500,
   regenCoastG: 0.11, // motor drag when you lift off the pedal
-  pedalRate: 1.4, // pedal travel per second (0 -> full in ~0.7 s)
+  pedalRate: 1.32, // smooth progressive launch (~0.75 s to full power)
   steerMaxRad: (26 * Math.PI) / 180,
-  steerRate: 1.1, // rad/s at the wheel
+  steerRate: 1.75, // rad/s responsive rack speed at the wheel
   batteryKWh: 45,
   hotelW: 1200, // life support, avionics, heaters
   driveEfficiency: 0.88,
@@ -97,6 +98,7 @@ export function roverParamsFor(spec) {
   const powerW = Number.isFinite(spec.powerW) ? spec.powerW : ROVER_PARAMS.powerW * k * sp;
   const boostPowerW = Number.isFinite(spec.boostPowerW) ? spec.boostPowerW : ROVER_PARAMS.boostPowerW * k * sp;
   const wheelMassKg = ROVER_PARAMS.wheelMassKg * (r / ROVER_PARAMS.wheelRadius) ** 2;
+  const travelScale = 1 + (r / ROVER_PARAMS.wheelRadius - 1) * 0.45;
   return Object.freeze({
     ...ROVER_PARAMS,
     massKg,
@@ -108,8 +110,10 @@ export function roverParamsFor(spec) {
     trackHalfW: spec.trackHalfW || ROVER_PARAMS.trackHalfW,
     axleZ: axleZ.length === 3 ? axleZ : ROVER_PARAMS.axleZ,
     cgZ: mid,
-    cgY: ROVER_PARAMS.cgY + (r - ROVER_PARAMS.wheelRadius),
-    restLen: ROVER_PARAMS.restLen + (r - ROVER_PARAMS.wheelRadius),
+    cgY: ROVER_PARAMS.cgY + (r - ROVER_PARAMS.wheelRadius) * 0.45,
+    restLen: ROVER_PARAMS.restLen * travelScale,
+    sagM: ROVER_PARAMS.sagM * travelScale,
+    maxComp: ROVER_PARAMS.maxComp * travelScale,
     wheelForceMaxN,
     wheelTorqueMaxNm,
     motorTorqueMaxNm,
@@ -121,9 +125,9 @@ export function roverParamsFor(spec) {
     maxHp: powerW / WATTS_PER_HP,
     boostHp: boostPowerW / WATTS_PER_HP,
     gearRatio,
-    vMax: ROVER_PARAMS.vMax * sp,
-    vMaxBoost: ROVER_PARAMS.vMaxBoost * sp,
-    vMaxReverse: ROVER_PARAMS.vMaxReverse * sp,
+    vMax: Number.isFinite(spec.roverMaxKmh) ? spec.roverMaxKmh / 3.6 : ROVER_PARAMS.vMax * sp,
+    vMaxBoost: Number.isFinite(spec.roverBoostKmh) ? spec.roverBoostKmh / 3.6 : ROVER_PARAMS.vMaxBoost * sp,
+    vMaxReverse: Number.isFinite(spec.roverReverseKmh) ? spec.roverReverseKmh / 3.6 : ROVER_PARAMS.vMaxReverse * sp,
     dims: { w: (spec.halfW || 1.3) * 2, h: ROVER_PARAMS.dims.h, l: (spec.halfL || 2.3) * 2 },
   });
 }
@@ -163,7 +167,7 @@ export function roverParamsForHistoric(spec) {
     massKg: mass,
     weightN: mass * ROVER_PARAMS.g,
     dims: { w: hw * 2.4, h: Math.max(0.3, 2.2 * s), l: hl * 2.4 },
-    cgY: Math.max(0.12, 0.95 * s),
+    cgY: Math.max(0.1, 0.68 * s),
     cgZ: 0,
     wheelRadius: r,
     tireHalfWidth: Math.max(0.035, r * 0.45),
@@ -273,6 +277,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     landingImpact: 0,
     gear: "N",
     tractionLimited: false,
+    selfRighting: false,
     accel: 0,
   };
 
@@ -298,6 +303,22 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
   const euler = new THREE.Euler(0, 0, 0, "YXZ");
   const cgLocal = new THREE.Vector3(0, P.cgY, P.cgZ);
   const cgWorld = new THREE.Vector3();
+  const cNrm = new THREE.Vector3();
+  const stabAxis = new THREE.Vector3();
+  const stabUp = new THREE.Vector3();
+  const wheelStepData = wheels.map((wh) => ({
+    wh,
+    fs: 0,
+    cx: 0,
+    cy: 0,
+    cz: 0,
+    r: new THREE.Vector3(),
+    nrm: new THREE.Vector3(),
+  }));
+  const avgInertia = (I.x + I.z) * 0.5;
+  const antiRollK = (P.antiRollRatio ?? 0.62) * kSpring;
+  const antiRollC = (P.antiRollRatio ?? 0.62) * 0.35 * cBump;
+  let tippedT = 0;
   const tireHalfW = P.tireHalfWidth || Math.max(0.04, P.wheelRadius * 0.45);
   const minStrutLen = P.restLen * 0.05;
   const ps = P.probeScale || 1;
@@ -330,6 +351,8 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     pts.push(
       [-xRoof, byRoof, a0 * 1.1],
       [xRoof, byRoof, a0 * 1.1],
+      [-xRoof, byRoof, a1],
+      [xRoof, byRoof, a1],
       [-xRoof, byRoof, a2 * 1.05],
       [xRoof, byRoof, a2 * 1.05],
       [0, byRoof * 1.08, P.cgZ]
@@ -390,6 +413,8 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     st.brake = 0;
     st.steerCmd = 0;
     st.airborne = false;
+    st.selfRighting = false;
+    tippedT = 0;
     for (const wh of wheels) {
       wh.comp = P.sagM;
       wh.compVel = 0;
@@ -449,8 +474,8 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     st.brake += (brakeTarget - st.brake) * Math.min(1, dt * 8);
     st.gear = st.pedal < -0.02 || (vLong < -0.2 && !wantFwd) ? "R" : st.pedal > 0.02 || vLong > 0.2 ? "D" : "N";
 
-    // steering rack with speed-sensitive lock (less wheel angle at speed, like a real rack ratio)
-    const lockScale = 1 / (1 + speed / 5.5);
+    // steering rack with speed-sensitive lock (preserves mid/high-speed turn-in while smoothing 40+ km/h lock)
+    const lockScale = 1 / (1 + speed / 10.5);
     const steerTarget = Math.max(-1, Math.min(1, inp.steer)) * lockScale;
     const sr = (P.steerRate / P.steerMaxRad) * dt;
     st.steerCmd += Math.max(-sr, Math.min(sr, steerTarget - st.steerCmd));
@@ -468,9 +493,11 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
         : Number.isFinite(P.motorTorqueMaxNm) && P.motorTorqueMaxNm > 0
           ? P.motorTorqueMaxNm * P.gearRatio * P.driveEfficiency
           : P.wheelForceMaxN * P.wheelRadius;
-    const maxWheelTorqueNm = baseWheelTorqueMaxNm * speedMult;
+    const climbSlope = boost && st.pedal > 0.05 ? Math.max(0, Math.min(1, (fwd.y - 0.04) / 0.26)) : 0;
+    const boostTorqueMult = boost ? 1.45 : 1.0;
+    const maxWheelTorqueNm = baseWheelTorqueMaxNm * speedMult * boostTorqueMult;
     const wheelForceMaxN = maxWheelTorqueNm / P.wheelRadius;
-    const availPowerW = (boost ? P.boostPowerW : P.powerW) * speedMult;
+    const availPowerW = (boost ? P.boostPowerW * (1 + climbSlope * 0.5) : P.powerW) * speedMult;
     const wheelOmegaEff = Math.max(0.5 / P.wheelRadius, speed / P.wheelRadius);
     const powerCapTorqueNm = availPowerW / wheelOmegaEff;
     const commandedTorqueNm = Math.min(maxWheelTorqueNm, powerCapTorqueNm) * Math.abs(st.pedal) * governor * Math.sign(st.pedal);
@@ -482,7 +509,25 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     let totalRollingDrag = 0;
     let maxHardPen = 0;
     const minLen = P.restLen * 0.05;
-    for (const wh of wheels) {
+    const softZone = P.maxComp * 0.78;
+    const allowWheelRays = up.y > 0.15;
+
+    // Pass 1: strut geometry & base spring-damper forces (+ progressive hydraulic bump-stop)
+    for (let wi = 0; wi < wheels.length; wi++) {
+      const wh = wheels[wi];
+      const wd = wheelStepData[wi];
+      wd.fs = 0;
+      if (!allowWheelRays) {
+        wh.contact = false;
+        wh.comp += (0 - wh.comp) * Math.min(1, dt * 18);
+        wh.compVel = 0;
+        wh.load = 0;
+        wh.slip = 0;
+        wh.omega *= Math.exp(-dt * 2);
+        wh.hubY = mountY - (P.restLen - wh.comp);
+        continue;
+      }
+
       // strut top in world space
       mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
       // hub along the strut until the tyre footprint touches the ground (two passes to follow the slope)
@@ -516,24 +561,56 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       wh.compVel = Math.max(-4, Math.min(4, (comp - prevComp) / dt));
       wh.hubY = mountY - clampedLen;
 
-      // contact point and its velocity
-      const cx = mountW.x - up.x * (len + P.wheelRadius);
-      const cy = mountW.y - up.y * (len + P.wheelRadius);
-      const cz = mountW.z - up.z * (len + P.wheelRadius);
-      r.set(cx, cy, cz).sub(cgWorld);
-      vPoint.crossVectors(st.angVel, r).add(st.vel);
+      // contact point and terrain normal
+      wd.cx = mountW.x - up.x * (len + P.wheelRadius);
+      wd.cy = mountW.y - up.y * (len + P.wheelRadius);
+      wd.cz = mountW.z - up.z * (len + P.wheelRadius);
+      const n = sampleNormal(wd.cx, wd.cz);
+      wd.nrm.set(n.x, n.y, n.z);
 
-      // spring + damper (+ bump stop), never pulling the wheel into the ground
+      // spring + damper (+ progressive hydraulic cushion & bump stop), never pulling downward
       const cDamp = wh.compVel > 0 ? cBump : cRebound;
       let fs = kSpring * comp + cDamp * wh.compVel;
-      if (comp > P.maxComp) fs += kSpring * 12 * (comp - P.maxComp) + cCrit * 1.5 * Math.max(0, wh.compVel);
-      // no strut pushes harder than ~8 g of its share (a hard landing), and it never pulls
-      fs = Math.max(0, Math.min(fs, 8 * m * P.g));
-      const n = sampleNormal(cx, cz);
-      nrm.set(n.x, n.y, n.z);
+      if (comp > softZone) {
+        const z = comp - softZone;
+        fs += kSpring * 2.2 * z + cDamp * 0.35 * Math.max(0, wh.compVel);
+      }
+      if (comp > P.maxComp) {
+        fs += kSpring * 12 * (comp - P.maxComp) + cCrit * 1.5 * Math.max(0, wh.compVel);
+      }
+      wd.fs = Math.max(0, fs);
+    }
+
+    // Per-axle anti-roll (sway) bars keep the chassis flat & planted during high-grip cornering
+    for (let a = 0; a < 3; a++) {
+      const L = wheelStepData[a * 2];
+      const R = wheelStepData[a * 2 + 1];
+      if (!L.wh.contact && !R.wh.contact) continue;
+      const rollDiff = R.wh.comp - L.wh.comp;
+      const rollDiffVel = R.wh.compVel - L.wh.compVel;
+      const arb = antiRollK * rollDiff + antiRollC * rollDiffVel;
+      if (L.wh.contact) L.fs = Math.max(0, L.fs - arb);
+      if (R.wh.contact) R.fs = Math.max(0, R.fs + arb);
+    }
+
+    // Active Electronic Stability Control (ESC): gently tempers lateral peak forces near heavy body roll
+    // so aggressive high-grip cornering slides cleanly rather than tripping into a rollover.
+    const rollExcess = Math.max(0, 0.88 - up.y);
+    const escLatScale = rollExcess > 0 ? Math.max(0.55, 1 - rollExcess * 2.1) : 1;
+
+    // Pass 2: tyre grip circle & suspension forces applied at each wheel contact
+    for (let wi = 0; wi < wheelStepData.length; wi++) {
+      const wd = wheelStepData[wi];
+      const wh = wd.wh;
+      if (!wh.contact) continue;
+      const fs = Math.min(wd.fs, 8 * m * P.g);
+      nrm.copy(wd.nrm);
       const N = fs * Math.max(0.2, up.dot(nrm));
       wh.load = N;
       totalNormalLoad += N;
+
+      r.set(wd.cx, wd.cy, wd.cz).sub(cgWorld);
+      vPoint.crossVectors(st.angVel, r).add(st.vel);
 
       // wheel heading on the ground plane
       wf.copy(fwd).multiplyScalar(Math.cos(wh.steer)).addScaledVector(right, -Math.sin(wh.steer));
@@ -553,9 +630,10 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       // parking hold: no pedal and nearly stopped -> the motors hold the rover on a slope
       if (st.pedal === 0 && Math.abs(vLong) < 0.12 && !inp.handbrake) fl -= P.mu * N * Math.max(-1, Math.min(1, vl / 0.04));
 
-      // lateral: slip angle, saturating at full grip
-      const alpha = Math.atan2(vs, Math.abs(vl) + 0.6);
-      let fsLat = -P.mu * N * Math.max(-1, Math.min(1, alpha * P.corneringB));
+      // lateral: crisp slip angle, saturating at full regolith grouser grip
+      const alpha = Math.atan2(vs, Math.abs(vl) + 0.35);
+      const latMu = P.mu * escLatScale;
+      let fsLat = -latMu * N * Math.max(-1, Math.min(1, alpha * P.corneringB));
 
       // friction circle
       const mu = inp.handbrake && wh.axle === 2 ? P.muSlide : P.mu;
@@ -580,7 +658,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       wh.omega += (targetOmega - wh.omega) * Math.min(1, dt * 25);
     }
 
-    // chassis / belly against the terrain (rocks, crests, steep crater walls): normal-aware penalty + hard floor
+    // chassis / belly / roof against the terrain: normal-aware penalty + hard floor
     for (const [bx, by, bz] of probe) {
       tmp.set(bx, by, bz).applyQuaternion(st.q).add(st.pos);
       const gy = sampleY(tmp.x, tmp.z);
@@ -605,6 +683,64 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       F.set(nx * fn - vtx * ft, ny * fn - vty * ft, nz * fn - vtz * ft);
       force.add(F);
       torque.add(tmp.crossVectors(r, F));
+    }
+
+    // Active Rollover Prevention & Automatic Self-Righting Gyro Recovery:
+    //  - Above ~28 deg relative tilt (during aggressive turns/impacts), progressive CMG stabilization torque resists flipping.
+    //  - If knocked onto a side/roof (up.y < 0.45), automatically clears ground & smoothly rotates upright onto all 6 wheels.
+    const cn = sampleNormal(st.pos.x, st.pos.z);
+    cNrm.set(cn.x, cn.y, cn.z).normalize();
+    stabUp.set(cNrm.x * 0.45, Math.max(0.72, cNrm.y), cNrm.z * 0.45).normalize();
+    const hasDriverInput = Math.abs(inp.throttle) > 0.05 || Math.abs(inp.steer) > 0.05 || Boolean(inp.handbrake);
+
+    if (up.y < 0.45) {
+      tippedT += dt;
+      if (tippedT > (hasDriverInput ? 0.08 : 0.35)) {
+        st.selfRighting = true;
+      }
+    } else if (st.selfRighting && up.y < 0.88) {
+      // Keep righting until squarely back upright
+    } else {
+      tippedT = 0;
+      st.selfRighting = false;
+    }
+
+    if (st.selfRighting) {
+      stabAxis.crossVectors(up, stabUp);
+      if (stabAxis.lengthSq() < 1e-4) {
+        // Exactly 180 deg inverted: roll sideways cleanly along longitudinal axis
+        stabAxis.copy(fwd);
+      }
+      stabAxis.normalize();
+      // Righting angular velocity target + damping (scale-invariant via avgInertia)
+      const alignRate = 18.0;
+      const angDamp = 6.5;
+      torque.addScaledVector(stabAxis, avgInertia * alignRate);
+      torque.addScaledVector(st.angVel, -avgInertia * angDamp);
+      // Lift gently if roof/side is pinned to terrain so flipping back over doesn't snag underground
+      const floorY = sampleY(st.pos.x, st.pos.z);
+      const minFlipClearanceY = floorY + Math.max(P.cgY, P.wheelRadius * 1.15) + 0.16;
+      if (cgWorld.y < minFlipClearanceY) {
+        const liftGap = minFlipClearanceY - cgWorld.y;
+        force.y += m * P.g + m * 24 * liftGap - m * 6 * st.vel.y;
+      }
+      st.vel.x *= Math.exp(-dt * 2.5);
+      st.vel.z *= Math.exp(-dt * 2.5);
+    } else {
+      const tiltDot = up.dot(cNrm);
+      const steepExcess = Math.max(0, 0.86 - tiltDot) + Math.max(0, 0.82 - up.y) * 1.35;
+      if (steepExcess > 0) {
+        stabAxis.crossVectors(up, stabUp);
+        if (stabAxis.lengthSq() > 1e-6) {
+          stabAxis.normalize();
+          const kStab = Math.min(18.0, steepExcess * 28.0);
+          torque.addScaledVector(stabAxis, avgInertia * kStab);
+          // Dampen roll/pitch spin velocity without fighting steering yaw around stabUp
+          const wYaw = st.angVel.dot(stabUp);
+          tmp.copy(st.angVel).addScaledVector(stabUp, -wYaw);
+          torque.addScaledVector(tmp, -avgInertia * (3.2 + steepExcess * 6.0));
+        }
+      }
     }
 
     st.airborne = contacts === 0;
@@ -651,7 +787,9 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     fwd.set(0, 0, -1).applyQuaternion(st.q);
     right.set(1, 0, 0).applyQuaternion(st.q);
     let maxFloorLift = 0;
-    for (const wh of wheels) {
+    for (let wi = 0; wi < wheels.length; wi++) {
+      const wh = wheels[wi];
+      if (up.y <= 0.15) continue;
       mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
       const estLen = P.restLen - wh.comp;
       const hx = mountW.x - up.x * estLen;
@@ -675,7 +813,9 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     }
 
     // Finalize visual hubY for the integrated pose so rendered wheels sit cleanly on the surface
-    for (const wh of wheels) {
+    for (let wi = 0; wi < wheels.length; wi++) {
+      const wh = wheels[wi];
+      if (up.y <= 0.15) continue;
       mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
       const estLen = P.restLen - wh.comp;
       const hx = mountW.x - up.x * estLen;
@@ -705,7 +845,12 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       }
     }
     const wheelOmega = driven ? wSum / driven : Math.abs(vLong) / P.wheelRadius;
-    st.motorRpm = (wheelOmega * 60 * P.gearRatio) / (2 * Math.PI);
+    const baseRpm = (wheelOmega * 60 * P.gearRatio) / (2 * Math.PI);
+    const slipDemand = boost && st.tractionLimited ? 0.55 : 0;
+    const climbDemand = boost && st.pedal > 0.05 ? Math.max(climbSlope, slipDemand) : 0;
+    const climbBoostRpm = climbDemand > 0 ? (3100 + 1900 * climbDemand) * Math.min(1, st.pedal * 1.15) : 0;
+    const targetRpm = Math.min(5000, Math.max(baseRpm * (1 + 0.25 * climbSlope), climbBoostRpm));
+    st.motorRpm = climbDemand > 0 || st.motorRpm > baseRpm + 20 ? st.motorRpm + (targetRpm - st.motorRpm) * Math.min(1, dt * 8) : targetRpm;
     const tractive = driveTotal + coastRegen;
     st.torquePct = Math.max(-1, Math.min(1, tractive / Math.max(1, wheelForceMaxN)));
     st.maxWheelTorqueNm = maxWheelTorqueNm;
@@ -784,7 +929,14 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       acc -= SUBSTEP;
       n++;
     }
-    if (inp.park === true && !st.airborne && st.vel.lengthSq() < SLEEP_SPEED_SQ && st.angVel.lengthSq() < SLEEP_SPEED_SQ) {
+    if (
+      inp.park === true &&
+      !st.airborne &&
+      !st.selfRighting &&
+      up.y > 0.72 &&
+      st.vel.lengthSq() < SLEEP_SPEED_SQ &&
+      st.angVel.lengthSq() < SLEEP_SPEED_SQ
+    ) {
       restT += frameDt;
       if (restT > 1) {
         asleep = true;

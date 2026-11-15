@@ -425,6 +425,74 @@ function drawTelemetryScreenOnCtx(g, ox, oy, destW, destH, spec, accentHex = "#f
           g.arc(left + (right - left) * u, top + (bottom - top) * v, 7, 0, Math.PI * 2);
           g.fill();
         });
+      } else if (spec.kind === "tasks") {
+        // Split schematic: terrain + 3 route options on the left, interactive terminal summary on the right
+        const mapW = 368;
+        const mapH = bottom - top - 8;
+        g.fillStyle = "rgba(3,10,20,0.88)";
+        g.fillRect(left, top + 2, mapW, mapH);
+        g.strokeStyle = "rgba(56,189,248,0.45)";
+        g.lineWidth = 2;
+        g.strokeRect(left, top + 2, mapW, mapH);
+        // contour rings
+        g.strokeStyle = "rgba(148,163,184,0.22)";
+        g.lineWidth = 1.2;
+        for (let r = 28; r <= 120; r += 26) {
+          g.beginPath();
+          g.ellipse(left + mapW * 0.52, top + mapH * 0.48, r * 1.15, r * 0.72, -0.35, 0, Math.PI * 2);
+          g.stroke();
+        }
+        // 3 candidate routes: green (safe), cyan (balanced), amber (direct)
+        const routes = [
+          { color: "#22c55e", pts: [[0.18, 0.22], [0.16, 0.56], [0.36, 0.78], [0.8, 0.8]] },
+          { color: "#38bdf8", pts: [[0.18, 0.22], [0.46, 0.44], [0.64, 0.66], [0.8, 0.8]] },
+          { color: "#f59e0b", pts: [[0.18, 0.22], [0.58, 0.34], [0.8, 0.8]] },
+        ];
+        routes.forEach((rt) => {
+          g.strokeStyle = rt.color;
+          g.lineWidth = 4;
+          g.beginPath();
+          rt.pts.forEach(([u, v], i) => {
+            const x = left + 12 + (mapW - 24) * u;
+            const y = top + 12 + (mapH - 20) * v;
+            if (i === 0) g.moveTo(x, y);
+            else g.lineTo(x, y);
+          });
+          g.stroke();
+        });
+        // Hab + target markers
+        g.fillStyle = "#38bdf8";
+        g.fillRect(left + 12 + (mapW - 24) * 0.18 - 8, top + 12 + (mapH - 20) * 0.22 - 8, 16, 16);
+        g.fillStyle = "#f43f5e";
+        g.beginPath();
+        g.arc(left + 12 + (mapW - 24) * 0.8, top + 12 + (mapH - 20) * 0.8, 9, 0, Math.PI * 2);
+        g.fill();
+        g.font = "bold 14px monospace";
+        g.fillStyle = "#e2e8f0";
+        g.fillText("HAB", left + 38, top + 28);
+        g.fillText("ROVER ?", left + mapW - 92, top + mapH - 18);
+
+        const rx = left + mapW + 24;
+        g.fillStyle = "#67e8f9";
+        g.font = "bold 24px monospace";
+        g.fillText("MISSIONS · GÖREVLER", rx, top + 26);
+        g.fillStyle = "#e2e8f0";
+        g.font = "18px monospace";
+        const rows = [
+          "1. TARGET: 5 NASA ROVERS",
+          "2. VEHICLE: MMSEV / CONCEPT",
+          "3. PICK A/B/C SUITABLE ROUTE",
+          "4. DRIVE FROM BAY & LOCATE",
+        ];
+        rows.forEach((ln, i) => g.fillText(ln, rx, top + 72 + i * 36));
+        g.fillStyle = "rgba(34,211,238,0.18)";
+        g.fillRect(rx, bottom - 56, right - rx, 42);
+        g.strokeStyle = "#22d3ee";
+        g.lineWidth = 2;
+        g.strokeRect(rx, bottom - 56, right - rx, 42);
+        g.fillStyle = "#cffafe";
+        g.font = "bold 19px monospace";
+        g.fillText("PRESS [E] / CLICK TO OPEN", rx + 16, bottom - 35);
       } else {
         g.font = "22px monospace";
         g.fillStyle = "#e2e8f0";
@@ -433,12 +501,29 @@ function drawTelemetryScreenOnCtx(g, ox, oy, destW, destH, spec, accentHex = "#f
           g.fillText(line, left, top + 24 + i * 38);
         });
       }
-      // footer: source / honesty label
+      // footer: source / honesty label + interactive EVA Tasks affordance badge
       g.fillStyle = "rgba(15,23,42,0.9)";
       g.fillRect(0, H - 36, W, 36);
       g.fillStyle = "#94a3b8";
       g.font = "15px monospace";
       g.fillText(spec.footer || "", 16, H - 17);
+      if (spec.kind !== "tasks") {
+        const badge = "[E] / CLICK · EVA TASKS";
+        g.save();
+        g.font = "bold 12px monospace";
+        const bw = Math.ceil(g.measureText(badge).width) + 16;
+        const bx = W - bw - 10;
+        const by = H - 29;
+        g.fillStyle = "rgba(14,165,233,0.2)";
+        g.fillRect(bx, by, bw, 22);
+        g.strokeStyle = "rgba(56,189,248,0.72)";
+        g.lineWidth = 1.5;
+        g.strokeRect(bx + 0.5, by + 0.5, bw - 1, 21);
+        g.fillStyle = "#7dd3fc";
+        g.textBaseline = "middle";
+        g.fillText(badge, bx + 8, by + 11);
+        g.restore();
+      }
       // scanlines
       g.fillStyle = "rgba(255,255,255,0.025)";
       for (let y = 0; y < H; y += 4) g.fillRect(0, y, W, 1);
@@ -448,7 +533,7 @@ function drawTelemetryScreenOnCtx(g, ox, oy, destW, destH, spec, accentHex = "#f
 export { drawSignOnCtx, drawFloorDecalOnCtx, drawTelemetryScreenOnCtx };
 
 /**
- * Telemetry wall screens. `spec.kind` is one of "graph", "bars", "map", "text".
+ * Telemetry wall screens. `spec.kind` is one of "graph", "bars", "map", "text", "tasks".
  * `spec.footer` must carry the honesty note (source or "illustrative").
  */
 export function makeTelemetryScreenTexture(THREE, spec, accentHex = "#f472b6") {

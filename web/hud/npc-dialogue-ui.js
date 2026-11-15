@@ -1,8 +1,8 @@
 /**
  * Interactive Astronaut NPC Dialogue HUD Overlay Controller (`web/hud/npc-dialogue-ui.js`).
  *
- * Opens a NASA-themed sci-fi comms panel when the player interacts with any stationed NPC
- * (`[E]` or click), pauses player walking/driving controls while active, supports both
+ * Opens a NASA-themed sci-fi comms panel when the player clicks any stationed NPC
+ * (mouse click), pauses player walking/driving controls while active, supports both
  * Quick-Select Preset Questions and Free-Text Custom Questions via `queryNpcWithHook`,
  * and cleanly releases controls upon close.
  */

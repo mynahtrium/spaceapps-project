@@ -7,7 +7,7 @@ set "URL=http://localhost:%PORT%/web/?demo=1"
 
 where node >nul 2>nul
 if %errorlevel%==0 (
-  echo Starting Martian Mappers LAN Multiplayer + Static Server on port %PORT%...
+  echo Starting Martian Mappers local server on port %PORT%...
   echo Demo-safe URL : %URL%
   echo Normal URL    : http://localhost:%PORT%/web/
   echo Press Ctrl+C in this window to stop the server.

@@ -6,7 +6,6 @@
 
 import { loadAllProjectData, loadDemSamplerFromData } from "./shared/data-loader.js";
 import { TileSourceRegistry } from "./map/TileSourceRegistry.js";
-import { buildInviteUrl, MultiplayerClient } from "./shared/multiplayer.js";
 import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInfo } from "./shared/route-bridge.js";
 import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
 import { initHud3D } from "./hud/hud3d.js";
@@ -492,9 +491,15 @@ async function boot() {
         </div>
 
         <div class="rover-modal-actions">
-          <button id="rover-modal-visit-3d" class="btn primary" type="button">
-            ${tr ? "3D Bölgeye Git (Aracın Yanına)" : "Visit 3D Site (Stand by Rover)"}
-          </button>
+          ${
+            hudApi?.isTaskActive?.()
+              ? `<button id="rover-modal-visit-3d" class="btn primary" type="button" disabled title="${
+                  tr ? "Görev aktifken ışınlanma kilitli" : "Teleport locked while Task is active"
+                }">🔒 ${tr ? "3D Bölgeye Git (Görevde Kilitli)" : "Visit 3D Site (Locked in Task)"}</button>`
+              : `<button id="rover-modal-visit-3d" class="btn primary" type="button">${
+                  tr ? "3D Bölgeye Git (Aracın Yanına)" : "Visit 3D Site (Stand by Rover)"
+                }</button>`
+          }
           <button id="rover-modal-show-orbit" class="btn" type="button">
             ${tr ? "Yörünge Görünümü" : "Orbit View"}
           </button>
@@ -502,6 +507,10 @@ async function boot() {
       </div>
     `;
     modalBody.querySelector("#rover-modal-visit-3d")?.addEventListener("click", () => {
+      if (hudApi?.isTaskActive?.()) {
+        hudApi.showTaskLockNotice?.();
+        return;
+      }
       closeModal();
       dispatchVisitRoverSite(rover.id);
       switchToHud();
@@ -1025,14 +1034,14 @@ async function boot() {
             <div class="kbd-row"><span>${tr ? "Hareket / Sürüş" : "Move / Drive"}</span><kbd class="kbd-key">W A S D</kbd></div>
             <div class="kbd-row"><span>${tr ? "Koşu / Hızlanma" : "Sprint / Boost"}</span><kbd class="kbd-key">Shift</kbd></div>
             <div class="kbd-row"><span>${tr ? "Zıplama / El Freni" : "Jump / Handbrake"}</span><kbd class="kbd-key">Space</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Araca Bin / Astronotla Konuş" : "Board Rover / Talk to Crew"}</span><kbd class="kbd-key">E / RB</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Araçlara Bin / Ekran" : "Board Rover / Screens"}</span><kbd class="kbd-key">E</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Ekip & Ekran Etkileşimi" : "Crew Talk & Screens"}</span><kbd class="kbd-key">${tr ? "Mouse Tık" : "Mouse Click"}</kbd></div>
             <div class="kbd-row"><span>${tr ? "1. / 3. Şahıs Kamera" : "1st / 3rd Person Camera"}</span><kbd class="kbd-key">V</kbd></div>
             <div class="kbd-row"><span>${tr ? "El Feneri" : "Suit Flashlight"}</span><kbd class="kbd-key">F</kbd></div>
             <div class="kbd-row"><span>${tr ? "Altın Güneş Vizörü" : "Gold Sun Visor"}</span><kbd class="kbd-key">G</kbd></div>
             <div class="kbd-row"><span>${tr ? "Optik Büyütme (Zoom)" : "Optical Zoom"}</span><kbd class="kbd-key">Z</kbd></div>
             <div class="kbd-row"><span>${tr ? "Ray Tracing Kademesi" : "Cycle Ray Tracing Tier"}</span><kbd class="kbd-key">R</kbd></div>
             <div class="kbd-row"><span>${tr ? "Yörünge Görünümü" : "Orbit View"}</span><kbd class="kbd-key">M / O</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Yol İşareti Bırak" : "Drop Waypoint Pin"}</span><kbd class="kbd-key">P</kbd></div>
             <div class="kbd-row"><span>${tr ? "Performans İstatistikleri" : "Performance Stats"}</span><kbd class="kbd-key">F3</kbd></div>
           </div>
         </div>
@@ -1381,30 +1390,7 @@ async function boot() {
   let hudApi = null;
   let lastSelfPose = null;
 
-  const mp = new MultiplayerClient({ demoSafe: data.demoSafe, role: "eva" });
-
-  // ---------- Crew & EVA Multiplayer Drawer ----------
-  const btnCrew = document.getElementById("btn-crew");
-  const crewDrawer = document.getElementById("crew-drawer");
-  const mpClose = document.getElementById("mp-close");
-  const mpRoomIn = document.getElementById("mp-room");
-  const mpCallsignIn = document.getElementById("mp-callsign");
-  const mpJoinBtn = document.getElementById("mp-join");
-  const mpInviteBtn = document.getElementById("mp-invite");
-  const mpDropPingBtn = document.getElementById("mp-drop-ping");
-  const mpSyncRouteBtn = document.getElementById("mp-sync-route");
-  const mpClearPinsBtn = document.getElementById("mp-clear-pins");
-  const mpTransportEl = document.getElementById("mp-transport");
-  const mpLanHintEl = document.getElementById("mp-lan-hint");
-  const mpRosterEl = document.getElementById("mp-roster");
-  const mpChatLogEl = document.getElementById("mp-chat-log");
-  const mpChatForm = document.getElementById("mp-chat-form");
-  const mpChatInput = document.getElementById("mp-chat-input");
   const toastEl = document.getElementById("hud-comms-toast");
-
-  if (mpRoomIn) mpRoomIn.value = mp.room;
-  if (mpCallsignIn) mpCallsignIn.value = mp.callsign;
-
   let toastTimer = null;
   function showToast(msg) {
     if (!toastEl) return;
@@ -1414,161 +1400,6 @@ async function boot() {
       toastEl.textContent = "";
     }, 5500);
   }
-
-  function appendChatLine({ callsign, color, text }) {
-    if (!mpChatLogEl) return;
-    const row = document.createElement("div");
-    row.className = "crew-chat-line";
-    const badge = document.createElement("strong");
-    badge.style.color = color || "var(--cyan)";
-    badge.textContent = `[${callsign}] `;
-    row.appendChild(badge);
-    row.appendChild(document.createTextNode(text));
-    mpChatLogEl.appendChild(row);
-    while (mpChatLogEl.children.length > 40) mpChatLogEl.firstChild.remove();
-    mpChatLogEl.scrollTop = mpChatLogEl.scrollHeight;
-  }
-
-  function renderCrewUi() {
-    const status = mp.getStatusSummary();
-    if (btnCrew) btnCrew.textContent = `Crew (${status.crewTotal})`;
-    if (mpTransportEl) {
-      mpTransportEl.textContent = status.transport;
-      mpTransportEl.classList.toggle("live", status.wsConnected || status.peerCount > 0);
-    }
-    if (mpLanHintEl) {
-      if (data.demoSafe) {
-        mpLanHintEl.textContent = "Demo-Safe mode: offline same-browser tabs sync via BroadcastChannel (0 network requests).";
-      } else if (status.lanUrls?.length > 0) {
-        const invite = buildInviteUrl(window.location.href, mp.room, status.lanUrls[0]);
-        mpLanHintEl.textContent = `LAN relay online · Share: ${invite}`;
-      } else {
-        mpLanHintEl.innerHTML =
-          "Local tabs active. Start <code>scripts/start-app.sh</code> or <code>node scripts/server.mjs</code> for cross-device LAN.";
-      }
-    }
-    if (mpRosterEl) {
-      mpRosterEl.innerHTML = "";
-      const selfRow = document.createElement("div");
-      selfRow.className = "crew-row";
-      // Text nodes only: the callsign can come from the ?callsign= URL parameter.
-      const selfLeft = document.createElement("span");
-      const selfDot = document.createElement("span");
-      selfDot.className = "crew-dot";
-      selfDot.style.background = mp.color;
-      selfLeft.append(selfDot, `${mp.callsign} (YOU)`);
-      const selfRole = document.createElement("span");
-      selfRole.textContent = mp.role.toUpperCase();
-      selfRow.append(selfLeft, selfRole);
-      mpRosterEl.appendChild(selfRow);
-
-      for (const peer of mp.peers.values()) {
-        const row = document.createElement("div");
-        row.className = "crew-row";
-        const left = document.createElement("span");
-        const dot = document.createElement("span");
-        dot.className = "crew-dot";
-        dot.style.background = peer.color || "var(--cyan)";
-        left.appendChild(dot);
-        let distTxt = peer.role?.toUpperCase() || "EVA";
-        if (lastSelfPose?.lon != null && peer.state?.lon != null) {
-          const d = marsDistanceM([lastSelfPose.lon, lastSelfPose.lat], [peer.state.lon, peer.state.lat]);
-          distTxt = `${d.toFixed(0)} m`;
-        }
-        left.appendChild(document.createTextNode(`${peer.callsign} · ${distTxt}`));
-
-        const right = document.createElement("span");
-        if (peer.state && Number.isFinite(peer.state.lon) && Number.isFinite(peer.state.lat)) {
-          const goBtn = document.createElement("button");
-          goBtn.className = "btn";
-          goBtn.style.padding = "2px 6px";
-          goBtn.style.fontSize = "9.5px";
-          goBtn.textContent = "Go To";
-          goBtn.onclick = () => {
-            hudApi?.teleportTo?.(peer.state.lon, peer.state.lat);
-            switchToHud();
-          };
-          right.appendChild(goBtn);
-        } else {
-          right.textContent = peer.state?.freeRoam ? "FREE" : "ROUTE";
-        }
-        row.append(left, right);
-        mpRosterEl.appendChild(row);
-      }
-    }
-  }
-
-  btnCrew?.addEventListener("click", () => {
-    crewDrawer?.classList.toggle("open");
-    renderCrewUi();
-  });
-  mpClose?.addEventListener("click", () => crewDrawer?.classList.remove("open"));
-  mpJoinBtn?.addEventListener("click", async () => {
-    await mp.connect({
-      room: mpRoomIn?.value,
-      callsign: mpCallsignIn?.value,
-    });
-    renderCrewUi();
-    showToast(`Joined room ${mp.room} as ${mp.callsign}`);
-  });
-  mpInviteBtn?.addEventListener("click", async () => {
-    const baseOrigin = mp.lanUrls?.[0] || null;
-    const url = buildInviteUrl(window.location.href, mp.room, baseOrigin);
-    try {
-      await navigator.clipboard?.writeText(url);
-      showToast(`Copied invite: ${url}`);
-    } catch {
-      window.prompt("Copy crew invite link:", url);
-    }
-  });
-  mpDropPingBtn?.addEventListener("click", () => {
-    if (hudApi?.dropLocalPing) {
-      hudApi.dropLocalPing("Science Beacon");
-    }
-  });
-  mpSyncRouteBtn?.addEventListener("click", () => {
-    const sM = lastSelfPose?.alongM ?? 0;
-    mp.sendRouteSync(sM, false);
-    showToast(`Synced crew route timeline to ${sM.toFixed(0)} m`);
-  });
-  mpClearPinsBtn?.addEventListener("click", () => mp.clearPings());
-  mpChatForm?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const txt = mpChatInput?.value || "";
-    if (!txt.trim()) return;
-    mp.sendChat(txt);
-    if (mpChatInput) mpChatInput.value = "";
-  });
-
-  mp.on("status", () => {
-    renderCrewUi();
-  });
-  mp.on("peerjoin", (peer) => {
-    showToast(`${peer.callsign} joined EVA room ${mp.room}`);
-    appendChatLine({ callsign: "SYS", color: "#34d399", text: `${peer.callsign} connected` });
-    renderCrewUi();
-  });
-  mp.on("peerleave", (peer) => {
-    showToast(`${peer.callsign} left EVA`);
-    appendChatLine({ callsign: "SYS", color: "#94a3b8", text: `${peer.callsign} disconnected` });
-    renderCrewUi();
-  });
-  mp.on("peerstate", () => {
-    if (crewDrawer?.classList.contains("open")) renderCrewUi();
-  });
-  mp.on("pins", () => {});
-  mp.on("ping", (pin) => {
-    showToast(`${pin.by} dropped ${pin.label}`);
-    appendChatLine({ callsign: pin.by, color: pin.color, text: `Dropped beacon (${pin.lat.toFixed(4)}°, ${pin.lon.toFixed(4)}°)` });
-  });
-  mp.on("chat", (msg) => {
-    appendChatLine(msg);
-    if (!msg.self) showToast(`${msg.callsign}: ${msg.text}`);
-  });
-  mp.on("routesync", (sync) => {
-    hudApi?.syncAlongM?.(sync.alongM);
-    showToast(`${sync.by || "CREW"} synced route to ${Number(sync.alongM).toFixed(0)} m`);
-  });
 
   let orbitApi = null;
   function ensureOrbit() {
@@ -1591,7 +1422,6 @@ async function boot() {
     for (const [k, el] of Object.entries(tabs)) el?.classList.toggle("active", k === name);
     if (name !== "orbit") orbitApi?.hide();
     if (name === "hud") {
-      mp.setRole("eva");
       hudApi?.onResize();
     } else if (name === "orbit") {
       if (document.pointerLockElement) {
@@ -1610,6 +1440,11 @@ async function boot() {
 
   let pendingLanding = null;
   function landFromOrbit(lon, lat, { sunMode = "local", roverId = null, hardwareId = null, siteId = null, stopId = null, globeSample = null } = {}) {
+    if (hudApi?.isTaskActive?.()) {
+      switchView("hud");
+      hudApi.showTaskLockNotice?.();
+      return;
+    }
     if (!hudApi) {
       // The 3D view is still loading (suit / terrain); land as soon as it is ready.
       pendingLanding = [lon, lat, { sunMode, roverId, hardwareId, siteId, stopId, globeSample }];
@@ -1655,7 +1490,6 @@ async function boot() {
   const escGoldBtn = document.getElementById("esc-gold");
   const escLampBtn = document.getElementById("esc-lamp");
   const escTexBtn = document.getElementById("esc-tex");
-  const escCrewBtn = document.getElementById("esc-crew");
   const escRoversBtn = document.getElementById("esc-open-rovers");
   const escGoHudBtn = document.getElementById("esc-go-hud");
   const escGoOrbitBtn = document.getElementById("esc-go-orbit");
@@ -1685,7 +1519,6 @@ async function boot() {
     setText("esc-lbl-system", tr ? "GÖREV VE AYARLAR" : "MISSION & SETTINGS");
     setText("esc-go-hud", tr ? "EVA Vücut Kamerası" : "EVA Bodycam");
     setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
-    setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
     setText("esc-dev", tr ? "Ayarlar" : "Settings");
     setText("btn-pad", tr ? "Ayarlar" : "Settings");
@@ -1709,7 +1542,6 @@ async function boot() {
     }
     if (escTexBtn && hudTex) escTexBtn.textContent = hudTex;
     if (escRoversBtn && hudFleet) escRoversBtn.textContent = hudFleet;
-    if (escCrewBtn && btnCrew) escCrewBtn.textContent = btnCrew.textContent.trim();
     escGoHudBtn?.classList.toggle("active", !inOrbit);
     escGoOrbitBtn?.classList.toggle("active", inOrbit);
 
@@ -1767,18 +1599,8 @@ async function boot() {
     document.getElementById("hud-tex")?.click();
     syncEscMenuUi();
   });
-  document.getElementById("esc-pin")?.addEventListener("click", () => {
-    toggleEscMenu(false);
-    switchToHud();
-    document.getElementById("hud-ping")?.click();
-  });
   document.getElementById("esc-pov")?.addEventListener("click", () => {
     document.getElementById("hud-pov-btn")?.click();
-  });
-  escCrewBtn?.addEventListener("click", () => {
-    toggleEscMenu(false);
-    crewDrawer?.classList.add("open");
-    renderCrewUi();
   });
   document.getElementById("esc-dev")?.addEventListener("click", () => {
     toggleEscMenu(false);
@@ -1818,12 +1640,6 @@ async function boot() {
         closeModal();
         return;
       }
-      if (crewDrawer?.classList.contains("open")) {
-        e.preventDefault();
-        e.stopImmediatePropagation?.();
-        crewDrawer.classList.remove("open");
-        return;
-      }
       if (escMenu?.classList.contains("open")) {
         e.preventDefault();
         e.stopImmediatePropagation?.();
@@ -1844,7 +1660,6 @@ async function boot() {
     if (e.repeat) return;
     if (
       modalBackdrop.classList.contains("open") ||
-      crewDrawer?.classList.contains("open") ||
       escMenu?.classList.contains("open") ||
       document.getElementById("npc-dialogue-modal")?.classList.contains("open")
     ) {
@@ -1884,7 +1699,6 @@ async function boot() {
       const btnLabel = (id, fallback) => document.getElementById(id)?.textContent?.trim() || fallback;
       return [
         { heading: t("BODYCAM", "VÜCUT KAMERASI") },
-        { label: t("Drop waypoint pin", "Yol işareti bırak"), hint: "P", action: clickId("hud-ping") },
         { label: t("Orbit view", "Yörünge görünümü"), hint: "M", action: clickId("hud-orbit-btn") },
         { label: btnLabel("hud-sun-btn", "Sun"), action: clickId("hud-sun-btn") },
         { label: btnLabel("hud-gold-btn", "Gold (G)"), action: clickId("hud-gold-btn") },
@@ -1922,7 +1736,6 @@ async function boot() {
         { label: t("Bodycam EVA", "Vücut kamerası EVA"), disabled: view === "hud", action: switchToHud },
         { label: t("Command menu", "Komut menüsü"), hint: "Esc", action: () => toggleEscMenu(true) },
         { separator: true },
-        { label: btnCrew?.textContent?.trim() || "Crew", action: () => btnCrew?.click() },
         { label: t("Settings", "Ayarlar"), action: () => openDevSettingsModal() },
         { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
         { label: t("Title screen", "Başlangıç ekranı"), action: () => start.show() },
@@ -1948,9 +1761,6 @@ async function boot() {
         if (escMenu?.classList.contains("open")) {
           return [{ label: t("Resume", "Devam et"), hint: "Esc", action: () => toggleEscMenu(false) }];
         }
-        if (el?.closest?.("#crew-drawer")) {
-          return [{ label: t("Close crew panel", "Ekip panelini kapat"), hint: "Esc", action: () => crewDrawer?.classList.remove("open") }];
-        }
         const view = activeView();
         const local =
           view === "hud"
@@ -1972,14 +1782,10 @@ async function boot() {
 
   initAppContextMenu();
 
-  await mp.connect();
-  renderCrewUi();
-
   window.__MM_APP__ = {
     data,
     demSampler,
     registry,
-    mp,
     openHistoricRoverModal,
     get hudApi() {
       return hudApi;
@@ -1990,7 +1796,6 @@ async function boot() {
   };
   try {
     hudApi = await initHud3D(data, {
-    mp,
     onLocalPose: (pose) => {
       lastSelfPose = pose;
     },

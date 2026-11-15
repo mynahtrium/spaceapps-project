@@ -1,8 +1,7 @@
 /**
- * Martian Mappers Static + Multiplayer WebSocket Server (`scripts/server.mjs`).
+ * Martian Mappers static server (`scripts/server.mjs`).
  *
- * Serves the repository root (`/web/`, `/data/`, `/docs/`) with zero npm dependencies
- * and hosts RFC 6455 WebSocket EVA multiplayer rooms on `/ws?room=<code>`.
+ * Serves the repository root (`/web/`, `/data/`, `/docs/`) with zero npm dependencies.
  */
 
 import fs from "node:fs";
@@ -10,8 +9,6 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-
-import { createMultiplayerHub } from "./mp-hub.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, "..");
@@ -36,23 +33,8 @@ const MIME_TYPES = {
   ".md": "text/markdown; charset=utf-8",
 };
 
-export function listLanIpv4Addresses() {
-  const out = [];
-  const ifaces = os.networkInterfaces();
-  for (const entries of Object.values(ifaces)) {
-    if (!entries) continue;
-    for (const info of entries) {
-      if (info.family === "IPv4" && !info.internal) {
-        out.push(info.address);
-      }
-    }
-  }
-  return out;
-}
-
 export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
   const safeRoot = path.resolve(rootDir);
-  const hub = createMultiplayerHub();
 
   const server = http.createServer((req, res) => {
     const reqUrl = new URL(req.url || "/", "http://localhost");
@@ -63,25 +45,6 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
       // A malformed %-escape must not throw out of the handler and kill the server.
       res.writeHead(400, { "Content-Type": "text/plain" });
       res.end("Bad Request");
-      return;
-    }
-
-    if (pathname === "/api/mp/status") {
-      const hostHdr = req.headers.host || "localhost:8000";
-      const portMatch = hostHdr.match(/:(\d+)$/);
-      const port = portMatch ? portMatch[1] : "8000";
-      const lanUrls = listLanIpv4Addresses().map((ip) => `http://${ip}:${port}/web/`);
-      const body = JSON.stringify({
-        ok: true,
-        ws: true,
-        ...hub.getStats(),
-        lanUrls,
-      });
-      res.writeHead(200, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
-      res.end(body);
       return;
     }
 
@@ -165,38 +128,25 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
     });
   });
 
-  server.on("upgrade", (req, socket, head) => {
-    const reqUrl = new URL(req.url || "/", "http://localhost");
-    if (reqUrl.pathname === "/ws") {
-      hub.handleUpgrade(req, socket, head);
-    } else {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
-    }
-  });
-
-  return { server, hub };
+  return { server };
 }
 
 export async function startServer({ port = 8000, host = "0.0.0.0", rootDir = DEFAULT_ROOT } = {}) {
-  const { server, hub } = createServerApp({ rootDir });
+  const { server } = createServerApp({ rootDir });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, resolve);
   });
   const addr = server.address();
   const actualPort = typeof addr === "object" && addr ? addr.port : port;
-  return { server, hub, port: actualPort, host };
+  return { server, port: actualPort, host };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 8000);
   const host = process.env.HOST || "0.0.0.0";
   const { port: boundPort } = await startServer({ port, host });
-  console.log(`Martian Mappers Multiplayer + Static server listening on http://${host}:${boundPort}/web/`);
+  console.log(`Martian Mappers static server listening on http://${host}:${boundPort}/web/`);
   console.log(`Local Demo-Safe : http://localhost:${boundPort}/web/?demo=1`);
   console.log(`Local Normal    : http://localhost:${boundPort}/web/`);
-  for (const ip of listLanIpv4Addresses()) {
-    console.log(`LAN Multiplayer : http://${ip}:${boundPort}/web/?room=GALE-01`);
-  }
 }

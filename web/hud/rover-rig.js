@@ -81,14 +81,15 @@ export function attachSuspensionRig(THREE, rover, dynamics) {
 
     for (const L of links) {
       const { pod, wheel } = L;
+      const hubX = pod.lx - L.side * (pod.hubInset || 0);
       // hub, steering, spin
       pod.podRoot.position.y = wheel.hubY;
       pod.knuckle.rotation.y = wheel.steer;
       pod.spinner.rotation.x = wheel.angle;
 
-      // coil-over: from the upper mount to just above the hub
+      // coil-over: from the upper mount to the upright hub carrier
       a.copy(L.mountTop);
-      b.set(pod.lx - L.side * 0.06, wheel.hubY + 0.2, pod.lz);
+      b.set(hubX - L.side * (pod.hubInset ? 0.02 : 0.06), wheel.hubY + 0.2, pod.lz);
       d.copy(b).sub(a);
       const len = Math.max(0.05, d.length());
       q.setFromUnitVectors(up, d.normalize());
@@ -100,9 +101,9 @@ export function attachSuspensionRig(THREE, rover, dynamics) {
       L.spring.position.y = len * 0.12;
       L.spring.scale.set(1, len * 0.8, 1);
 
-      // lower control arm from the chassis pivot to the hub
+      // lower control arm from the chassis pivot to the upright hub carrier
       a.copy(L.armRoot);
-      b.set(pod.lx, wheel.hubY, pod.lz);
+      b.set(hubX, wheel.hubY, pod.lz);
       d.copy(b).sub(a);
       const armLen = d.length();
       L.arm.position.copy(a);

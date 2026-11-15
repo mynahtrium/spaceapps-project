@@ -12,7 +12,7 @@ A **Marswalk EVA simulator** for Gale crater / lower Mount Sharp, where Curiosit
 
 - **Science goal:** ancient lake sediments and habitability / organics in mudstones. Main stops are the Curiosity drill sites Glen Etive 1 and Mary Anning 3 in the Glen Torridon clay-bearing unit; the boxwork unit (Altadena member) is a bonus stop. Stops in `data/processed/routing/stops.json` are still flagged `is_example: true` until the team locks them.
 - **Views** (all in `web/`, static ES modules, no bundler):
-  - **EVA / HUD** (`web/hud/`): three.js first-person walk on streamed HiRISE corridor terrain, with a helmet HUD (distance, slope, next stop), Mars physics, drivable rovers, habitat, NPC crew, landing cinematic and multiplayer.
+  - **EVA / HUD** (`web/hud/`): three.js first-person walk on streamed HiRISE corridor terrain, with a helmet HUD (distance, slope, next stop), Mars physics, drivable rovers, habitat, NPC crew and landing cinematic.
   - **Orbit** (`web/orbit/`): Mars globe; pick a site and land.
   - The 2D MapLibre planner was removed (the Orbit view replaced it). The pipeline route still reaches the HUD: `app.js` sends it with the `mm:set-route` event.
 - **Pipeline** (`pipeline/`, Python + GDAL): HiRISE DTM → slope → cost map → Dijkstra route, plus NASA science fetchers. Outputs go to `data/processed/`, and demo fixtures to `data/demo/`.

@@ -365,7 +365,6 @@ class MartianWeatherSystem {
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
 
     const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
-    const crewOpen = document.getElementById("crew-drawer")?.classList.contains("open");
     const escMenuOpen = document.getElementById("esc-menu")?.classList.contains("open");
     const startMenuOpen =
       document.getElementById("start-screen") &&
@@ -373,7 +372,7 @@ class MartianWeatherSystem {
     const npcOpen = document.getElementById("npc-dialogue-modal")?.classList.contains("open");
     const landingActive = document.body?.classList?.contains("landing-active");
     const orbitActive = document.getElementById("orbit-view")?.classList.contains("active");
-    if (modalOpen || crewOpen || escMenuOpen || startMenuOpen || npcOpen || landingActive || orbitActive) return;
+    if (modalOpen || escMenuOpen || startMenuOpen || npcOpen || landingActive || orbitActive) return;
 
     if (e.key?.toLowerCase() === "m") {
       e.preventDefault();

@@ -19,7 +19,7 @@ Submission is on the Team page's Project tab and closes Sunday 15 November 23:59
 
 ## Product
 
-- **Bodycam:** three.js first-person walk on HiRISE terrain with a helmet HUD (distance, slope, next stop), science stops with Curiosity POV images, DONKI space-weather alerts and REMS weather, Mars physics, rovers, and crew multiplayer. Graphics presets are under Settings; F3 shows frame statistics.
+- **Bodycam:** three.js first-person walk on HiRISE terrain with a helmet HUD (distance, slope, next stop), science stops with Curiosity POV images, DONKI space-weather alerts and REMS weather, Mars physics, and rovers. Graphics presets are under Settings; F3 shows frame statistics.
 - **Orbit view:** Mars globe with real day/night and moons; click to land.
 - **Pipeline:** Python and GDAL for the slope / hazard cost map, route, and cached science data.
 

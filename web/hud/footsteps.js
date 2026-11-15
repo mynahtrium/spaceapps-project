@@ -191,7 +191,7 @@ export function createFootsteps(THREE, scene) {
     osc.frequency.setValueAtTime((side === "L" ? 54 : 60) + jitter, now);
     osc.frequency.exponentialRampToValueAtTime(34, now + 0.11);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.055, now + 0.014);
+    gain.gain.linearRampToValueAtTime(0.082, now + 0.014);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
     osc.connect(gain).connect(ac.destination);
     osc.start(now);
@@ -209,7 +209,7 @@ export function createFootsteps(THREE, scene) {
     const db = attenuationDbPerM(filter.frequency.value) * 1.6;
     const att = Math.pow(10, -db / 20);
     const sg = ac.createGain();
-    sg.gain.value = (dusty ? 0.045 : 0.018) * Math.min(1, att * 5);
+    sg.gain.value = (dusty ? 0.072 : 0.032) * Math.min(1, att * 5);
     src.connect(filter).connect(sg).connect(ac.destination);
     src.start(now);
   }
