@@ -5,9 +5,10 @@ alwaysApply: true
 
 # Core rules
 
-**[AGENTS.md](../../AGENTS.md) is the single source of truth.** Follow it. Do not treat this file as a second project guide.
+Read **[AGENTS.md](../../AGENTS.md)** first; it is the only project guide.
 
-- **No secrets.** Never commit `.env`, API keys, or credentials. `NASA_API_KEY` and `DEMO_SAFE` exist only as environment names (see `.env.example`).
-- **No photos, video, voices, or likenesses of under-18s.** Name team members by first name or nickname only — no phone, email, address, school name, or other personal data.
-- **Cite sources.** Do not invent facts. Mark gaps **UNVERIFIED**. Keep this repository **private**. No hosting integrations. Do not force-push `main`.
-- `?demo=1` makes zero network requests. Contract field changes need a row in `docs/contracts/CHANGES.md` and updated fixtures.
+- **No secrets.** Never commit `.env`, API keys or credentials. The NASA key lives only in `NASA_API_KEY`.
+- **Team members are minors.** No photos, video, voices or likenesses of under-18s. First names or nicknames only, with no personal data.
+- **Cite sources.** Do not invent facts; mark gaps **UNVERIFIED**. Keep the repository private. Never force-push `main`; commit only when asked.
+- `?demo=1` makes zero network requests. Contract changes need a row in `docs/contracts/CHANGES.md` and updated fixtures.
+- Run `node --test web/tests/*.test.mjs` after changing `web/`.

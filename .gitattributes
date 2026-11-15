@@ -2,3 +2,13 @@
 *.png binary
 *.tif binary
 *.JP2 binary
+*.glb binary
+*.gltf text
+*.bin binary
+*.jpg binary
+*.jpeg binary
+*.wasm binary
+*.webp binary
+*.ogg binary
+*.mp3 binary
+*.wav binary

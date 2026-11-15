@@ -1239,3 +1239,49 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Tests: headless checks for all four historic sizes (level at rest, reach their speed, stay upright, stop); browser check with a simulated pad: board Curiosity with RB, drive with stick + RT, leave with RB.
 - Commit: this commit
 - Next step: Cagan tries it with a real pad.
+
+### 2026-11-15 Europe/Istanbul — LOAD-02 loading screen never closes on other players' machines
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: LOAD-02
+- Files changed: `web/hud/hud3d.js`, `.gitattributes`, `docs/AI_USE_LOG.md`
+- Why: other players reported that the game does not open and stays on the loading screen. Checked first: every file the page loads is tracked in git (nothing exists only on Cagan's machine). Most likely cause, introduced by PERF-03: a synchronous `renderer.compile(scene, camera)` right before the loading screen is removed. It builds every shader up front; fine on a strong GPU, but on a weak or integrated one it can block the page for minutes while the veil is up. It is removed (the light counts no longer change at run time, which was the real source of the freezes). The loading screen now names its step (CORRIDOR TERRAIN, GROUND DATA, NASA SUIT MODEL, SCENE) so a stuck load shows where; the corridor load (40 s), the height map (30 s) and each suit model (25 s) give up and fall back (single height tile; next suit; capsule stand-in) instead of hanging; if the 3D view throws, the veil shows `3D VIEW FAILED: <message>`. `.gitattributes` marks `.glb .bin .jpg .wasm` and audio files as binary so git on another Windows machine can never rewrite their line endings (checked: `git add --renormalize` changed nothing, the repository copies are intact).
+- Not reproduced here: my machine opens the game in about 7 s. If it still sticks for someone, the text on the loading screen (or the first red line in the browser console, F12) says where.
+- Commit: this commit
+- Next step: the affected players pull, hard-refresh (Ctrl+Shift+R) and report the step name if it still sticks.
+
+### 2026-11-15 Europe/Istanbul — RIG-02 astronaut hands
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: RIG-02
+- Files changed: `web/hud/astronaut-rig.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked to fix the astronauts' hands. Rendered a close-up test sheet (front, three-quarter, side, walk, run) of the rig: the gloves were glued to the end of the forearm bone, so they stayed palm-forward with spread fingers in every pose and looked stuck on, small against the bulky sleeves. The rig now has a hand bone per arm (`handL`, `handR`, children of the forearm bones) at a wrist found on the forearm axis (0.13 H before the fingertip cluster); the glove vertices beyond the wrist are weighted to it with a ~5 cm blend. The hand rests rolled about the forearm axis (palm in towards the thigh, thumb forward), curled slightly at the wrist, and 16 % larger. `createAstronaut(rig, { handRoll, handCurl })` can override the two angles. It applies to every astronaut (you in 3rd person, remote crew, NPCs). The Mark III fallback suit was not tuned and still has the old arm posture.
+- Not changed: finger shapes (the mesh has no finger bones; the fingers stay in the modelled, slightly spread, pose).
+- Commit: this commit
+- Next step: none.
+
+### 2026-11-15 Europe/Istanbul — AUDIO-01 repeating beeps without a reason
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: AUDIO-01
+- Files changed: `web/shared/audioEngine.js`, `web/environment/marsWeather.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan reported the simulation beeping ("dı dı") at intervals for no reason. Two sources of the 880 Hz double-pulse hazard chime: (1) the audio engine played it every 4 s for as long as the slope was above 15 deg or an alert was set; most of the HiRISE terrain is steeper than 15 deg, so it beeped while walking and standing on ordinary hills. It is now a single beep when you step onto a slope above 20 deg (the walking limit), re-armed after returning to ground below 14 deg, with a 20 s cooldown. (2) During a solar particle event the weather module beeped every 3.6 s; it now beeps once when the event starts and once a minute as a reminder (the banner stays up). The generative music notes (every ~6.5 s) were not touched; the audio pill in the top right turns all sound off.
+- Commit: this commit
+- Next step: none.
+
+### 2026-11-15 Europe/Istanbul — merge of main (landing perf, NPC dialogue) and a lighter lander warm-up
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer
+- Task id: LOAD-02 follow-up
+- Files changed: `web/hud/hud3d.js`, `web/hud/landing-sequence.js`, `docs/AI_USE_LOG.md`
+- Why: main added a shader pre-compile of the lander before the loading screen lifts (and a test that requires it). Keeping the idea, but `landing.warmup()` now compiles only the lander's own materials, lit by the scene (`renderer.compile(L.group, camera, scene)`), instead of the whole scene: the whole-scene compile at that point is what could block weak GPUs for minutes ("stuck on loading" for other players). The npc-system test (which checks that hud3d.js pre-compiles the lander shaders) passes.
+- Commit: this commit
+- Next step: none.

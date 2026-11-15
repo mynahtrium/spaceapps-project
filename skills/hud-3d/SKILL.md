@@ -7,7 +7,7 @@ description: Build the first-person Mount Sharp terrain view and helmet HUD (thr
 
 Do **not** write application code in `web/` before 14 November 2026. This skill is instructions only.
 
-The 12 November 2026 team decision: the main experience is a **3D first-person terrain view** with a **helmet HUD**, fed by the 2D MapLibre planner (`skills/map-ui`). VR / **WebXR is stretch only** (hours 32–40) and must not break the default web view. Details and timing: [ROADMAP.md](../../ROADMAP.md).
+The 12 November 2026 team decision: the main experience is a **3D first-person terrain view** with a **helmet HUD**, fed by the route from the pipeline. The 2D MapLibre planner in that decision was later removed; the Orbit view replaced it. VR / **WebXR is stretch only** (hours 32–40) and must not break the default web view. Details and timing: [ROADMAP.md](../../ROADMAP.md).
 
 ## Engine
 
@@ -29,7 +29,7 @@ SHOULD (hours 16–32): dose card and DONKI banner, rover POV when the crew is a
 
 ## Receiving the route
 
-The planner fires `mm:set-route` (or a shared helper in `web/shared/`) with a [route](../../docs/contracts/route.json) object and `along_m`. The 3D view places the camera at that distance along the LineString (GeoJSON coordinates are **lon, lat**), orients heading along the path, and samples slope from the route profile or telemetry file. The HUD must work if this event is fired **once** with the static route file.
+`app.js` fires `mm:set-route` (or a shared helper in `web/shared/`) with a [route](../../docs/contracts/route.json) object and `along_m`. The 3D view places the camera at that distance along the LineString (GeoJSON coordinates are **lon, lat**), orients heading along the path, and samples slope from the route profile or telemetry file. The HUD must work if this event is fired **once** with the static route file.
 
 Load `data/processed/routing/` and `data/processed/terrain/` first; fall back to `docs/contracts/` so a missing pipeline does not crash the visor.
 

@@ -646,51 +646,6 @@ svg.profile-svg {
   cursor: pointer;
 }
 
-/* MapLibre controls in dark cyan HUD theme */
-.maplibregl-ctrl-group {
-  background: rgba(0, 6, 10, 0.88) !important;
-  border: 1px solid var(--line) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.maplibregl-ctrl-group button {
-  filter: invert(1) sepia(1) saturate(3) hue-rotate(155deg) brightness(1.05);
-}
-
-.maplibregl-ctrl-attrib {
-  background: rgba(0, 4, 7, 0.72) !important;
-  color: var(--faint) !important;
-  font-family: var(--mono);
-  font-size: 9px;
-}
-
-.maplibregl-ctrl-attrib a {
-  color: var(--muted) !important;
-}
-
-.maplibregl-popup-content {
-  background: rgba(0, 6, 10, 0.92) !important;
-  color: var(--cyan) !important;
-  border: 1px solid var(--line-strong);
-  border-radius: 0 !important;
-  font-family: var(--mono);
-}
-
-.maplibregl-popup-content * {
-  color: var(--cyan) !important;
-}
-
-.maplibregl-popup-close-button {
-  color: var(--cyan) !important;
-  font-size: 16px;
-  padding: 2px 6px;
-}
-
-.maplibregl-popup-tip {
-  display: none;
-}
-
 /* ---------- 3D bodycam view ---------- */
 
 #hud-view {
@@ -1131,18 +1086,131 @@ svg.profile-svg {
   inset: 0;
   z-index: 7;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
+  padding: 24px;
   background: var(--bg);
   color: var(--cyan);
-  letter-spacing: 0.3em;
-  font-size: 11px;
-  transition: opacity 0.6s;
-  pointer-events: none;
+  text-align: center;
+  transition: opacity 0.6s, visibility 0s linear 0.6s;
 }
 
 .loading-veil.done {
   opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Elevation contours with a pushbroom scan line passing over them (how HiRISE images the ground).
+   Only transforms are animated, so the sweep keeps moving while shaders compile on the main thread. */
+.loading-map {
+  --map: min(240px, 46vmin);
+  --band: calc(var(--map) * 0.16);
+  position: relative;
+  width: var(--map);
+  height: var(--map);
+  overflow: hidden;
+}
+
+.loading-map svg {
+  display: block;
+  width: var(--map);
+  height: var(--map);
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.loading-scan {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: var(--band);
+  overflow: hidden;
+  border-bottom: 1px solid var(--cyan-bright);
+  background: linear-gradient(to bottom, transparent, var(--tint-12));
+  animation: loading-sweep 2.6s linear infinite;
+}
+
+.loading-scan svg {
+  stroke: var(--cyan-bright);
+  stroke-width: 1.4;
+  animation: loading-sweep-counter 2.6s linear infinite;
+}
+
+@keyframes loading-sweep {
+  from {
+    transform: translateY(calc(var(--band) * -1));
+  }
+  to {
+    transform: translateY(var(--map));
+  }
+}
+
+@keyframes loading-sweep-counter {
+  from {
+    transform: translateY(var(--band));
+  }
+  to {
+    transform: translateY(calc(var(--map) * -1));
+  }
+}
+
+.loading-stage {
+  margin: 6px 0 0;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--cyan-bright);
+}
+
+.loading-note {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.loading-veil.failed .loading-scan {
+  display: none;
+}
+
+.loading-veil.failed .loading-stage {
+  color: var(--red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-scan,
+  .loading-scan svg {
+    animation: none;
+  }
+
+  .loading-scan {
+    display: none;
+  }
+
+  .loading-map svg {
+    stroke: var(--line-strong);
+  }
+}
+
+.hud-perf {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 6;
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--cyan-bright);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre;
+  pointer-events: none;
 }
 
 /* ---------- modal ---------- */
@@ -2538,6 +2606,8 @@ body.landing-active .visor-overlay,
 body.landing-active .hud-reticle,
 body.landing-active .rover-dash {
   visibility: hidden;
+}
+
 /* Interactive Astronaut NPC Dialogue HUD Overlay */
 .npc-dialogue-backdrop {
   position: fixed;

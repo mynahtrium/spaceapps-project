@@ -58,7 +58,8 @@ const I18N = {
     menu_eva: "BEGIN EVA",
     menu_orbit: "ORBIT VIEW",
     menu_credits: "SOURCES & HONESTY",
-    menu_dev: "DEV",
+    menu_dev: "SETTINGS",
+    loading_note: "Elevation data, suit and rover models load once, before the EVA starts.",
     foot_sources:
       "DATA: NASA / MRO HiRISE (UArizona), MSL CURIOSITY, MARS TREK, DONKI · ASTRONAUT MODEL: NASA 3D RESOURCES · EXAMPLE ROUTE, STOPS NOT LOCKED (PRE-07)",
   },
@@ -73,7 +74,8 @@ const I18N = {
     menu_eva: "EVA'YA BAŞLA",
     menu_orbit: "YÖRÜNGE GÖRÜNÜMÜ",
     menu_credits: "KAYNAKLAR VE DÜRÜSTLÜK",
-    menu_dev: "GELİŞTİRİCİ",
+    menu_dev: "AYARLAR",
+    loading_note: "Yükseklik verisi, giysi ve araç modelleri EVA başlamadan önce bir kez yüklenir.",
     foot_sources:
       "VERİ: NASA / MRO HiRISE (UArizona), MSL CURIOSITY, MARS TREK, DONKI · ASTRONOT MODELİ: NASA 3D RESOURCES · ÖRNEK ROTA, DURAKLAR KİLİTLİ DEĞİL (PRE-07)",
   },
@@ -467,7 +469,7 @@ async function boot() {
     modalToggleKey = null;
     const tr = readLang() === "tr";
     const s = loadDevSettings();
-    modalTitle.textContent = tr ? "GELİŞTİRİCİ AYARLARI // DENEYSEL" : "DEVELOPER SETTINGS // EXPERIMENTAL";
+    modalTitle.textContent = tr ? "AYARLAR" : "SETTINGS";
     modalBody.innerHTML = `
       <div class="dev-panel">
         <div class="dev-note">
@@ -548,33 +550,116 @@ async function boot() {
 
         <label class="dev-row">
           <div>
-            <div class="dev-label">${tr ? "Grafik kalitesi" : "Graphics quality"}</div>
+            <div class="dev-label">${tr ? "Grafik ön ayarı" : "Graphics preset"}</div>
             <div class="dev-sub">${
               tr
-                ? "Performans: ekranın yenileme hızını (120 Hz) hedefler; 1× çözünürlük, MSAA yok, 1024 px gölge, az toz. Dengeli: 2× MSAA, 2048 px gölge. Kalite: 1.25× çözünürlük. F3 ile FPS ve çizim sayısını gör."
-                : "Performance aims at the screen's refresh rate (120 Hz): 1× resolution, no MSAA, 1024 px shadows, less dust. Balanced: 2× MSAA, 2048 px shadows. Quality: 1.25× resolution. Press F3 for FPS and draw calls."
+                ? "Otomatik, ekran kartına göre seçer. Düşük: eski ve tümleşik kartlar için (gölge haritası yok, yakın arazi, %75 çözünürlük). Ultra: 4096 px yumuşak gölgeler, kayalar, 1.25× çözünürlük."
+                : "Auto picks one from your GPU. Low suits older and integrated GPUs (no shadow map, near terrain only, 75 % resolution). Ultra adds 4096 px soft shadows, rocks and 1.25× resolution."
             }</div>
           </div>
           <select id="dev-quality">
-            <option value="performance">${tr ? "Performans" : "Performance"}</option>
-            <option value="balanced">${tr ? "Dengeli" : "Balanced"}</option>
-            <option value="quality">${tr ? "Kalite" : "Quality"}</option>
+            <option value="auto">${tr ? "Otomatik" : "Auto"}</option>
+            <option value="low">${tr ? "Düşük" : "Low"}</option>
+            <option value="medium">${tr ? "Orta" : "Medium"}</option>
+            <option value="high">${tr ? "Yüksek" : "High"}</option>
+            <option value="ultra">Ultra</option>
           </select>
         </label>
 
-        <label class="dev-row dev-row-exp">
+        <label class="dev-row">
           <div>
-            <div class="dev-label">
-              ${tr ? "Deneysel Süper Grafikler" : "Experimental Super Graphics"}
-              <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
-            </div>
+            <div class="dev-label">${tr ? "Gölgeler" : "Shadows"}</div>
             <div class="dev-sub">${
               tr
-                ? "En çok 1.5× piksel oranı, 2× MSAA, 2048 px yumuşak güneş gölgeleri, kayalar ve yüksek mikro-detay açar. Ekran yenileme hızını tutmak için çözünürlük en çok %60'a kadar otomatik düşer."
-                : "Up to 1.5× pixel ratio, 2× MSAA, 2048 px soft sun shadows, rocks and high terrain micro-relief. Resolution still drops automatically (down to 60 %) to hold the screen's refresh rate."
+                ? "Güneşin giysi, araç ve üs gölgeleri. Arazi gölgeleri her ayarda kalır."
+                : "Sun shadows of the suit, rovers and habitat. Terrain shadows stay on at every setting."
             }</div>
           </div>
-          <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
+          <select id="dev-gfx-shadows" data-gfx="gfxShadows">
+            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+            <option value="off">${tr ? "Kapalı" : "Off"}</option>
+            <option value="low">${tr ? "Düşük (1024 px)" : "Low (1024 px)"}</option>
+            <option value="high">${tr ? "Yüksek (2048 px)" : "High (2048 px)"}</option>
+            <option value="ultra">${tr ? "Ultra (4096 px, yumuşak)" : "Ultra (4096 px, soft)"}</option>
+          </select>
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Ayrıntılı arazi mesafesi" : "Detailed terrain distance"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "1 m HiRISE arazisinin çizildiği yarıçap. Ötesinde 8 m genel görünüm kullanılır."
+                : "Radius drawn from the 1 m HiRISE terrain. Beyond it the 8 m overview is used."
+            }</div>
+          </div>
+          <select id="dev-gfx-distance" data-gfx="gfxViewDistance">
+            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+            <option value="near">350 m</option>
+            <option value="medium">600 m</option>
+            <option value="far">850 m</option>
+            <option value="max">1000 m</option>
+          </select>
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Çözünürlük" : "Render resolution"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "3D sahnenin çözünürlüğü. Ön ayarda bırakılırsa kare hızı düşünce kendiliğinden azalır; elle seçilen değer sabit kalır."
+                : "Resolution of the 3D scene. Left on the preset it lowers itself when frames run slow; a value chosen here stays fixed."
+            }</div>
+          </div>
+          <select id="dev-gfx-scale" data-gfx="gfxRenderScale">
+            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+            <option value="0.5">50 %</option>
+            <option value="0.75">75 %</option>
+            <option value="1">100 %</option>
+            <option value="1.25">125 %</option>
+          </select>
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Kenar yumuşatma" : "Anti-aliasing"}</div>
+            <div class="dev-sub">${tr ? "Sahne üzerinde MSAA örnek sayısı." : "MSAA samples on the scene."}</div>
+          </div>
+          <select id="dev-gfx-aa" data-gfx="gfxAntialias">
+            <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
+            <option value="0">${tr ? "Kapalı" : "Off"}</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Kare hızı sınırı" : "Frame rate limit"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Yüksek yenileme hızlı ekranlarda ekran kartı yükünü ve ısıyı azaltır."
+                : "Cuts GPU load and heat on high refresh rate screens."
+            }</div>
+          </div>
+          <select id="dev-fps-limit" data-gfx="fpsLimit">
+            <option value="0">${tr ? "Ekranın hızı" : "Screen rate"}</option>
+            <option value="30">30 fps</option>
+            <option value="60">60 fps</option>
+            <option value="120">120 fps</option>
+          </select>
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Performans bilgisini göster" : "Show performance stats"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Kare hızı, çizim çağrıları, üçgenler ve bellekteki geometri / doku sayısı. Kısayol: F3."
+                : "Frame rate, draw calls, triangles, and the geometries and textures held in memory. Shortcut: F3."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-show-perf" ${s.showPerf ? "checked" : ""} />
         </label>
 
         <label class="dev-row dev-row-exp">
@@ -637,18 +722,6 @@ async function boot() {
             }</div>
           </div>
           <input type="checkbox" id="dev-realistic-dust" ${s.realisticDust ? "checked" : ""} />
-        </label>
-
-        <label class="dev-row">
-          <div>
-            <div class="dev-label">${tr ? "Rüzgar Tozu & Vizör Kirlenmesi" : "Wind-Blown & Visor Glass Dust"}</div>
-            <div class="dev-sub">${
-              tr
-                ? "Rüzgarla uçuşan tanecikleri ve kask camında biriken Mars tozunu açar/kapatır."
-                : "Toggles wind-blown dust grains and gradual Martian dust buildup on the helmet visor glass."
-            }</div>
-          </div>
-          <input type="checkbox" id="dev-wind-dust" ${s.windDust ? "checked" : ""} />
         </label>
 
         <label class="dev-row">
@@ -728,12 +801,12 @@ async function boot() {
     const roverSpeedRange = document.getElementById("dev-rover-speed");
     const roverSpeedVal = document.getElementById("dev-rover-speed-val");
     const qualitySel = document.getElementById("dev-quality");
-    const superToggle = document.getElementById("dev-super-gfx");
+    const gfxSelects = [...modalBody.querySelectorAll("select[data-gfx]")];
+    const perfToggle = document.getElementById("dev-show-perf");
     const rtToggle = document.getElementById("dev-ray-tracing");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
-    const windDustToggle = document.getElementById("dev-wind-dust");
     const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
     const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
     const fovRange = document.getElementById("dev-fov");
@@ -760,13 +833,13 @@ async function boot() {
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
       if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
-      if (qualitySel) qualitySel.value = cfg.quality;
-      if (superToggle) superToggle.checked = cfg.superGraphics;
+      if (qualitySel) qualitySel.value = cfg.superGraphics ? "ultra" : cfg.quality;
+      for (const sel of gfxSelects) sel.value = String(cfg[sel.dataset.gfx]);
+      if (perfToggle) perfToggle.checked = cfg.showPerf;
       if (rtToggle) rtToggle.value = cfg.rayTracingMode || (cfg.rayTracing ? "high" : "off");
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
-      if (windDustToggle) windDustToggle.checked = cfg.windDust;
       if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
       if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
       if (fovRange) fovRange.value = String(cfg.fov);
@@ -795,8 +868,13 @@ async function boot() {
         syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
       );
     });
-    qualitySel?.addEventListener("change", () => syncUi(saveDevSettings({ quality: qualitySel.value })));
-    superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
+    qualitySel?.addEventListener("change", () =>
+      syncUi(saveDevSettings({ quality: qualitySel.value, superGraphics: false }))
+    );
+    for (const sel of gfxSelects) {
+      sel.addEventListener("change", () => syncUi(saveDevSettings({ [sel.dataset.gfx]: sel.value })));
+    }
+    perfToggle?.addEventListener("change", () => syncUi(saveDevSettings({ showPerf: perfToggle.checked })));
     rtToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ rayTracingMode: rtToggle.value, rayTracing: rtToggle.value !== "off" }))
     );
@@ -809,7 +887,6 @@ async function boot() {
     realisticDustToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticDust: realisticDustToggle.checked }))
     );
-    windDustToggle?.addEventListener("change", () => syncUi(saveDevSettings({ windDust: windDustToggle.checked })));
     realisticPhysicsToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticPhysics: realisticPhysicsToggle.checked }))
     );
@@ -1148,7 +1225,7 @@ async function boot() {
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
     const activeTheme = loadDevSettings().hudTheme || "cyan";
     setText("esc-theme", `${tr ? "Tema" : "Theme"}: ${getThemeLabel(activeTheme, tr)}`);
-    setText("esc-dev", tr ? "Geliştirici Ayarları" : "Developer Settings");
+    setText("esc-dev", tr ? "Ayarlar" : "Settings");
     setText("esc-sources", tr ? "Kaynaklar ve Dürüstlük" : "Sources & Honesty");
     setText("esc-title-btn", tr ? "Başlangıç Ekranı" : "Title Screen");
     setText("esc-hint", tr ? "DEVAM ETMEK İÇİN ESC" : "PRESS ESC TO RESUME");
@@ -1389,7 +1466,7 @@ async function boot() {
           },
         },
         { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
-        { label: t("Developer settings", "Geliştirici ayarları"), action: openDevSettingsModal },
+        { label: t("Settings", "Ayarlar"), action: openDevSettingsModal },
         { label: t("Title screen", "Başlangıç ekranı"), action: () => start.show() },
       ];
     }
@@ -1468,7 +1545,9 @@ async function boot() {
     // never leave the loading screen up for ever: say what failed
     console.error("3D view failed to start:", err);
     const veil = document.getElementById("hud-loading");
-    if (veil) veil.textContent = `3D VIEW FAILED: ${String(err?.message || err).slice(0, 160)}`;
+    veil?.classList.add("failed");
+    const stage = document.getElementById("hud-loading-stage");
+    if (stage) stage.textContent = `The 3D view could not start: ${String(err?.message || err).slice(0, 160)}. Reload the page to try again.`;
     throw err;
   }
   if (data.route) dispatchSetRoute(data.route, 0);

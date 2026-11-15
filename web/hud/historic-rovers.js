@@ -17,7 +17,7 @@
  */
 
 import { resolveRoverObbCollision } from "./experimental-rover.js";
-import { mergeStaticMeshes } from "./merge-static.js";
+import { collectRigNodes, mergeRigidParts, mergeStaticMeshes } from "./merge-static.js";
 
 function createCanvasTex(THREE, w, h, drawFn, { linear = false } = {}) {
   if (typeof document === "undefined") return null;
@@ -1950,6 +1950,7 @@ function disposeRoverGroup(group, sharedTexSet) {
   group.traverse((o) => {
     if (o.userData?.sharedAsset) return;
     if (!o.isSprite) o.geometry?.dispose?.();
+    if (o.userData?.sharedMaterial) return; // merged from a cached GLB: its materials stay in use
     const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
     for (const m of mats) {
       for (const key of ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "alphaMap"]) {
@@ -2058,6 +2059,9 @@ export function createHistoricRoverGroup(
       obj.receiveShadow = true;
     }
   });
+  // one mesh per material and moving part instead of ~200 small ones (see merge-static.js)
+  mergeRigidParts(THREE, body, collectRigNodes(body.userData.rig));
+
 
   if (roverSpec.modelKind === "perseverance-glb" && roverSpec.glbUrl && gltfLoader) {
     body.userData.isStandIn = true;
@@ -2065,7 +2069,19 @@ export function createHistoricRoverGroup(
       .then((gltf) => {
         if (!gltf?.scene || !outer.parent) return;
         const inst = gltf.scene.clone(true);
-        inst.traverse((o) => (o.userData.sharedAsset = true));
+        inst.traverse((o) => {
+          o.userData.sharedAsset = true;
+          // A transmissive material makes three.js draw the whole scene a second time, every
+          // frame, for the refraction behind one small glass part. Plain transparency instead.
+          for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+            if (m.transmission > 0) {
+              m.transmission = 0;
+              m.transparent = true;
+              m.opacity = Math.min(m.opacity, 0.45);
+              m.needsUpdate = true;
+            }
+          }
+        });
         const real = normalizePerseveranceGltf(THREE, inst, roverSpec.id);
         outer.remove(body);
         const texSet =
@@ -2076,6 +2092,7 @@ export function createHistoricRoverGroup(
         outer.traverse((obj) => {
           obj.userData.historicRoverId = roverSpec.id;
         });
+        mergeRigidParts(THREE, real, collectRigNodes(real.userData.rig));
         if (typeof onModelLoaded === "function") onModelLoaded(outer);
       })
       .catch((err) => console.warn("[historic-rovers] Failed loading NASA GLB:", roverSpec.glbUrl, err));

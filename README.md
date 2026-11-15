@@ -4,7 +4,7 @@ Private repo for team **Martian Mappers** at [NASA Space Apps Challenge 2026](ht
 
 We are building a Gale crater / Mount Sharp **Marswalk** for the official challenge [Interplanetary Survival Guide: Martian Map](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/).
 
-**Decisions (12 November 2026):** the primary science goal is **ancient lake sediments and habitability / biosignature potential (organics in mudstones)**. The boxwork unit on lower Mount Sharp is a **bonus stop**. The product is a **web app**: a 2D [MapLibre](https://maplibre.org/maplibre-gl-js/docs/) planner **sends the route** to a **3D first-person terrain view** with a **helmet HUD** (three.js heightmap by default). VR / WebXR is stretch only.
+**Decisions (12 November 2026):** the primary science goal is **ancient lake sediments and habitability / biosignature potential (organics in mudstones)**. The boxwork unit on lower Mount Sharp is a **bonus stop**. The product is a **web app**: a **3D first-person terrain view** with a **helmet HUD** (three.js) that follows the pipeline's route, plus an Orbit view for picking a landing site. The 2D MapLibre planner from the first plan was replaced by the Orbit view and removed. VR / WebXR is stretch only.
 
 ## Where to start
 
@@ -19,8 +19,7 @@ Submission is on the Team page's Project tab and closes Sunday 15 November 23:59
 
 ## Product
 
-- **Planner:** MapLibre 2D map with HiRISE ortho, slope hazard, THEMIS, CRISM, CTX and MOLA layers; elevation profile; science stops with Curiosity POV images; DONKI space-weather banner and REMS weather.
-- **Bodycam:** three.js first-person walk on HiRISE terrain with a helmet HUD (distance, slope, next stop), Mars physics, rovers, and crew multiplayer.
+- **Bodycam:** three.js first-person walk on HiRISE terrain with a helmet HUD (distance, slope, next stop), science stops with Curiosity POV images, DONKI space-weather alerts and REMS weather, Mars physics, rovers, and crew multiplayer. Graphics presets are under Settings; F3 shows frame statistics.
 - **Orbit view:** Mars globe with real day/night and moons; click to land.
 - **Pipeline:** Python and GDAL for the slope / hazard cost map, route, and cached science data.
 
@@ -31,7 +30,7 @@ data/raw/                      # originals; gitignored
 data/processed/terrain|routing|science
 data/demo/                     # offline demo fixtures
 pipeline/                      # Python preprocessing
-web/                           # the app (planner, hud, orbit, map, physics, shared, tests)
+web/                           # the app (hud, orbit, map, physics, shared, tests)
 docs/contracts/  docs/testing/  docs/demo/
 docs/GITHUB_WORKFLOW.md   docs/AI_USE.md   docs/AI_USE_LOG.md   docs/DECISIONS.md
 ```
@@ -54,4 +53,4 @@ docs/GITHUB_WORKFLOW.md   docs/AI_USE.md   docs/AI_USE_LOG.md   docs/DECISIONS.m
 
 ## Sources
 
-See the source list at the end of [AGENTS.md](./AGENTS.md). Planning content follows the team's 11 November 2026 internal note plus the 12 November decisions, and does not replace the official challenge page.
+See [docs/DATA_SOURCES.md](./docs/DATA_SOURCES.md) and the data table in [AGENTS.md](./AGENTS.md). This does not replace the official challenge page.

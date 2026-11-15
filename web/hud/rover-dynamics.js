@@ -132,6 +132,7 @@ export function roverParamsForHistoric(spec) {
 }
 
 const SUBSTEP = 1 / 240;
+const SLEEP_SPEED_SQ = 4e-4; // 2 cm/s (and 0.02 rad/s): a parked rover below this is at rest
 
 export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
   const P = params;
@@ -454,7 +455,9 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
 
     st.airborne = contacts === 0;
     // wheelspin light: the motors ask for more than at least two tyres can put down
-    st.tractionLimited = Math.abs(driveTotal) > 1 && wheels.filter((wh) => wh.contact && wh.slip >= 0.999).length >= 2;
+    let spinning = 0;
+    for (const wh of wheels) if (wh.contact && wh.slip >= 0.999) spinning++;
+    st.tractionLimited = Math.abs(driveTotal) > 1 && spinning >= 2;
 
     // integrate (semi-implicit Euler)
     const prevVY = st.vel.y;
@@ -508,19 +511,53 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
 
   /**
    * @param {number} dt frame time (s)
-   * @param {{throttle:number, steer:number, boost:boolean, handbrake:boolean, speedMultiplier?:number}} inp steer > 0 = left
+   * @param {{throttle:number, steer:number, boost:boolean, handbrake:boolean, speedMultiplier?:number, park?:boolean}} inp
+   *   steer > 0 = left. `park: true` marks a rover nobody drives: once it has settled on its springs
+   *   it sleeps (no substeps) until it is moved, reset, driven, or the ground under it changes.
    * @param {{sampleY:(x:number,z:number)=>number, sampleNormal:(x:number,z:number)=>{x:number,y:number,z:number}}} env
+   * @returns {boolean} false when the rover slept through this call (its pose did not change)
    */
   let acc = 0;
+  let asleep = false;
+  let restT = 0;
+  let sleepCheckT = 0;
+  let sleepGroundY = 0;
+  function wake() {
+    asleep = false;
+    restT = 0;
+  }
   function step(dt, inp, env) {
     st.landingImpact = 0;
-    acc = Math.min(acc + Math.min(0.1, Math.max(0, dt)), 0.1);
+    const frameDt = Math.min(0.1, Math.max(0, dt));
+    if (asleep) {
+      if (inp.park !== true) wake();
+      else {
+        // terrain detail can stream in under a parked rover: look at the ground twice a second
+        sleepCheckT += frameDt;
+        if (sleepCheckT < 0.5) return false;
+        sleepCheckT = 0;
+        if (Math.abs(env.sampleY(st.pos.x, st.pos.z) - sleepGroundY) < 0.02) return false;
+        wake();
+      }
+    }
+    acc = Math.min(acc + frameDt, 0.1);
     let n = 0;
     while (acc >= SUBSTEP && n < 30) {
       substep(SUBSTEP, inp, env);
       acc -= SUBSTEP;
       n++;
     }
+    if (inp.park === true && !st.airborne && st.vel.lengthSq() < SLEEP_SPEED_SQ && st.angVel.lengthSq() < SLEEP_SPEED_SQ) {
+      restT += frameDt;
+      if (restT > 1) {
+        asleep = true;
+        sleepCheckT = 0;
+        sleepGroundY = env.sampleY(st.pos.x, st.pos.z);
+        st.vel.set(0, 0, 0);
+        st.angVel.set(0, 0, 0);
+      }
+    } else restT = 0;
+    return true;
   }
 
   /** Yaw, pitch and roll (YXZ) of the chassis, for the model and the camera. */
@@ -535,15 +572,23 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     params: P,
     mountY,
     staticLen,
-    reset,
+    reset(x, z, yaw, sampleY) {
+      wake();
+      reset(x, z, yaw, sampleY);
+    },
     step,
+    get asleep() {
+      return asleep;
+    },
     attitude,
     /** Rover was moved from outside (world wrap, collision push): keep velocities, take the new spot. */
     setPosition(x, z) {
+      wake();
       st.pos.x = x;
       st.pos.z = z;
     },
     scaleVelocity(s) {
+      wake();
       st.vel.x *= s;
       st.vel.z *= s;
     },

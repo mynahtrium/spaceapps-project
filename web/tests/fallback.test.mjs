@@ -258,8 +258,7 @@ test("Static BUG-12 & BUG-14 regression checks on web/index.html & web/shared/da
   const html = fs.readFileSync(path.join(WEB_DIR, "index.html"), "utf8");
   assert.equal(html.includes("unpkg.com"), false, "index.html must not depend on unpkg.com");
   assert.ok(fs.existsSync(path.join(WEB_DIR, "vendor/three.module.js")));
-  assert.ok(fs.existsSync(path.join(WEB_DIR, "vendor/maplibre-gl.js")));
-  assert.ok(fs.existsSync(path.join(WEB_DIR, "vendor/maplibre-gl.css")));
+  assert.equal(html.includes("maplibre"), false, "MapLibre left with the 2D planner; it must not load");
 
   const loader = fs.readFileSync(path.join(WEB_DIR, "shared/data-loader.js"), "utf8");
   assert.match(loader, /terrainBase = demoSafe \? `\$\{base\}\/data\/demo`/);
@@ -315,19 +314,6 @@ test("MarsPbrTextures synthesizes high-contrast offline PBR albedo + normals and
       if (tex.data[i] > maxX) maxX = tex.data[i];
     }
     assert.ok(maxX - minX > 40, `${label} must vary in tangent normal X (delta=${maxX - minX})`);
-  }
-
-  const shaderSrc = fs.readFileSync(path.join(WEB_DIR, "map/MarsTerrainShader.js"), "utf8");
-  for (const token of [
-    "#include <common>",
-    "#include <logdepthbuf_pars_vertex>",
-    "#include <logdepthbuf_vertex>",
-    "#include <logdepthbuf_pars_fragment>",
-    "#include <logdepthbuf_fragment>",
-    "u_dustAlbedo",
-    "u_rockAlbedo",
-  ]) {
-    assert.equal(shaderSrc.includes(token), true, `MarsTerrainShader.js must include ${token}`);
   }
 });
 

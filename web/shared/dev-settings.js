@@ -6,12 +6,22 @@
 const STORAGE_KEY = "mm-dev-settings";
 export const DEV_SETTINGS_EVENT = "mm:dev-settings";
 
-export const QUALITY_LEVELS = Object.freeze(["performance", "balanced", "quality"]);
+export const QUALITY_LEVELS = Object.freeze(["auto", "low", "medium", "high", "ultra"]);
+// names used before the graphics presets existed
+const LEGACY_QUALITY = Object.freeze({ performance: "medium", balanced: "high", quality: "high" });
+const pick = (val, allowed, fallback) => (allowed.includes(String(val)) ? String(val) : fallback);
 export const RT_MODES = Object.freeze(["off", "performance", "balanced", "high", "ultra"]);
 
 export const DEFAULT_DEV_SETTINGS = Object.freeze({
-  // graphics quality: "performance" aims at the screen's refresh rate (120 Hz+), see hud3d.js
-  quality: "performance",
+  // graphics preset; "auto" picks one from the GPU (see graphics-profile.js)
+  quality: "auto",
+  // per-option overrides of the preset ("auto" = take the preset's value)
+  gfxShadows: "auto",
+  gfxViewDistance: "auto",
+  gfxRenderScale: "auto",
+  gfxAntialias: "auto",
+  fpsLimit: 0,
+  showPerf: false,
   hudTheme: "cyan",
   frameEffect: true,
   frameStrength: 0.2,
@@ -23,7 +33,6 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   experimentalRover: false,
   realisticTextures: false,
   realisticDust: true,
-  windDust: true,
   realisticPhysics: true,
   realisticWeather: true,
   dustTau: 0.5,
@@ -39,7 +48,6 @@ export const FULL_REALISM_PRESET = Object.freeze({
   experimentalRover: true,
   realisticTextures: true,
   realisticDust: true,
-  windDust: true,
   realisticPhysics: true,
   realisticWeather: true,
 });
@@ -103,7 +111,13 @@ export function cycleRayTracingMode(current = {}) {
 export function normalizeDevSettings(raw = {}) {
   const rtState = resolveRayTracingState(raw);
   return {
-    quality: QUALITY_LEVELS.includes(raw.quality) ? raw.quality : DEFAULT_DEV_SETTINGS.quality,
+    quality: pick(LEGACY_QUALITY[raw.quality] || raw.quality, QUALITY_LEVELS, DEFAULT_DEV_SETTINGS.quality),
+    gfxShadows: pick(raw.gfxShadows, ["auto", "off", "low", "high", "ultra"], "auto"),
+    gfxViewDistance: pick(raw.gfxViewDistance, ["auto", "near", "medium", "far", "max"], "auto"),
+    gfxRenderScale: pick(raw.gfxRenderScale, ["auto", "0.5", "0.75", "1", "1.25"], "auto"),
+    gfxAntialias: pick(raw.gfxAntialias, ["auto", "0", "2", "4"], "auto"),
+    fpsLimit: Number(pick(raw.fpsLimit, ["0", "30", "60", "120"], "0")),
+    showPerf: Boolean(raw.showPerf),
     hudTheme: ["cyan", "untitled", "mono"].includes(raw.hudTheme) ? raw.hudTheme : DEFAULT_DEV_SETTINGS.hudTheme,
     frameEffect: raw.frameEffect !== undefined ? Boolean(raw.frameEffect) : DEFAULT_DEV_SETTINGS.frameEffect,
     frameStrength: clampNum(raw.frameStrength, 0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
@@ -117,7 +131,6 @@ export function normalizeDevSettings(raw = {}) {
     realisticTextures:
       raw.realisticTextures !== undefined ? Boolean(raw.realisticTextures) : DEFAULT_DEV_SETTINGS.realisticTextures,
     realisticDust: raw.realisticDust !== undefined ? Boolean(raw.realisticDust) : DEFAULT_DEV_SETTINGS.realisticDust,
-    windDust: raw.windDust !== undefined ? Boolean(raw.windDust) : DEFAULT_DEV_SETTINGS.windDust,
     realisticPhysics:
       raw.realisticPhysics !== undefined ? Boolean(raw.realisticPhysics) : DEFAULT_DEV_SETTINGS.realisticPhysics,
     realisticWeather:

@@ -7,7 +7,7 @@ description: Fetch and cache NASA Mars data layers (HiRISE, CTX, MOLA, THEMIS, C
 
 Do **not** start the project data pipeline or bulk downloads before 14 November 2026. Reading this skill, listing URLs, and installing tools are fine.
 
-Follow the data-layer table and practical notes in [AGENTS.md](../../AGENTS.md). Links below were checked on 11 November 2026. Re-check the official [Resources tab](https://www.spaceappschallenge.org/2026/challenges/interplanetary-survival-guide-martian-map/) on 13 November (**UNVERIFIED** until then).
+Follow the data table in [AGENTS.md](../../AGENTS.md) and the practical notes below. Links below were checked on 11 November 2026.
 
 The 12 November 2026 decision keeps the **Gale / Mount Sharp** site and the same DTM / rover data. The science goal is **ancient lake sediments and habitability / organics in mudstones**, with boxwork as a **bonus stop**. Crop around the **locked** stops (chosen on paper / HiView before or at hour 0), not around invented coordinates. Role sheets: Backend 1 uses this skill for DTM/ortho; Backend 3 uses it for REMS, RAD, DONKI, THEMIS, CRISM, and POV.
 

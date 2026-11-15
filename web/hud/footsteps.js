@@ -130,6 +130,7 @@ export function createFootsteps(THREE, scene) {
     vy: 0,
     vz: 0,
   }));
+  const stamped = Array.from({ length: N_DECAL }, () => ({ active: false, x: 0, z: 0, yaw: 0, side: "L" }));
   let decalCursor = 0;
   let dustCursor = 0;
   const dummy = new THREE.Object3D();
@@ -214,8 +215,7 @@ export function createFootsteps(THREE, scene) {
   }
 
   let dustActive = false;
-  function stamp(x, y, z, normal, yaw, faciesId, side = "L") {
-    if (!enabled) return;
+  function applyDecalMatrix(idx, x, y, z, normal, yaw, side) {
     nrm.set(normal?.x ?? 0, normal?.y ?? 1, normal?.z ?? 0);
     if (nrm.lengthSq() < 1e-6) nrm.set(0, 1, 0);
     nrm.normalize();
@@ -226,7 +226,18 @@ export function createFootsteps(THREE, scene) {
     const sx = side === "R" ? -suitProfile.widthM : suitProfile.widthM;
     dummy.scale.set(sx, 1, suitProfile.lengthM);
     dummy.updateMatrix();
-    decals.setMatrixAt(decalCursor, dummy.matrix);
+    decals.setMatrixAt(idx, dummy.matrix);
+  }
+
+  function stamp(x, y, z, normal, yaw, faciesId, side = "L") {
+    if (!enabled) return;
+    applyDecalMatrix(decalCursor, x, y, z, normal, yaw, side);
+    const slot = stamped[decalCursor];
+    slot.active = true;
+    slot.x = x;
+    slot.z = z;
+    slot.yaw = yaw || 0;
+    slot.side = side;
     decalCursor = (decalCursor + 1) % N_DECAL;
     decals.instanceMatrix.needsUpdate = true;
 
@@ -278,11 +289,44 @@ export function createFootsteps(THREE, scene) {
     if (dirty) dustMesh.instanceMatrix.needsUpdate = true;
   }
 
+  function clear() {
+    for (let i = 0; i < N_DECAL; i++) {
+      stamped[i].active = false;
+      decals.setMatrixAt(i, hidden);
+    }
+    decalCursor = 0;
+    decals.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < N_DUST; i++) {
+      motes[i].life = 0;
+      dustMesh.setMatrixAt(i, hidden);
+    }
+    dustCursor = 0;
+    dustActive = false;
+    dustMesh.visible = false;
+    dustMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  function reprojectAll(sampleY, sampleNormal = null) {
+    if (typeof sampleY !== "function") return 0;
+    let updated = 0;
+    for (let i = 0; i < N_DECAL; i++) {
+      const slot = stamped[i];
+      if (!slot.active) continue;
+      const y = sampleY(slot.x, slot.z);
+      if (!Number.isFinite(y)) continue;
+      const n = typeof sampleNormal === "function" ? sampleNormal(slot.x, slot.z) : null;
+      applyDecalMatrix(i, slot.x, y, slot.z, n, slot.yaw, slot.side);
+      updated++;
+    }
+    if (updated > 0) decals.instanceMatrix.needsUpdate = true;
+    return updated;
+  }
+
   function setEnabled(on) {
     enabled = Boolean(on);
     decals.visible = enabled;
     dustMesh.visible = enabled && dustActive;
   }
 
-  return { play, stamp, update, setEnabled, setSuitProfile, resume: () => audio()?.resume?.() };
+  return { play, stamp, update, clear, reprojectAll, setEnabled, setSuitProfile, resume: () => audio()?.resume?.() };
 }

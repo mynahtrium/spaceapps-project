@@ -174,3 +174,30 @@ const idle = { throttle: 0, steer: 0, boost: false, handbrake: false };
 }
 
 console.log("rover-dynamics: all checks passed");
+
+// parked rovers sleep once settled, and wake when driven, moved or when the ground changes
+{
+  const rv = createRoverDynamics(THREE);
+  rv.reset(0, 0, 0, flat.sampleY);
+  const parked = { throttle: 0, steer: 0, boost: false, handbrake: true, park: true };
+  run(rv, 6, parked);
+  assert.ok(rv.asleep, "settled parked rover sleeps");
+  const y0 = rv.state.pos.y;
+  assert.equal(rv.step(1 / 60, parked, flat), false, "a sleeping rover skips the simulation");
+  assert.equal(rv.state.pos.y, y0);
+  // not parked (someone is in the seat): never sleeps, however long it stands still
+  const rv2 = createRoverDynamics(THREE);
+  rv2.reset(0, 0, 0, flat.sampleY);
+  run(rv2, 6, { ...idle, handbrake: true });
+  assert.ok(!rv2.asleep, "a rover that is not parked stays awake");
+  // driving wakes it
+  assert.equal(rv.step(1 / 60, { ...idle, throttle: 1 }, flat), true);
+  assert.ok(!rv.asleep, "input wakes the rover");
+  // ground rising under a sleeping rover (terrain detail streamed in) wakes it and it follows
+  run(rv, 8, parked);
+  assert.ok(rv.asleep, "sleeps again");
+  const raised = { sampleY: () => 0.3, sampleNormal: flat.sampleNormal };
+  run(rv, 4, parked, raised);
+  assert.ok(Math.abs(rv.state.pos.y - y0 - 0.3) < 0.03, `follows the new ground (${(rv.state.pos.y - y0).toFixed(3)} m)`);
+  console.log("sleep ok");
+}
