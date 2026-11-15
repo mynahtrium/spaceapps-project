@@ -12,8 +12,6 @@ import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
 import {
   DEFAULT_DEV_SETTINGS,
   FULL_REALISM_PRESET,
-  RT_MODES,
-  cycleRayTracingMode,
   normalizeDevSettings,
 } from "../shared/dev-settings.js";
 import {
@@ -40,13 +38,13 @@ import {
 import { HABITAT_LAYOUT, HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
 import { createRockField } from "../hud/MarsRockField.js";
 import {
-  RT_HEIGHT_GLSL,
-  RT_INTERNAL_RESOLUTION_SCALE,
-  RT_LENS_PARS_GLSL,
-  RT_QUALITY_PRESETS,
-  buildHeightfieldRtData,
-  createRayTracerUniforms,
-} from "../hud/ray-tracer.js";
+  AA_MODES,
+  AO_LEVELS,
+  AO_PRESETS,
+  effectivePixelRatio,
+  normalizeAaMode,
+  normalizeAoLevel,
+} from "../hud/post-pipeline.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
 import { TerrainWorkerPool } from "../map/TerrainWorkerPool.js";
@@ -383,8 +381,9 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(clean.frameStrength, 1.5);
   assert.equal(clean.speedMultiplier, 8.0);
   assert.equal(clean.roverSpeedMultiplier, 4.0);
-  assert.equal(clean.superGraphics, true);
-  assert.equal(clean.rayTracing, true);
+  assert.equal(clean.quality, "ultra");
+  assert.equal("rayTracing" in clean, false);
+  assert.equal("dlss" in clean, false);
   assert.equal(clean.experimentalRover, true);
   assert.equal(clean.realisticTextures, true);
   assert.equal(clean.realisticDust, false);
@@ -398,19 +397,13 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(defs.frameStrength, 0.2);
   assert.equal(defs.speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
   assert.equal(defs.roverSpeedMultiplier, 1.0);
-  assert.equal(defs.rayTracing, false);
-  assert.equal(defs.rayTracingMode, "off");
-  assert.deepEqual(RT_MODES, ["off", "performance", "balanced", "high", "ultra"]);
-  const stepPerf = cycleRayTracingMode(defs);
-  assert.deepEqual(stepPerf, { rayTracing: true, rayTracingMode: "performance" });
-  const stepBal = cycleRayTracingMode(stepPerf);
-  assert.deepEqual(stepBal, { rayTracing: true, rayTracingMode: "balanced" });
-  const stepHigh = cycleRayTracingMode(stepBal);
-  assert.deepEqual(stepHigh, { rayTracing: true, rayTracingMode: "high" });
-  const stepUltra = cycleRayTracingMode(stepHigh);
-  assert.deepEqual(stepUltra, { rayTracing: true, rayTracingMode: "ultra" });
-  const stepOff = cycleRayTracingMode(stepUltra);
-  assert.deepEqual(stepOff, { rayTracing: false, rayTracingMode: "off" });
+  // saved settings from before the rework: ray tracing and DLSS are dropped, Super Graphics = ultra
+  const legacy = normalizeDevSettings({ rayTracing: true, rayTracingMode: "ultra", dlss: true, dlssMode: "dlaa", superGraphics: true, gfxAntialias: "4" });
+  assert.equal("rayTracing" in legacy, false);
+  assert.equal("dlssMode" in legacy, false);
+  assert.equal(legacy.quality, "ultra");
+  assert.equal(legacy.gfxAntialias, "msaa");
+  assert.equal(normalizeDevSettings({ gfxAntialias: "0" }).gfxAntialias, "off");
   assert.equal(defs.experimentalRover, false);
   assert.equal(defs.realisticTextures, false);
   assert.equal(defs.realisticDust, true);
@@ -421,53 +414,24 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(normalizeDevSettings({ dustTau: 0.05 }).dustTau, 0.35);
 });
 
-test("ray-tracer packs 16-bit mirrored heightfield accurately and exposes GLSL kernels", () => {
-  const sampleFn = (x, z) => 12.0 + Math.sin(x * 0.03) * 8.0 + Math.cos(z * 0.02) * 5.0;
-  const packed = buildHeightfieldRtData(sampleFn, 100, 100, 32);
-  assert.equal(packed.width, 64);
-  assert.equal(packed.height, 64);
-  assert.equal(packed.data.length, 64 * 64 * 4);
-  assert.ok(packed.span >= 1);
+test("post pipeline exposes honest AO / AA choices and a real render scale", () => {
+  assert.deepEqual(AO_LEVELS, ["off", "low", "high"]);
+  assert.deepEqual(AA_MODES, ["off", "fxaa", "smaa", "msaa"]);
+  assert.equal(AO_PRESETS.off.enabled, false);
+  assert.ok(AO_PRESETS.high.aoSamples > AO_PRESETS.low.aoSamples);
+  assert.equal(normalizeAoLevel("ultra"), "off");
+  assert.equal(normalizeAaMode("dlaa"), "smaa");
+  // render scale multiplies the capped display ratio
+  assert.equal(effectivePixelRatio(2, 1.5, 1), 1.5);
+  assert.equal(effectivePixelRatio(2, 1.5, 0.5), 0.75);
+  assert.equal(effectivePixelRatio(1, 2, 1.25), 1.25);
+  assert.equal(effectivePixelRatio(NaN, NaN, NaN), 1);
+});
 
-  // Decode center vs mirrored column across tile seam (col 31 vs col 32)
-  const decodeAt = (row, col) => {
-    const o = (row * 64 + col) * 4;
-    const val16 = (packed.data[o] * 256 + packed.data[o + 1]) / 65535;
-    return packed.minH + val16 * packed.span;
-  };
-  assert.ok(Math.abs(decodeAt(10, 31) - decodeAt(10, 32)) < 0.02, "mirrored tile edge must be C0 continuous");
-  assert.ok(Math.abs(decodeAt(31, 12) - decodeAt(32, 12)) < 0.02, "mirrored row edge must be C0 continuous");
-
-  assert.match(RT_HEIGHT_GLSL, /rtTraceShadow/);
-  assert.match(RT_HEIGHT_GLSL, /rtTraceGI/);
-  assert.match(RT_HEIGHT_GLSL, /rtTraceReflectionRay/);
-  assert.match(RT_LENS_PARS_GLSL, /rtScreenSpacePass/);
-  assert.match(RT_LENS_PARS_GLSL, /rtFxaaSample/);
-
-  const mockThree = { Vector2: class { constructor(x = 0, y = 0) { this.x = x; this.y = y; } } };
-  const uniforms = createRayTracerUniforms(mockThree, 100, 100, { clone: () => ({ x: 0.6, y: 0.5, z: 0.6 }) }, {
-    texture: {},
-    width: 64,
-    height: 64,
-    minH: packed.minH,
-    span: packed.span,
-  });
-  assert.equal(uniforms.uRtEnabled.value, 0);
-  assert.equal(uniforms.uRtQuality.value, 0);
-  assert.equal(uniforms.uRtResScale.value, 0.5);
-  assert.equal(RT_INTERNAL_RESOLUTION_SCALE, 0.5);
-  assert.equal(RT_QUALITY_PRESETS.off.tier, 0);
-  assert.equal(RT_QUALITY_PRESETS.performance.resolutionScale, 0.5);
-  assert.equal(RT_QUALITY_PRESETS.performance.maxBounces, 1);
-  assert.equal(RT_QUALITY_PRESETS.balanced.resolutionScale, 0.7);
-  assert.equal(RT_QUALITY_PRESETS.balanced.maxBounces, 2);
-  assert.equal(RT_QUALITY_PRESETS.high.resolutionScale, 1.0);
-  assert.equal(RT_QUALITY_PRESETS.high.maxBounces, 3);
-  assert.equal(RT_QUALITY_PRESETS.ultra.tier, 4);
-  assert.equal(RT_QUALITY_PRESETS.ultra.maxBounces, 4);
-  assert.equal(RT_QUALITY_PRESETS.ultra.shadowSteps, 128);
-  assert.equal(uniforms.uRtOrigin.value.x, -50);
-  assert.equal(uniforms.uRtPeriod.value.x, 200);
+test("no ray tracing or DLSS code is left in the HUD", () => {
+  const hud = fs.readFileSync(path.join(WEB_DIR, "hud", "hud3d.js"), "utf8");
+  assert.doesNotMatch(hud, /ray-tracer\.js|getDlssPreset|cycleRayTracingMode|uDlss/);
+  assert.equal(fs.existsSync(path.join(WEB_DIR, "hud", "ray-tracer.js")), false);
 });
 
 test("bundled offline NASA MMSEV rover GLB asset is a valid binary", () => {

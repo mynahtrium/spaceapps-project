@@ -24,12 +24,41 @@ import {
   saveDevSettings,
   subscribeDevSettings,
 } from "./shared/dev-settings.js";
-import { buildHardwareSummary } from "./shared/graphics-profile.js";
+import {
+  buildHardwareSummary,
+  effectiveGfxChoice,
+  gfxPresetPatch,
+  hasGfxOverrides,
+  resolveGraphics,
+} from "./shared/graphics-profile.js";
 import { initContextMenu } from "./shared/context-menu.js";
 import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "./shared/gamepad.js";
 import { initGamepadSetup, mountGamepadSettings } from "./shared/gamepad-ui.js";
 
 const html = htm.bind(h);
+
+const GFX_PRESET_TEXT = {
+  auto: ["Auto", "Otomatik", "picked from your GPU", "ekran kartına göre"],
+  low: ["Low", "Düşük", "integrated / older GPUs", "tümleşik / eski kartlar"],
+  medium: ["Medium", "Orta", "balanced", "dengeli"],
+  high: ["High", "Yüksek", "AO, 2048 px shadows", "AO, 2048 px gölge"],
+  ultra: ["Ultra", "Ultra", "MSAA, 4096 px shadows", "MSAA, 4096 px gölge"],
+};
+const gfxPresetLabel = (lvl, tr) => GFX_PRESET_TEXT[lvl][tr ? 1 : 0];
+const gfxPresetSub = (lvl, tr) => GFX_PRESET_TEXT[lvl][tr ? 3 : 2];
+
+/** One graphics option row: label, what it does and what it costs, and a select bound to `key`. */
+function gfxSelectRow({ key, label, sub, options }) {
+  return html`<label class="dev-row">
+    <div>
+      <div class="dev-label">${label}</div>
+      <div class="dev-sub">${sub}</div>
+    </div>
+    <select data-gfx=${key}>
+      ${options.map(([v, t]) => html`<option value=${v}>${t}</option>`)}
+    </select>
+  </label>`;
+}
 
 function readHardwareTelemetry() {
   if (typeof window !== "undefined" && typeof window.__mmGetHardwareTelemetry === "function") {
@@ -744,14 +773,14 @@ async function boot() {
               procedural site relief rather than downloaded regional HiRISE tiles.
             </li>
             <li>
-              <strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are
-              precomputed by marching the HiRISE-derived height grid towards the sun.
+              <strong>Shadows:</strong> real-time sun shadow map in a box around the walker, redrawn every frame. Terrain
+              further away does not cast shadows on itself; slopes are only shaded by the sun angle.
             </li>
           </ul>
           <p>
             <strong>Rendering:</strong> real-time WebGL rasterisation with physically based materials, shadow maps, ACES
-            tone mapping and a helmet-camera lens pass (barrel distortion, chromatic aberration, grain, vignette). It is
-            not ray tracing. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery.
+            tone mapping, optional screen-space ambient occlusion (N8AO), bloom, FXAA / SMAA / MSAA anti-aliasing and a
+            helmet-camera lens pass (chromatic aberration, grain, vignette). It is not ray tracing and uses no upscaler. The textured terrain colour is an illustrative Mars tint over greyscale HiRISE imagery.
             Terrain beyond the 2.1 × 5.4 km HiRISE corridor is a mirrored copy, not data. Close-range ground grain (wind
             ripples, pebbles, fractured mudstone slabs) is procedurally generated in the browser for visual texture
             only; it is not mapped geology.
@@ -913,35 +942,7 @@ async function boot() {
               </span>
             </div>
 
-            <div class="dev-sec-title">${tr ? "Kamera & Vizör" : "Camera & Visor"}</div>
-
-            <div class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Kamera Görüş Açısı (FOV)" : "Camera Field of View (FOV)"}</div>
-                <div class="dev-sub"><span id="dev-fov-val">${`${Math.round(s.fov)}°`}</span></div>
-              </div>
-              <input class="dev-range" type="range" id="dev-fov" min="60" max="110" step="1" value=${s.fov} />
-            </div>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Vizör & Optik Lens Efekti" : "Visor & Optical Lens Effects"}</div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "Kask camı kenar çerçevesi, kromatik sapma, hafif film greni ve vinyet."
-                    : "Helmet glass vignette frame, subtle barrel distortion, chromatic aberration, and grain."}
-                </div>
-              </div>
-              <input type="checkbox" id="dev-frame-toggle" checked=${s.frameEffect} />
-            </label>
-
-            <div class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Çerçeve / Lens Şiddeti" : "Lens & Frame Strength"}</div>
-                <div class="dev-sub"><span id="dev-frame-strength-val">${`${Math.round(s.frameStrength * 100)}%`}</span></div>
-              </div>
-              <input class="dev-range" type="range" id="dev-frame-strength" min="0.2" max="1.5" step="0.05" value=${s.frameStrength} />
-            </div>
+            <div class="dev-sec-title">${tr ? "Kamera" : "Camera"}</div>
 
             <label class="dev-row">
               <div>
@@ -1001,154 +1002,159 @@ async function boot() {
 
           <!-- TAB 2: GRAPHICS -->
           <div class=${`settings-tab-pane ${activeTab === "graphics" ? "active" : ""}`} data-settings-pane="graphics">
-            ${hwCardVNode}
-            <div id="tweakpane-graphics-mount" style="margin:8px 0;"></div>
-            <div class="dev-sec-title">${tr ? "Kalite & Çözünürlük" : "Quality & Resolution"}</div>
+            <div class="gfx-presets" role="radiogroup" aria-label=${tr ? "Grafik ön ayarı" : "Graphics preset"}>
+              ${["auto", "low", "medium", "high", "ultra"].map(
+                (lvl) => html`<button class="gfx-preset" type="button" role="radio" data-gfx-preset=${lvl}>
+                  <span class="gfx-preset-name">${gfxPresetLabel(lvl, tr)}</span>
+                  <span class="gfx-preset-sub">${gfxPresetSub(lvl, tr)}</span>
+                </button>`
+              )}
+              <span class="gfx-preset gfx-preset-custom" data-gfx-custom hidden>
+                <span class="gfx-preset-name">${tr ? "Özel" : "Custom"}</span>
+                <span class="gfx-preset-sub">${tr ? "ön ayara dönmek için birini seçin" : "pick a preset to reset"}</span>
+              </span>
+            </div>
+            <div class="dev-note" data-gfx-active-note></div>
 
-            <label class="dev-row">
+            <div class="dev-sec-title">${tr ? "Ekran" : "Display"}</div>
+            ${gfxSelectRow({
+              key: "gfxRenderScale",
+              label: tr ? "Çözünürlük" : "Render resolution",
+              sub: tr
+                ? "3D sahnenin çizildiği piksel oranı; arayüz her zaman keskin kalır. Maliyet: piksel sayısıyla orantılı (125 % ≈ 1.6× iş)."
+                : "Pixel ratio the 3D scene is drawn at; the HUD always stays sharp. Cost: scales with pixel count (125 % ≈ 1.6× work).",
+              options: [
+                ["auto", tr ? "Otomatik (kare hızına uyar)" : "Auto (adapts to frame rate)"],
+                ["0.5", "50 %"],
+                ["0.75", "75 %"],
+                ["1", "100 %"],
+                ["1.25", "125 %"],
+              ],
+            })}
+            ${gfxSelectRow({
+              key: "fpsLimit",
+              label: tr ? "Kare hızı sınırı" : "Frame rate limit",
+              sub: tr ? "Yüksek yenileme hızlı ekranlarda ekran kartı yükünü ve ısıyı azaltır." : "Cuts GPU load and heat on high refresh rate screens.",
+              options: [
+                ["0", tr ? "Ekranın hızı" : "Screen rate"],
+                ["30", "30 fps"],
+                ["60", "60 fps"],
+                ["120", "120 fps"],
+              ],
+            })}
+            <div class="dev-row">
               <div>
-                <div class="dev-label">${tr ? "Grafik Ön Ayarı" : "Graphics preset"}</div>
+                <div class="dev-label">${tr ? "Görüş açısı (FOV)" : "Field of view"}</div>
                 <div class="dev-sub">
-                  ${tr
-                    ? "Otomatik, ekran kartına göre seçer. Düşük: eski ve tümleşik kartlar için. Ultra: 4096 px yumuşak gölgeler, kayalar, 1.25× çözünürlük."
-                    : "Auto picks one from your GPU. Low suits older and integrated GPUs. Ultra adds 4096 px soft shadows, rocks and 1.25× resolution."}
+                  <span id="dev-fov-val">${`${Math.round(s.fov)}°`}</span>
+                  ${tr ? "Geniş açı daha çok nesne çizer." : "Wider angles draw more of the scene."}
                 </div>
               </div>
-              <select id="dev-quality">
-                <option value="auto">${tr ? "Otomatik" : "Auto"}</option>
-                <option value="low">${tr ? "Düşük" : "Low"}</option>
-                <option value="medium">${tr ? "Orta" : "Medium"}</option>
-                <option value="high">${tr ? "Yüksek" : "High"}</option>
-                <option value="ultra">Ultra</option>
-              </select>
-            </label>
+              <input class="dev-range" type="range" id="dev-fov" min="60" max="110" step="1" value=${s.fov} />
+            </div>
 
+            <div class="dev-sec-title">${tr ? "Kalite" : "Quality"}</div>
+            ${gfxSelectRow({
+              key: "gfxShadows",
+              label: tr ? "Gölgeler" : "Shadows",
+              sub: tr
+                ? "Güneşin giysi, araç, insan ve üs gölgeleri, her karede güncellenir. Maliyet: harita boyutu arttıkça orta-yüksek."
+                : "Sun shadows of the suit, rovers, crew and habitat, updated every frame. Cost: medium to high as the map grows.",
+              options: [
+                ["off", tr ? "Kapalı" : "Off"],
+                ["low", tr ? "Düşük (1024 px)" : "Low (1024 px)"],
+                ["high", tr ? "Yüksek (2048 px)" : "High (2048 px)"],
+                ["ultra", tr ? "Ultra (4096 px, yumuşak)" : "Ultra (4096 px, soft)"],
+              ],
+            })}
+            ${gfxSelectRow({
+              key: "gfxViewDistance",
+              label: tr ? "Ayrıntılı arazi mesafesi" : "Detailed terrain distance",
+              sub: tr
+                ? "1 m arazinin çizildiği yarıçap; ötesi kaba katman. Maliyet: üçgen sayısı ve bellek."
+                : "Radius drawn from the 1 m terrain; beyond it the coarse layer. Cost: triangles and memory.",
+              options: [
+                ["near", "350 m"],
+                ["medium", "600 m"],
+                ["far", "850 m"],
+                ["max", "1000 m"],
+              ],
+            })}
             <label class="dev-row">
               <div>
-                <div class="dev-label">${tr ? "Gölgeler" : "Shadows"}</div>
+                <div class="dev-label">${tr ? "Yüksek ayrıntılı yüzey dokusu" : "High-detail surface texture"}</div>
                 <div class="dev-sub">
                   ${tr
-                    ? "Güneşin giysi, araç ve üs gölgeleri. Arazi gölgeleri her ayarda kalır."
-                    : "Sun shadows of the suit, rovers and habitat. Terrain shadows stay on at every setting."}
-                </div>
-              </div>
-              <select id="dev-gfx-shadows" data-gfx="gfxShadows">
-                <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-                <option value="off">${tr ? "Kapalı" : "Off"}</option>
-                <option value="low">${tr ? "Düşük (1024 px)" : "Low (1024 px)"}</option>
-                <option value="high">${tr ? "Yüksek (2048 px)" : "High (2048 px)"}</option>
-                <option value="ultra">${tr ? "Ultra (4096 px, yumuşak)" : "Ultra (4096 px, soft)"}</option>
-              </select>
-            </label>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Ayrıntılı Arazi Mesafesi" : "Detailed terrain distance"}</div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "1 m HiRISE arazisinin çizildiği yarıçap. Ötesinde 8 m genel görünüm kullanılır."
-                    : "Radius drawn from the 1 m HiRISE terrain. Beyond it the 8 m overview is used."}
-                </div>
-              </div>
-              <select id="dev-gfx-distance" data-gfx="gfxViewDistance">
-                <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-                <option value="near">350 m</option>
-                <option value="medium">600 m</option>
-                <option value="far">850 m</option>
-                <option value="max">1000 m</option>
-              </select>
-            </label>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Çözünürlük" : "Render resolution"}</div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "3D sahnenin çözünürlüğü. Ön ayarda bırakılırsa kare hızı düşünce kendiliğinden azalır."
-                    : "Resolution of the 3D scene. Left on the preset it lowers itself when frames run slow."}
-                </div>
-              </div>
-              <select id="dev-gfx-scale" data-gfx="gfxRenderScale">
-                <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-                <option value="0.5">50 %</option>
-                <option value="0.75">75 %</option>
-                <option value="1">100 %</option>
-                <option value="1.25">125 %</option>
-              </select>
-            </label>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Kenar Yumuşatma" : "Anti-aliasing"}</div>
-                <div class="dev-sub">${tr ? "Sahne üzerinde MSAA örnek sayısı." : "MSAA samples on the scene."}</div>
-              </div>
-              <select id="dev-gfx-aa" data-gfx="gfxAntialias">
-                <option value="auto">${tr ? "Ön ayardaki" : "From preset"}</option>
-                <option value="0">${tr ? "Kapalı" : "Off"}</option>
-                <option value="2">2×</option>
-                <option value="4">4×</option>
-              </select>
-            </label>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Kare Hızı Sınırı" : "Frame rate limit"}</div>
-                <div class="dev-sub">
-                  ${tr ? "Yüksek yenileme hızlı ekranlarda ekran kartı yükünü azaltır." : "Cuts GPU load and heat on high refresh rate screens."}
-                </div>
-              </div>
-              <select id="dev-fps-limit" data-gfx="fpsLimit">
-                <option value="0">${tr ? "Ekranın hızı" : "Screen rate"}</option>
-                <option value="30">30 fps</option>
-                <option value="60">60 fps</option>
-                <option value="120">120 fps</option>
-              </select>
-            </label>
-
-            <div class="dev-sec-title">${tr ? "Gelişmiş Yüzey & Işın İzleme" : "Advanced Surface & Ray Tracing"}</div>
-
-            <label class="dev-row">
-              <div>
-                <div class="dev-label">${tr ? "Gerçekçi Dokular (PBR+)" : "Realistic Textures (PBR+)"}</div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "512 px yüksek çözünürlüklü prosedürel regolit ve çatlak kiltaşı normal haritası."
-                    : "Upgrades terrain to 512 px procedural regolith & fractured mudstone normal maps."}
+                    ? "Yakın mesafede daha ince regolit normal haritası. Maliyet: düşük (ek doku belleği)."
+                    : "Finer regolith normal map up close. Cost: low (extra texture memory)."}
                 </div>
               </div>
               <input type="checkbox" id="dev-realistic-tex" checked=${s.realisticTextures} />
             </label>
 
-            <label class="dev-row dev-row-exp">
-              <div>
-                <div class="dev-label">
-                  ${tr ? "Gerçek Zamanlı Işın İzleme (Ray Tracing)" : "Real-Time Ray Tracing"}
-                  <span class="dev-badge-exp">GPU RT</span>
-                </div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "5 kademeli ölçeklenebilir RT sistemi. R tuşu veya HUD rozeti ile geçiş yapın."
-                    : "5-tier scalable RT pipeline. Press R or click the HUD pill to cycle."}
-                </div>
-              </div>
-              <select id="dev-ray-tracing">
-                <option value="off">${tr ? "Seviye 0: Kapalı (OFF)" : "Tier 0: OFF"}</option>
-                <option value="performance">${tr ? "Seviye 1: Performans (0.5×)" : "Tier 1: PERFORMANCE (0.5×)"}</option>
-                <option value="balanced">${tr ? "Seviye 2: Dengeli (0.7×)" : "Tier 2: BALANCED (0.7×)"}</option>
-                <option value="high">${tr ? "Seviye 3: Yüksek (1.0×)" : "Tier 3: HIGH (1.0×)"}</option>
-                <option value="ultra">${tr ? "Seviye 4: Ultra (Sınırsız)" : "Tier 4: ULTRA (Unlimited)"}</option>
-              </select>
-            </label>
-
+            <div class="dev-sec-title">${tr ? "Efektler" : "Effects"}</div>
+            ${gfxSelectRow({
+              key: "gfxAntialias",
+              label: tr ? "Kenar yumuşatma" : "Anti-aliasing",
+              sub: tr
+                ? "FXAA: en ucuz, biraz bulanık. SMAA: keskin, düşük maliyet. MSAA 4×: geometri kenarlarında en temiz, en pahalı."
+                : "FXAA: cheapest, slightly soft. SMAA: sharp, low cost. MSAA 4×: cleanest geometry edges, most expensive.",
+              options: [
+                ["off", tr ? "Kapalı" : "Off"],
+                ["fxaa", "FXAA"],
+                ["smaa", "SMAA"],
+                ["msaa", "MSAA 4×"],
+              ],
+            })}
+            ${gfxSelectRow({
+              key: "gfxAo",
+              label: tr ? "Ortam kapatma (AO)" : "Ambient occlusion",
+              sub: tr
+                ? "Köşe ve temas noktalarında yumuşak gölge (ekran uzayı, N8AO). Işın izleme değildir. Maliyet: düşük-orta."
+                : "Soft shading in creases and where objects meet the ground (screen-space, N8AO). Not ray tracing. Cost: low to medium.",
+              options: [
+                ["off", tr ? "Kapalı" : "Off"],
+                ["low", tr ? "Düşük (yarım çözünürlük)" : "Low (half resolution)"],
+                ["high", tr ? "Yüksek" : "High"],
+              ],
+            })}
+            ${gfxSelectRow({
+              key: "gfxBloom",
+              label: tr ? "Parlama (bloom)" : "Bloom",
+              sub: tr ? "Güneş ve parlak yüzeyler çevresinde ışık taşması. Maliyet: düşük." : "Glow around the sun and bright highlights. Cost: low.",
+              options: [
+                ["on", tr ? "Açık" : "On"],
+                ["off", tr ? "Kapalı" : "Off"],
+              ],
+            })}
             <label class="dev-row">
               <div>
-                <div class="dev-label">${tr ? "Performans Bilgisini Göster" : "Show performance stats"}</div>
+                <div class="dev-label">${tr ? "Kask camı efektleri" : "Helmet glass effects"}</div>
                 <div class="dev-sub">
-                  ${tr ? "Kare hızı, çizim çağrıları, üçgenler. Kısayol: F3." : "Frame rate, draw calls, triangles. Shortcut: F3."}
+                  ${tr
+                    ? "Vizör çerçevesi, hafif bükülme, renk sapması ve gren. Maliyet: çok düşük."
+                    : "Visor frame, slight distortion, chromatic aberration and grain. Cost: very low."}
                 </div>
+              </div>
+              <input type="checkbox" id="dev-frame-toggle" checked=${s.frameEffect} />
+            </label>
+            <div class="dev-row">
+              <div>
+                <div class="dev-label">${tr ? "Kask efekti şiddeti" : "Helmet effect strength"}</div>
+                <div class="dev-sub"><span id="dev-frame-strength-val">${`${Math.round(s.frameStrength * 100)}%`}</span></div>
+              </div>
+              <input class="dev-range" type="range" id="dev-frame-strength" min="0.2" max="1.5" step="0.05" value=${s.frameStrength} />
+            </div>
+
+            <div class="dev-sec-title">${tr ? "Tanılama" : "Diagnostics"}</div>
+            <label class="dev-row">
+              <div>
+                <div class="dev-label">${tr ? "Performans bilgisini göster" : "Show performance stats"}</div>
+                <div class="dev-sub">${tr ? "Kare hızı, çizim çağrıları, üçgenler. Kısayol: F3." : "Frame rate, draw calls, triangles. Shortcut: F3."}</div>
               </div>
               <input type="checkbox" id="dev-show-perf" checked=${s.showPerf} />
             </label>
+            ${hwCardVNode}
           </div>
 
           <!-- TAB 3: AUDIO, PHYSICS & WEATHER -->
@@ -1307,39 +1313,6 @@ async function boot() {
             <label class="dev-row dev-row-exp">
               <div>
                 <div class="dev-label">
-                  ${tr ? "NVIDIA DLSS Süper Çözünürlük & DLAA" : "NVIDIA DLSS Super Resolution & DLAA"}
-                  <span class="dev-badge-exp">${tr ? "DENEYSEL · AI" : "EXPERIMENTAL · AI"}</span>
-                </div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "Alt-piksel Halton zamansal örnekleme + kenar korumalı Lanczos-CAS süper çözünürlük yeniden yapılandırması."
-                    : "Sub-pixel Halton temporal jitter + edge-directed Lanczos-CAS neural-style reconstruction pass."}
-                </div>
-              </div>
-              <select id="dev-dlss-mode">
-                <option value="off">${tr ? "Kapalı (Doğal Çözünürlük)" : "Off (Native Resolution)"}</option>
-                <option value="ultra_performance">${tr ? "Ultra Performans (%33 · 3× AI Ölçekleme)" : "Ultra Performance (33% · 3× AI Upscale)"}</option>
-                <option value="performance">${tr ? "Performans (%50 · 2× AI Ölçekleme)" : "Performance (50% · 2× AI Upscale)"}</option>
-                <option value="balanced">${tr ? "Dengeli (%58 · 1.7× AI Ölçekleme)" : "Balanced (58% · 1.7× AI Upscale)"}</option>
-                <option value="quality">${tr ? "Kalite (%67 · 1.5× AI Ölçekleme)" : "Quality (67% · 1.5× AI Upscale)"}</option>
-                <option value="dlaa">${tr ? "DLAA (%100 Doğal AI Kenar Yumuşatma)" : "DLAA (100% Native AI Anti-Aliasing)"}</option>
-              </select>
-            </label>
-
-            <div class="dev-row dev-row-exp">
-              <div>
-                <div class="dev-label">
-                  ${tr ? "DLSS Keskinlik (CAS Sharpness)" : "DLSS Reconstruction Sharpness"}
-                  <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
-                </div>
-                <div class="dev-sub"><span id="dev-dlss-sharp-val">${`${Math.round((s.dlssSharpness ?? 0.55) * 100)}%`}</span></div>
-              </div>
-              <input class="dev-range" type="range" id="dev-dlss-sharpness" min="0" max="1" step="0.05" value=${s.dlssSharpness ?? 0.55} disabled=${!s.dlss} />
-            </div>
-
-            <label class="dev-row dev-row-exp">
-              <div>
-                <div class="dev-label">
                   ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
                   <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
                 </div>
@@ -1352,20 +1325,6 @@ async function boot() {
               <input type="checkbox" id="dev-exp-rover" checked=${s.experimentalRover} />
             </label>
 
-            <label class="dev-row dev-row-exp">
-              <div>
-                <div class="dev-label">
-                  ${tr ? "Süper Grafik Zorlaması (Ultra Override)" : "Super Graphics Override"}
-                  <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
-                </div>
-                <div class="dev-sub">
-                  ${tr
-                    ? "Otomatik grafik algılamasını devre dışı bırakıp tüm sahneyi Ultra ön ayarına zorlar."
-                    : "Overrides automatic GPU tier detection and forces the Ultra preset across the scene."}
-                </div>
-              </div>
-              <input type="checkbox" id="dev-super-gfx" checked=${s.superGraphics} />
-            </label>
           </div>
 
           <div class="dev-actions">
@@ -1454,15 +1413,12 @@ async function boot() {
     const speedVal = document.getElementById("dev-speed-val");
     const roverSpeedRange = document.getElementById("dev-rover-speed");
     const roverSpeedVal = document.getElementById("dev-rover-speed-val");
-    const qualitySel = document.getElementById("dev-quality");
+    const presetBtns = [...modalBody.querySelectorAll("[data-gfx-preset]")];
+    const customChip = modalBody.querySelector("[data-gfx-custom]");
+    const activeNote = modalBody.querySelector("[data-gfx-active-note]");
     const gfxSelects = [...modalBody.querySelectorAll("select[data-gfx]")];
     const perfToggle = document.getElementById("dev-show-perf");
-    const rtToggle = document.getElementById("dev-ray-tracing");
-    const dlssModeSel = document.getElementById("dev-dlss-mode");
-    const dlssSharpRange = document.getElementById("dev-dlss-sharpness");
-    const dlssSharpVal = document.getElementById("dev-dlss-sharp-val");
     const expRoverToggle = document.getElementById("dev-exp-rover");
-    const superGfxToggle = document.getElementById("dev-super-gfx");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
     const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
@@ -1497,18 +1453,37 @@ async function boot() {
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
       if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
-      if (qualitySel) qualitySel.value = cfg.superGraphics ? "ultra" : cfg.quality;
-      for (const sel of gfxSelects) sel.value = String(cfg[sel.dataset.gfx]);
-      if (perfToggle) perfToggle.checked = cfg.showPerf;
-      if (rtToggle) rtToggle.value = cfg.rayTracingMode || (cfg.rayTracing ? "high" : "off");
-      if (dlssModeSel) dlssModeSel.value = cfg.dlssMode || (cfg.dlss ? "quality" : "off");
-      if (dlssSharpRange) {
-        dlssSharpRange.value = String(cfg.dlssSharpness ?? 0.55);
-        dlssSharpRange.disabled = !cfg.dlss;
+      {
+        // the preset "auto" stands for is the one the HUD detected for this GPU
+        const hwNow = readHardwareTelemetry();
+        const autoLevel = hwNow?.autoLevel || hwNow?.recommendedLevel || "medium";
+        const level = cfg.quality === "auto" ? autoLevel : cfg.quality;
+        const gfxNow = resolveGraphics({ ...cfg, quality: level });
+        const custom = hasGfxOverrides(cfg);
+        for (const btn of presetBtns) {
+          const on = !custom && btn.dataset.gfxPreset === cfg.quality;
+          btn.classList.toggle("active", on);
+          btn.setAttribute("aria-checked", on ? "true" : "false");
+        }
+        if (customChip) customChip.hidden = !custom;
+        if (activeNote) {
+          const name = gfxPresetLabel(level, tr);
+          activeNote.textContent = custom
+            ? tr
+              ? `Özel ayarlar, ${name} ön ayarı üzerine. Ön ayara dönmek için yukarıdan birini seçin.`
+              : `Custom settings on top of the ${name} preset. Pick a preset above to reset.`
+            : cfg.quality === "auto"
+              ? tr
+                ? `Otomatik: bu ekran kartı için ${name} seçildi. Değişiklikler anında uygulanır.`
+                : `Auto: ${name} was picked for this GPU. Changes apply live.`
+              : tr
+                ? `${name} ön ayarı. Değişiklikler anında uygulanır.`
+                : `${name} preset. Changes apply live.`;
+        }
+        for (const sel of gfxSelects) sel.value = effectiveGfxChoice(cfg, sel.dataset.gfx, gfxNow);
       }
-      if (dlssSharpVal) dlssSharpVal.textContent = `${Math.round((cfg.dlssSharpness ?? 0.55) * 100)}%`;
+      if (perfToggle) perfToggle.checked = cfg.showPerf;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
-      if (superGfxToggle) superGfxToggle.checked = Boolean(cfg.superGraphics);
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
       if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
@@ -1536,24 +1511,6 @@ async function boot() {
     };
 
     // Mount Tweakpane inspectors in Graphics, Simulation, and Developer tabs
-    const gfxMount = document.getElementById("tweakpane-graphics-mount");
-    if (gfxMount) {
-      const gfxPane = new Pane({ container: gfxMount, title: tr ? "Tweakpane Grafik Denetçisi" : "Tweakpane Graphics Inspector" });
-      gfxPane.addBinding(tpModel, "quality", {
-        label: tr ? "Kalite" : "Quality",
-        options: { Auto: "auto", Low: "low", Medium: "medium", High: "high", Ultra: "ultra" },
-      }).on("change", (ev) => {
-        if (!tpUpdating) syncUi(saveDevSettings({ quality: ev.value, superGraphics: false }));
-      });
-      gfxPane.addBinding(tpModel, "realisticTextures", { label: tr ? "PBR+ Dokular" : "PBR+ Textures" }).on("change", (ev) => {
-        if (!tpUpdating) syncUi(saveDevSettings({ realisticTextures: ev.value }));
-      });
-      gfxPane.addBinding(tpModel, "showPerf", { label: tr ? "Performans (F3)" : "Perf Stats (F3)" }).on("change", (ev) => {
-        if (!tpUpdating) syncUi(saveDevSettings({ showPerf: ev.value }));
-      });
-      activeTweakpanes.push(gfxPane);
-    }
-
     const simMount = document.getElementById("tweakpane-simulation-mount");
     if (simMount) {
       const simPane = new Pane({ container: simMount, title: tr ? "Tweakpane Fizik & Atmosfer" : "Tweakpane Physics & Atmosphere" });
@@ -1577,9 +1534,6 @@ async function boot() {
       });
       devPane.addBinding(tpModel, "roverSpeedMultiplier", { label: tr ? "Araç Hızı" : "Rover Speed", min: 0.3, max: 4, step: 0.1 }).on("change", (ev) => {
         if (!tpUpdating) syncUi(saveDevSettings({ roverSpeedMultiplier: ev.value }));
-      });
-      devPane.addBinding(tpModel, "dlssSharpness", { label: "DLSS Sharpness", min: 0, max: 1, step: 0.05 }).on("change", (ev) => {
-        if (!tpUpdating) syncUi(saveDevSettings({ dlssSharpness: ev.value }));
       });
       activeTweakpanes.push(devPane);
     }
@@ -1607,27 +1561,15 @@ async function boot() {
         syncUi(saveDevSettings({ dustTau: parseFloat(btn.dataset.tau) }))
       );
     });
-    qualitySel?.addEventListener("change", () =>
-      syncUi(saveDevSettings({ quality: qualitySel.value, superGraphics: false }))
-    );
+    for (const btn of presetBtns) {
+      btn.addEventListener("click", () => syncUi(saveDevSettings(gfxPresetPatch(btn.dataset.gfxPreset))));
+    }
     for (const sel of gfxSelects) {
       sel.addEventListener("change", () => syncUi(saveDevSettings({ [sel.dataset.gfx]: sel.value })));
     }
     perfToggle?.addEventListener("change", () => syncUi(saveDevSettings({ showPerf: perfToggle.checked })));
-    rtToggle?.addEventListener("change", () =>
-      syncUi(saveDevSettings({ rayTracingMode: rtToggle.value, rayTracing: rtToggle.value !== "off" }))
-    );
-    dlssModeSel?.addEventListener("change", () =>
-      syncUi(saveDevSettings({ dlssMode: dlssModeSel.value, dlss: dlssModeSel.value !== "off" }))
-    );
-    dlssSharpRange?.addEventListener("input", () =>
-      syncUi(saveDevSettings({ dlssSharpness: parseFloat(dlssSharpRange.value) }))
-    );
     expRoverToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ experimentalRover: expRoverToggle.checked }))
-    );
-    superGfxToggle?.addEventListener("change", () =>
-      syncUi(saveDevSettings({ superGraphics: superGfxToggle.checked }))
     );
     realisticTexToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticTextures: realisticTexToggle.checked }))

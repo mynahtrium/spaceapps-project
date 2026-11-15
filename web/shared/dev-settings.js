@@ -12,71 +12,10 @@ export const DEV_SETTINGS_EVENT = "mm:dev-settings";
 export const QUALITY_LEVELS = Object.freeze(["auto", "low", "medium", "high", "ultra"]);
 // names used before the graphics presets existed
 const LEGACY_QUALITY = Object.freeze({ performance: "medium", balanced: "high", quality: "high" });
-export const RT_MODES = Object.freeze(["off", "performance", "balanced", "high", "ultra"]);
-export const DLSS_MODES = Object.freeze(["off", "ultra_performance", "performance", "balanced", "quality", "dlaa"]);
-
-export const DLSS_PRESETS = Object.freeze({
-  off: Object.freeze({
-    enabled: false,
-    mode: "off",
-    renderScale: 1.0,
-    sharpness: 0.0,
-    jitterScale: 0.0,
-    hudPill: "DLSS: OFF",
-    labelEn: "Off (Native)",
-    labelTr: "Kapalı (Doğal)",
-  }),
-  ultra_performance: Object.freeze({
-    enabled: true,
-    mode: "ultra_performance",
-    renderScale: 0.333,
-    sharpness: 0.72,
-    jitterScale: 1.0,
-    hudPill: "DLSS: ULTRA PERF",
-    labelEn: "Ultra Performance (33% · 3× Upscale)",
-    labelTr: "Ultra Performans (%33 · 3× Ölçekleme)",
-  }),
-  performance: Object.freeze({
-    enabled: true,
-    mode: "performance",
-    renderScale: 0.5,
-    sharpness: 0.65,
-    jitterScale: 1.0,
-    hudPill: "DLSS: PERF",
-    labelEn: "Performance (50% · 2× Upscale)",
-    labelTr: "Performans (%50 · 2× Ölçekleme)",
-  }),
-  balanced: Object.freeze({
-    enabled: true,
-    mode: "balanced",
-    renderScale: 0.58,
-    sharpness: 0.58,
-    jitterScale: 0.9,
-    hudPill: "DLSS: BAL",
-    labelEn: "Balanced (58% · 1.7× Upscale)",
-    labelTr: "Dengeli (%58 · 1.7× Ölçekleme)",
-  }),
-  quality: Object.freeze({
-    enabled: true,
-    mode: "quality",
-    renderScale: 0.667,
-    sharpness: 0.52,
-    jitterScale: 0.85,
-    hudPill: "DLSS: QUALITY",
-    labelEn: "Quality (67% · 1.5× Upscale)",
-    labelTr: "Kalite (%67 · 1.5× Ölçekleme)",
-  }),
-  dlaa: Object.freeze({
-    enabled: true,
-    mode: "dlaa",
-    renderScale: 1.0,
-    sharpness: 0.45,
-    jitterScale: 0.75,
-    hudPill: "DLSS: DLAA",
-    labelEn: "DLAA (100% Native AI Anti-Aliasing)",
-    labelTr: "DLAA (%100 Doğal AI Kenar Yumuşatma)",
-  }),
-});
+export const AO_OPTIONS = Object.freeze(["auto", "off", "low", "high"]);
+export const AA_OPTIONS = Object.freeze(["auto", "off", "fxaa", "smaa", "msaa"]);
+// values the anti-aliasing option used when it was an MSAA sample count
+const LEGACY_AA = Object.freeze({ 0: "off", 2: "msaa", 4: "msaa" });
 
 export const DEFAULT_DEV_SETTINGS = Object.freeze({
   // graphics preset; "auto" picks one from the GPU (see graphics-profile.js)
@@ -86,6 +25,8 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   gfxViewDistance: "auto",
   gfxRenderScale: "auto",
   gfxAntialias: "auto",
+  gfxAo: "auto",
+  gfxBloom: "auto",
   fpsLimit: 0,
   showPerf: false,
   hudTheme: "cyan",
@@ -93,12 +34,6 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   frameStrength: 0.2,
   speedMultiplier: 1.0,
   roverSpeedMultiplier: 1.0,
-  superGraphics: false,
-  rayTracing: false,
-  rayTracingMode: "off",
-  dlss: false,
-  dlssMode: "off",
-  dlssSharpness: 0.55,
   experimentalRover: false,
   realisticTextures: false,
   realisticDust: true,
@@ -113,32 +48,13 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
 });
 
 export const FULL_REALISM_PRESET = Object.freeze({
-  superGraphics: true,
-  rayTracing: true,
-  rayTracingMode: "high",
+  quality: "ultra",
   experimentalRover: true,
   realisticTextures: true,
   realisticDust: true,
   realisticPhysics: true,
   realisticWeather: true,
 });
-
-// Always reset Ray Tracing to OFF on startup so a previous session never boots with RT active.
-try {
-  if (typeof localStorage !== "undefined") {
-    const bootText = localStorage.getItem(STORAGE_KEY);
-    if (bootText) {
-      const bootParsed = JSON.parse(bootText);
-      if (bootParsed && (bootParsed.rayTracing || (bootParsed.rayTracingMode && bootParsed.rayTracingMode !== "off"))) {
-        bootParsed.rayTracing = false;
-        bootParsed.rayTracingMode = "off";
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(bootParsed));
-      }
-    }
-  }
-} catch {
-  /* ignore storage errors */
-}
 
 const zEnumChoice = (allowed, fallback, mapLegacy = null) =>
   z
@@ -166,7 +82,9 @@ const DevSettingsSchema = z.object({
   gfxShadows: zEnumChoice(["auto", "off", "low", "high", "ultra"], "auto"),
   gfxViewDistance: zEnumChoice(["auto", "near", "medium", "far", "max"], "auto"),
   gfxRenderScale: zEnumChoice(["auto", "0.5", "0.75", "1", "1.25"], "auto"),
-  gfxAntialias: zEnumChoice(["auto", "0", "2", "4"], "auto"),
+  gfxAntialias: zEnumChoice(AA_OPTIONS, "auto", LEGACY_AA),
+  gfxAo: zEnumChoice(AO_OPTIONS, "auto"),
+  gfxBloom: zEnumChoice(["auto", "on", "off"], "auto", { true: "on", false: "off" }),
   fpsLimit: zEnumChoice(["0", "30", "60", "120"], "0").transform(Number),
   showPerf: zBoolWithDefault(DEFAULT_DEV_SETTINGS.showPerf),
   hudTheme: zEnumChoice(["cyan", "untitled", "mono"], DEFAULT_DEV_SETTINGS.hudTheme),
@@ -174,12 +92,6 @@ const DevSettingsSchema = z.object({
   frameStrength: zClampedNumber(0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
   speedMultiplier: zClampedNumber(0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
   roverSpeedMultiplier: zClampedNumber(0.3, 4.0, DEFAULT_DEV_SETTINGS.roverSpeedMultiplier),
-  superGraphics: zBoolWithDefault(DEFAULT_DEV_SETTINGS.superGraphics),
-  rayTracing: zBoolWithDefault(DEFAULT_DEV_SETTINGS.rayTracing),
-  rayTracingMode: zEnumChoice(RT_MODES, DEFAULT_DEV_SETTINGS.rayTracingMode),
-  dlss: zBoolWithDefault(DEFAULT_DEV_SETTINGS.dlss),
-  dlssMode: zEnumChoice(DLSS_MODES, DEFAULT_DEV_SETTINGS.dlssMode),
-  dlssSharpness: zClampedNumber(0, 1, DEFAULT_DEV_SETTINGS.dlssSharpness),
   experimentalRover: zBoolWithDefault(DEFAULT_DEV_SETTINGS.experimentalRover),
   realisticTextures: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticTextures),
   realisticDust: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticDust),
@@ -193,89 +105,11 @@ const DevSettingsSchema = z.object({
   audioMusic: zBoolWithDefault(DEFAULT_DEV_SETTINGS.audioMusic),
 });
 
-function normalizeRtModeString(val) {
-  if (typeof val !== "string") return null;
-  const m = val.trim().toLowerCase();
-  if (m === "low" || m === "perf") return "performance";
-  if (RT_MODES.includes(m)) return m;
-  return null;
-}
-
-function resolveRayTracingState(raw = {}) {
-  const directMode = normalizeRtModeString(raw.rayTracing);
-  if (directMode) {
-    return { rayTracing: directMode !== "off", rayTracingMode: directMode };
-  }
-  const explicitMode = normalizeRtModeString(raw.rayTracingMode);
-  if (explicitMode) {
-    if (raw.rayTracing === false) return { rayTracing: false, rayTracingMode: "off" };
-    if (raw.rayTracing === true && explicitMode === "off") return { rayTracing: true, rayTracingMode: "high" };
-    return { rayTracing: explicitMode !== "off", rayTracingMode: explicitMode };
-  }
-  if (raw.rayTracing !== undefined) {
-    const on = Boolean(raw.rayTracing);
-    return { rayTracing: on, rayTracingMode: on ? "high" : "off" };
-  }
-  return { rayTracing: DEFAULT_DEV_SETTINGS.rayTracing, rayTracingMode: DEFAULT_DEV_SETTINGS.rayTracingMode };
-}
-
-export function cycleRayTracingMode(current = {}) {
-  const { rayTracingMode } = resolveRayTracingState(current);
-  const idx = RT_MODES.indexOf(rayTracingMode);
-  const nextMode = RT_MODES[(idx + 1) % RT_MODES.length] || "off";
-  return { rayTracing: nextMode !== "off", rayTracingMode: nextMode };
-}
-
-function normalizeDlssModeString(val) {
-  if (typeof val !== "string") return null;
-  const m = val.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (m === "perf") return "performance";
-  if (m === "ultra_perf" || m === "ultraperformance") return "ultra_performance";
-  if (DLSS_MODES.includes(m)) return m;
-  return null;
-}
-
-function resolveDlssState(raw = {}) {
-  const directMode = normalizeDlssModeString(raw.dlss);
-  if (directMode) {
-    return { dlss: directMode !== "off", dlssMode: directMode };
-  }
-  const explicitMode = normalizeDlssModeString(raw.dlssMode);
-  if (explicitMode) {
-    if (raw.dlss === false) return { dlss: false, dlssMode: "off" };
-    if (raw.dlss === true && explicitMode === "off") return { dlss: true, dlssMode: "quality" };
-    return { dlss: explicitMode !== "off", dlssMode: explicitMode };
-  }
-  if (raw.dlss !== undefined) {
-    const on = Boolean(raw.dlss);
-    return { dlss: on, dlssMode: on ? "quality" : "off" };
-  }
-  return { dlss: DEFAULT_DEV_SETTINGS.dlss, dlssMode: DEFAULT_DEV_SETTINGS.dlssMode };
-}
-
-export function getDlssPreset(cfg = {}) {
-  const { dlssMode } = resolveDlssState(cfg);
-  return DLSS_PRESETS[dlssMode] || DLSS_PRESETS.off;
-}
-
-export function cycleDlssMode(current = {}) {
-  const { dlssMode } = resolveDlssState(current);
-  const idx = DLSS_MODES.indexOf(dlssMode);
-  const nextMode = DLSS_MODES[(idx + 1) % DLSS_MODES.length] || "off";
-  return { dlss: nextMode !== "off", dlssMode: nextMode };
-}
-
 export function normalizeDevSettings(raw = {}) {
   const safeRaw = raw && typeof raw === "object" ? raw : {};
-  const rtState = resolveRayTracingState(safeRaw);
-  const dlssState = resolveDlssState(safeRaw);
-  return DevSettingsSchema.parse({
-    ...safeRaw,
-    rayTracing: rtState.rayTracing,
-    rayTracingMode: rtState.rayTracingMode,
-    dlss: dlssState.dlss,
-    dlssMode: dlssState.dlssMode,
-  });
+  // the old "Super Graphics" switch meant the ultra preset
+  const quality = safeRaw.superGraphics === true ? "ultra" : safeRaw.quality;
+  return DevSettingsSchema.parse({ ...safeRaw, quality });
 }
 
 export function loadDevSettings() {
@@ -291,20 +125,6 @@ export function loadDevSettings() {
 
 export function saveDevSettings(patch) {
   const nextPatch = { ...(patch || {}) };
-  if (nextPatch.rayTracingMode !== undefined && nextPatch.rayTracing === undefined) {
-    const mode = normalizeRtModeString(nextPatch.rayTracingMode) || "off";
-    nextPatch.rayTracingMode = mode;
-    nextPatch.rayTracing = mode !== "off";
-  } else if (typeof nextPatch.rayTracing === "boolean" && nextPatch.rayTracingMode === undefined) {
-    nextPatch.rayTracingMode = nextPatch.rayTracing ? "high" : "off";
-  }
-  if (nextPatch.dlssMode !== undefined && nextPatch.dlss === undefined) {
-    const mode = normalizeDlssModeString(nextPatch.dlssMode) || "off";
-    nextPatch.dlssMode = mode;
-    nextPatch.dlss = mode !== "off";
-  } else if (typeof nextPatch.dlss === "boolean" && nextPatch.dlssMode === undefined) {
-    nextPatch.dlssMode = nextPatch.dlss ? "quality" : "off";
-  }
   const merged = normalizeDevSettings({ ...loadDevSettings(), ...nextPatch });
   try {
     if (typeof localStorage !== "undefined") {

@@ -24,9 +24,8 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-// three/addons/loaders/KTX2Loader.js, three/addons/csm/CSM.js, three/addons/controls/PointerLockControls.js
+// three/addons/loaders/KTX2Loader.js, three/addons/controls/PointerLockControls.js
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
-import { CSM } from "three/examples/jsm/csm/CSM.js";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import seedrandom from "seedrandom";
 import { createNoise2D } from "simplex-noise";
@@ -59,9 +58,6 @@ import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import {
-  cycleDlssMode,
-  cycleRayTracingMode,
-  getDlssPreset,
   loadDevSettings,
   saveDevSettings,
   subscribeDevSettings,
@@ -117,19 +113,7 @@ import { createHistoricRoverManager } from "./historic-rovers.js";
 import { createNpcManager } from "./npc-system.js";
 import { initNpcDialogueUi } from "./npc-dialogue-ui.js";
 import { GaleCorridor, buildCorridorSubCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
-import {
-  RT_HEIGHT_GLSL,
-  RT_INTERNAL_RESOLUTION_SCALE,
-  RT_LENS_PARS_GLSL,
-  applyRayTracerTierUniforms,
-  buildHeightfieldRtData,
-  buildHeightfieldRtTexture,
-  createMarsPostAndPathTracerPipeline,
-  createRayTracerUniforms,
-  getRayTracingPreset,
-  installBvhAcceleration,
-  patchObjectRayTracer,
-} from "./ray-tracer.js";
+import { computeBvhForObject, createMarsPostPipeline, effectivePixelRatio, installBvhAcceleration } from "./post-pipeline.js";
 
 const ASTRONAUT_HEIGHT_M = 1.8;
 const EYE_HEIGHT_M = 1.64; // eye level inside the helmet of a 1.80 m astronaut
@@ -362,8 +346,8 @@ const MOON_FRAG = /* glsl */ `
   }
 `;
 
-// Lightweight EVA helmet gold visor & bezel pass (paired with pmndrs/postprocessing EffectComposer,
-// N8AOPostPass, realism-effects TRAAEffect/SSGIEffect/SSREffect/MotionBlurEffect, and SMAA/FXAA).
+// Helmet lens state (distortion, gold visor, zoom). The frame itself is drawn by post-pipeline.js;
+// lensMat only holds these uniforms.
 const LENS_VERT = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -389,10 +373,6 @@ const LENS_FRAG = /* glsl */ `
   uniform float uGlint;
   uniform float uRay;
   uniform float uDust;
-  uniform float uDlssEnabled;
-  uniform float uDlssScale;
-  uniform float uDlssSharpness;
-  uniform vec2 uDlssJitter;
   varying vec2 vUv;
 
   void main() {
@@ -433,9 +413,6 @@ export async function initHud3D(
   const withTimeout = (promise, ms, label) =>
     Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms / 1000} s`)), ms))]);
   let devCfg = loadDevSettings();
-  if (devCfg.rayTracing || (devCfg.rayTracingMode && devCfg.rayTracingMode !== "off")) {
-    devCfg = saveDevSettings({ rayTracing: false, rayTracingMode: "off" });
-  }
   const isTrLang = () => {
     try {
       return localStorage.getItem("mm-lang") === "tr";
@@ -620,12 +597,12 @@ export async function initHud3D(
     const mInfo = renderer.info?.memory || { geometries: 0, textures: 0 };
     const w = (typeof rt !== "undefined" && rt?.width) || renderer.domElement?.width || 1920;
     const h = (typeof rt !== "undefined" && rt?.height) || renderer.domElement?.height || 1080;
-    const samples = typeof rtSamples !== "undefined" ? rtSamples : 0;
+    const samples = gfx.aa === "msaa" ? 4 : 0;
     const sceneVramMb = estimateSceneVramMb({
       rtWidth: w,
       rtHeight: h,
       rtSamples: samples,
-      rtHasDepth: Boolean(devCfg.rayTracing && devCfg.rayTracingMode !== "off"),
+      rtHasDepth: gfx.ao !== "off",
       shadowPx: gfx.shadowMapPx || 0,
       textures: mInfo.textures || 0,
       geometries: mInfo.geometries || 0,
@@ -645,8 +622,8 @@ export async function initHud3D(
       rtWidth: w,
       rtHeight: h,
       gfxLevel: gfx.level,
-      dlssMode: devCfg.dlss ? (devCfg.dlssMode || "off") : "off",
-      rayTracingMode: devCfg.rayTracing ? (devCfg.rayTracingMode || "off") : "off",
+      antialias: gfx.aa,
+      ambientOcclusion: gfx.ao,
     };
   };
   if (typeof window !== "undefined") {
@@ -952,20 +929,9 @@ export async function initHud3D(
     return habitatStation.group.visible ? habitatStation.sampleElevWithHabitat(x, z, rawY) : rawY;
   }
 
-  const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 96);
-  const rtUniforms = createRayTracerUniforms(THREE, worldW, worldH, sunDir, rtHeightInfo);
-  patchObjectRayTracer(THREE, habitatStation.group, rtUniforms, { reflectScale: 0.72 });
-  function refreshRtHeightfield() {
-    const packed = buildHeightfieldRtData(sampleElevSceneY, worldW, worldH, 96);
-    if (rtHeightInfo?.texture?.image?.data) {
-      rtHeightInfo.texture.image.data.set(packed.data);
-      rtHeightInfo.texture.needsUpdate = true;
-    }
-    rtUniforms.uRtElevMin.value = packed.minH;
-    rtUniforms.uRtElevSpan.value = packed.span;
-  }
-  patchObjectRayTracer(THREE, rockField.group, rtUniforms, { reflectScale: 0.35 });
-  patchObjectRayTracer(THREE, galeVista, rtUniforms, { reflectScale: 0.25 });
+  computeBvhForObject(THREE, habitatStation.group);
+  computeBvhForObject(THREE, rockField.group);
+  computeBvhForObject(THREE, galeVista);
 
   /** Unit ground normal. Pass `out` to reuse an object (hot paths); without it a new one is returned. */
   function sampleNormal(x, z, out = { x: 0, y: 1, z: 0 }) {
@@ -1075,29 +1041,8 @@ export async function initHud3D(
   // mirrored copies are seen from far away through fog: a third of the vertex density is plenty
   let copyGeom = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
 
-  // ---------- Cascaded Shadow Maps (three/addons/csm/CSM.js) ----------
-  // Replaces the custom CPU + inline Blob WebWorker terrain shadow baker with Three.js CSM cascades.
-  const csmLightRig = new THREE.Group();
-  csmLightRig.name = "csm-cascades";
-  const origLightsFragBegin = THREE.ShaderChunk.lights_fragment_begin;
-  const origLightsParsBegin = THREE.ShaderChunk.lights_pars_begin;
-  const csm = new CSM({
-    maxFar: 320,
-    cascades: 3,
-    mode: "practical",
-    parent: csmLightRig,
-    shadowMapSize: SHADOW_MAP_PX,
-    lightDirection: sunDir.clone().negate(),
-    lightIntensity: 0,
-    camera,
-  });
-  THREE.ShaderChunk.lights_fragment_begin = origLightsFragBegin;
-  THREE.ShaderChunk.lights_pars_begin = origLightsParsBegin;
-
   let sunBakeJob = null;
   function startSunMaskBake(onDone) {
-    csm.lightDirection.copy(sunDir).negate().normalize();
-    csm.update();
     const val = sunDir.y <= 0.0 ? 0 : 255;
     const out = new Uint8Array([val, val, val, 255]);
     const tex = new THREE.DataTexture(out, 1, 1, THREE.RGBAFormat);
@@ -1308,7 +1253,6 @@ export async function initHud3D(
     shader.uniforms.uCov = covTexU;
     shader.uniforms.uCovOrigin = covOriginU;
     shader.uniforms.uCovCell = covCellU;
-    Object.assign(shader.uniforms, rtUniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
@@ -2072,7 +2016,7 @@ export async function initHud3D(
     suitLabel = "STAND-IN (MODEL NOT LOADED)";
   }
   scene.add(self.group); // single astronaut: you
-  patchObjectRayTracer(THREE, self.group, rtUniforms, { reflectScale: 1.0 });
+  computeBvhForObject(THREE, self.group);
 
   const suitMatBaselines = [];
   self.group.traverse((obj) => {
@@ -2116,7 +2060,7 @@ export async function initHud3D(
   for (const r of drivableRovers) {
     r.group.visible = true;
     scene.add(r.group);
-    patchObjectRayTracer(THREE, r.group, rtUniforms, { reflectScale: 1.18 });
+    computeBvhForObject(THREE, r.group);
     // rigid-body chassis + six spring-damper struts (rover-dynamics.js) and the visible running
     // gear that follows them (rover-rig.js); the parameters come from each vehicle's own spec
     r.sim = createRoverDynamics(THREE, roverParamsFor(r.getActiveSpec()));
@@ -2228,18 +2172,18 @@ export async function initHud3D(
       castShadow: gfx.shadowPx >= 2048,
     })
     .then((ok) => {
-      if (ok) patchObjectRayTracer(THREE, roverMmsev.group, rtUniforms, { reflectScale: 1.18 });
+      if (ok) computeBvhForObject(THREE, roverMmsev.group);
     });
 
   const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
-    onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
+    onModelLoaded: (grp) => computeBvhForObject(THREE, grp),
   });
   const npcManager = createNpcManager(THREE, scene, {
     suitRig,
     createAstronautFn: createAstronaut,
     sampleElevY: sampleElevSceneY,
   });
-  patchObjectRayTracer(THREE, npcManager.npcGroup, rtUniforms, { reflectScale: 0.95 });
+  computeBvhForObject(THREE, npcManager.npcGroup);
   npcManager.npcGroup.visible = habitatStation.group.visible;
 
   let stationedAtHabitat = true;
@@ -2391,15 +2335,17 @@ export async function initHud3D(
       c.mesh.visible = c.who.group.visible;
       if (!c.mesh.visible) continue;
       c.foot.getWorldPosition(footPos);
-      const gy = sampleElevSceneY(footPos.x, footPos.z);
+      // the rendered surface, not the coarser elevation grid: a blob on the grid height floats
+      // above or sinks into the mesh the player actually sees
+      const gy = sampleRenderedSurfaceY(footPos.x, footPos.z);
       const lift = Math.max(0, footPos.y - gy - 0.08); // ankle bone sits ~8 cm above the sole
       c.mesh.material.opacity = Math.max(0, 1 - lift / 0.35);
       const e = 0.3;
       nrm
         .set(
-          sampleElevSceneY(footPos.x - e, footPos.z) - sampleElevSceneY(footPos.x + e, footPos.z),
+          sampleRenderedSurfaceY(footPos.x - e, footPos.z) - sampleRenderedSurfaceY(footPos.x + e, footPos.z),
           2 * e,
-          sampleElevSceneY(footPos.x, footPos.z - e) - sampleElevSceneY(footPos.x, footPos.z + e)
+          sampleRenderedSurfaceY(footPos.x, footPos.z - e) - sampleRenderedSurfaceY(footPos.x, footPos.z + e)
         )
         .normalize();
       qTilt.setFromUnitVectors(Y_AXIS, nrm);
@@ -2466,7 +2412,7 @@ export async function initHud3D(
 
     const badge = makeCallsignBadgeFor(peer);
     avatar.group.add(badge.spr);
-    patchObjectRayTracer(THREE, avatar.group, rtUniforms, { reflectScale: 0.95 });
+    computeBvhForObject(THREE, avatar.group);
     remoteGroup.add(avatar.group);
 
     const st = peer.state || {};
@@ -2612,18 +2558,10 @@ export async function initHud3D(
 
   const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
   dummyDepthTex.needsUpdate = true;
-  let rt = { width: 1, height: 1, texture: dummyDepthTex, setSize(w, h) { this.width = w; this.height = h; }, dispose() {} };
-  let rtSamples = 0;
-  let rtHasDepth = false;
-  let lastRtW = 1;
-  let lastRtH = 1;
-  const postAndPtPipeline = createMarsPostAndPathTracerPipeline({
-    THREE,
-    renderer,
-    scene,
-    camera,
-    rtUniforms,
-  });
+  // drawing-buffer size of the 3D frame (CSS size x pixel ratio x render scale)
+  const rt = { width: 1, height: 1 };
+  let lastPostKey = "";
+  const postPipeline = createMarsPostPipeline({ THREE, renderer, scene, camera });
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -2633,14 +2571,6 @@ export async function initHud3D(
     uniforms: {
       tDiffuse: { value: dummyDepthTex },
       tDepth: { value: dummyDepthTex },
-      uRtEnabled: rtUniforms.uRtEnabled,
-      uRtQuality: rtUniforms.uRtQuality,
-      uRtResScale: rtUniforms.uRtResScale,
-      uRtMaxBounces: rtUniforms.uRtMaxBounces,
-      uRtAoSamples: rtUniforms.uRtAoSamples,
-      uRtSsrSteps: rtUniforms.uRtSsrSteps,
-      uRtProj: { value: new THREE.Matrix4() },
-      uRtInvProj: { value: new THREE.Matrix4() },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uDistort: { value: 0.14 },
@@ -2656,10 +2586,6 @@ export async function initHud3D(
       uOptZoom: { value: 1 },
       uGlint: { value: 0 },
       uRay: { value: 0.00035 },
-      uDlssEnabled: { value: 0 },
-      uDlssScale: { value: 1.0 },
-      uDlssSharpness: { value: 0.55 },
-      uDlssJitter: { value: new THREE.Vector2(0, 0) },
     },
   });
 
@@ -3871,7 +3797,6 @@ export async function initHud3D(
     sunSite.lat = spec.lat;
     sunSite.lon = spec.lon;
     refreshSun({ rebake: true });
-    refreshRtHeightfield();
 
     if (gale) {
       for (const r of drivableRovers) r.group.visible = true;
@@ -4296,25 +4221,9 @@ export async function initHud3D(
   let arrival = null; // { t0, reduced } while the orbit arrival drop plays
   let nextPovStop = null;
 
-  let optRtPill = document.getElementById("hud-opt-rt");
-  if (!optRtPill && optZoomPill?.parentElement && typeof document !== "undefined") {
-    optRtPill = document.createElement("span");
-    optRtPill.id = "hud-opt-rt";
-    optRtPill.className = "dim";
-    optRtPill.style.cursor = "pointer";
-    optRtPill.title = "Cycle Ray Tracing Quality Tier (R)";
-    optZoomPill.parentElement.appendChild(optRtPill);
-  }
-
-  let optDlssPill = document.getElementById("hud-opt-dlss");
-  if (!optDlssPill && optZoomPill?.parentElement && typeof document !== "undefined") {
-    optDlssPill = document.createElement("span");
-    optDlssPill.id = "hud-opt-dlss";
-    optDlssPill.className = "dim";
-    optDlssPill.style.cursor = "pointer";
-    optDlssPill.title = "Cycle DLSS Super Resolution / DLAA Mode";
-    optZoomPill.parentElement.appendChild(optDlssPill);
-  }
+  // the old ray-tracing / DLSS pills, if a cached page still has them
+  document.getElementById("hud-opt-rt")?.remove();
+  document.getElementById("hud-opt-dlss")?.remove();
 
   function syncOpticsOverlayUi() {
     const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
@@ -4345,33 +4254,6 @@ export async function initHud3D(
       optZoomPill.textContent = `MAG: ${optZoom}×`;
       optZoomPill.classList.toggle("active", optZoom > 1);
     }
-    if (optRtPill) {
-      const rtPreset = getRayTracingPreset(devCfg);
-      optRtPill.textContent = rtPreset.hudPill;
-      optRtPill.classList.toggle("active", rtPreset.enabled > 0);
-    }
-    if (optDlssPill) {
-      const dlssPreset = getDlssPreset(devCfg);
-      optDlssPill.textContent = dlssPreset.hudPill;
-      optDlssPill.classList.toggle("active", dlssPreset.enabled);
-      optDlssPill.hidden = !dlssPreset.enabled;
-    }
-  }
-
-  function cycleRayTracingTier() {
-    const nextRt = cycleRayTracingMode(devCfg);
-    const nextCfg = saveDevSettings(nextRt);
-    applyDevSettings(nextCfg);
-    const preset = getRayTracingPreset(nextCfg);
-    showWrapNotice(`RAY TRACING: ${isTrLang() ? preset.hudLabelTr : preset.hudLabelEn}`);
-  }
-
-  function cycleDlssTier() {
-    const nextDlss = cycleDlssMode(devCfg);
-    const nextCfg = saveDevSettings(nextDlss);
-    applyDevSettings(nextCfg);
-    const preset = getDlssPreset(nextCfg);
-    showWrapNotice(`DLSS: ${isTrLang() ? preset.labelTr.toUpperCase() : preset.labelEn.toUpperCase()}`);
   }
 
   function toggleGoldVisor() {
@@ -4405,14 +4287,6 @@ export async function initHud3D(
   btnLamp?.addEventListener("click", (ev) => {
     ev.stopPropagation();
     toggleHelmetLamp();
-  });
-  optRtPill?.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    cycleRayTracingTier();
-  });
-  optDlssPill?.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    cycleDlssTier();
   });
   syncOpticsOverlayUi();
 
@@ -4513,10 +4387,6 @@ export async function initHud3D(
         cycleOpticalZoom();
         return;
       }
-      if (k === "r" && !e.repeat) {
-        cycleRayTracingTier();
-        return;
-      }
       if (k === " ") e.preventDefault();
       keys.add(k);
       return;
@@ -4532,10 +4402,6 @@ export async function initHud3D(
     }
     if (k === "z" && !e.repeat) {
       cycleOpticalZoom();
-      return;
-    }
-    if (k === "r" && !e.repeat) {
-      cycleRayTracingTier();
       return;
     }
 
@@ -4905,33 +4771,15 @@ export async function initHud3D(
   let viewH = 1;
   let lastQualityKey = "";
 
+  // Render resolution: the pixel ratio carries the render scale, and the composer sizes every
+  // buffer (AO included) from the drawing buffer, so all passes stay the same size as the frame.
   const resizeRenderTarget = () => {
-    const rtPreset = getRayTracingPreset(devCfg);
-    const dlssPreset = getDlssPreset(devCfg);
-    const wantRt = rtPreset.enabled > 0;
-    const basePr = wantRt
-      ? rtPreset.tier >= 4
-        ? renderer.getPixelRatio()
-        : Math.min(1.0, renderer.getPixelRatio())
-      : renderer.getPixelRatio();
-    const activeScale = dlssPreset.enabled
-      ? wantRt
-        ? Math.min(rtPreset.resolutionScale, dlssPreset.renderScale)
-        : dlssPreset.renderScale
-      : wantRt
-        ? rtPreset.resolutionScale
-        : renderScale;
-    const pr = basePr * activeScale;
-    const nextW = Math.max(1, Math.floor(viewW * pr));
-    const nextH = Math.max(1, Math.floor(viewH * pr));
-    if (nextW !== lastRtW || nextH !== lastRtH) {
-      lastRtW = nextW;
-      lastRtH = nextH;
-      rt.setSize(nextW, nextH);
-      postAndPtPipeline.setSize(viewW, viewH, pr);
-    }
-    lensMat.uniforms.uResolution.value.set(nextW, nextH);
-    postAndPtPipeline.updateVisorUniforms({ uResolution: lensMat.uniforms.uResolution.value });
+    const pr = effectivePixelRatio(window.devicePixelRatio || 1, gfx.pixelRatioCap, renderScale);
+    if (Math.abs(renderer.getPixelRatio() - pr) > 1e-4) renderer.setPixelRatio(pr);
+    postPipeline.setSize(viewW, viewH);
+    rt.width = Math.max(1, Math.floor(viewW * pr));
+    rt.height = Math.max(1, Math.floor(viewH * pr));
+    lensMat.uniforms.uResolution.value.set(rt.width, rt.height);
   };
 
   const onResize = () => {
@@ -4993,7 +4841,7 @@ export async function initHud3D(
 
     syncDrivingCameraVisualState(drivingRover);
     const strength = cfg.frameEffect ? cfg.frameStrength : 0.35;
-    lensMat.uniforms.uGrain.value = (cfg.superGraphics ? 0.008 : 0.014) * Math.max(0.35, strength);
+    lensMat.uniforms.uGrain.value = 0.014 * Math.max(0.35, strength);
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uOptZoom.value = optZoom;
 
@@ -5011,20 +4859,9 @@ export async function initHud3D(
         if (o.isMesh) o.castShadow = mmsevShadow;
       });
     }
-    const rtPreset = applyRayTracerTierUniforms(rtUniforms, cfg);
-    const dlssPreset = getDlssPreset(cfg);
-    const wantRt = rtPreset.enabled > 0;
-    const targetPr = Math.min(window.devicePixelRatio || 1, rtPreset.tier >= 4 ? 2.0 : gfx.pixelRatioCap);
-    renderer.setPixelRatio(targetPr);
-    if (dlssPreset.enabled) {
-      renderScale = wantRt ? Math.min(rtPreset.resolutionScale, dlssPreset.renderScale) : dlssPreset.renderScale;
-    } else if (wantRt) renderScale = rtPreset.resolutionScale;
-    else if (!gfxApplied || prevGfx.level !== gfx.level || prevGfx.renderScale !== gfx.renderScale || !gfx.adaptive) {
+    if (!gfxApplied || prevGfx.level !== gfx.level || prevGfx.renderScale !== gfx.renderScale || !gfx.adaptive) {
       renderScale = gfx.renderScale;
     } else renderScale = Math.max(gfx.minScale, Math.min(gfx.renderScale, renderScale));
-    lensMat.uniforms.uDlssEnabled.value = dlssPreset.enabled ? 1.0 : 0.0;
-    lensMat.uniforms.uDlssScale.value = dlssPreset.renderScale;
-    lensMat.uniforms.uDlssSharpness.value = Number.isFinite(cfg.dlssSharpness) ? cfg.dlssSharpness : dlssPreset.sharpness;
     // terrain radius or level of detail changed: plan the chunks again on the next frame
     if (prevGfx.detailRadiusM !== gfx.detailRadiusM || prevGfx.lodNearM !== gfx.lodNearM || prevGfx.lodSegs !== gfx.lodSegs) {
       chunkPlanT = 0;
@@ -5033,24 +4870,11 @@ export async function initHud3D(
     gfxApplied = true;
     if (perfEl) perfEl.hidden = !(cfg.showPerf || perfKeyOn);
 
-    // Sync postprocessing EffectComposer (N8AO, TRAA, SSGI, SSR, MotionBlur, Bloom, SMAA/FXAA)
-    // and three-gpu-pathtracer WebGLPathTracer quality tiers.
-    const wantSamples = wantRt ? 0 : gfx.msaa;
-    rtSamples = wantSamples;
-    rtHasDepth = wantRt;
-    postAndPtPipeline.applyQualitySettings(cfg);
-    postAndPtPipeline.updateVisorUniforms({
-      uDistort: lensMat.uniforms.uDistort.value,
-      uFrameZoom: lensMat.uniforms.uFrameZoom.value,
-      uBezelScale: lensMat.uniforms.uBezelScale.value,
-      uExposure: lensMat.uniforms.uExposure.value,
-      uGold: lensMat.uniforms.uGold.value,
-      uGoldSlide: lensMat.uniforms.uGoldSlide.value,
-      uDust: lensMat.uniforms.uDust.value,
-      uOptZoom: lensMat.uniforms.uOptZoom.value,
-      uGlint: lensMat.uniforms.uGlint.value,
-      uRay: lensMat.uniforms.uRay.value,
-    });
+    const postKey = `${gfx.ao}|${gfx.aa}|${gfx.bloom}`;
+    if (postKey !== lastPostKey) {
+      lastPostKey = postKey;
+      postPipeline.applySettings({ ao: gfx.ao, aa: gfx.aa, bloom: gfx.bloom });
+    }
     syncOpticsOverlayUi();
 
     // "shadows off" keeps a small map allocated but the sun stops casting (see the loop)
@@ -5151,7 +4975,7 @@ export async function initHud3D(
   // "Fast" is measured against the display's own frame time (the shortest frame seen lately), so
   // the resolution also climbs back on a 60 Hz screen, where no frame is ever shorter than 16.7 ms.
   function adaptResolution(now) {
-    if (devCfg.rayTracing || devCfg.dlss || !gfx.adaptive) return;
+    if (!gfx.adaptive) return;
     if (now - lastScaleChange < 1200) return;
     let next = renderScale;
     if (frameAvg > Math.max(24, displayMs * 1.45) && renderScale > gfx.minScale) {
@@ -5224,9 +5048,6 @@ export async function initHud3D(
     document.body.appendChild(perfOverlayEl);
   }
   let wasHudHidden = false;
-  let lastShadowMs = 0;
-  let lastShadowSunX = NaN;
-  let lastShadowSunZ = NaN;
   let svfLastX = NaN;
   let svfLastZ = NaN;
   let cachedSvf = 0.75;
@@ -6145,7 +5966,7 @@ export async function initHud3D(
       scene.fog.color.copy(HORIZON).multiplyScalar(0.025 + 0.975 * tw * tw * (3 - 2 * tw));
     }
 
-    // sun, moons and shadow box follow the walker (or freecam); shadow map updates at <=30 Hz moving / ~6 Hz idle
+    // sun, moons and shadow box follow the walker (or freecam)
     const texel = (2 * shadowHalfM) / shadowMapPx;
     const focusX = freecamActive ? camera.position.x : px;
     const focusZ = freecamActive ? camera.position.z : pz;
@@ -6182,21 +6003,9 @@ export async function initHud3D(
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
     sun.castShadow = gfx.shadowPx > 0 && sunUpNow > 0.01;
-    if (sun.castShadow) {
-      const movedShadow =
-        resumedFromHide ||
-        !Number.isFinite(lastShadowSunX) ||
-        Math.abs(snapX - lastShadowSunX) >= texel * 1.5 ||
-        Math.abs(snapZ - lastShadowSunZ) >= texel * 1.5;
-      const elapsedShadowMs = now - lastShadowMs;
-      const minIntervalMs = movedShadow || landing.active ? 32 : 160;
-      if (elapsedShadowMs >= minIntervalMs) {
-        lastShadowMs = now;
-        lastShadowSunX = snapX;
-        lastShadowSunZ = snapZ;
-        renderer.shadowMap.needsUpdate = true;
-      }
-    }
+    // Shadows render every frame: a throttled shadow map left moving crew, rovers and the suit
+    // with shadows that lagged behind them ("floating silhouettes").
+    renderer.shadowMap.needsUpdate = sun.castShadow;
     // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
     if (now - sunStateStampMs > 30000) {
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });
@@ -6342,49 +6151,14 @@ export async function initHud3D(
 
     if (!resumedFromHide) adaptResolution(now);
     lensMat.uniforms.uTime.value = clockT;
-    if (devCfg.dlss) {
-      const jPhase = Math.floor(clockT * 60) & 7;
-      const hx = (((jPhase & 1) << 2) | (jPhase & 2) | ((jPhase & 4) >> 2)) / 8 - 0.4375;
-      const hy = ((jPhase % 3) / 3 + Math.floor(jPhase / 3) / 9) - 0.4444;
-      lensMat.uniforms.uDlssJitter.value.set(hx, hy);
-    } else {
-      lensMat.uniforms.uDlssJitter.value.set(0, 0);
-    }
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uGoldSlide.value = goldSlide;
     lensMat.uniforms.uOptZoom.value = optZoom;
     lensMat.uniforms.uGlint.value = Math.max(0, lookDir.dot(sunDir)) * sunUpNow;
     lensMat.uniforms.uExposure.value = 1.0;
-    rtUniforms.uRtTime.value = clockT;
-    rtUniforms.uRtSunDir.value.copy(sunDir);
-    if (devCfg.rayTracing) {
-      lensMat.uniforms.uRtProj.value.copy(camera.projectionMatrix);
-      lensMat.uniforms.uRtInvProj.value.copy(camera.projectionMatrixInverse);
-    }
     const perfRenderT0 = perfOverlayEl ? performance.now() : 0;
-    csm.lightDirection.copy(sunDir).negate().normalize();
-    csm.update();
-    postAndPtPipeline.updateVisorUniforms({
-      uTime: clockT,
-      uDistort: lensMat.uniforms.uDistort.value,
-      uFrameZoom: lensMat.uniforms.uFrameZoom.value,
-      uBezelScale: lensMat.uniforms.uBezelScale.value,
-      uAberration: lensMat.uniforms.uAberration.value,
-      uGrain: lensMat.uniforms.uGrain.value,
-      uVignette: lensMat.uniforms.uVignette.value,
-      uExposure: lensMat.uniforms.uExposure.value,
-      uGold: goldVisor,
-      uGoldSlide: goldSlide,
-      uDust: lensMat.uniforms.uDust.value,
-      uOptZoom: optZoom,
-      uGlint: lensMat.uniforms.uGlint.value,
-      uRay: lensMat.uniforms.uRay.value,
-      uDlssEnabled: lensMat.uniforms.uDlssEnabled.value,
-      uDlssScale: lensMat.uniforms.uDlssScale.value,
-      uDlssSharpness: lensMat.uniforms.uDlssSharpness.value,
-      uDlssJitter: lensMat.uniforms.uDlssJitter.value,
-    });
-    postAndPtPipeline.render(dt);
+    postPipeline.setVisor({ visorOn: lensMat.uniforms.uBezelScale.value > 0.001, glint: lensMat.uniforms.uGlint.value, sunDir });
+    postPipeline.render(dt);
     const sceneCalls = perfOverlayEl ? renderer.info.render.calls : 0;
     const sceneTris = perfOverlayEl ? renderer.info.render.triangles : 0;
     perfDraws = renderer.info.render.calls;
@@ -6421,7 +6195,7 @@ export async function initHud3D(
           : `${hwTel.ramGb}GB`;
         perfOverlayEl.textContent =
           `FPS ${fps.toFixed(1)} | avg ${avgMs.toFixed(1)}ms p95 ${p95Ms.toFixed(1)}ms sim ${simMs.toFixed(1)}ms ren ${renderMs.toFixed(1)}ms | GPU: ${hwTel.gpuName}\n` +
-          `VRAM ~${hwTel.sceneVramMb}MB/${hwTel.vramGb}GB${hwTel.vramShared ? "(sh)" : ""} | RAM ${ramStr} | heap ${heapStr} | CPU ${hwTel.cores}T | calls ${sceneCalls} tris ${Math.round(sceneTris / 1000)}k ch ${chunkMeshes.size} | geo ${mInfo.geometries} tex ${mInfo.textures} prog ${pCount} | rt ${rt.width}x${rt.height} s=${rtSamples} sc=${renderScale.toFixed(2)} q=${gfx.level}`;
+          `VRAM ~${hwTel.sceneVramMb}MB/${hwTel.vramGb}GB${hwTel.vramShared ? "(sh)" : ""} | RAM ${ramStr} | heap ${heapStr} | CPU ${hwTel.cores}T | calls ${sceneCalls} tris ${Math.round(sceneTris / 1000)}k ch ${chunkMeshes.size} | geo ${mInfo.geometries} tex ${mInfo.textures} prog ${pCount} | rt ${rt.width}x${rt.height} aa=${gfx.aa} ao=${gfx.ao} sc=${renderScale.toFixed(2)} q=${gfx.level}`;
       }
     }
   }

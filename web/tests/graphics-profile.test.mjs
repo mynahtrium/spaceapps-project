@@ -13,13 +13,7 @@ import {
   probeGpuTier,
   resolveGraphics,
 } from "../shared/graphics-profile.js";
-import {
-  DLSS_MODES,
-  DLSS_PRESETS,
-  cycleDlssMode,
-  getDlssPreset,
-  normalizeDevSettings,
-} from "../shared/dev-settings.js";
+import { normalizeDevSettings } from "../shared/dev-settings.js";
 
 test("auto picks a level from the hardware hints", () => {
   assert.equal(detectGraphicsLevel({ gpu: "Google SwiftShader", cores: 16, memoryGb: 8 }), "low");
@@ -32,9 +26,11 @@ test("auto picks a level from the hardware hints", () => {
 test("each preset costs no less than the one below it", () => {
   const order = ["low", "medium", "high", "ultra"].map((k) => GRAPHICS_PRESETS[k]);
   for (let i = 1; i < order.length; i++) {
-    for (const key of ["pixelRatioCap", "renderScale", "msaa", "shadowPx", "detailRadiusM", "mirrorRing"]) {
+    for (const key of ["pixelRatioCap", "renderScale", "shadowPx", "detailRadiusM", "mirrorRing"]) {
       assert.ok(order[i][key] >= order[i - 1][key], `${key} at step ${i}`);
     }
+    const aoRank = { off: 0, low: 1, high: 2 };
+    assert.ok(aoRank[order[i].ao] >= aoRank[order[i - 1].ao], `ao at step ${i}`);
   }
 });
 
@@ -43,13 +39,16 @@ test("overrides replace single values of the preset", () => {
   assert.equal(base.level, "high");
   assert.equal(base.shadowPx, 2048);
   const g = resolveGraphics(
-    normalizeDevSettings({ quality: "high", gfxShadows: "off", gfxViewDistance: "near", gfxRenderScale: "0.5", gfxAntialias: "0", fpsLimit: 60 })
+    normalizeDevSettings({ quality: "high", gfxShadows: "off", gfxViewDistance: "near", gfxRenderScale: "0.5", gfxAntialias: "fxaa", gfxAo: "off", gfxBloom: "off", fpsLimit: 60 })
   );
   assert.equal(g.shadowPx, 0);
   assert.equal(g.detailRadiusM, 350);
   assert.equal(g.renderScale, 0.5);
   assert.equal(g.adaptive, false);
-  assert.equal(g.msaa, 0);
+  assert.equal(g.aa, "fxaa");
+  assert.equal(g.ao, "off");
+  assert.equal(g.bloom, false);
+  assert.equal(resolveGraphics(normalizeDevSettings({ quality: "low", gfxBloom: "on" })).bloom, true);
   assert.equal(g.fpsLimit, 60);
   assert.ok(g.lodNearM <= g.lodMidM && g.lodMidM <= g.detailRadiusM);
 });
@@ -68,27 +67,9 @@ test("chunks get coarser with distance", () => {
   assert.equal(chunkSegmentsFor(g, 500), 64);
 });
 
-test("DLSS experimental presets and normalization work across all modes", () => {
-  assert.deepEqual(DLSS_MODES, ["off", "ultra_performance", "performance", "balanced", "quality", "dlaa"]);
-  const def = normalizeDevSettings({});
-  assert.equal(def.dlss, false);
-  assert.equal(def.dlssMode, "off");
-  assert.equal(getDlssPreset(def).enabled, false);
-
-  const q = normalizeDevSettings({ dlss: true });
-  assert.equal(q.dlss, true);
-  assert.equal(q.dlssMode, "quality");
-  assert.equal(getDlssPreset(q).renderScale, 0.667);
-
-  const p = normalizeDevSettings({ dlssMode: "performance", dlssSharpness: 0.8 });
-  assert.equal(p.dlss, true);
-  assert.equal(p.dlssMode, "performance");
-  assert.equal(p.dlssSharpness, 0.8);
-  assert.equal(DLSS_PRESETS.performance.renderScale, 0.5);
-
-  const cycled = cycleDlssMode({ dlssMode: "off" });
-  assert.equal(cycled.dlss, true);
-  assert.equal(cycled.dlssMode, "ultra_performance");
+test("DLSS is gone from saved settings", () => {
+  const cfg = normalizeDevSettings({ dlss: true, dlssMode: "performance", dlssSharpness: 0.8 });
+  for (const key of ["dlss", "dlssMode", "dlssSharpness"]) assert.equal(key in cfg, false, key);
 });
 
 test("hardware detection cleans ANGLE GPU strings, estimates VRAM, and builds telemetry summary", async () => {
@@ -139,4 +120,23 @@ test("hardware detection cleans ANGLE GPU strings, estimates VRAM, and builds te
   assert.equal(tier4070.tier, 3);
   const tierSwift = await probeGpuTier({ gpu: "Google SwiftShader" });
   assert.equal(tierSwift.tier, 0);
+});
+
+test("graphics screen shows the preset's values until an option is changed", async () => {
+  const { effectiveGfxChoice, gfxPresetPatch, hasGfxOverrides } = await import("../shared/graphics-profile.js");
+  const high = normalizeDevSettings({ quality: "high" });
+  const g = resolveGraphics(high);
+  assert.equal(hasGfxOverrides(high), false);
+  assert.equal(effectiveGfxChoice(high, "gfxShadows", g), "high");
+  assert.equal(effectiveGfxChoice(high, "gfxAntialias", g), "smaa");
+  assert.equal(effectiveGfxChoice(high, "gfxAo", g), "low");
+  assert.equal(effectiveGfxChoice(high, "gfxBloom", g), "on");
+  assert.equal(effectiveGfxChoice(high, "gfxViewDistance", g), "far");
+  assert.equal(effectiveGfxChoice(high, "gfxRenderScale", g), "auto");
+  const custom = normalizeDevSettings({ quality: "high", gfxAntialias: "msaa" });
+  assert.equal(hasGfxOverrides(custom), true);
+  assert.equal(effectiveGfxChoice(custom, "gfxAntialias"), "msaa");
+  const reset = normalizeDevSettings({ ...custom, ...gfxPresetPatch("low") });
+  assert.equal(reset.quality, "low");
+  assert.equal(hasGfxOverrides(reset), false);
 });

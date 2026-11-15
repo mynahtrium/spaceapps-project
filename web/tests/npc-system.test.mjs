@@ -251,7 +251,7 @@ test("HUD dialogue modal DOM markup and overlay modal pause guards exist", () =>
   assert.match(hudSrc, /nearNpcHit\?\.npc/, "hud3d.js should unwrap getNearestInteractableNpc().npc");
   assert.match(hudSrc, /MAX_NPC_INTERACT_DIST_M\s*=\s*4\.8/, "hud3d.js should enforce close-range NPC interaction limit");
   assert.match(hudSrc, /MAX_ROVER_INTERACT_DIST_M\s*=\s*6\.5/, "hud3d.js should enforce close-range rover interaction limit");
-  assert.match(hudSrc, /uDlssEnabled/, "hud3d.js should wire DLSS reconstruction shader uniforms");
+  assert.doesNotMatch(hudSrc, /uDlssEnabled/, "DLSS was fake and is removed");
   assert.match(hudSrc, /landing\.warmup\?\.\(renderer,\s*camera\)/, "hud3d.js should precompile lander shaders before veil lifts");
   assert.match(hudSrc, /if\s*\(landing\.active\)\s*\{\s*followEndless\(freePos\);/, "hud3d.js should skip 1m chunk rebuilds while landing cinematic plays");
 

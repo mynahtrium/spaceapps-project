@@ -13,7 +13,9 @@ export const GRAPHICS_LEVELS = Object.freeze(["auto", "low", "medium", "high", "
  * pixelRatioCap  device pixels per CSS pixel, upper limit
  * renderScale    3D scene resolution relative to the canvas (the HUD lens pass stays sharp)
  * minScale       floor for the adaptive resolution
- * msaa           MSAA samples on the scene target
+ * aa             anti-aliasing: "off" | "fxaa" | "smaa" | "msaa" (4 samples)
+ * ao             screen-space ambient occlusion (N8AO): "off" | "low" | "high"
+ * bloom          glow around the sun and bright highlights
  * shadowPx       sun shadow map size, 0 = no shadow map (baked terrain shadows stay)
  * shadowHalfM    half-width of the shadow box around the walker
  * softShadows    PCF soft filter
@@ -29,7 +31,9 @@ export const GRAPHICS_PRESETS = Object.freeze({
     pixelRatioCap: 1,
     renderScale: 0.75,
     minScale: 0.5,
-    msaa: 0,
+    aa: "fxaa",
+    ao: "off",
+    bloom: false,
     shadowPx: 0,
     shadowHalfM: 14,
     softShadows: false,
@@ -45,7 +49,9 @@ export const GRAPHICS_PRESETS = Object.freeze({
     pixelRatioCap: 1.25,
     renderScale: 1,
     minScale: 0.55,
-    msaa: 2,
+    aa: "smaa",
+    ao: "off",
+    bloom: true,
     shadowPx: 1024,
     shadowHalfM: 16,
     softShadows: false,
@@ -61,7 +67,9 @@ export const GRAPHICS_PRESETS = Object.freeze({
     pixelRatioCap: 1.5,
     renderScale: 1,
     minScale: 0.7,
-    msaa: 4,
+    aa: "smaa",
+    ao: "low",
+    bloom: true,
     shadowPx: 2048,
     shadowHalfM: 20,
     softShadows: false,
@@ -77,7 +85,9 @@ export const GRAPHICS_PRESETS = Object.freeze({
     pixelRatioCap: 2,
     renderScale: 1.25,
     minScale: 1,
-    msaa: 4,
+    aa: "msaa",
+    ao: "high",
+    bloom: true,
     shadowPx: 4096,
     shadowHalfM: 30,
     softShadows: true,
@@ -99,7 +109,8 @@ export const SHADOW_OPTIONS = Object.freeze({
 });
 export const VIEW_DISTANCE_OPTIONS = Object.freeze({ near: 350, medium: 600, far: 850, max: 1000 });
 export const RENDER_SCALE_OPTIONS = Object.freeze([0.5, 0.75, 1, 1.25]);
-export const ANTIALIAS_OPTIONS = Object.freeze([0, 2, 4]);
+export const ANTIALIAS_OPTIONS = Object.freeze(["off", "fxaa", "smaa", "msaa"]);
+export const AO_OPTIONS = Object.freeze(["off", "low", "high"]);
 export const FPS_LIMIT_OPTIONS = Object.freeze([0, 30, 60, 120]);
 
 /**
@@ -410,9 +421,6 @@ export function buildHardwareSummary(hw = {}) {
       : null;
   const vram = estimateGpuVram(gpuRaw, Number(hw.vramMb) || Number(hw.driverVramMb) || 0, ramGb);
   const recommendedLevel = detectGraphicsLevel({ ...hw, memoryGb: ramGb });
-  const entry = lookupCatalogEntry(gpuRaw);
-  const supportsHardwareRt = Boolean(entry?.rt);
-  const supportsDlss = vendor === "NVIDIA" || (entry ? entry.tier > 0 : true);
   return {
     gpuName,
     gpuRaw,
@@ -429,8 +437,6 @@ export function buildHardwareSummary(hw = {}) {
     maxTextureSize: Number(hw.maxTextureSize) || 4096,
     recommendedLevel,
     autoLevel: recommendedLevel,
-    supportsHardwareRt,
-    supportsDlss,
   };
 }
 
@@ -442,7 +448,6 @@ export function buildHardwareSummary(hw = {}) {
 export function resolveGraphics(cfg = {}, hw = {}) {
   let level = GRAPHICS_LEVELS.includes(cfg.quality) ? cfg.quality : "auto";
   if (level === "auto") level = detectGraphicsLevel(hw);
-  if (cfg.superGraphics) level = "ultra";
   const out = { ...GRAPHICS_PRESETS[level], level };
   if (SHADOW_OPTIONS[cfg.gfxShadows]) Object.assign(out, SHADOW_OPTIONS[cfg.gfxShadows]);
   if (VIEW_DISTANCE_OPTIONS[cfg.gfxViewDistance]) out.detailRadiusM = VIEW_DISTANCE_OPTIONS[cfg.gfxViewDistance];
@@ -452,8 +457,9 @@ export function resolveGraphics(cfg = {}, hw = {}) {
     out.minScale = Math.min(out.minScale, scale);
     out.adaptive = false;
   }
-  const aa = cfg.gfxAntialias === "auto" || cfg.gfxAntialias == null ? NaN : Number(cfg.gfxAntialias);
-  if (ANTIALIAS_OPTIONS.includes(aa)) out.msaa = aa;
+  if (ANTIALIAS_OPTIONS.includes(cfg.gfxAntialias)) out.aa = cfg.gfxAntialias;
+  if (AO_OPTIONS.includes(cfg.gfxAo)) out.ao = cfg.gfxAo;
+  if (cfg.gfxBloom === "on" || cfg.gfxBloom === "off") out.bloom = cfg.gfxBloom === "on";
   out.lodMidM = Math.min(out.lodMidM, out.detailRadiusM);
   out.lodNearM = Math.min(out.lodNearM, out.lodMidM);
   out.fpsLimit = FPS_LIMIT_OPTIONS.includes(Number(cfg.fpsLimit)) ? Number(cfg.fpsLimit) : 0;
@@ -463,4 +469,46 @@ export function resolveGraphics(cfg = {}, hw = {}) {
 /** Grid segments for a terrain chunk `d` metres away. */
 export function chunkSegmentsFor(gfx, d) {
   return d < gfx.lodNearM ? gfx.lodSegs[0] : d < gfx.lodMidM ? gfx.lodSegs[1] : gfx.lodSegs[2];
+}
+
+/** Settings keys that override one value of the preset; "auto" means "take the preset's value". */
+export const GFX_OVERRIDE_KEYS = Object.freeze(["gfxRenderScale", "gfxShadows", "gfxViewDistance", "gfxAntialias", "gfxAo", "gfxBloom"]);
+
+/** Settings patch that selects `level` and drops every per-option override. */
+export function gfxPresetPatch(level) {
+  const patch = { quality: GRAPHICS_LEVELS.includes(level) ? level : "auto" };
+  for (const k of GFX_OVERRIDE_KEYS) patch[k] = "auto";
+  return patch;
+}
+
+/** True when any option differs from the preset (the screen then shows "Custom"). */
+export function hasGfxOverrides(cfg = {}) {
+  return GFX_OVERRIDE_KEYS.some((k) => cfg[k] !== undefined && cfg[k] !== "auto");
+}
+
+/**
+ * The value a graphics option select should show: the override if set, else what the preset uses.
+ * Render resolution keeps "auto" (adaptive) as a choice of its own.
+ */
+export function effectiveGfxChoice(cfg = {}, key, gfx = resolveGraphics(cfg)) {
+  const v = cfg[key];
+  if (key === "fpsLimit") return String(Number(v) || 0);
+  if (key === "gfxRenderScale") return v == null ? "auto" : String(v);
+  if (v !== undefined && v !== "auto") return String(v);
+  switch (key) {
+    case "gfxShadows":
+      return gfx.shadowPx >= 4096 ? "ultra" : gfx.shadowPx >= 2048 ? "high" : gfx.shadowPx > 0 ? "low" : "off";
+    case "gfxViewDistance": {
+      const hit = Object.entries(VIEW_DISTANCE_OPTIONS).find(([, m]) => m === gfx.detailRadiusM);
+      return hit ? hit[0] : "medium";
+    }
+    case "gfxAntialias":
+      return gfx.aa;
+    case "gfxAo":
+      return gfx.ao;
+    case "gfxBloom":
+      return gfx.bloom ? "on" : "off";
+    default:
+      return "auto";
+  }
 }
