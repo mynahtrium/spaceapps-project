@@ -1239,3 +1239,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Tests: headless checks for all four historic sizes (level at rest, reach their speed, stay upright, stop); browser check with a simulated pad: board Curiosity with RB, drive with stick + RT, leave with RB.
 - Commit: this commit
 - Next step: Cagan tries it with a real pad.
+
+### 2026-11-15 Europe/Istanbul — LOAD-02 loading screen never closes on other players' machines
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: LOAD-02
+- Files changed: `web/hud/hud3d.js`, `.gitattributes`, `docs/AI_USE_LOG.md`
+- Why: other players reported that the game does not open and stays on the loading screen. Checked first: every file the page loads is tracked in git (nothing exists only on Cagan's machine). Most likely cause, introduced by PERF-03: a synchronous `renderer.compile(scene, camera)` right before the loading screen is removed. It builds every shader up front; fine on a strong GPU, but on a weak or integrated one it can block the page for minutes while the veil is up. It is removed (the light counts no longer change at run time, which was the real source of the freezes). The loading screen now names its step (CORRIDOR TERRAIN, GROUND DATA, NASA SUIT MODEL, SCENE) so a stuck load shows where; the corridor load (40 s), the height map (30 s) and each suit model (25 s) give up and fall back (single height tile; next suit; capsule stand-in) instead of hanging; if the 3D view throws, the veil shows `3D VIEW FAILED: <message>`. `.gitattributes` marks `.glb .bin .jpg .wasm` and audio files as binary so git on another Windows machine can never rewrite their line endings (checked: `git add --renormalize` changed nothing, the repository copies are intact).
+- Not reproduced here: my machine opens the game in about 7 s. If it still sticks for someone, the text on the loading screen (or the first red line in the browser console, F12) says where.
+- Commit: this commit
+- Next step: the affected players pull, hard-refresh (Ctrl+Shift+R) and report the step name if it still sticks.

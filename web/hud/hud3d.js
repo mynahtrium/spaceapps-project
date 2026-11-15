@@ -458,6 +458,14 @@ export async function initHud3D(
   let surfaceG = 3.717;
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
+  // The veil names the step it is on, so a stuck load shows where; slow steps give up after a while
+  // (the suit falls back to the next model, then to a stand-in) instead of hanging forever.
+  const loadStage = (t) => {
+    if (loadingVeil) loadingVeil.textContent = `LOADING · ${t}`;
+  };
+  const withTimeout = (promise, ms, label) =>
+    Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms / 1000} s`)), ms))]);
+  loadStage("TERRAIN");
   let devCfg = loadDevSettings();
   if (devCfg.rayTracing || (devCfg.rayTracingMode && devCfg.rayTracingMode !== "off")) {
     devCfg = saveDevSettings({ rayTracing: false, rayTracingMode: "off" });
@@ -472,7 +480,13 @@ export async function initHud3D(
 
   // Streamed HiRISE corridor (habitat -> Glen Torridon, real 1 m DTM in chunks). When it is missing,
   // the world falls back to the single height-preview tile.
-  const corridor = assets.corridorBaseUrl ? await GaleCorridor.load(assets.corridorBaseUrl) : null;
+  loadStage("CORRIDOR TERRAIN");
+  const corridor = assets.corridorBaseUrl
+    ? await withTimeout(GaleCorridor.load(assets.corridorBaseUrl), 40000, "corridor terrain").catch((err) => {
+        console.warn("[corridor] gave up:", err?.message || err);
+        return null; // the single height tile is used instead
+      })
+    : null;
 
   const bounds = corridor?.bounds ||
     costMap?.bounds || {
@@ -559,10 +573,12 @@ export async function initHud3D(
       const [lon, lat] = f.geometry.coordinates;
       jobs.push(corridor.warmup(lonToX(lon), latToZ(lat), 60, 8000));
     }
+    loadStage("GROUND DATA");
     await Promise.all(jobs);
   }
 
   // ---------- renderer, scene, camera ----------
+  loadStage("SCENE");
   const scene = new THREE.Scene();
   const HORIZON = new THREE.Color(0.62, 0.43, 0.3);
   scene.fog = new THREE.FogExp2(HORIZON.getHex(), 0.00042);
@@ -758,7 +774,7 @@ export async function initHud3D(
     imgW = corridor.overview.nx;
     imgH = corridor.overview.nz;
   } else try {
-    const hImg = await loadImage(assets.heightPreviewUrl);
+    const hImg = await withTimeout(loadImage(assets.heightPreviewUrl), 30000, "height map");
     imgW = hImg.width;
     imgH = hImg.height;
     const c = document.createElement("canvas");
@@ -1775,7 +1791,10 @@ export async function initHud3D(
   {
     for (const m of SUIT_MODELS) {
       try {
-        const rig = await loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M);
+        loadStage("NASA SUIT MODEL");
+        const suitT0 = performance.now();
+        const rig = await withTimeout(loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M), 25000, m.url);
+        console.info(`suit model ready in ${Math.round(performance.now() - suitT0)} ms (${m.url})`);
         suitRig = rig;
         if (rig.bootBounds) footsteps.setSuitProfile(rig.bootBounds);
         self = createAstronaut(rig, { hideHead: true });
@@ -5383,22 +5402,10 @@ export async function initHud3D(
   for (const r of drivableRovers) stabilizeLights(r.group);
   stabilizeLights(landing.lander);
   syncStableLights();
-  // compile every material once now (the loading screen is still up), the hidden lander included,
-  // so nothing compiles in the middle of the landing cut-scene. Synchronous on purpose: three r170's
-  // compileAsync throws when a material changes while it waits.
-  {
-    const L = landing.lander;
-    const wasVisible = L.visible;
-    L.visible = true;
-    try {
-      const t0 = performance.now();
-      renderer.compile(scene, camera);
-      console.info(`shaders compiled in ${Math.round(performance.now() - t0)} ms`);
-    } catch (err) {
-      console.warn("shader warm-up failed", err);
-    }
-    L.visible = wasVisible;
-  }
+  // (There used to be a synchronous renderer.compile() here to pre-build every shader. On a weak or
+  // integrated GPU that call alone can take minutes, and it ran just before the loading screen
+  // goes away: the "stuck on loading" other players saw. Light counts no longer change at runtime
+  // (see the light rig above), so the only thing left to compile later is the lander itself.)
 
   requestAnimationFrame(animate);
   loadingVeil?.classList.add("done");
