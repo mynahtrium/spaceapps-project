@@ -365,13 +365,14 @@ export class GaleCorridor {
 
 /**
  * Build the mesh of one scene cell from its (possibly mirrored) data chunk.
- * Positions are absolute scene coordinates; y = elevation - `elevBase`.
+ * Positions are absolute scene coordinates; y = elevation - `elevBase`, optionally passed through
+ * `adjustY(x, z, y)` (e.g. a levelled habitat pad) so the mesh matches the walkable height.
  * UVs address the data chunk's own texture (u west->east, v north at 1), so mirrored copies
  * show the same imagery flipped, matching their heights.
  *
  * @returns {import('three').BufferGeometry | null} null when the data chunk is not loaded
  */
-export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, skirtDepth = 30) {
+export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, skirtDepth = 30, adjustY = null) {
   const { ci, cj, flipX, flipZ } = corridor.dataChunkForCell(a, b);
   const arr = corridor.chunkHeights(ci, cj);
   if (!arr) return null;
@@ -400,13 +401,17 @@ export function buildCorridorCellGeometry(THREE, corridor, a, b, seg, elevBase, 
     const row = Math.round(flipZ ? n - q * step : q * step);
     for (let p = 0; p < nv; p++) {
       const col = Math.round(flipX ? n - p * step : p * step);
-      H[q * nv + p] = arr[row * s + col] - elevBase;
+      const y = arr[row * s + col] - elevBase;
+      H[q * nv + p] = adjustY ? adjustY(x0 + p * dxv, z0 + q * dzv, y) : y;
     }
   }
   // edge-aware height lookup for normals (falls back to the corridor sampler outside this chunk)
   const hAt = (p, q) => {
     if (p >= 0 && p < nv && q >= 0 && q < nv) return H[q * nv + p];
-    return corridor.sample(x0 + p * dxv, z0 + q * dzv) - elevBase;
+    const x = x0 + p * dxv;
+    const z = z0 + q * dzv;
+    const y = corridor.sample(x, z) - elevBase;
+    return adjustY ? adjustY(x, z, y) : y;
   };
   for (let q = 0; q < nv; q++) {
     for (let p = 0; p < nv; p++) {

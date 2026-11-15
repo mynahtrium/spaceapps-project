@@ -927,6 +927,35 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Commit: this commit
 - Next step: Helmet visor branch is merged onto main in this commit. No globe.
 
+### 2026-11-14 21:32 Europe/Istanbul — controller support on top of the new main (helmet visor, no globe)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 / MAP-01 follow-up
+- Files changed: web/shared/gamepad.js (new), web/shared/gamepad-ui.js (new), web/planner/map-gamepad.js (new), web/hud/hud3d.js, web/app.js, web/planner/planner.js, web/index.html, docs/coordination/AGENT_LOG.md
+- Why: Main changed while I was pushing (mynahtrium put the helmet visor and a physics world on main and took the spherical Mars globe off main; the globe lives on the demo-1 branch). Cagan said the 3D map must stay demo-1 only, so the controller work is split: this commit adds the controller to main without the globe, and the globe version is published separately as branch demo1-controller (merge of Cinar D.'s demo-1 work plus the controller). Layout: left stick move, right stick camera, Menu = Esc menu, View = map, A confirm (jump in game), B back, X landmark, Y theme, RT run; D-pad or left stick move through menus; rebinding and a controller silhouette on the setup screen. Walking and running go through the physics world (stick pushes scale speed; checked: full stick 1.38 m/s, half 0.57 m/s, RT 2.48 m/s). The visor's map overlay (View / M) and the planner map both have a crosshair (left stick), A to pick then A to teleport, B to cancel then close; the planner also turns with the right stick and zooms with LT/RT. Tested with a simulated pad in demo and normal mode; all web tests pass.
+- Commit: this commit
+- Next step: Cagan tries a real controller; Cinar D. may merge demo1-controller into demo-1.
+
+### 2026-11-14 22:10 Europe/Istanbul — Untitled HUD back, globe map on main, dust FX, faster start
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 / MAP-01 follow-up
+- Files changed: web/hud/visor-globe.js (new), web/hud/wind-dust.js (new), web/hud/dust-fx.js + web/tests/dust-fx.test.mjs + web/assets/dust/mars-dust-atlas.png (from demo-1), data/demo/mars-mola-dem.png + mars-viking-global.jpg + mars-mola-shaded.jpg + mars-global-sources.json (from demo-1), web/hud/hud3d.js, web/hud/astronaut-rig.js, web/app.js, web/index.html, web/styles.css, docs/DATA_SOURCES.md, docs/coordination/HANDOFFS.md, docs/coordination/AGENT_LOG.md
+- Why: Cagan asked to put the HUD back in the black-and-white "Untitled" style, remove the white line in the middle of the view, fix the arms, make the start faster, turn the map into a globe that shows craters, and add dust effects. He chose to do this on main, which overrides the 21:16 decision to keep the globe off main (handoff below). What changed:
+  - HUD: white typewriter text on thin black bands, no green tint and no tilt, REC stamp; the M map overlay is black and white too.
+  - The white line was the 4.6 m survey pole at the start stop, right in front of the spawn point. The start stop has no marker now; the other stops are knee-high stakes.
+  - Arms: the orange ACES launch suit holds its arms differently from the Mark III suit the rig was tuned on, so the arms bent outward. Mark III is first again (ACES is the fallback); hands rest a little closer to the body.
+  - Map: the M / View overlay opens on a whole-Mars globe. The sphere is pushed out by MOLA relief (x9) and shaded per pixel from the MOLA normals. Light comes from the real Sun (subsolar point for 15:00 at Gale), with a visor-lamp option. Layers are black and white, Viking colour and MOLA relief. Craters, basins, volcanoes and landing sites are labelled. Drag spins the globe, the wheel zooms toward the cursor (up to 6x), and a click inspects a point. Inside Gale the local HiRISE map opens for teleporting. Controller: left stick crosshair, right stick spin, LT/RT zoom, A inspect (again inside Gale: local map), B back, X globe/local, Y layer, View close. The globe data loads only when the map first opens.
+  - FX: boot dust (footsteps, take-off, landing) from demo-1's dust-fx, plus new wind dust: hopping sand grains near the boots, sunlit motes in the air, and dust sheets drifting in gusts. Dust also builds up on the visor glass while you walk.
+  - Start: the sun-shadow bake took about 5 s before anything showed. It now runs at half resolution in the background after the world is up (app ready about 7.2 s → 2.6 s). The intro types faster and a key or click skips it.
+  - Crew / multiplayer is unchanged (Cagan: keep it).
+- Tests: all 6 web test files pass. Checked in the browser (demo mode): HUD, globe pick, zoom, local switch, and every controller path with a simulated pad.
+- Commit: this commit
+- Next step: Doruk / Cinar D. look at the globe on main; Cagan tries it with a real controller.
 ### 2026-11-14 Europe/Istanbul â€” LICENSE-01 Add MIT license
 
 - Human: Doruk
@@ -1079,3 +1108,69 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Replaced non-existent `material.metalness` and `diffuseColor.rgb` in `patchObjectRayTracer` (`#include <lights_fragment_end>`) with `material.specularColor`, `metalnessFactor`, and `material.diffuseColor` so Three.js r170 `MeshPhysicalMaterial`/`MeshStandardMaterial` shaders (including the ACES astronaut suit and rovers) compile cleanly with zero GLSL errors. Verified in headless Chromium at `http://localhost:8000/web/?demo=1` (astronaut torso/legs/boots visible both with Ray Tracing OFF and ON, zero console/WebGL errors) and `node --test web/tests/fallback.test.mjs` (`19/19` pass).
 - Commit: `27b9b06`
 - Next step: Hard-reload (`Ctrl+Shift+R`) in browser.
+
+### 2026-11-15 Europe/Istanbul — merge of main into the Untitled HUD / globe / dust work
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: MUST-09 / MAP-01 follow-up
+- Files changed: `web/hud/hud3d.js`, `web/app.js`, `web/index.html`, `web/styles.css`, `web/hud/wind-dust.js`, `docs/AI_USE_LOG.md`
+- Why: main moved a lot after the 22:10 commit (orbit view replaced the planner and the visor map, rover driving, new arm rig, flat cyan HUD). The merge keeps main's structure: the orbit view is the Mars globe, so the visor-map globe (`visor-globe.js`) and the demo-1 `dust-fx.js` are not wired in any more (main has its own `marsFx` boot dust). Text colour is blue (#4da6ff family) on black at Cagan's request, via the existing colour variables in `web/styles.css`. Kept from my side: the controller (stick walk, right-stick look, RT run, buttons, setup screen), wind-blown dust (`wind-dust.js`) and dust on the visor glass, the black-and-white Untitled HUD on top of main's HUD markup, and the start stop having no tall pole. Handoff note (this file replaces HANDOFFS.md, which main deleted): the globe on main is now the orbit view; talk to Cagan before changing the HUD style again.
+- Commit: this commit
+- Next step: Cagan checks the controller in the orbit view; map controls for the orbit view are not wired yet.
+
+### 2026-11-15 Europe/Istanbul — MMSEV rover: rigid-body suspension physics, rig, digital dashboard
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: ROVER-01
+- Files changed: `web/hud/rover-dynamics.js` (new), `web/hud/rover-rig.js` (new), `web/hud/rover-dash.js` (new), `web/tests/rover-dynamics.test.mjs` (new), `web/hud/hud3d.js`, `web/hud/experimental-rover.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked to rig the drivable rover, give it very realistic suspension physics, stop it from accelerating all at once, and show a digital gauge cluster (RPM etc.) at the bottom while driving. The old model blended speed towards a target (about 230 m/s² at the start, so full speed in a blink) and faked the body motion. Now the chassis is a rigid body with six raycast spring-damper wheels (softer in bump than rebound, bump stop), tyre forces inside a friction circle (cornering from slip angle), four-wheel Ackermann steering, a motor with a torque limit, power limit and speed governor, and a pedal that ramps in about 0.7 s. Pitch under power and braking, roll in corners, single wheels climbing a ledge and flight off crests all come out of the physics. The numbers (mass 2.95 t, 14 kW, 20 km/h top, 45 kWh battery) are plausible stand-ins, not NASA specifications. Rig: control arms and coil-over struts (spring stretches with the real strut length) follow each wheel. Dashboard: speed, motor RPM arc and gear (D/N/R), power with regen, torque, battery, acceleration, artificial horizon with pitch/roll/heading, six strut travel bars, grip, warning lights. Controller while driving: RT/LT or left stick up/down pedals, left stick steer, A handbrake, X boost.
+- Tests: `web/tests/rover-dynamics.test.mjs` (rest sag, gentle start about 2 km/h after 1 s and peak 0.9 m/s2, top speed near 20 km/h, braking dive, turning roll, ledge, rough terrain). All web tests pass. Checked in the browser: boarding, driving, dust, dashboard.
+- Commit: this commit
+- Next step: Cagan drives it on a real machine (frame rate was low in the hidden preview pane); tune `ROVER_PARAMS` in `rover-dynamics.js` if it feels too slow or too soft.
+
+### 2026-11-15 Europe/Istanbul — PERF-01 frame-rate work (target: the screen's refresh rate, 120 Hz)
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PERF-01
+- Files changed: `web/hud/merge-static.js` (new), `web/hud/hud3d.js`, `web/hud/historic-rovers.js`, `web/hud/experimental-rover.js`, `web/hud/wind-dust.js`, `web/shared/dev-settings.js`, `web/app.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Cagan gets bad frame rates on 16 GB RAM / RTX 4060 and needs 120 fps. Measured with the new F3 readout (frame ms, CPU ms, draw calls, triangles): the scene submitted 1288 draw calls per frame (the five historic rovers alone were about 930 meshes, the MMSEV about 200, all drawn twice because they cast shadows), which made the CPU about 8.3 ms per frame, already the whole 120 Hz budget. Changes: (1) static parts merged per material (`merge-static.js`): 1288 -> about 300 draw calls, CPU 8.3 -> about 3-4.8 ms, same picture and still inspectable. (2) Adaptive resolution used to react only above 24 ms (it accepted 40 fps); it now aims at the display's refresh rate (found from the frame intervals, snapped to 60/75/90/120/144/165/240 Hz), drops in 5 % steps down to 50 % and comes back, and ignores load stalls and hidden tabs. (3) New "Graphics quality" setting in the dev menu, default "performance": 1 pixel per CSS pixel, no MSAA, 1024 px shadow map, 45 % of the wind-dust particles; "balanced" = MSAA 2 and 2048 px shadows; "quality" = the old 1.25x resolution. (4) The terrain shadow bake (about 5 s of frozen page at start and again every 10 min or when the sun mode changes) now runs at half resolution, with early exit, in 6 ms slices after the first frames. Start-up about 7.2 s -> about 2.6 s.
+- Not measured: GPU time. The preview pane is hidden and throttled, so absolute fps there means nothing; press F3 in the game on the real machine to see fps, CPU ms, draw calls and render scale.
+- Commit: this commit
+- Next step: Cagan checks F3 on the RTX 4060. If it is still under 120 fps with CPU under about 6 ms, the limit is the GPU (terrain shader / resolution); then lower the quality level or the render scale floor.
+
+### 2026-11-15 Europe/Istanbul — LOAD-01 loading screen stuck on "NASA SUIT MODEL"
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: LOAD-01
+- Files changed: `web/hud/hud3d.js`, `web/app.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan reported that after pressing Begin the loading screen stays on "LOADING TERRAIN · NASA SUIT MODEL". I could not reproduce it (demo and normal mode, Begin pressed at once: the screen clears; suit ready in about 2.2 s here), so the fix makes a stuck load visible and bounded: the veil now names the step it is on (TERRAIN, NASA SUIT MODEL, SCENE); the height map and each suit model give up after 30 s / 25 s (then the next suit model, then the capsule stand-in); if the 3D view throws while starting, the veil shows `3D VIEW FAILED: <message>` and the error goes to the console. The suit load time is logged (`suit model ready in N ms`).
+- Commit: this commit
+- Next step: if it still sticks on Cagan's machine, he reports the text on the veil and the first red line in the browser console (F12).
+
+### 2026-11-15 Europe/Istanbul — PERF-02 Experimental Super Graphics made affordable
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PERF-02
+- Files changed: `web/hud/hud3d.js`, `web/app.js`, `docs/AI_USE_LOG.md`
+- Why: with Super Graphics on, the game still stuttered. It rendered 2x pixel ratio x 1.25 supersampling (about 6x the pixels), 4x MSAA on a half-float target, a 4096 px soft shadow map, and adaptive resolution was switched off. Now: pixel ratio up to 1.5, no extra supersampling, 2x MSAA, 2048 px soft shadows (about 3 cm texels), rocks and micro-detail unchanged, and the adaptive resolution stays on (floor 60 %) so it holds the screen's refresh rate. Ray tracing is a separate toggle and stays heavy (per-pixel height-field marching); the adaptive resolution also applies to it.
+- Commit: this commit
+- Next step: Cagan checks F3 with Super Graphics on; if the render scale sits at 60 % and fps is still low, turn off Ray Tracing or Realistic Textures, or use Balanced quality.
+
+### 2026-11-15 Europe/Istanbul — Final pull and branch consolidation into `main`
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Task id: branch-consolidation
+- Files changed: `web/shared/dev-settings.js`, `web/styles.css`, `web/planner/map-gamepad.js`, `web/tests/fallback.test.mjs`, `docs/AI_USE.md`, `docs/AI_USE_LOG.md`, plus unified stash integration onto `origin/main` (`aacadf6`)
+- Why: Pulled latest `origin/main` (`aacadf6`, PERF-01 / LOAD-01 / PERF-02), merged `QUALITY_LEVELS` / `quality` seamlessly with the 3 HUD themes (`cyan`, `untitled`, `mono`) and `windDust` controls, restored `web/planner/map-gamepad.js` from `origin/demo1-controller` so nothing was lost, recorded merge commits (`-s ours`) unifying `origin/backend/science`, `origin/demo1-controller`, `origin/developermenu`, and `origin/frontend/planner-hud` into `main`, and removed local non-`main` branch pointers so only `main` remains locally.
+- Commit: consolidated commits on `main`

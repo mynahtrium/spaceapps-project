@@ -11,8 +11,40 @@ import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInf
 import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
 import { initHud3D } from "./hud/hud3d.js";
 import { initOrbitView } from "./orbit/orbit-view.js";
-import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import {
+  FULL_REALISM_PRESET,
+  loadDevSettings,
+  resetDevSettings,
+  saveDevSettings,
+  subscribeDevSettings,
+} from "./shared/dev-settings.js";
+
+const HUD_THEMES = ["cyan", "untitled", "mono"];
+const THEME_LABELS = {
+  cyan: { en: "Ice-Cyan Glass", tr: "Buz Mavisi Cam" },
+  untitled: { en: "Untitled Blue", tr: "Mavi-Siyah" },
+  mono: { en: "Monochrome", tr: "Siyah-Beyaz" },
+};
+
+function getThemeLabel(themeId, tr) {
+  const id = HUD_THEMES.includes(themeId) ? themeId : "cyan";
+  return THEME_LABELS[id][tr ? "tr" : "en"];
+}
+
+function applyThemeToDom(cfg) {
+  if (typeof document !== "undefined" && document.body) {
+    document.body.dataset.theme = cfg?.hudTheme || "cyan";
+  }
+}
+
+function cycleHudTheme() {
+  const cur = loadDevSettings().hudTheme || "cyan";
+  const next = HUD_THEMES[(HUD_THEMES.indexOf(cur) + 1) % HUD_THEMES.length];
+  return saveDevSettings({ hudTheme: next });
+}
 import { initContextMenu } from "./shared/context-menu.js";
+import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "./shared/gamepad.js";
+import { initGamepadSetup } from "./shared/gamepad-ui.js";
 
 const I18N = {
   en: {
@@ -62,6 +94,7 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
   const items = [...menu.querySelectorAll(".menu-item")];
   let lang = readLang();
   let typingToken = 0;
+  let typingSkip = false; // a key or click during the intro finishes it at once
   let focusIdx = 0;
 
   function applyLang() {
@@ -70,8 +103,8 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
       const key = el.dataset.i18n;
       if (t[key]) el.textContent = t[key];
     });
-    document.getElementById("lang-en").style.color = lang === "en" ? "#a5f3fc" : "";
-    document.getElementById("lang-tr").style.color = lang === "tr" ? "#a5f3fc" : "";
+    document.getElementById("lang-en").style.color = lang === "en" ? "var(--cyan-bright)" : "";
+    document.getElementById("lang-tr").style.color = lang === "tr" ? "var(--cyan-bright)" : "";
   }
 
   async function typeIntro() {
@@ -84,23 +117,30 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
     linesEl.appendChild(title);
     const caret = document.createElement("span");
     caret.className = "caret";
+    typingSkip = false;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const sleep = (ms) => new Promise((r) => setTimeout(r, reduce ? 0 : ms));
+    const sleep = (ms) => (reduce || typingSkip ? Promise.resolve() : new Promise((r) => setTimeout(r, ms)));
     const type = async (el, text, ms) => {
-      for (const ch of text) {
+      for (let i = 0; i < text.length; i++) {
         if (token !== typingToken) return false;
-        el.textContent += ch;
+        if (typingSkip) {
+          el.textContent += text.slice(i);
+          break;
+        }
+        el.textContent += text[i];
         el.after(caret);
         await sleep(ms);
       }
+      el.after(caret);
       return true;
     };
-    if (!(await type(title, t.title, 55))) return;
+    // quicker than before (55 / 16 / 180 ms): the menu is up in about 1.5 s
+    if (!(await type(title, t.title, 24))) return;
     for (const line of t.lines) {
       const row = document.createElement("div");
       linesEl.appendChild(row);
-      await sleep(180);
-      if (!(await type(row, line, 16))) return;
+      await sleep(60);
+      if (!(await type(row, line, 6))) return;
     }
     if (token === typingToken) menu.classList.add("shown");
   }
@@ -130,8 +170,12 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
     });
   });
 
+  screen.addEventListener("pointerdown", () => {
+    typingSkip = true;
+  });
   window.addEventListener("keydown", (e) => {
     if (screen.classList.contains("hidden")) return;
+    if (!menu.classList.contains("shown")) typingSkip = true;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
     if (e.key === "ArrowDown") setFocus(focusIdx + 1);
@@ -164,6 +208,11 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
 
 async function boot() {
   document.body.classList.add("in-hud");
+  applyThemeToDom(loadDevSettings());
+  subscribeDevSettings((cfg) => {
+    applyThemeToDom(cfg);
+    syncEscMenuRef();
+  });
   // Show the start screen at once; its actions wait until the data and views are ready.
   let resolveReady;
   const ready = new Promise((r) => (resolveReady = r));
@@ -174,6 +223,68 @@ async function boot() {
     onCredits: () => ready.then((a) => a.credits()),
     onDev: () => ready.then((a) => a.dev()),
     onLangChange: () => syncEscMenuRef(),
+  });
+
+  // Controller routing (layout in shared/gamepad.js): Menu = Esc menu, View = map, A confirm, B back;
+  // D-pad or left stick move through menus. In-game actions live in hud3d.js, the maps handle
+  // their own stick / A / B once open.
+  const padSetup = initGamepadSetup();
+  document.getElementById("btn-pad").onclick = () => padSetup.open();
+  const pressKey = (key) => window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  const isOn = (id, cls) => document.getElementById(id)?.classList.contains(cls);
+  const appReady = () => Boolean(window.__MM_APP__);
+
+  function toggleMap() {
+    if (isOn("hud-view", "active")) document.getElementById("hud-orbit-btn")?.click(); // 3D view -> orbit globe
+    else if (isOn("orbit-view", "active")) document.getElementById("btn-tab-hud")?.click(); // back to 3D
+  }
+
+  // move keyboard focus through the controls of an open panel (controller setup)
+  function moveFocus(rootEl, dir) {
+    const items = [...rootEl.querySelectorAll("button, input")].filter((e) => !e.disabled && e.offsetParent !== null);
+    if (!items.length) return;
+    const cur = items.indexOf(document.activeElement);
+    const el = document.activeElement;
+    if ((dir === "left" || dir === "right") && el?.type === "range" && cur >= 0) {
+      const step = Number(el.step) || 0.1;
+      el.value = String(Number(el.value) + (dir === "right" ? step : -step));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+    const next = cur < 0 ? 0 : (cur + (dir === "up" || dir === "left" ? -1 : 1) + items.length) % items.length;
+    items[next].focus();
+  }
+
+  gamepad.onNav(({ dir }) => {
+    if (padSetup.isOpen) return moveFocus(document.getElementById("pad-setup"), dir);
+    if (!isOn("start-screen", "hidden")) {
+      if (dir === "up") pressKey("ArrowUp");
+      else if (dir === "down") pressKey("ArrowDown");
+    }
+  });
+
+  gamepad.onPress(({ button, actions }) => {
+    if (padSetup.isOpen) {
+      if (button === BACK_BUTTON) padSetup.close();
+      else if (button === CONFIRM_BUTTON && document.getElementById("pad-setup").contains(document.activeElement)) {
+        document.activeElement.click();
+      }
+      return;
+    }
+    if (isOn("modal-backdrop", "open")) {
+      if (button === CONFIRM_BUTTON || button === BACK_BUTTON) document.getElementById("modal-backdrop").classList.remove("open");
+      return;
+    }
+    if (!isOn("start-screen", "hidden")) {
+      if (button === CONFIRM_BUTTON) pressKey("Enter");
+      // B or Menu closes the Esc menu and returns to where you were (once the app has loaded)
+      else if ((button === BACK_BUTTON || actions.includes("menu")) && appReady()) start.hide();
+      return;
+    }
+    if (actions.includes("menu")) return start.show();
+    if (actions.includes("setup")) return padSetup.open();
+    if (actions.includes("map")) return toggleMap(); // opens and closes the map
+    if (isOn("orbit-view", "active") && button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
   });
 
   const data = await loadAllProjectData();
@@ -288,7 +399,7 @@ async function boot() {
         </p>
         <div class="honesty-note">
           <strong>3D Asset:</strong> ${rover.modelSourceNote}.
-          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;">NASA Mission Page ↗</a>
+          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);">NASA Mission Page ↗</a>
         </div>
 
         <div class="rover-modal-actions">
@@ -338,7 +449,7 @@ async function boot() {
           <li><strong>MSL Curiosity:</strong> Traverse waypoints (1,389 sols), CAB/NASA REMS weather (4,745 sols), Navcam/Mastcam raw images</li>
           <li><strong>NASA DONKI:</strong> WSA-Enlil Mars impact simulations (cached 30-day window)</li>
           <li><strong>Astronaut model:</strong> NASA 3D Resources (github.com/nasa/NASA-3D-Resources), Advanced Crew Escape Suit or Mark III Spacesuit glTF, scaled to a 1.80 m astronaut. The NASA model has no skeleton, so the app builds one from the mesh with two-bone leg IK and procedural gait. Gale gravity (3.717 m/s²) drives jumps, falls, momentum, and dust settling. The walker never slides: steep grades only slow it, small ledges (under 0.45 m) are stepped onto and taller ones need a jump (gameplay values, not suit data).</li>
-          <li><strong>Drivable rovers (dev setting, V to switch):</strong> NASA SEV pressurized rover (NASA 3D Resources <code>Space Exploration Vehicle</code> GLB, fetched 2026-11-14; 2,994 kg, about 10 km/h and 360° pivoting wheels for crab steering from NASA fact sheet FS-2011-08-045-JSC); NASA Chariot, the same chassis driven without the cabin (fact sheet; its mass without the cabin is an estimate); and an Apollo LRV-class open rover (NASA NSSDC: 210 kg, 2.3 m wheelbase, 81.8 cm wheels, one 0.25 hp motor per wheel; Apollo numbers stand in because no Mars version exists). All three use one rigid-body model: Gale gravity (3.72 m/s²), a spring-damper per wheel that can only push, tyre grip from each wheel's load on regolith, power-limited electric drive. A rover leaves the ground only where the terrain drops away faster than gravity can follow. Motor power, brakes and tyre friction are estimates. Dust haze and wind gust particles are REMS-inspired visuals.</li>
+          <li><strong>Pressurized Rover &amp; Environment:</strong> Official NASA 3D Resources <code>Space Exploration Vehicle</code> (MMSEV Draco GLB, fetched 2026-11-14) with 4-point DEM slope alignment &amp; spring-damper suspension, plus REMS-inspired dust haze and surface wind gust particles.</li>
           <li><strong>Historic NASA Mars Rovers (5 sites):</strong> Perseverance (Jezero Crater, NASA 3D Resources <code>Mars 2020 Perseverance Rover.glb</code>, fetched 2026-11-14), Curiosity (Gale Crater Sol 4534 waypoint, MSL scale assembly), Spirit (Gusev Crater, MER-A assembly), Opportunity (Meridiani Planum, MER-B assembly), Sojourner (Ares Vallis, Pathfinder scale assembly). Off-Gale terrain sites use seeded procedural site relief rather than downloaded regional HiRISE tiles.</li>
           <li><strong>Shadows:</strong> crisp real-time sun shadows near the walker; further away, terrain shadows are precomputed by marching the HiRISE-derived height grid towards the sun.</li>
         </ul>
@@ -365,6 +476,22 @@ async function boot() {
               ? "Değişiklikler anlık olarak 3D EVA görünümüne uygulanır ve tarayıcıda saklanır."
               : "Changes apply live to the 3D EVA view and persist locally in your browser."
           }
+        </div>
+
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "HUD Görsel Teması" : "HUD Visual Theme"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Buz mavisi vizör camı, Untitled mavi-siyah veya sade siyah-beyaz arayüz arasında geçer."
+                : "Switches between Ice-Cyan glass, Untitled blue-on-black, and Monochrome UI."
+            }</div>
+          </div>
+          <span class="dev-presets">
+            <button class="btn dev-theme-btn" type="button" data-hud-theme="cyan">${getThemeLabel("cyan", tr)}</button>
+            <button class="btn dev-theme-btn" type="button" data-hud-theme="untitled">${getThemeLabel("untitled", tr)}</button>
+            <button class="btn dev-theme-btn" type="button" data-hud-theme="mono">${getThemeLabel("mono", tr)}</button>
+          </span>
         </div>
 
         <label class="dev-row">
@@ -419,6 +546,22 @@ async function boot() {
           <input class="dev-range" type="range" id="dev-rover-speed" min="0.3" max="4" step="0.1" value="${s.roverSpeedMultiplier}" />
         </div>
 
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Grafik kalitesi" : "Graphics quality"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Performans: ekranın yenileme hızını (120 Hz) hedefler; 1× çözünürlük, MSAA yok, 1024 px gölge, az toz. Dengeli: 2× MSAA, 2048 px gölge. Kalite: 1.25× çözünürlük. F3 ile FPS ve çizim sayısını gör."
+                : "Performance aims at the screen's refresh rate (120 Hz): 1× resolution, no MSAA, 1024 px shadows, less dust. Balanced: 2× MSAA, 2048 px shadows. Quality: 1.25× resolution. Press F3 for FPS and draw calls."
+            }</div>
+          </div>
+          <select id="dev-quality">
+            <option value="performance">${tr ? "Performans" : "Performance"}</option>
+            <option value="balanced">${tr ? "Dengeli" : "Balanced"}</option>
+            <option value="quality">${tr ? "Kalite" : "Quality"}</option>
+          </select>
+        </label>
+
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
@@ -427,8 +570,8 @@ async function boot() {
             </div>
             <div class="dev-sub">${
               tr
-                ? "Uyarlamalı çözünürlük düşürmeyi kapatır, 2× DPR + 1.25× supersampling, 4× MSAA, 4096 px yumuşak güneş gölgeleri ve yüksek mikro-detay açar (GPU yoğun)."
-                : "Locks off adaptive downscale, enables up to 2× DPR + 1.25× supersampling, 4× MSAA, 4096 px PCFSoft sun shadows & high terrain micro-relief (heavy GPU)."
+                ? "En çok 1.5× piksel oranı, 2× MSAA, 2048 px yumuşak güneş gölgeleri, kayalar ve yüksek mikro-detay açar. Ekran yenileme hızını tutmak için çözünürlük en çok %60'a kadar otomatik düşer."
+                : "Up to 1.5× pixel ratio, 2× MSAA, 2048 px soft sun shadows, rocks and high terrain micro-relief. Resolution still drops automatically (down to 60 %) to hold the screen's refresh rate."
             }</div>
           </div>
           <input type="checkbox" id="dev-super-gfx" ${s.superGraphics ? "checked" : ""} />
@@ -452,13 +595,13 @@ async function boot() {
         <label class="dev-row dev-row-exp">
           <div>
             <div class="dev-label">
-              ${tr ? "Deneysel Mars Araçları — SEV, Chariot, LRV (Yanında Doğar)" : "Experimental Mars Rovers — SEV, Chariot, LRV (Spawn Beside You)"}
+              ${tr ? "Deneysel Mars Aracı — NASA MMSEV (Yanında Doğar)" : "Experimental Mars Rover — NASA MMSEV (Spawns Beside You)"}
               <span class="dev-badge-exp">${tr ? "DENEYSEL" : "EXPERIMENTAL"}</span>
             </div>
             <div class="dev-sub">${
               tr
-                ? "Yanında bir araç oluşturur: E bin, V araç değiştir, C yengeç sürüş. Gerçek Gale yerçekimi, tekerlek başına yaylı süspansiyon ve yüke bağlı lastik tutuşu."
-                : "Spawns a rover beside you: E to board, V to switch vehicle, C for crab steering. Real Gale gravity, a spring-damper per wheel and load-based tyre grip."
+                ? "NASA 3D Resources gerçek basınçlı MMSEV aracını yanında oluşturur (katı çarpışma + süspansiyon + E tuşuyla sürüş)."
+                : "Spawns the official NASA 3D Resources pressurized MMSEV rover beside you (solid collision + suspension + press E to drive)."
             }</div>
           </div>
           <input type="checkbox" id="dev-exp-rover" ${s.experimentalRover ? "checked" : ""} />
@@ -488,6 +631,18 @@ async function boot() {
             }</div>
           </div>
           <input type="checkbox" id="dev-realistic-dust" ${s.realisticDust ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "Rüzgar Tozu & Vizör Kirlenmesi" : "Wind-Blown & Visor Glass Dust"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Rüzgarla uçuşan tanecikleri ve kask camında biriken Mars tozunu açar/kapatır."
+                : "Toggles wind-blown dust grains and gradual Martian dust buildup on the helmet visor glass."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-wind-dust" ${s.windDust ? "checked" : ""} />
         </label>
 
         <label class="dev-row">
@@ -566,11 +721,13 @@ async function boot() {
     const speedVal = document.getElementById("dev-speed-val");
     const roverSpeedRange = document.getElementById("dev-rover-speed");
     const roverSpeedVal = document.getElementById("dev-rover-speed-val");
+    const qualitySel = document.getElementById("dev-quality");
     const superToggle = document.getElementById("dev-super-gfx");
     const rtToggle = document.getElementById("dev-ray-tracing");
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
+    const windDustToggle = document.getElementById("dev-wind-dust");
     const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
     const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
     const fovRange = document.getElementById("dev-fov");
@@ -581,8 +738,12 @@ async function boot() {
     const cleanToggle = document.getElementById("dev-clean-hud");
     const fullRealismBtn = document.getElementById("dev-full-realism");
     const resetBtn = document.getElementById("dev-reset");
+    const themeBtns = [...modalBody.querySelectorAll(".dev-theme-btn")];
 
     const syncUi = (cfg) => {
+      for (const btn of themeBtns) {
+        btn.classList.toggle("active", btn.dataset.hudTheme === (cfg.hudTheme || "cyan"));
+      }
       if (frameToggle) frameToggle.checked = cfg.frameEffect;
       if (frameStrength) {
         frameStrength.value = String(cfg.frameStrength);
@@ -593,11 +754,13 @@ async function boot() {
       if (speedVal) speedVal.textContent = `${cfg.speedMultiplier.toFixed(2)}×`;
       if (roverSpeedRange) roverSpeedRange.value = String(cfg.roverSpeedMultiplier);
       if (roverSpeedVal) roverSpeedVal.textContent = `${cfg.roverSpeedMultiplier.toFixed(2)}×`;
+      if (qualitySel) qualitySel.value = cfg.quality;
       if (superToggle) superToggle.checked = cfg.superGraphics;
       if (rtToggle) rtToggle.checked = cfg.rayTracing;
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
+      if (windDustToggle) windDustToggle.checked = cfg.windDust;
       if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
       if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
       if (fovRange) fovRange.value = String(cfg.fov);
@@ -609,6 +772,9 @@ async function boot() {
     };
 
     syncUi(s);
+    for (const btn of themeBtns) {
+      btn.addEventListener("click", () => syncUi(saveDevSettings({ hudTheme: btn.dataset.hudTheme })));
+    }
     frameToggle?.addEventListener("change", () => syncUi(saveDevSettings({ frameEffect: frameToggle.checked })));
     frameStrength?.addEventListener("input", () => syncUi(saveDevSettings({ frameStrength: parseFloat(frameStrength.value) })));
     speedRange?.addEventListener("input", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(speedRange.value) })));
@@ -623,6 +789,7 @@ async function boot() {
         syncUi(saveDevSettings({ roverSpeedMultiplier: parseFloat(btn.dataset.roverSpeed) }))
       );
     });
+    qualitySel?.addEventListener("change", () => syncUi(saveDevSettings({ quality: qualitySel.value })));
     superToggle?.addEventListener("change", () => syncUi(saveDevSettings({ superGraphics: superToggle.checked })));
     rtToggle?.addEventListener("change", () => syncUi(saveDevSettings({ rayTracing: rtToggle.checked })));
     expRoverToggle?.addEventListener("change", () =>
@@ -634,6 +801,7 @@ async function boot() {
     realisticDustToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticDust: realisticDustToggle.checked }))
     );
+    windDustToggle?.addEventListener("change", () => syncUi(saveDevSettings({ windDust: windDustToggle.checked })));
     realisticPhysicsToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticPhysics: realisticPhysicsToggle.checked }))
     );
@@ -699,7 +867,7 @@ async function boot() {
     const row = document.createElement("div");
     row.className = "crew-chat-line";
     const badge = document.createElement("strong");
-    badge.style.color = color || "#67e8f9";
+    badge.style.color = color || "var(--cyan)";
     badge.textContent = `[${callsign}] `;
     row.appendChild(badge);
     row.appendChild(document.createTextNode(text));
@@ -747,7 +915,7 @@ async function boot() {
         const left = document.createElement("span");
         const dot = document.createElement("span");
         dot.className = "crew-dot";
-        dot.style.background = peer.color || "#67e8f9";
+        dot.style.background = peer.color || "var(--cyan)";
         left.appendChild(dot);
         let distTxt = peer.role?.toUpperCase() || "EVA";
         if (lastSelfPose?.lon != null && peer.state?.lon != null) {
@@ -956,6 +1124,8 @@ async function boot() {
     setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
     setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
+    const activeTheme = loadDevSettings().hudTheme || "cyan";
+    setText("esc-theme", `${tr ? "Tema" : "Theme"}: ${getThemeLabel(activeTheme, tr)}`);
     setText("esc-dev", tr ? "Geliştirici Ayarları" : "Developer Settings");
     setText("esc-sources", tr ? "Kaynaklar ve Dürüstlük" : "Sources & Honesty");
     setText("esc-title-btn", tr ? "Başlangıç Ekranı" : "Title Screen");
@@ -984,8 +1154,8 @@ async function boot() {
     const lang = readLang();
     const lEn = document.getElementById("esc-lang-en");
     const lTr = document.getElementById("esc-lang-tr");
-    if (lEn) lEn.style.color = lang === "en" ? "#a5f3fc" : "";
-    if (lTr) lTr.style.color = lang === "tr" ? "#a5f3fc" : "";
+    if (lEn) lEn.style.color = lang === "en" ? "var(--cyan-bright)" : "";
+    if (lTr) lTr.style.color = lang === "tr" ? "var(--cyan-bright)" : "";
   }
   syncEscMenuRef = syncEscMenuUi;
 
@@ -1048,6 +1218,10 @@ async function boot() {
     crewDrawer?.classList.add("open");
     renderCrewUi();
   });
+  document.getElementById("esc-theme")?.addEventListener("click", () => {
+    cycleHudTheme();
+    syncEscMenuUi();
+  });
   document.getElementById("esc-dev")?.addEventListener("click", openDevSettingsModal);
   document.getElementById("esc-sources")?.addEventListener("click", openCreditsModal);
   document.getElementById("esc-title-btn")?.addEventListener("click", () => {
@@ -1070,6 +1244,9 @@ async function boot() {
     }
 
     if (e.key === "Escape") {
+      if (document.getElementById("npc-dialogue-modal")?.classList.contains("open")) {
+        return;
+      }
       if (modalBackdrop.classList.contains("open")) {
         e.preventDefault();
         e.stopImmediatePropagation?.();
@@ -1103,7 +1280,8 @@ async function boot() {
     if (
       modalBackdrop.classList.contains("open") ||
       crewDrawer?.classList.contains("open") ||
-      escMenu?.classList.contains("open")
+      escMenu?.classList.contains("open") ||
+      document.getElementById("npc-dialogue-modal")?.classList.contains("open")
     ) {
       return;
     }
@@ -1180,6 +1358,13 @@ async function boot() {
         { label: t("Command menu", "Komut menüsü"), hint: "Esc", action: () => toggleEscMenu(true) },
         { separator: true },
         { label: btnCrew?.textContent?.trim() || "Crew", action: () => btnCrew?.click() },
+        {
+          label: `${t("Theme", "Tema")}: ${getThemeLabel(loadDevSettings().hudTheme, readLang() === "tr")}`,
+          action: () => {
+            cycleHudTheme();
+            syncEscMenuUi();
+          },
+        },
         { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
         { label: t("Developer settings", "Geliştirici ayarları"), action: openDevSettingsModal },
         { label: t("Title screen", "Başlangıç ekranı"), action: () => start.show() },
@@ -1195,6 +1380,9 @@ async function boot() {
             label: b.textContent.trim(),
             action: () => b.click(),
           }));
+        }
+        if (document.getElementById("npc-dialogue-modal")?.classList.contains("open")) {
+          return [{ label: t("Close dialogue", "Konuşmayı kapat"), hint: "Esc", action: () => document.getElementById("npc-dlg-close")?.click() }];
         }
         if (modalBackdrop.classList.contains("open")) {
           return [{ label: t("Close window", "Pencereyi kapat"), hint: "Esc", action: closeModal }];
@@ -1242,7 +1430,8 @@ async function boot() {
       return orbitApi;
     },
   };
-  hudApi = await initHud3D(data, {
+  try {
+    hudApi = await initHud3D(data, {
     mp,
     onLocalPose: (pose) => {
       lastSelfPose = pose;
@@ -1251,7 +1440,14 @@ async function boot() {
     onOpenPov: openPovModal,
     onOpenRoverInfo: openHistoricRoverModal,
     onOpenOrbit: switchToOrbit,
-  });
+    });
+  } catch (err) {
+    // never leave the loading screen up for ever: say what failed
+    console.error("3D view failed to start:", err);
+    const veil = document.getElementById("hud-loading");
+    if (veil) veil.textContent = `3D VIEW FAILED: ${String(err?.message || err).slice(0, 160)}`;
+    throw err;
+  }
   if (data.route) dispatchSetRoute(data.route, 0);
   if (pendingLanding) {
     const args = pendingLanding;

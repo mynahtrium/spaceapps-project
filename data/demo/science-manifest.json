@@ -1,11 +1,12 @@
 {
-  "generated_at": "2026-11-14T22:54:43Z",
+  "generated_at": "2026-11-15T01:14:06Z",
   "owner": "backend-3",
   "purpose": "Frozen offline fixtures for DEMO_SAFE=1 / ?demo=1 (SHOULD-07)",
-  "file_count": 30,
+  "file_count": 35,
   "files": [
     "alerts.json",
     "alerts.example.json",
+    "donki-cache.json",
     "donki-cache.example.json",
     "dose.json",
     "weather.json",
@@ -33,6 +34,10 @@
     "texture-relief.jpg",
     "stops.json",
     "route.json",
-    "hud-telemetry.json"
+    "hud-telemetry.json",
+    "mars-global-sources.json",
+    "mars-mola-dem.png",
+    "mars-mola-shaded.jpg",
+    "mars-viking-global.jpg"
   ]
 }

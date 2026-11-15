@@ -4,6 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import * as THREE from "../vendor/three.module.js";
+import { createHistoricRoverGroup, stepRoverRigKinematics } from "../hud/historic-rovers.js";
+
 import { makeLocalTangentOrigin, decodeTerrariumPixel } from "../map/Geodesy.js";
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
 import {
@@ -22,10 +25,15 @@ import {
 } from "../shared/mars-rovers.js";
 import {
   DRIVABLE_VEHICLES,
+  ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
+  createExperimentalRover,
   getDrivableVehicleSpec,
   resolveRoverObbCollision,
+  stepAdvancedRoverPhysics,
+  stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
+import { HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
 import {
   RT_HEIGHT_GLSL,
   RT_LENS_PARS_GLSL,
@@ -489,6 +497,65 @@ test("resolveRoverObbCollision keeps nose, sides, corners, and wheel pods solid 
   assert.equal(highJump.hit, false);
 });
 
+test("stepRoverBallisticPhysics keeps normal driving planted and launches fast crests crisply without floaty hang", () => {
+  const s = { posY: 0, velY: 0, prevGroundY: 0, airborne: false, airTime: 0, peakLaunchVy: 0, landingCooldown: 0 };
+  const slow = stepRoverBallisticPhysics(s, { groundY: 0.04, slopeClimbVy: 0.4, horizSpeed: 2.0, dt: 0.016 });
+  assert.equal(slow.launched, false);
+  assert.equal(s.airborne, false);
+
+  // Moderate turn/ripple stays planted cleanly without false bounce
+  const ripple = stepRoverBallisticPhysics(s, { groundY: 0.08, slopeClimbVy: 1.5, horizSpeed: 9.0, dt: 0.016 });
+  assert.equal(ripple.launched, false);
+
+  // Fast ramp climb stays gripped, then launches airborne crisply at the crest dropoff
+  const ramp = stepRoverBallisticPhysics(s, { groundY: 0.17, slopeClimbVy: 6.0, horizSpeed: 18.0, dt: 0.016 });
+  assert.equal(ramp.launched, false);
+  const crest = stepRoverBallisticPhysics(s, { groundY: 0.0, slopeClimbVy: 0.0, horizSpeed: 18.0, dt: 0.016 });
+  assert.equal(crest.launched, true);
+  assert.equal(s.airborne, true);
+  assert.ok(s.velY >= 1.8 && s.velY <= 2.6);
+
+  let landedStep = null;
+  let totalAirTime = 0;
+  for (let i = 0; i < 120; i++) {
+    const res = stepRoverBallisticPhysics(s, {
+      groundY: 0.1,
+      horizSpeed: 18.0,
+      dt: 0.016,
+      marsG: ROVER_FLIGHT_G,
+    });
+    totalAirTime += 0.016;
+    if (res.landed) {
+      landedStep = res;
+      break;
+    }
+  }
+  assert.ok(landedStep && landedStep.landed, "Rover must return promptly to terrain");
+  assert.ok(totalAirTime < 1.0, `Airtime should stay crisp (<1.0s), got ${totalAirTime.toFixed(2)}s`);
+  assert.equal(s.airborne, false);
+  assert.ok(s.landingCooldown > 0.1, "Shock cooldown should prevent instant trampoline re-bounce");
+  assert.ok(landedStep.impactSpeed > 1.8);
+
+  // Landing shock cooldown settles before next violent whip impulse can launch
+  const blockedImmediately = stepRoverBallisticPhysics(s, {
+    groundY: 0.1,
+    bumpImpulseVy: 3.6,
+    horizSpeed: 14.0,
+    dt: 0.016,
+  });
+  assert.equal(blockedImmediately.launched, false);
+
+  s.landingCooldown = 0;
+  const whip = stepRoverBallisticPhysics(s, {
+    groundY: 0.1,
+    bumpImpulseVy: 3.6,
+    horizSpeed: 14.0,
+    dt: 0.016,
+  });
+  assert.equal(whip.launched, true);
+  assert.equal(s.airborne, true);
+});
+
 test("MARS_HISTORIC_ROVERS defines all 5 unique Mars rovers at separated real Martian coordinates + valid Perseverance GLB", () => {
   assert.equal(MARS_HISTORIC_ROVERS.length, 5);
   const expectedIds = ["sojourner", "spirit", "opportunity", "curiosity", "perseverance"];
@@ -559,16 +626,211 @@ test("scatterHistoricRoverCoords spreads all 5 unique rovers safely across walka
   }
 });
 
-test("drivable vehicle registry lists SEV, Chariot and LRV and normalizes roverSpeedMultiplier", () => {
-  assert.deepEqual(
-    DRIVABLE_VEHICLES.map((v) => v.id),
-    ["sev", "chariot", "lrv"]
-  );
-  assert.equal(getDrivableVehicleSpec("sev").shortLabel, "SEV");
-  assert.equal(getDrivableVehicleSpec("mmsev").id, "sev", "old id still resolves");
-  assert.equal(getDrivableVehicleSpec("anything-else").id, "sev");
-  for (const v of DRIVABLE_VEHICLES) assert.ok(v.halfW > 0 && v.halfL > 0 && v.heightM > 0, `${v.id} collision box`);
+test("drivable vehicle registry includes NASA MMSEV and NASA Mars Rover Concept", () => {
+  assert.equal(DRIVABLE_VEHICLES.length, 2);
+  assert.equal(DRIVABLE_VEHICLES[0].id, "mmsev");
+  assert.equal(DRIVABLE_VEHICLES[1].id, "nasa_concept");
+  assert.equal(getDrivableVehicleSpec("mmsev").shortLabel, "MMSEV 6×6");
+  assert.equal(getDrivableVehicleSpec("nasa_concept").shortLabel, "MARS CONCEPT");
+  assert.equal(getDrivableVehicleSpec("anything-else").id, "mmsev");
   assert.equal(DEFAULT_DEV_SETTINGS.roverSpeedMultiplier, 1.0);
   assert.equal(normalizeDevSettings({ roverSpeedMultiplier: 2.5 }).roverSpeedMultiplier, 2.5);
 });
 
+test("stepAdvancedRoverPhysics simulates acceleration, gearbox shifts, handbrake drift slip, and flight trim", () => {
+  const s = {
+    yaw: 0,
+    yawRate: 0,
+    velX: 0,
+    velZ: 0,
+    forwardSpeed: 0,
+    lateralSpeed: 0,
+    slipRatio: 0,
+    gear: 1,
+    rpmNorm: 0,
+    drifting: false,
+    braking: false,
+    airPitchVel: 0,
+    airRollVel: 0,
+    airPitchOffset: 0,
+    airRollOffset: 0,
+    lastSlopePitch: 0,
+  };
+
+  let res = null;
+  for (let i = 0; i < 65; i++) {
+    res = stepAdvancedRoverPhysics(s, {
+      vehicleType: "mmsev",
+      throttle: 1,
+      steer: 0,
+      boost: true,
+      speedMultiplier: 1.0,
+      dt: 0.02,
+    });
+  }
+  assert.ok(res.vFwd > 10, `MMSEV should accelerate crisply (got ${res.vFwd.toFixed(2)} m/s)`);
+  assert.ok(res.gear >= 3, `Expected higher gear at speed (got Gear ${res.gear})`);
+
+  // Engage handbrake powerslide drift + sharp steer
+  for (let i = 0; i < 12; i++) {
+    res = stepAdvancedRoverPhysics(s, {
+      vehicleType: "mmsev",
+      throttle: 1,
+      steer: 1,
+      handbrake: true,
+      dt: 0.02,
+    });
+  }
+  assert.equal(res.drifting, true, "Handbrake + steer at speed must induce powerslide drift");
+  assert.ok(res.slipRatio > 0.2, `Drift must produce lateral slip ratio (got ${res.slipRatio.toFixed(2)})`);
+  assert.ok(Math.abs(s.yaw) > 0.15, "Cornering drift must rotate heading yaw");
+
+  // Mid-air attitude reaction trim
+  const airOut = stepAdvancedRoverPhysics(s, {
+    vehicleType: "mmsev",
+    throttle: 1,
+    steer: -1,
+    airborne: true,
+    dt: 0.05,
+  });
+  assert.equal(airOut.drifting, false);
+  assert.ok(s.airPitchVel !== 0 || s.airRollVel !== 0);
+});
+
+test("all 5 historic rovers (curiosity, sojourner, spirit, opportunity, perseverance) build complete rigs and articulate cleanly", () => {
+  const orderedIds = ["curiosity", "sojourner", "spirit", "opportunity", "perseverance"];
+  for (const id of orderedIds) {
+    const spec = getHistoricRoverById(id);
+    assert.ok(spec, `Expected spec for ${id}`);
+    const grp = createHistoricRoverGroup(THREE, null, spec);
+    const rig = grp.userData?.rig;
+    assert.ok(rig, `${id} must expose userData.rig`);
+    assert.ok(rig.chassis, `${id} rig must have chassis`);
+    assert.ok(rig.rockerL && rig.rockerR, `${id} rig must have rockerL and rockerR`);
+    assert.ok(rig.bogieL && rig.bogieR, `${id} rig must have bogieL and bogieR`);
+    assert.ok(rig.diffBar, `${id} rig must have diffBar`);
+    assert.equal(rig.wheels.length, 6, `${id} rig must have 6 wheel spin pivots`);
+    assert.equal(rig.steerKnuckles.length, 4, `${id} rig must have 4 corner steering knuckles`);
+    assert.ok(rig.mastYaw && rig.mastPitch, `${id} rig must have mastYaw and mastPitch`);
+    assert.ok(rig.hgaYaw && rig.hgaPitch, `${id} rig must have hgaYaw and hgaPitch`);
+    assert.ok(rig.arm?.shoulderYaw && rig.arm?.shoulderPitch && rig.arm?.elbowPitch, `${id} rig must have hierarchical arm joints`);
+    assert.ok(rig.arm?.wristPitch && rig.arm?.turretRoll && rig.arm?.toolSpin, `${id} rig must have wrist/turret/tool joints`);
+
+    const initMastY = rig.mastYaw.rotation.y;
+    const initWheelX = rig.wheels[0].rotation.x;
+    const initArmYaw = rig.arm.shoulderYaw.rotation.y;
+    const initToolZ = rig.arm.toolSpin.rotation.z;
+
+    for (let i = 0; i < 20; i++) {
+      stepRoverRigKinematics(rig, {
+        dt: 0.05,
+        clockT: 1.5 + i * 0.05,
+        relObserverX: 4.5,
+        relObserverY: 0.6,
+        relObserverZ: -6.0,
+        wheelDeltaHeights: [0.18, 0.04, -0.14, -0.12, 0.0, 0.14],
+        driveSpeed: 0.4,
+        steerAngle: 0.25,
+      });
+    }
+
+    assert.notEqual(rig.mastYaw.rotation.y, initMastY, `${id} mastYaw must articulate`);
+    assert.notEqual(rig.wheels[0].rotation.x, initWheelX, `${id} wheels must spin`);
+    assert.notEqual(rig.arm.shoulderYaw.rotation.y, initArmYaw, `${id} arm must articulate`);
+    assert.notEqual(rig.arm.toolSpin.rotation.z, initToolZ, `${id} toolSpin must rotate`);
+    assert.ok(Math.abs(rig.rockerL.rotation.x) > 0.01, `${id} rockerL must flex with wheel terrain deltas`);
+    assert.ok(Math.abs(rig.steerKnuckles[0].rotation.y) > 0.05, `${id} corner steering knuckle must turn`);
+  }
+});
+
+test("resolveRoverObbCollision returns finite push-out when entity center lies inside the OBB", () => {
+  for (const [ex, ez] of [
+    [10, 20],
+    [10.25, 19.7],
+    [9.4, 20.6],
+  ]) {
+    const res = resolveRoverObbCollision(10, 20, -0.43, 0, ex, ez, 0.45, 0, 1.45, 1.55);
+    assert.equal(res.hit, true);
+    assert.ok(Number.isFinite(res.x), "resolved x must be finite");
+    assert.ok(Number.isFinite(res.z), "resolved z must be finite");
+    assert.ok(Number.isFinite(res.nx), "resolved nx must be finite");
+    assert.ok(Number.isFinite(res.nz), "resolved nz must be finite");
+    assert.ok(Number.isFinite(res.pen) && res.pen > 0, "resolved pen must be positive and finite");
+  }
+});
+
+test("NASA Mars Rover Concept builds rigged 6x6 hollow wheels and drives with physics", () => {
+  const concept = createExperimentalRover(THREE, "nasa_concept");
+  assert.equal(concept.vehicleType, "nasa_concept");
+  assert.equal(concept.getActiveSpec().id, "nasa_concept");
+  assert.ok(concept.radius >= 3.0);
+
+  concept.group.position.set(7.2, 0, 25);
+  concept.update(0.1, {
+    sampleElevY: (x, z) => Math.sin(x * 0.25) * 0.12 + Math.cos(z * 0.2) * 0.08,
+    speed: 14,
+    steer: 0.55,
+    driving: true,
+    physicsEnabled: true,
+  });
+  assert.ok(Number.isFinite(concept.group.position.y));
+  const hit = concept.resolveCollision(7.4, 25.2, 0.45, 0);
+  assert.equal(hit.hit, true);
+
+  const dynState = {
+    yaw: 0,
+    yawRate: 0,
+    velX: 0,
+    velZ: 0,
+    forwardSpeed: 0,
+    lateralSpeed: 0,
+    slipRatio: 0,
+    gear: 1,
+    rpmNorm: 0,
+    drifting: false,
+    braking: false,
+    airPitchVel: 0,
+    airRollVel: 0,
+    airPitchOffset: 0,
+    airRollOffset: 0,
+    lastSlopePitch: 0,
+  };
+  const step = stepAdvancedRoverPhysics(dynState, {
+    vehicleType: "nasa_concept",
+    throttle: 1,
+    steer: -0.35,
+    boost: true,
+    realisticPhysics: true,
+    dt: 0.05,
+  });
+  assert.equal(step.spec.id, "nasa_concept");
+  assert.ok(step.vFwd > 0);
+});
+
+test("Mars Habitat Station builds 5 zones, 7 bay/lane placements, elevated dorm deck, and walkable openings", () => {
+  assert.equal(HABITAT_ZONES.length, 5);
+  const hab = createMarsHabitatStation(THREE, { originX: 0, originZ: 0, rawSampleElevY: () => 1.5 });
+  const zoneNames = new Set(hab.group.children.map((c) => c.name));
+  for (const z of HABITAT_ZONES) {
+    assert.ok(zoneNames.has(z.id), `Missing habitat zone ${z.id}`);
+  }
+
+  const bays = hab.getBayPlacements();
+  assert.deepEqual(
+    bays.historicPlacements.map((p) => p.id),
+    ["sojourner", "spirit", "opportunity", "curiosity", "perseverance"]
+  );
+  assert.deepEqual(
+    bays.drivablePlacements.map((p) => p.vehicleType),
+    ["mmsev", "nasa_concept"]
+  );
+
+  // Pad levels ground around baseY=1.5 and Dormitory raises +0.8m to 2.3m
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 10, 4.0) - 1.5) < 0.05);
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, -21, 1.5) - 2.3) < 0.05);
+
+  // Open center bay doorway and airlock entrance must remain unobstructed, while solid west outer wall collides
+  assert.equal(hab.resolveCollision(0, 18, 0.4, 1.5).hit, false);
+  assert.equal(hab.resolveCollision(27, 2, 0.4, 1.5).hit, false);
+  assert.equal(hab.resolveCollision(-18, -5, 0.4, 1.5).hit, true);
+});

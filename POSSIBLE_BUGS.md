@@ -29,9 +29,9 @@
 - **Where:** `data/processed/routing/stops.json`, `route.json`, `data/processed/science/dose.json`
 - **Suggested fix:** Team locks real Mount Sharp stops (`PRE-07`), then re-runs B1 → B2 → B3 + `export_demo_fixtures.py`.
 
-### [BUG-10] `data/demo/*.json` still contains `"data/processed/..."` strings inside JSON fields
-- **Where:** 13 JSON files in `data/demo/`
-- **Note:** `web/shared/data-loader.js` already uses `baseTerrainDir` / `baseScienceDir` for top-level assets, which mitigates most of this, though `export_demo_fixtures.py` rewriting `data/processed/*/` → `data/demo/` would make the demo JSONs completely self-consistent.
+### [FIXED] [BUG-10] `data/demo/*.json` still contains `"data/processed/..."` strings inside JSON fields
+- **Where:** `pipeline/data/export_demo_fixtures.py` and `data/demo/**/*.json`
+- **Status:** Fixed (integrated from `backend/science` `aa96454`) — `_rewrite_demo_paths()` in `pipeline/data/export_demo_fixtures.py` now rewrites `"data/processed/(terrain|routing|science)/"` → `"data/demo/"` across all exported demo JSONs, refreshes `donki-cache.json` / `alerts.json`, and preserves the bundled `mars-*` global MOLA/Viking files in `data/demo/science-manifest.json`.
 
 ### [OBSOLETE] [BUG-11] `docs/team/ROSTER.md` missing GitHub usernames for B1–B3 and F1 (`PRE-01`)
 - **Where:** `docs/team/ROSTER.md`
