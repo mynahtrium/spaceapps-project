@@ -339,10 +339,12 @@ class MartianWeatherSystem {
       this._updateSpeParticles(THREE, { camera, dt });
     }
 
-    // Periodic SPE hazard beep if audio is unlocked
+    // The SPE alert used to beep every 3.6 s for as long as it lasted: the simulation seemed to beep
+    // "for no reason". It beeps once when the event starts (_syncAudio) and then once a minute as a
+    // reminder; the red banner stays up the whole time.
     if (st.id === "DONKI_SPE" && typeof performance !== "undefined") {
       const now = performance.now();
-      if (now - this._lastSpeBeepMs > 3600) {
+      if (now - this._lastSpeBeepMs > 60000) {
         this._lastSpeBeepMs = now;
         this._pulseSpeAudio();
       }

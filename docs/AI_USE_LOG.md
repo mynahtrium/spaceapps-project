@@ -1263,3 +1263,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Not changed: finger shapes (the mesh has no finger bones; the fingers stay in the modelled, slightly spread, pose).
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-15 Europe/Istanbul — AUDIO-01 repeating beeps without a reason
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: AUDIO-01
+- Files changed: `web/shared/audioEngine.js`, `web/environment/marsWeather.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan reported the simulation beeping ("dı dı") at intervals for no reason. Two sources of the 880 Hz double-pulse hazard chime: (1) the audio engine played it every 4 s for as long as the slope was above 15 deg or an alert was set; most of the HiRISE terrain is steeper than 15 deg, so it beeped while walking and standing on ordinary hills. It is now a single beep when you step onto a slope above 20 deg (the walking limit), re-armed after returning to ground below 14 deg, with a 20 s cooldown. (2) During a solar particle event the weather module beeped every 3.6 s; it now beeps once when the event starts and once a minute as a reminder (the banner stays up). The generative music notes (every ~6.5 s) were not touched; the audio pill in the top right turns all sound off.
+- Commit: this commit
+- Next step: none.

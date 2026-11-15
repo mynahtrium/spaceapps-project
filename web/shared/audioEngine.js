@@ -43,8 +43,8 @@
   const ROVER_REF_TOP_SPEED_KMH = 42;
 
   const HAZARD_BEEP_HZ = 880;
-  const HAZARD_SLOPE_THRESHOLD_DEG = 15;
-  const HAZARD_COOLDOWN_MS = 4000;
+  const HAZARD_SLOPE_THRESHOLD_DEG = 20;
+  const HAZARD_COOLDOWN_MS = 20000;
 
   const UI_CLICK_HZ = 1200;
 
@@ -60,6 +60,7 @@
   let unlocked = false;
   let muted = false;
   let lastHazardBeepMs = -Infinity;
+  let hazardLatched = false;
   let lastUiClickMs = -Infinity;
   let lastExplicitUpdateMs = -Infinity;
   let pollTimerId = null;
@@ -837,9 +838,16 @@
       ? Number((0.024 + excitation * 0.115).toFixed(4))
       : 0;
 
-    // Trigger 880 Hz dual-pulse hazard chime if slope > 15° or alert is active
-    if (slope > HAZARD_SLOPE_THRESHOLD_DEG || telemetry.isAlert) {
+    // 880 Hz dual-pulse hazard chime: ONE beep when you step onto a steep slope (> 20 deg, the
+    // walking limit), not every 4 s while you stand or walk on it (most of the HiRISE terrain is
+    // steeper than 15 deg, which made the simulation beep "for no reason"). Weather and radiation
+    // alerts beep once when they start (marsWeather.js calls playHazardBeep itself) and show a banner.
+    const steep = slope > HAZARD_SLOPE_THRESHOLD_DEG;
+    if (steep && !hazardLatched) {
+      hazardLatched = true;
       playHazardBeep({ force: false });
+    } else if (slope < HAZARD_SLOPE_THRESHOLD_DEG - 6) {
+      hazardLatched = false; // back on gentle ground: the next steep slope beeps again
     }
 
     if (!ctx || !nodes) return;
