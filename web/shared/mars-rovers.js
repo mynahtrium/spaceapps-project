@@ -414,6 +414,22 @@ export function buildHistoricRoversGeoJson() {
   };
 }
 
+function evalProceduralWave(x, z, s) {
+  // Gentle domain warp avoids straight checkerboard wave lines
+  const wx = x + 38 * Math.sin(z * 0.0085 + s * 1.1);
+  const wz = z + 38 * Math.cos(x * 0.0082 - s * 0.9);
+  const broad =
+    Math.sin(wx * 0.0092 + s) * Math.cos(wz * 0.0078 - s * 0.7) * 0.56 +
+    Math.sin((wx - wz) * 0.017 + s * 1.4) * 0.24;
+  // Selective smooth mesa shoulders: ease scarp slope so ridges stay climbable/realistic
+  const scarpSignal = Math.sin(wx * 0.0061 - wz * 0.0054 + s * 2.3);
+  const scarpMask = 0.5 + 0.5 * Math.tanh(scarpSignal * 1.45);
+  const undul = 0.5 + 0.5 * Math.sin(wx * 0.022 + wz * 0.019 - s);
+  const mesa = scarpMask * (0.28 + 0.22 * undul);
+  const micro = Math.cos(wx * 0.052 - wz * 0.048 + s * 2.1) * 0.06;
+  return broad + mesa + micro;
+}
+
 /**
  * Compute deterministic, smoothly transitioned site relief (meters) for off-Gale Mars sites
  * (Jezero, Gusev, Meridiani, Ares Vallis, and custom Orbit landings): mixes gentle sandy basins
@@ -425,29 +441,27 @@ export function sampleProceduralSiteHeightM(roverIdOrSpec, x, z) {
   const { seed, reliefM, heightGrid, gridN, gridSpanM = 2400, slopeGradX = 0, slopeGradZ = 0 } = rover.terrainProfile;
   const s = seed * 0.0137;
   const r = Math.hypot(x, z);
-  // Smooth C1 Hermite landing apron around (0, 0) so 6 wheels sit naturally
-  const tApron = Math.max(0, Math.min(1, (r - 4.0) / 16.0));
-  const apron = tApron * tApron * (3 - 2 * tApron);
-  // Gentle domain warp avoids straight checkerboard wave lines
-  const wx = x + 38 * Math.sin(z * 0.0085 + s * 1.1);
-  const wz = z + 38 * Math.cos(x * 0.0082 - s * 0.9);
-  const broad =
-    Math.sin(wx * 0.0092 + s) * Math.cos(wz * 0.0078 - s * 0.7) * 0.56 +
-    Math.sin((wx - wz) * 0.017 + s * 1.4) * 0.24;
-  // Selective smooth mesa shoulders: steeper rocky rises in some zones, broad flat basins in others
-  const scarpSignal = Math.sin(wx * 0.0061 - wz * 0.0054 + s * 2.3);
-  const scarpMask = 0.5 + 0.5 * Math.tanh(scarpSignal * 2.1);
-  const undul = 0.5 + 0.5 * Math.sin(wx * 0.022 + wz * 0.019 - s);
-  const mesa = scarpMask * (0.28 + 0.22 * undul);
-  const micro = Math.cos(wx * 0.052 - wz * 0.048 + s * 2.1) * 0.06;
+  // Radial coordinate compression u(r) whose derivative u'(r) stays in [0, 1]:
+  // guarantees a flat 6 m landing pad at (0, 0) without ever amplifying surrounding slopes.
+  let sx = 0;
+  let sz = 0;
+  if (r > 6.0) {
+    const padW = 52.0;
+    const t = Math.min(1, (r - 6.0) / padW);
+    const u = r >= 6.0 + padW ? r - 6.0 - 0.5 * padW : padW * t * t * t * (1 - 0.5 * t);
+    const scale = u / r;
+    sx = x * scale;
+    sz = z * scale;
+  }
+  const deltaWave = sx === 0 && sz === 0 ? 0 : evalProceduralWave(sx, sz, s) - evalProceduralWave(0, 0, s);
   // Smooth crater rim rise around r ~ 340..860 m (no linear crease at start)
   const tRim = Math.max(0, Math.min(1, (r - 340) / 520));
   const rim = tRim * tRim * (3 - 2 * tRim) * 0.45;
   let macroH = 0;
   if (heightGrid && gridN >= 2 && heightGrid.length >= gridN * gridN) {
     const span = Math.max(100, gridSpanM);
-    const fu = Math.max(0, Math.min(gridN - 1.0001, (x / span + 0.5) * (gridN - 1)));
-    const fv = Math.max(0, Math.min(gridN - 1.0001, (z / span + 0.5) * (gridN - 1)));
+    const fu = Math.max(0, Math.min(gridN - 1.0001, (sx / span + 0.5) * (gridN - 1)));
+    const fv = Math.max(0, Math.min(gridN - 1.0001, (sz / span + 0.5) * (gridN - 1)));
     const u0 = Math.floor(fu);
     const v0 = Math.floor(fv);
     const u1 = Math.min(gridN - 1, u0 + 1);
@@ -467,11 +481,10 @@ export function sampleProceduralSiteHeightM(roverIdOrSpec, x, z) {
   }
   if (slopeGradX || slopeGradZ) {
     const tiltFade = Math.max(0, 1 - Math.max(0, (r - 450) / 500));
-    macroH += (slopeGradX * x + slopeGradZ * z) * tiltFade;
+    macroH += (slopeGradX * sx + slopeGradZ * sz) * tiltFade;
   }
   const detailScale = heightGrid ? 0.58 : 1.0;
-  const raw = macroH + (broad + mesa + micro + rim) * reliefM * detailScale;
-  return raw * (0.08 + 0.92 * apron);
+  return macroH + (deltaWave + rim) * reliefM * detailScale;
 }
 
 /**

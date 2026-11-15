@@ -155,3 +155,11 @@ test("grounded walker lifts rather than trapping when ground under feet rises > 
   assert.ok(body.y >= 0.84, `expected walker lifted to 0.85 m, got y ${body.y}`);
   assert.ok(body.x > xBefore + 1.5, `walker stalled in slideAlongWall at x ${body.x}`);
 });
+
+test("depenetration guard lifts walker out of the floor if buried below terrain", () => {
+  const env = { sampleHeight: () => 5.0, molaElevM: () => -4500 };
+  const body = createMarsBody({ x: 0, z: 0, y: 1.2, grounded: true });
+  stepPhysicsWorld(body, FIXED_DT, { wishX: 0, wishZ: 0, latDeg: -4.8 }, env);
+  assert.ok(body.y >= 5.0 - (body.sinkM || 0) - 0.02, `expected walker lifted to ~5.0 m, got ${body.y}`);
+  assert.ok(body.grounded, "expected walker grounded after depenetration");
+});

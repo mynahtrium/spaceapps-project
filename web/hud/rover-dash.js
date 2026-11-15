@@ -40,6 +40,7 @@ export function createRoverDash(host) {
       <div class="rd-big" data-k="speed">0</div>
       <div class="rd-unit">KM/H</div>
       <div class="rd-sub" data-k="odo">ODO 0.000 KM</div>
+      <div class="rd-sub" data-k="mass">2950 KG · 10.9 KN</div>
     </div>
     <div class="rd-cell rd-rpm">
       <svg viewBox="0 0 120 112" aria-hidden="true">
@@ -52,8 +53,8 @@ export function createRoverDash(host) {
       </svg>
     </div>
     <div class="rd-cell rd-bars">
-      <div class="rd-row"><span class="rd-k">PWR</span><span class="rd-meter rd-meter-c"><i data-k="pwrBar"></i></span><span class="rd-v" data-k="pwr">0.0 kW</span></div>
-      <div class="rd-row"><span class="rd-k">TRQ</span><span class="rd-meter"><i data-k="trqBar"></i></span><span class="rd-v" data-k="trq">0%</span></div>
+      <div class="rd-row"><span class="rd-k">PWR</span><span class="rd-meter rd-meter-c"><i data-k="pwrBar"></i></span><span class="rd-v" data-k="pwr">0.0 HP · 0.0 kW</span></div>
+      <div class="rd-row"><span class="rd-k">TRQ</span><span class="rd-meter"><i data-k="trqBar"></i></span><span class="rd-v" data-k="trq">0 N·m (0%)</span></div>
       <div class="rd-row"><span class="rd-k">BAT</span><span class="rd-meter"><i data-k="batBar"></i></span><span class="rd-v" data-k="bat">100%</span></div>
       <div class="rd-row"><span class="rd-k">ACC</span><span class="rd-meter rd-meter-c"><i data-k="accBar"></i></span><span class="rd-v" data-k="acc">0.00 m/s²</span></div>
     </div>
@@ -98,6 +99,10 @@ export function createRoverDash(host) {
     last = now;
     k.speed.textContent = String(Math.round(Math.abs(t.speedKmh)));
     k.odo.textContent = `ODO ${t.odoKm.toFixed(3)} KM`;
+    if (k.mass && Number.isFinite(t.massKg)) {
+      const wtKn = ((t.weightN || t.massKg * 3.71) / 1000).toFixed(1);
+      k.mass.textContent = `${Math.round(t.massKg)} KG · ${wtKn} KN`;
+    }
     const rpmFrac = Math.min(1, Math.abs(t.rpm) / RPM_MAX);
     k.rpmArc.setAttribute("d", arcPath(60, 60, 50, ARC_START, ARC_START + Math.max(0.1, ARC_SWEEP * rpmFrac)));
     k.rpmArc.classList.toggle("red", rpmFrac > 0.85);
@@ -107,9 +112,14 @@ export function createRoverDash(host) {
     k.pwrBar.style.left = pw >= 0 ? "50%" : `${50 + pw * 50}%`;
     k.pwrBar.style.width = `${Math.abs(pw) * 50}%`;
     k.pwrBar.classList.toggle("regen", pw < 0);
-    k.pwr.textContent = `${t.powerKw >= 0 ? "" : "−"}${Math.abs(t.powerKw).toFixed(1)} kW`;
+    const hpVal = Number.isFinite(t.hp) ? t.hp : Math.abs(t.powerKw * 1.34102);
+    k.pwr.textContent = `${t.powerKw >= 0 ? "" : "−"}${hpVal.toFixed(1)} HP · ${Math.abs(t.powerKw).toFixed(1)} kW`;
     k.trqBar.style.width = `${Math.round(Math.abs(t.torquePct) * 100)}%`;
-    k.trq.textContent = `${Math.round(t.torquePct * 100)}%`;
+    if (Number.isFinite(t.wheelTorqueNm)) {
+      k.trq.textContent = `${Math.round(t.wheelTorqueNm)} N·m (${Math.round(t.torquePct * 100)}%)`;
+    } else {
+      k.trq.textContent = `${Math.round(t.torquePct * 100)}%`;
+    }
     k.batBar.style.width = `${t.batteryPct.toFixed(1)}%`;
     k.bat.textContent = `${t.batteryPct.toFixed(1)}%`;
     const ac = Math.max(-1, Math.min(1, t.accel / 2));

@@ -610,6 +610,30 @@ test("MARS_HISTORIC_ROVERS defines all 5 unique Mars rovers at separated real Ma
   assert.equal(head, "glTF");
 });
 
+test("sampleProceduralSiteHeightM keeps a flat cliff-free landing pad at custom Orbit sites", () => {
+  const customNorth = makeCustomSiteSpec(-112.34, 9.233);
+  const customSouth = makeCustomSiteSpec(-112.34, -9.233);
+  for (const site of [customNorth, customSouth, "perseverance", "spirit", "opportunity"]) {
+    const label = typeof site === "string" ? site : site.id;
+    assert.equal(sampleProceduralSiteHeightM(site, 0, 0), 0, `${label} origin should sit cleanly at 0 m`);
+    let maxPadSlopeDeg = 0;
+    for (let x = -28; x <= 28; x += 2) {
+      for (let z = -28; z <= 28; z += 2) {
+        if (Math.hypot(x, z) > 25) continue;
+        const h = sampleProceduralSiteHeightM(site, x, z);
+        const hx = sampleProceduralSiteHeightM(site, x + 1, z);
+        const hz = sampleProceduralSiteHeightM(site, x, z + 1);
+        const deg = (Math.atan(Math.hypot(hx - h, hz - h)) * 180) / Math.PI;
+        if (deg > maxPadSlopeDeg) maxPadSlopeDeg = deg;
+      }
+    }
+    assert.ok(
+      maxPadSlopeDeg < 20,
+      `${label} landing zone max slope ${maxPadSlopeDeg.toFixed(1)}° must stay below 20° (no cliff moat)`
+    );
+  }
+});
+
 test("scatterHistoricRoverCoords spreads all 5 unique rovers safely across walkable terrain", () => {
   let seed = 42;
   const detRng = () => {

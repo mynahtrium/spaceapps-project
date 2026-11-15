@@ -312,3 +312,45 @@ console.log("rover-dynamics: all checks passed");
   assert.match(hudSrc, /ringCopyGeom\s*=\s*buildTerrainGeometry\([^)]*includeHabitat:\s*false/);
   console.log("anti-clipping ok");
 }
+
+// 9) realistic torque (N*m), horsepower (HP), weight (kg / N) and zero wheel-floor clipping
+{
+  const rv = createRoverDynamics(THREE, roverParamsFor({ id: "mmsev", massKg: 2950 }));
+  rv.reset(0, 0, 0, flat.sampleY);
+  run(rv, 2, idle);
+  const st0 = rv.state;
+  assert.equal(st0.massKg, 2950);
+  assert.ok(Math.abs(st0.weightN - 2950 * rv.params.g) < 1, `Martian weight N (${st0.weightN})`);
+  assert.ok(Math.abs(st0.normalLoadN - st0.weightN) < 150, `settled normal load matches weight (${st0.normalLoadN} vs ${st0.weightN})`);
+  assert.ok(Math.abs(st0.maxWheelTorqueNm - 3400 * 0.345) < 1, `max wheel torque N*m (${st0.maxWheelTorqueNm})`);
+  assert.ok(st0.maxHp > 18, `max horsepower HP (${st0.maxHp})`);
+
+  // Full throttle acceleration: positive wheel/motor torque and horsepower
+  run(rv, 3.0, { ...idle, throttle: 1, boost: true });
+  assert.ok(rv.state.wheelTorqueNm > 400, `active wheel torque N*m (${rv.state.wheelTorqueNm})`);
+  assert.ok(rv.state.motorTorqueNm > 20, `active motor torque N*m (${rv.state.motorTorqueNm})`);
+  assert.ok(rv.state.hp > 10, `active horsepower HP (${rv.state.hp})`);
+
+  // Sharp step / bump obstacle: wheel bottom never clips below ground under tire footprint
+  const stepEnv = {
+    sampleY: (x, z) => (z < -2 ? 0.55 * Math.exp(-((z + 3.5) ** 2) / 0.8) : 0),
+    sampleNormal: (x, z) => {
+      const h = (px, pz) => (pz < -2 ? 0.55 * Math.exp(-((pz + 3.5) ** 2) / 0.8) : 0);
+      const gx = (h(x + 0.1, z) - h(x - 0.1, z)) / 0.2;
+      const gz = (h(x, z + 0.1) - h(x, z - 0.1)) / 0.2;
+      const il = 1 / Math.hypot(gx, 1, gz);
+      return { x: -gx * il, y: il, z: -gz * il };
+    },
+  };
+  rv.reset(0, 0, 0, stepEnv.sampleY);
+  for (let i = 0; i < 180; i++) {
+    rv.step(1 / 60, { ...idle, throttle: 0.8 }, stepEnv);
+    for (const wh of rv.wheels) {
+      const clearance = wh.worldHubY - wh.groundY;
+      assert.ok(
+        clearance >= rv.params.wheelRadius * 0.96,
+        `wheel never clips floor: hub clearance ${clearance.toFixed(3)} m vs radius ${rv.params.wheelRadius.toFixed(3)} m`
+      );
+    }
+  }
+}

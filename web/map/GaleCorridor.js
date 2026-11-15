@@ -436,7 +436,8 @@ export function buildCorridorSubCellGeometry(
   elevBase,
   skirtDepth = 30,
   adjustY = null,
-  subDiv = 2
+  subDiv = 2,
+  edgeMask = 15
 ) {
   const div = Math.max(1, Math.floor(subDiv));
   const { ci, cj, flipX, flipZ, qx, qz } = corridor.dataChunkForSubCell(a, b, div);
@@ -455,6 +456,8 @@ export function buildCorridorSubCellGeometry(
   const z0 = -corridor.worldH / 2 + b * cellH;
   const dxv = cellW / seg;
   const dzv = cellH / seg;
+  const pxW = cellW / subPx;
+  const pxH = cellH / subPx;
 
   const ring = [];
   for (let p = 0; p < nv; p++) ring.push(p); // north edge
@@ -466,40 +469,78 @@ export function buildCorridorSubCellGeometry(
   const N = new Float32Array(total * 3);
   const U = new Float32Array(total * 2);
 
+  const hasNorth = (edgeMask & 1) !== 0;
+  const hasSouth = (edgeMask & 2) !== 0;
+  const hasWest = (edgeMask & 4) !== 0;
+  const hasEast = (edgeMask & 8) !== 0;
+  const blendBandM = 10.0;
+
+  const blendOverview = (wx, wz, yDetail) => {
+    if (edgeMask === 15) return yDetail;
+    let dMin = blendBandM;
+    if (!hasNorth) dMin = Math.min(dMin, wz - z0);
+    if (!hasSouth) dMin = Math.min(dMin, z0 + cellH - wz);
+    if (!hasWest) dMin = Math.min(dMin, wx - x0);
+    if (!hasEast) dMin = Math.min(dMin, x0 + cellW - wx);
+    if (dMin >= blendBandM) return yDetail;
+    const t = Math.max(0, Math.min(1, dMin / blendBandM));
+    const sCurve = t * t * (3 - 2 * t);
+    const rawOv = corridor.sampleOverview(wx, wz) - elevBase;
+    const yOv = adjustY ? adjustY(wx, wz, rawOv) : rawOv;
+    return yOv + (yDetail - yOv) * sCurve;
+  };
+
   // heights on this chunk's own grid
   const H = new Float32Array(nv * nv);
   for (let q = 0; q < nv; q++) {
     const row = Math.round(rowOff + (flipZ ? subPx - q * step : q * step));
+    const wz = z0 + q * dzv;
     for (let p = 0; p < nv; p++) {
       const col = Math.round(colOff + (flipX ? subPx - p * step : p * step));
-      const y = arr[row * s + col] - elevBase;
-      H[q * nv + p] = adjustY ? adjustY(x0 + p * dxv, z0 + q * dzv, y) : y;
+      const wx = x0 + p * dxv;
+      const rawY = arr[row * s + col] - elevBase;
+      const y = adjustY ? adjustY(wx, wz, rawY) : rawY;
+      H[q * nv + p] = blendOverview(wx, wz, y);
     }
   }
-  // edge-aware height lookup for normals (falls back to the corridor sampler outside this chunk)
-  const hAt = (p, q) => {
-    if (p >= 0 && p < nv && q >= 0 && q < nv) return H[q * nv + p];
-    const x = x0 + p * dxv;
-    const z = z0 + q * dzv;
-    const y = corridor.sample(x, z) - elevBase;
-    return adjustY ? adjustY(x, z, y) : y;
+  // 1-pixel world-space height lookup for normals so adjacent chunks of different LOD (seg)
+  // compute identical normals along shared borders.
+  const hSampleWorld = (colIdx, rowIdx, wx, wz) => {
+    let rawY;
+    if (colIdx >= 0 && colIdx <= n && rowIdx >= 0 && rowIdx <= n) {
+      rawY = arr[rowIdx * s + colIdx] - elevBase;
+    } else {
+      rawY = corridor.sample(wx, wz) - elevBase;
+    }
+    const y = adjustY ? adjustY(wx, wz, rawY) : rawY;
+    return blendOverview(wx, wz, y);
   };
+  const dColX = flipX ? -1 : 1;
+  const dRowZ = flipZ ? -1 : 1;
   for (let q = 0; q < nv; q++) {
+    const row = Math.round(rowOff + (flipZ ? subPx - q * step : q * step));
+    const wz = z0 + q * dzv;
     for (let p = 0; p < nv; p++) {
+      const col = Math.round(colOff + (flipX ? subPx - p * step : p * step));
+      const wx = x0 + p * dxv;
       const k = q * nv + p;
-      P[k * 3] = x0 + p * dxv;
+      P[k * 3] = wx;
       P[k * 3 + 1] = H[k];
-      P[k * 3 + 2] = z0 + q * dzv;
-      const gx = (hAt(p + 1, q) - hAt(p - 1, q)) / (2 * dxv);
-      const gz = (hAt(p, q + 1) - hAt(p, q - 1)) / (2 * dzv);
+      P[k * 3 + 2] = wz;
+      const hxp = hSampleWorld(col + dColX, row, wx + pxW, wz);
+      const hxm = hSampleWorld(col - dColX, row, wx - pxW, wz);
+      const hzp = hSampleWorld(col, row + dRowZ, wx, wz + pxH);
+      const hzm = hSampleWorld(col, row - dRowZ, wx, wz - pxH);
+      const gx = (hxp - hxm) / (2 * pxW);
+      const gz = (hzp - hzm) / (2 * pxH);
       const inv = 1 / Math.hypot(gx, 1, gz);
       N[k * 3] = -gx * inv;
       N[k * 3 + 1] = inv;
       N[k * 3 + 2] = -gz * inv;
-      const col = colOff + (flipX ? subPx - p * step : p * step);
-      const row = rowOff + (flipZ ? subPx - q * step : q * step);
-      U[k * 2] = col / n;
-      U[k * 2 + 1] = 1 - row / n;
+      const colF = colOff + (flipX ? subPx - p * step : p * step);
+      const rowF = rowOff + (flipZ ? subPx - q * step : q * step);
+      U[k * 2] = colF / n;
+      U[k * 2 + 1] = 1 - rowF / n;
     }
   }
   const base = nv * nv;

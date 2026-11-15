@@ -166,6 +166,17 @@ function substep(body, dt, input, env) {
   body.eta = facies.eta;
   body.sinkM = bootSinkM(facies);
 
+  // Depenetration guard: if the walker is already below the local surface at (body.x, body.z)
+  // (e.g. after terrain chunk streaming or a horizontal collision push), lift onto the surface
+  // before stepping so slideAlongWall never locks horizontal movement inside the floor.
+  if (body.y + body.sinkM < patch.height) {
+    body.y = patch.height - body.sinkM;
+    if (body.vy < 0) {
+      body.vy = 0;
+      body.grounded = true;
+    }
+  }
+
   const grad = Math.hypot(patch.dhdx, patch.dhdz);
   if (grad > 1e-6) {
     body.uphillX = patch.dhdx / grad;

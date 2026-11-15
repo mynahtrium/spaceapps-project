@@ -844,11 +844,41 @@ export async function initHud3D(
     // Flat terrain if the height preview fails
   }
 
+  const CHUNK_SUBDIV = 2; // split 256x256 corridor data blocks into 128x128 px (~129 m) terrain chunks
+  const chunkMeshes = new Map(); // "a,b" -> { a, b, ci, cj, seg, edgeMask, mesh, ready, disposed }
+
   // Bilinear height (scene Y, metres above site base), mirror-wrapped beyond the tile.
-  // At Gale (Curiosity), samples real HiRISE DTM (1 m detail chunks where streamed in, else the
-  // overview grid); at other rover sites, uses deterministic site relief.
+  // At Gale (Curiosity), samples real HiRISE DTM (1 m detail chunks where streamed in and visible,
+  // else the overview grid); at other rover sites, uses deterministic site relief.
   function rawSampleElevSceneY(x, z) {
     if (corridor && isGaleSite()) {
+      if (chunkMeshes.size > 0) {
+        const cell = corridor.subSceneCellOf(x, z, CHUNK_SUBDIV);
+        const cm = chunkMeshes.get(`${cell.a},${cell.b}`);
+        if (!cm || !cm.ready || !cm.mesh?.visible) return sampleBaseSceneY(x, z);
+        const d = corridor.sampleDetail(x, z);
+        if (d === null) return sampleBaseSceneY(x, z);
+        const detailY = d - elevMin;
+        const mask = cm.edgeMask ?? 15;
+        if (mask !== 15) {
+          const subW = corridor.chunkW / CHUNK_SUBDIV;
+          const subH = corridor.chunkH / CHUNK_SUBDIV;
+          const lx = x - (-corridor.worldW / 2 + cell.a * subW);
+          const lz = z - (-corridor.worldH / 2 + cell.b * subH);
+          let edgeDistM = Infinity;
+          if (!(mask & 4)) edgeDistM = Math.min(edgeDistM, lx);
+          if (!(mask & 8)) edgeDistM = Math.min(edgeDistM, subW - lx);
+          if (!(mask & 1)) edgeDistM = Math.min(edgeDistM, lz);
+          if (!(mask & 2)) edgeDistM = Math.min(edgeDistM, subH - lz);
+          if (edgeDistM < 10) {
+            const t = Math.max(0, edgeDistM / 10);
+            const s = t * t * (3 - 2 * t);
+            const baseY = sampleBaseSceneY(x, z);
+            return baseY + (detailY - baseY) * s;
+          }
+        }
+        return detailY;
+      }
       const d = corridor.sampleDetail(x, z);
       if (d !== null) return d - elevMin;
     }
@@ -1336,16 +1366,20 @@ export async function initHud3D(
         upscaleWithFillers(orthoTex);
         terrainMat.map = orthoTex;
         terrainMat.needsUpdate = true;
+        syncChunkMaterials();
         const b = document.getElementById("hud-tex");
         if (b) b.textContent = "Tex: ortho";
       }
     })
   );
   const detailTex = makeDetailTexture();
+  // Round normal-map repeat counts to even integers so sub-chunks (u/v = 0.5) and mirror-wrapped
+  // chunks share identical phase at every boundary without normal seams.
+  const evenRepeat = (v) => Math.max(2, Math.round(v / 2) * 2);
   // Offline procedural Mars ground (map branch): wind-rippled regolith + fractured mudstone slabs.
   const pbr = createMartianPbrTextureSets(THREE, 512);
   for (const t of [pbr.dustAlbedoTex, pbr.rockAlbedoTex, pbr.dustNormalTex, pbr.rockNormalTex]) t.anisotropy = maxAniso;
-  pbr.dustNormalTex.repeat.set((960 * worldW) / UV_REF_M, (960 * worldH) / UV_REF_M);
+  pbr.dustNormalTex.repeat.set(evenRepeat((960 * worldW) / UV_REF_M), evenRepeat((960 * worldH) / UV_REF_M));
   let pbrHigh = null;
   let terrainShaderRef = null;
   let suitWeaveTex = null;
@@ -1356,7 +1390,7 @@ export async function initHud3D(
     for (const t of [pbrHigh.dustAlbedoTex, pbrHigh.rockAlbedoTex, pbrHigh.dustNormalTex, pbrHigh.rockNormalTex]) {
       t.anisotropy = maxAniso;
     }
-    pbrHigh.dustNormalTex.repeat.set((960 * worldW) / UV_REF_M, (960 * worldH) / UV_REF_M);
+    pbrHigh.dustNormalTex.repeat.set(evenRepeat((960 * worldW) / UV_REF_M), evenRepeat((960 * worldH) / UV_REF_M));
     return pbrHigh;
   }
 
@@ -1425,7 +1459,6 @@ export async function initHud3D(
   covTex.needsUpdate = true;
   const covTexU = { value: covTex };
   const covOriginU = { value: new THREE.Vector2() };
-  const CHUNK_SUBDIV = 2; // split 256x256 corridor data blocks into 128x128 px (~129 m) terrain chunks
   const CHUNK_TARGET_COUNT = 32; // load the 32 nearest 128x128 chunks around the explorer
   const covCellU = {
     value: new THREE.Vector2(corridor ? corridor.chunkW / CHUNK_SUBDIV : 1, corridor ? corridor.chunkH / CHUNK_SUBDIV : 1),
@@ -1524,12 +1557,15 @@ export async function initHud3D(
         "#include <map_fragment>",
         `#include <map_fragment>
         #ifdef USE_MAP
-          vec2 mmUv = vMapUv * uMmUvScale; // same metres per detail tile on every terrain mesh
+          // World-space continuous detail UV so detail chunks, sub-chunks, mirrored copies and the
+          // overview mesh share seamless procedural rock/dust/grit masks across every border.
+          vec2 mmUv = (vMmWorldXZ - sunMaskOrigin) / ${UV_REF_M.toFixed(1)};
           float dA = texture2D(detailMap, mmUv * 173.0).r;
           float dB = texture2D(detailMap, mmUv * 911.0).r;
           float mmSlopeMix = smoothstep(0.03, 0.30, vMmSlope);
           vec2 mmElevWarp = (vec2(dA - 0.5, dB - 0.5) * 0.0020 + vec2(sin(vMmElev * 0.42), cos(vMmElev * 0.42)) * 0.0010) * mmSlopeMix;
-          vec3 mmAltTex = texture2D(map, vMapUv + mmElevWarp / uMmUvScale).rgb;
+          vec2 mmWarpedUv = clamp(vMapUv + mmElevWarp / max(uMmUvScale, vec2(0.05)), vec2(0.002), vec2(0.998));
+          vec3 mmAltTex = texture2D(map, mmWarpedUv).rgb;
           diffuseColor.rgb = mix(diffuseColor.rgb, mmAltTex, 0.45 * mmSlopeMix);
           float detailGain = mix(0.46, 0.62, max(uSuperDetail, uRealisticTex * 0.90));
           diffuseColor.rgb *= (1.0 - detailGain * 0.65) + detailGain * dA * 0.6 + detailGain * dB * 0.4;
@@ -1595,7 +1631,6 @@ export async function initHud3D(
   // 128x128 chunks loaded; far cells are dropped and the overview mesh shows again there.
   const chunkGroup = new THREE.Group();
   scene.add(chunkGroup);
-  const chunkMeshes = new Map(); // "a,b" -> { a, b, ci, cj, seg, mesh, ready, disposed }
   const chunkTexEntries = new Map(); // data-chunk index -> { tex, slope, refs, loaded, failed, waiters }
   const chunkNormalClones = new Map(); // shared normal map -> clone tiled for one chunk
   const DATA_RADIUS_M = 520; // detail radius/LOD spacing respect gfx preset while keeping 32 nearest 128x128 sub-chunks
@@ -1616,7 +1651,7 @@ export async function initHud3D(
     let t = chunkNormalClones.get(src);
     if (!t) {
       t = src.clone(); // shares the image with the base mesh's normal map
-      t.repeat.set((960 * corridor.chunkW) / UV_REF_M, (960 * corridor.chunkH) / UV_REF_M);
+      t.repeat.set(evenRepeat((960 * corridor.chunkW) / UV_REF_M), evenRepeat((960 * corridor.chunkH) / UV_REF_M));
       chunkNormalClones.set(src, t);
     }
     return t;
@@ -1695,6 +1730,126 @@ export async function initHud3D(
   }
 
   /** Keep chunk materials in step with the base terrain material (dev settings, texture mode). */
+  // High-resolution sliding terrain patch (3 m spacing across 384 x 384 m) for off-Gale / procedural sites
+  // so local hill geometry matches physics/camera elevation instead of coarse 16–49 m overview triangles.
+  const PROC_CELL_M = 64;
+  const PROC_SEG = 128;
+  const PROC_SPAN_M = PROC_CELL_M * 6; // 384 m
+  const PROC_HALF_M = PROC_SPAN_M * 0.5;
+  const PROC_STEP_M = PROC_SPAN_M / PROC_SEG; // 3.0 m
+  const PROC_N = PROC_SEG + 1;
+  const PROC_PAD_N = PROC_N + 2;
+  const procHeights = new Float32Array(PROC_PAD_N * PROC_PAD_N);
+  let procDetailKey = "";
+  let covWasProcedural = false;
+
+  const procBaseG = new THREE.PlaneGeometry(PROC_SPAN_M, PROC_SPAN_M, PROC_SEG, PROC_SEG);
+  procBaseG.rotateX(-Math.PI / 2);
+  const procGeom = addSkirt(procBaseG, PROC_SEG, PROC_SEG, 40);
+  procBaseG.dispose();
+  const procRing = [];
+  for (let i = 0; i < PROC_N; i++) procRing.push(i);
+  for (let j = 1; j <= PROC_SEG; j++) procRing.push(j * PROC_N + PROC_SEG);
+  for (let i = PROC_SEG - 1; i >= 0; i--) procRing.push(PROC_SEG * PROC_N + i);
+  for (let j = PROC_SEG - 1; j >= 1; j--) procRing.push(j * PROC_N);
+
+  const procMat = terrainMat.clone();
+  procMat.customProgramCacheKey = () => "mm-terrain";
+  procMat.onBeforeCompile = patchTerrainShader;
+  procMat.userData.mm = makeTerrainMmUniforms(worldW, worldH, false);
+
+  const procDetailMesh = new THREE.Mesh(procGeom, procMat);
+  procDetailMesh.receiveShadow = true;
+  procDetailMesh.castShadow = false;
+  procDetailMesh.visible = false;
+  scene.add(procDetailMesh);
+
+  function updateProceduralDetail(px, pz) {
+    const ca = Math.floor(px / PROC_CELL_M);
+    const cb = Math.floor(pz / PROC_CELL_M);
+    const key = `${ca},${cb}`;
+    if (key === procDetailKey && covWasProcedural) return;
+    procDetailKey = key;
+    covWasProcedural = true;
+
+    const cx = ca * PROC_CELL_M;
+    const cz = cb * PROC_CELL_M;
+    procDetailMesh.position.set(cx, 0, cz);
+
+    const pos = procGeom.attributes.position;
+    const uv = procGeom.attributes.uv;
+    const nor = procGeom.attributes.normal;
+    for (let pj = -1; pj <= PROC_SEG + 1; pj++) {
+      const wz = cz - PROC_HALF_M + pj * PROC_STEP_M;
+      const row = (pj + 1) * PROC_PAD_N;
+      for (let pi = -1; pi <= PROC_SEG + 1; pi++) {
+        const wx = cx - PROC_HALF_M + pi * PROC_STEP_M;
+        procHeights[row + pi + 1] = withHabitat(wx, wz, sampleBaseSceneY(wx, wz));
+      }
+    }
+
+    const inv2Step = 1 / (2 * PROC_STEP_M);
+    let idx = 0;
+    for (let j = 0; j < PROC_N; j++) {
+      const wz = cz - PROC_HALF_M + j * PROC_STEP_M;
+      const v = mirrorWrap(0.5 - wz / worldH);
+      const rMid = (j + 1) * PROC_PAD_N;
+      const rUp = j * PROC_PAD_N;
+      const rDn = (j + 2) * PROC_PAD_N;
+      for (let i = 0; i < PROC_N; i++) {
+        const wx = cx - PROC_HALF_M + i * PROC_STEP_M;
+        const cCol = i + 1;
+        pos.setY(idx, procHeights[rMid + cCol]);
+        uv.setXY(idx, mirrorWrap(wx / worldW + 0.5), v);
+        const gx = (procHeights[rMid + cCol + 1] - procHeights[rMid + cCol - 1]) * inv2Step;
+        const gz = (procHeights[rDn + cCol] - procHeights[rUp + cCol]) * inv2Step;
+        const ny = 1 / Math.hypot(gx, 1, gz);
+        nor.setXYZ(idx, -gx * ny, ny, -gz * ny);
+        idx++;
+      }
+    }
+
+    const base = PROC_N * PROC_N;
+    for (let k = 0; k < procRing.length; k++) {
+      const src = procRing[k];
+      const sy = pos.getY(src);
+      const su = uv.getX(src);
+      const sv = uv.getY(src);
+      const snx = nor.getX(src);
+      const sny = nor.getY(src);
+      const snz = nor.getZ(src);
+      const o0 = base + 2 * k;
+      const o1 = o0 + 1;
+      pos.setY(o0, sy);
+      pos.setY(o1, sy - 40);
+      uv.setXY(o0, su, sv);
+      uv.setXY(o1, su, sv);
+      nor.setXYZ(o0, snx, sny, snz);
+      nor.setXYZ(o1, snx, sny, snz);
+    }
+    pos.needsUpdate = true;
+    uv.needsUpdate = true;
+    nor.needsUpdate = true;
+    procGeom.computeBoundingBox();
+    procGeom.computeBoundingSphere();
+
+    // Carve the matching 384 x 384 m aperture [ca-3..ca+2] x [cb-3..cb+2] out of overview terrainMat.
+    const a0 = ca - COV_N / 2;
+    const b0 = cb - COV_N / 2;
+    covA0 = a0;
+    covB0 = b0;
+    covDirty = false;
+    covData.fill(0);
+    for (let ib = 5; ib <= 10; ib++) {
+      for (let ia = 5; ia <= 10; ia++) {
+        covData[(ib * COV_N + ia) * 4] = 255;
+      }
+    }
+    covTex.needsUpdate = true;
+    covOriginU.value.set(a0 * PROC_CELL_M, b0 * PROC_CELL_M);
+    covCellU.value.set(PROC_CELL_M, PROC_CELL_M);
+  }
+
   function syncChunkMaterials() {
     const norm = chunkNormalFor(terrainMat.normalMap);
     for (const c of chunkMeshes.values()) {
@@ -1704,6 +1859,14 @@ export async function initHud3D(
       m.normalScale.copy(terrainMat.normalScale);
       m.roughness = terrainMat.roughness;
     }
+    if (procMat.map !== terrainMat.map || procMat.normalMap !== terrainMat.normalMap) {
+      procMat.map = terrainMat.map;
+      procMat.normalMap = terrainMat.normalMap;
+      procMat.needsUpdate = true;
+    }
+    procMat.normalScale.copy(terrainMat.normalScale);
+    procMat.roughness = terrainMat.roughness;
+    procMat.color.copy(terrainMat.color);
   }
 
   function disposeChunk(key, c) {
@@ -1732,11 +1895,26 @@ export async function initHud3D(
       // along a level-of-detail line does not rebuild the same chunk again and again
       const cur = chunkMeshes.get(key);
       if (cur && seg < cur.seg && Math.min(128, chunkSegmentsFor(gfx, item.d / 1.2)) >= cur.seg) seg = cur.seg;
-      want.set(key, { a: item.a, b: item.b, d: item.d, seg });
+      want.set(key, { a: item.a, b: item.b, d: item.d, seg, edgeMask: 15 });
+    }
+    const hasDetailNeighbor = (na, nb) => {
+      if (!want.has(`${na},${nb}`)) return false;
+      const dc = corridor.dataChunkForSubCell(na, nb, CHUNK_SUBDIV);
+      return Boolean(corridor.chunkHeights(dc.ci, dc.cj));
+    };
+    for (const w of want.values()) {
+      w.edgeMask =
+        (hasDetailNeighbor(w.a, w.b - 1) ? 1 : 0) |
+        (hasDetailNeighbor(w.a, w.b + 1) ? 2 : 0) |
+        (hasDetailNeighbor(w.a - 1, w.b) ? 4 : 0) |
+        (hasDetailNeighbor(w.a + 1, w.b) ? 8 : 0);
     }
     for (const [key, c] of chunkMeshes) if (!want.has(key)) disposeChunk(key, c);
     chunkBuildQueue = [...want.entries()]
-      .filter(([key, w]) => chunkMeshes.get(key)?.seg !== w.seg)
+      .filter(([key, w]) => {
+        const cur = chunkMeshes.get(key);
+        return !cur || cur.seg !== w.seg || cur.edgeMask !== w.edgeMask;
+      })
       .map(([, w]) => w)
       .sort((p, q) => p.d - q.d);
   }
@@ -1747,7 +1925,19 @@ export async function initHud3D(
     while (chunkBuildQueue.length && (built === 0 || performance.now() - t0 < budgetMs)) {
       const w = chunkBuildQueue.shift();
       const key = `${w.a},${w.b}`;
-      const g = buildCorridorSubCellGeometry(THREE, corridor, w.a, w.b, w.seg, elevMin, 30, withHabitat, CHUNK_SUBDIV);
+      const edgeMask = w.edgeMask ?? 15;
+      const g = buildCorridorSubCellGeometry(
+        THREE,
+        corridor,
+        w.a,
+        w.b,
+        w.seg,
+        elevMin,
+        30,
+        withHabitat,
+        CHUNK_SUBDIV,
+        edgeMask
+      );
       if (!g) continue; // data still on its way; the next plan queues it again
       built++;
       const existing = chunkMeshes.get(key);
@@ -1755,13 +1945,14 @@ export async function initHud3D(
         existing.mesh.geometry.dispose();
         existing.mesh.geometry = g;
         existing.seg = w.seg;
+        existing.edgeMask = edgeMask;
         if (existing.ready) onCorridorMeshShown?.(existing);
         continue;
       }
       const { ci, cj } = corridor.dataChunkForSubCell(w.a, w.b, CHUNK_SUBDIV);
       const e = chunkTexEntry(ci, cj);
       e.refs++;
-      const c = { a: w.a, b: w.b, ci, cj, seg: w.seg, texEntry: e, ready: false, disposed: false };
+      const c = { a: w.a, b: w.b, ci, cj, seg: w.seg, edgeMask, texEntry: e, ready: false, disposed: false };
       c.mesh = new THREE.Mesh(g, makeChunkMaterial(e));
       c.mesh.receiveShadow = true;
       c.mesh.castShadow = false; // far terrain shadows come from the baked sun mask
@@ -1802,11 +1993,29 @@ export async function initHud3D(
 
   /** Per frame: stream data, (re)build a few meshes within a time budget, keep the cut-out mask current. */
   function updateCorridorChunks(px, pz, dt) {
-    if (!corridor) return;
     const on = isGaleSite();
-    chunkGroup.visible = on;
-    terrainMat.userData.mm.uCovOn.value = on ? 1 : 0;
-    if (!on) return;
+    if (!on) {
+      chunkGroup.visible = false;
+      procDetailMesh.visible = true;
+      terrainMat.userData.mm.uCovOn.value = 1;
+      updateProceduralDetail(px, pz);
+      return;
+    }
+    procDetailMesh.visible = false;
+    if (covWasProcedural) {
+      covWasProcedural = false;
+      covDirty = true;
+      if (corridor) {
+        covCellU.value.set(corridor.chunkW / CHUNK_SUBDIV, corridor.chunkH / CHUNK_SUBDIV);
+      }
+    }
+    if (!corridor) {
+      chunkGroup.visible = false;
+      terrainMat.userData.mm.uCovOn.value = 0;
+      return;
+    }
+    chunkGroup.visible = true;
+    terrainMat.userData.mm.uCovOn.value = 1;
     const { a, b } = corridor.subSceneCellOf(px, pz, CHUNK_SUBDIV);
     const cellKey = `${a},${b}`;
     chunkPlanT -= dt;
@@ -1823,6 +2032,7 @@ export async function initHud3D(
   function invalidateCorridorChunks() {
     for (const [key, c] of chunkMeshes) disposeChunk(key, c);
     chunkPlanT = 0;
+    procDetailKey = "";
   }
 
   /** Load the data around a point and build its meshes now (start of the EVA, teleports). */
@@ -1899,6 +2109,14 @@ export async function initHud3D(
 
   /** Height of the terrain mesh currently drawn on screen (detail chunk triangles once visible, else overview/mirror triangles). */
   function sampleRenderedTerrainY(x, z) {
+    if (!isGaleSite() && procDetailMesh.visible) {
+      const px0 = procDetailMesh.position.x - PROC_HALF_M;
+      const pz0 = procDetailMesh.position.z - PROC_HALF_M;
+      if (x >= px0 && x <= px0 + PROC_SPAN_M && z >= pz0 && z <= pz0 + PROC_SPAN_M) {
+        const y = sampleGridGeometryY(procGeom, px0, pz0, PROC_SPAN_M, PROC_SPAN_M, PROC_SEG, PROC_SEG, x, z);
+        if (y !== null) return y;
+      }
+    }
     if (corridor && isGaleSite()) {
       const cell = corridor.subSceneCellOf(x, z, CHUNK_SUBDIV);
       const cm = chunkMeshes.get(`${cell.a},${cell.b}`);
@@ -1960,6 +2178,7 @@ export async function initHud3D(
   let geomTotalDist = cumDist[cumDist.length - 1] || 1;
   let totalDist = Number(activeRoute?.totals?.distance_m) > 0 ? Number(activeRoute.totals.distance_m) : geomTotalDist;
   let alongM = 0;
+  let offRouteWalkM = 0;
 
   const toGeomDist = (s) => (geomTotalDist > 0 && totalDist > 0 ? (s / totalDist) * geomTotalDist : s);
 
@@ -2126,7 +2345,14 @@ export async function initHud3D(
       sync() {
         const st = sim.state;
         const a = sim.attitude();
-        group.position.copy(st.pos);
+        const w = sim.wheels; // FL FR ML MR RL RR
+        // Historic rover meshes only articulate rocker-bogie pitch, not vertical strut translation;
+        // lift the group by the deepest bump compression beyond static sag so no wheel clips the floor.
+        let maxExcessComp = 0;
+        for (let i = 0; i < w.length; i++) {
+          if (w[i].contact) maxExcessComp = Math.max(maxExcessComp, w[i].comp - P.sagM);
+        }
+        group.position.set(st.pos.x, st.pos.y + maxExcessComp, st.pos.z);
         group.rotation.order = "YXZ";
         group.rotation.set(a.pitch, a.yaw, a.roll);
         // stay put when the endless terrain re-centres (the manager places rovers from base x/z)
@@ -2135,7 +2361,6 @@ export async function initHud3D(
         // wheels and corner steering on the model; rocker-bogie tilt from the strut travel
         entry.driveSpeed = st.vLong;
         entry.steerAngle = st.steerCmd * P.steerMaxRad;
-        const w = sim.wheels; // FL FR ML MR RL RR
         const d = (i) => -(w[i].comp - P.sagM);
         entry.wheelDeltaHeights = [d(0), d(2), d(4), d(1), d(3), d(5)];
       },
@@ -2229,6 +2454,8 @@ export async function initHud3D(
       target.group.visible = habitatStation.group.visible;
       target.placeAt(dp.x, dp.z, dp.yaw, sampleRenderedSurfaceY);
       target.update(0.016, { sampleElevY: sampleRenderedSurfaceY, speed: 0, steer: 0, driving: false, physicsEnabled: false });
+      target.sim?.reset(dp.x, dp.z, dp.yaw, sampleRenderedSurfaceY);
+      target.rig?.sync();
 
       // Static Anchor Rule: NPC 1 (MMSEV) & NPC 2 (NASA Concept) stay fixed at initial bay spots
       // even when the player enters and drives either rover away.
@@ -2807,6 +3034,16 @@ export async function initHud3D(
     footsteps.reprojectAll(sampleRenderedSurfaceY, sampleNormal);
   };
   let drivingRover = false;
+  // [F4] freecam state: 6-DOF flying camera independent of walker / rover physics
+  let freecamActive = false;
+  let freecamYaw = 0;
+  let freecamPitch = -0.12;
+  let freecamSpeed = 18;
+  const freecamPos = new THREE.Vector3();
+  const freecamVel = new THREE.Vector3();
+  const freecamFwd = new THREE.Vector3();
+  const freecamRight = new THREE.Vector3();
+  const freecamWish = new THREE.Vector3();
   // hardware-site visit state (see "hardware sites + habitat <-> site transit" below)
   const hardwareGroup = new THREE.Group();
   hardwareGroup.name = "hardwareSite";
@@ -3119,11 +3356,31 @@ export async function initHud3D(
     if (dx === 0 && dy === 0) return;
     const sensX = locked ? 0.0024 : 0.0035;
     const sensY = locked ? 0.0021 : 0.003;
+    if (freecamActive) {
+      freecamYaw -= dx * sensX;
+      freecamPitch = Math.max(-1.53, Math.min(1.53, freecamPitch - dy * sensY));
+      return;
+    }
     userYaw -= dx * sensX;
     const minPitch = drivingRover ? -1.08 : -1.35;
     const maxPitch = drivingRover ? -0.06 : 1.42;
     pitch = Math.max(minPitch, Math.min(maxPitch, pitch - dy * sensY));
   });
+  renderer.domElement.addEventListener(
+    "wheel",
+    (e) => {
+      if (!freecamActive || !isHudActive() || hasOpenModalOverlay()) return;
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      freecamSpeed = Math.max(2, Math.min(240, freecamSpeed * factor));
+      showWrapNotice(
+        isTrLang()
+          ? `SERBEST KAMERA HIZI: ${freecamSpeed.toFixed(0)} m/sn`
+          : `FREECAM SPEED: ${freecamSpeed.toFixed(0)} m/s`
+      );
+    },
+    { passive: false }
+  );
   const dropLocalPing = (label = "Science Beacon") => {
     if (!mp) return null;
     const x = player.init ? player.x : lonToX(routeCoords[0]?.[0] ?? 137.39);
@@ -3429,8 +3686,12 @@ export async function initHud3D(
 
     teleportSeq++;
     const seq = teleportSeq;
-    const nearestGeomS = closestAlongM(routeCoords, cumDist, lon, lat);
-    alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+    if (isGaleSite()) {
+      const nearestGeomS = closestAlongM(routeCoords, cumDist, lon, lat);
+      alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+    } else {
+      alongM = 0;
+    }
 
     if (Math.hypot(wx - prevX, wz - prevZ) > 12) {
       footsteps.clear();
@@ -3440,13 +3701,16 @@ export async function initHud3D(
     snapPhys(wx, wz);
 
     autoYaw = 0;
-    if (!keepYaw && routeCoords.length > 1) {
+    if (!keepYaw && isGaleSite() && routeCoords.length > 1) {
       const rp = routePoint(alongM);
       const distToRoute = Math.hypot(rp.x - wx, rp.z - wz);
       userYaw = distToRoute > 5 ? Math.atan2(-(rp.x - wx), -(rp.z - wz)) : routeHeading(alongM);
     }
     pitch = Math.max(-0.55, Math.min(0.25, keepYaw ? pitch : -0.06));
     followEndless({ x: player.x, y: player.y, z: player.z });
+    if (!isGaleSite()) {
+      updateCorridorChunks(wx, wz, 0);
+    }
 
     if (corridor && isGaleSite()) {
       const cell = corridor.subSceneCellOf(wx, wz, CHUNK_SUBDIV);
@@ -3708,6 +3972,9 @@ export async function initHud3D(
     if (isGaleSite()) landerWasVisibleAtGale = Boolean(landing.lander?.visible);
     clearHardwareSite();
     footsteps.clear();
+    alongM = 0;
+    offRouteWalkM = 0;
+    procDetailKey = "";
     activeSiteRover = spec;
     activeSiteId = spec.id;
     historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
@@ -3765,6 +4032,11 @@ export async function initHud3D(
         scene.fog.color.copy(HORIZON);
       }
     }
+    procMat.color.copy(terrainMat.color);
+    if (procMat.map !== terrainMat.map) {
+      procMat.map = terrainMat.map;
+      procMat.needsUpdate = true;
+    }
 
     sunSite.lat = spec.lat;
     sunSite.lon = spec.lon;
@@ -3794,6 +4066,7 @@ export async function initHud3D(
       }
     }
     if (fleetBtnEl) fleetBtnEl.textContent = gale ? `Rovers: ${spec.name} (7)` : `Site: ${spec.name}`;
+    updateCorridorChunks(phys.x, phys.z, 0);
     return true;
   }
 
@@ -3824,6 +4097,7 @@ export async function initHud3D(
       // Force a rebuild even when landing twice on the same rounded point.
       if (spec.id === activeSiteId) activeSiteId = null;
       switchSite(spec);
+      offRouteWalkM = 0;
       teleportToLocal(0, 0, { keepYaw: true });
       if (!keepYaw) {
         autoYaw = 0;
@@ -4332,6 +4606,54 @@ export async function initHud3D(
       }
       releasePointerLock();
       openPauseMenu?.();
+      return;
+    }
+
+    if (e.key === "F4" && !e.repeat) {
+      e.preventDefault();
+      freecamActive = !freecamActive;
+      if (freecamActive) {
+        freecamPos.copy(camera.position);
+        freecamVel.set(0, 0, 0);
+        freecamYaw = autoYaw + userYaw;
+        freecamPitch = pitch;
+        if (!drivingRover) self?.setHeadVisible?.(true);
+        showWrapNotice(
+          isTrLang()
+            ? "SERBEST KAMERA AKTİF [F4] · WASD HAREKET · SPACE/E YUKARI · Q/C AŞAĞI · SHIFT HIZLI · TEKERLEK HIZ"
+            : "FREECAM ACTIVE [F4] · WASD MOVE · SPACE/E UP · Q/C DOWN · SHIFT FAST · SCROLL SPEED"
+        );
+      } else {
+        freecamVel.set(0, 0, 0);
+        if (!drivingRover) self?.setHeadVisible?.(thirdPersonWalk);
+        showWrapNotice(
+          isTrLang()
+            ? "SERBEST KAMERA KAPALI [F4] · EVA GÖRÜNÜMÜNE DÖNÜLDÜ"
+            : "FREECAM OFF [F4] · RETURNED TO EVA VIEW"
+        );
+      }
+      return;
+    }
+
+    if (freecamActive) {
+      if (k === "g" && !e.repeat) {
+        toggleGoldVisor();
+        return;
+      }
+      if (k === "f" && !e.repeat) {
+        toggleHelmetLamp();
+        return;
+      }
+      if (k === "z" && !e.repeat) {
+        cycleOpticalZoom();
+        return;
+      }
+      if (k === "r" && !e.repeat) {
+        cycleRayTracingTier();
+        return;
+      }
+      if (k === " ") e.preventDefault();
+      keys.add(k);
       return;
     }
 
@@ -5086,10 +5408,15 @@ export async function initHud3D(
     const padBusy = padBlockedGiven(uiBlocked);
     const lk = padBusy ? NO_STICK : gamepad.look();
     if (lk.x || lk.y) {
-      userYaw -= lk.x * 2.6 * dt;
-      const minP = drivingRover ? -1.08 : -1.35;
-      const maxP = drivingRover ? -0.06 : 1.42;
-      pitch = Math.max(minP, Math.min(maxP, pitch + lk.y * 1.9 * dt));
+      if (freecamActive) {
+        freecamYaw -= lk.x * 2.6 * dt;
+        freecamPitch = Math.max(-1.53, Math.min(1.53, freecamPitch + lk.y * 1.9 * dt));
+      } else {
+        userYaw -= lk.x * 2.6 * dt;
+        const minP = drivingRover ? -1.08 : -1.35;
+        const maxP = drivingRover ? -0.06 : 1.42;
+        pitch = Math.max(minP, Math.min(maxP, pitch + lk.y * 1.9 * dt));
+      }
     }
 
     // progress along the route = the route point nearest to you (for the HUD only)
@@ -5101,7 +5428,46 @@ export async function initHud3D(
     const prevZ = player.z;
     let roverLateralSpeed = 0;
 
-    if (freeRoam && drivingRover && activeDriveRover?.group?.visible) {
+    if (freecamActive) {
+      // [F4] 6-DOF Freecam flight: walker / rover stays parked while camera flies freely
+      if (!uiBlocked) {
+        const cp = Math.cos(freecamPitch);
+        freecamFwd.set(-Math.sin(freecamYaw) * cp, Math.sin(freecamPitch), -Math.cos(freecamYaw) * cp);
+        freecamRight.set(Math.cos(freecamYaw), 0, -Math.sin(freecamYaw));
+        freecamWish.set(0, 0, 0);
+        if (keys.has("w") || keys.has("arrowup")) freecamWish.add(freecamFwd);
+        if (keys.has("s") || keys.has("arrowdown")) freecamWish.sub(freecamFwd);
+        if (keys.has("d") || keys.has("arrowright")) freecamWish.add(freecamRight);
+        if (keys.has("a") || keys.has("arrowleft")) freecamWish.sub(freecamRight);
+        if (keys.has(" ") || keys.has("e")) freecamWish.y += 1;
+        if (keys.has("q") || keys.has("c") || keys.has("control")) freecamWish.y -= 1;
+        if (!padBusy && freecamWish.lengthSq() === 0) {
+          const st = gamepad.move();
+          if (Math.hypot(st.x, st.y) > 0.05) {
+            freecamWish.addScaledVector(freecamFwd, st.y).addScaledVector(freecamRight, st.x);
+          }
+        }
+        if (freecamWish.lengthSq() > 1) freecamWish.normalize();
+        const boostMult = keys.has("shift") ? 3.5 : keys.has("alt") ? 0.25 : 1.0;
+        const targetSpeed = freecamSpeed * boostMult;
+        const blend = Math.min(1, dt * 11);
+        freecamVel.x += (freecamWish.x * targetSpeed - freecamVel.x) * blend;
+        freecamVel.y += (freecamWish.y * targetSpeed - freecamVel.y) * blend;
+        freecamVel.z += (freecamWish.z * targetSpeed - freecamVel.z) * blend;
+      } else {
+        freecamVel.multiplyScalar(Math.max(0, 1 - dt * 10));
+      }
+      freecamPos.addScaledVector(freecamVel, dt);
+      const minCamY = sampleElevSceneY(freecamPos.x, freecamPos.z) + 0.35;
+      if (freecamPos.y < minCamY) {
+        freecamPos.y = minCamY;
+        if (freecamVel.y < 0) freecamVel.y = 0;
+      }
+      for (const idleDrv of drivableRovers) {
+        if (!idleDrv.group.visible) continue;
+        if (idleDrv.sim.step(dt, PARKED_INPUT, roverEnv)) idleDrv.rig.sync();
+      }
+    } else if (freeRoam && drivingRover && activeDriveRover?.group?.visible) {
       const rYaw0 = activeDriveRover.group.rotation.y;
       const fx0 = -Math.sin(rYaw0);
       const fz0 = -Math.cos(rYaw0);
@@ -5233,7 +5599,11 @@ export async function initHud3D(
           rpm: rs.motorRpm,
           gear: rs.gear,
           powerKw: rs.powerW / 1000,
+          hp: rs.hp,
           torquePct: rs.torquePct,
+          wheelTorqueNm: rs.wheelTorqueNm,
+          massKg: rs.massKg,
+          weightN: rs.weightN,
           batteryPct: (100 * rs.batteryKWh) / P.batteryKWh,
           accel: rs.accel,
           pitchDeg: (att.pitch * 180) / Math.PI,
@@ -5267,33 +5637,33 @@ export async function initHud3D(
           }
           if (idleDrv.sim.step(dt, PARKED_INPUT, roverEnv)) idleDrv.rig.sync();
         }
-      }
 
-      if (
-        !isInsideHabitat(rs.pos.x, rs.pos.z) &&
-        devCfg.realisticDust &&
-        !roverAirState.airborne &&
-        (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)
-      ) {
-        const speedMag = Math.hypot(roverThrottleVel, roverLateralSpeed) + (dyn?.drifting ? 4.5 : 0);
-        roverDustAcc += dt * Math.min(54, 10 + speedMag * 3.1);
-        const burstCount = Math.floor(roverDustAcc);
-        if (burstCount > 0) {
-          roverDustAcc -= burstCount;
-          const rYaw = activeDriveRover.group.rotation.y;
-          const fx = -Math.sin(rYaw);
-          const fz = -Math.cos(rYaw);
-          const sideSign = Math.random() < 0.5 ? -1 : 1;
-          const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
-          marsFx.emitBurst(
-            emit.x,
-            sampleRenderedSurfaceY(emit.x, emit.z),
-            emit.z,
-            Math.min(7, burstCount),
-            Math.min(2.15, 0.72 + speedMag * 0.13),
-            -fx * roverThrottleVel * 0.24 - Math.cos(rYaw) * roverLateralSpeed * 0.22,
-            -fz * roverThrottleVel * 0.24 + Math.sin(rYaw) * roverLateralSpeed * 0.22
-          );
+        if (
+          !isInsideHabitat(rs.pos.x, rs.pos.z) &&
+          devCfg.realisticDust &&
+          !roverAirState.airborne &&
+          (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)
+        ) {
+          const speedMag = Math.hypot(roverThrottleVel, roverLateralSpeed) + (dyn?.drifting ? 4.5 : 0);
+          roverDustAcc += dt * Math.min(54, 10 + speedMag * 3.1);
+          const burstCount = Math.floor(roverDustAcc);
+          if (burstCount > 0) {
+            roverDustAcc -= burstCount;
+            const rYaw = activeDriveRover.group.rotation.y;
+            const fx = -Math.sin(rYaw);
+            const fz = -Math.cos(rYaw);
+            const sideSign = Math.random() < 0.5 ? -1 : 1;
+            const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
+            marsFx.emitBurst(
+              emit.x,
+              sampleRenderedSurfaceY(emit.x, emit.z),
+              emit.z,
+              Math.min(7, burstCount),
+              Math.min(2.15, 0.72 + speedMag * 0.13),
+              -fx * roverThrottleVel * 0.24 - Math.cos(rYaw) * roverLateralSpeed * 0.22,
+              -fz * roverThrottleVel * 0.24 + Math.sin(rYaw) * roverLateralSpeed * 0.22
+            );
+          }
         }
       }
 
@@ -5389,7 +5759,7 @@ export async function initHud3D(
       }
 
       const wrapRes = applySeamlessWorldWrap(phys.x, phys.z);
-      if (wrapRes.wrapped) {
+      if (wrapRes.wrapped && isGaleSite()) {
         const wLon = xToLon(phys.x);
         const wLat = zToLat(phys.z);
         const nearestGeomS = closestAlongM(routeCoords, cumDist, wLon, wLat);
@@ -5489,6 +5859,8 @@ export async function initHud3D(
       if (freePos.x !== phys.x || freePos.z !== phys.z) {
         phys.x = freePos.x;
         phys.z = freePos.z;
+        const pushedGroundY = sampleElevSceneY(freePos.x, freePos.z) - (phys.sinkM || 0);
+        if (phys.y < pushedGroundY) phys.y = pushedGroundY;
         phys.vx *= 0.2;
         phys.vz *= 0.2;
         if (phys.grounded) phys.y = sampleRenderedSurfaceY(phys.x, phys.z);
@@ -5560,6 +5932,7 @@ export async function initHud3D(
     const mvx = px - prevX;
     const mvz = pz - prevZ;
     const step = !justTeleportedOrWrapped && movedXZ < 20 ? movedXZ : 0;
+    if (!isGaleSite() && !landing.active && freeRoam) offRouteWalkM += step;
     justTeleportedOrWrapped = false;
     const groundSpeed = dt > 0 ? step / dt : 0;
     if (snappedThisFrame) {
@@ -5649,7 +6022,13 @@ export async function initHud3D(
     const swayY = Math.sin(ph * 2) * bobAmp * amt;
     const swayX = Math.sin(ph) * 0.003 * amt;
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
-    if (drivingRover && activeDriveRover?.group?.visible) {
+    if (freecamActive) {
+      camera.position.copy(freecamPos);
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = freecamYaw;
+      camera.rotation.x = freecamPitch;
+      camera.rotation.z = 0;
+    } else if (drivingRover && activeDriveRover?.group?.visible) {
       const rPos = activeDriveRover.group.position;
       const rYaw = activeDriveRover.group.rotation.y;
       // chase distance scales with the vehicle: 6.9 m behind the MMSEV, about 2 m behind Sojourner
@@ -5873,12 +6252,14 @@ export async function initHud3D(
       scene.fog.color.copy(HORIZON).multiplyScalar(0.025 + 0.975 * tw * tw * (3 - 2 * tw));
     }
 
-    // sun, moons and shadow box follow the walker; shadow map updates at <=30 Hz moving / ~6 Hz idle
+    // sun, moons and shadow box follow the walker (or freecam); shadow map updates at <=30 Hz moving / ~6 Hz idle
     const texel = (2 * shadowHalfM) / shadowMapPx;
-    const groundY = sampleElevSceneY(px, pz);
-    const snapX = Math.round(px / texel) * texel;
+    const focusX = freecamActive ? camera.position.x : px;
+    const focusZ = freecamActive ? camera.position.z : pz;
+    const groundY = sampleElevSceneY(focusX, focusZ);
+    const snapX = Math.round(focusX / texel) * texel;
     const snapY = Math.round(groundY / texel) * texel;
-    const snapZ = Math.round(pz / texel) * texel;
+    const snapZ = Math.round(focusZ / texel) * texel;
     sun.target.position.set(snapX, snapY, snapZ);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 400);
     sky.position.copy(camera.position);
@@ -5886,7 +6267,7 @@ export async function initHud3D(
     celestial.group.position.copy(camera.position);
     updateMoons(camera.position);
     footsteps.update(dt, phys.g || surfaceG);
-    rockField.update(px, pz, sampleElevSceneY, gfx.sceneDetail, habitatStation?.isOnFootprint);
+    rockField.update(focusX, focusZ, sampleElevSceneY, gfx.sceneDetail, habitatStation?.isOnFootprint);
     historicRovers.update(dt, { sampleElevY: sampleRenderedSurfaceY, observerPos: camera.position, clockT });
     const detailLodR = gfx.level === "low" ? 14 : gfx.level === "medium" ? 18 : 26;
     if (roverMmsev?.nasaModelRoot) {
@@ -5958,7 +6339,7 @@ export async function initHud3D(
       }
       updateCrewHudSummary();
       if (freeRoam) {
-        updateHudReadouts(alongM, xToLon(px), zToLat(pz), phys.slopeDeg);
+        updateHudReadouts(isGaleSite() ? alongM : offRouteWalkM, xToLon(px), zToLat(pz), phys.slopeDeg);
       } else {
         updateHudReadouts(alongM, sample.lon, sample.lat);
       }
@@ -6023,6 +6404,7 @@ export async function initHud3D(
     curvAnchor.value.set(camera.position.x, camera.position.z);
     if (landing.active) {
       followEndless(freePos);
+      if (!isGaleSite()) updateCorridorChunks(freePos.x, freePos.z, dt);
     } else {
       const chunkFocus = drivingRover && activeDriveRover?.group ? activeDriveRover.group.position : camera.position;
       followEndless(chunkFocus);
