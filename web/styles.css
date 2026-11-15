@@ -2368,7 +2368,7 @@ body.in-hud .arrival-flash {
 .rover-dash {
   position: absolute;
   left: 50%;
-  bottom: max(14px, var(--visor-safe-bottom, 14px));
+  bottom: calc(max(14px, var(--visor-safe-bottom, 14px)) + 64px);
   transform: translateX(-50%);
   display: none;
   grid-template-columns: auto auto minmax(190px, auto) auto auto auto;
