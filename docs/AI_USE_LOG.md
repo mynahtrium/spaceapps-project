@@ -1251,3 +1251,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Not reproduced here: my machine opens the game in about 7 s. If it still sticks for someone, the text on the loading screen (or the first red line in the browser console, F12) says where.
 - Commit: this commit
 - Next step: the affected players pull, hard-refresh (Ctrl+Shift+R) and report the step name if it still sticks.
+
+### 2026-11-15 Europe/Istanbul — RIG-02 astronaut hands
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: RIG-02
+- Files changed: `web/hud/astronaut-rig.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked to fix the astronauts' hands. Rendered a close-up test sheet (front, three-quarter, side, walk, run) of the rig: the gloves were glued to the end of the forearm bone, so they stayed palm-forward with spread fingers in every pose and looked stuck on, small against the bulky sleeves. The rig now has a hand bone per arm (`handL`, `handR`, children of the forearm bones) at a wrist found on the forearm axis (0.13 H before the fingertip cluster); the glove vertices beyond the wrist are weighted to it with a ~5 cm blend. The hand rests rolled about the forearm axis (palm in towards the thigh, thumb forward), curled slightly at the wrist, and 16 % larger. `createAstronaut(rig, { handRoll, handCurl })` can override the two angles. It applies to every astronaut (you in 3rd person, remote crew, NPCs). The Mark III fallback suit was not tuned and still has the old arm posture.
+- Not changed: finger shapes (the mesh has no finger bones; the fingers stay in the modelled, slightly spread, pose).
+- Commit: this commit
+- Next step: none.
