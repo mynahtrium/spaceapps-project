@@ -63,6 +63,8 @@
   let lastUiClickMs = -Infinity;
   let lastExplicitUpdateMs = -Infinity;
   let pollTimerId = null;
+  let musicTimerId = null;
+  let musicEnabled = true;
   let toggleBtnEl = null;
 
   const telemetry = {
@@ -72,6 +74,7 @@
     inHabitat: false,
     isAlert: false,
     motorLoad: 0,
+    viewMode: "hud",
     breathCadenceBpm: BREATH_BASE_BPM,
     roverFreqHz: ROVER_MIN_HZ,
     roverGain: 0,
@@ -355,6 +358,44 @@
     roverFilter.connect(roverGain);
     roverGain.connect(masterGain);
 
+    // =========================================================================
+    // LAYER 6: Procedural Ambient Mars Exploration Music (D-Dorian Pad + Bells)
+    // =========================================================================
+    const musicBusGain = ac.createGain();
+    musicBusGain.gain.setValueAtTime(musicEnabled ? 0.055 : 0.0001, now);
+    musicBusGain.connect(masterGain);
+
+    const musicFilter = ac.createBiquadFilter();
+    musicFilter.type = "lowpass";
+    musicFilter.frequency.setValueAtTime(420, now);
+    musicFilter.Q.setValueAtTime(0.8, now);
+    musicFilter.connect(musicBusGain);
+
+    // Slow LFO breathing the ambient pad filter (260 Hz – 580 Hz)
+    const musicLfo = ac.createOscillator();
+    musicLfo.type = "sine";
+    musicLfo.frequency.setValueAtTime(0.045, now);
+    const musicLfoGain = ac.createGain();
+    musicLfoGain.gain.setValueAtTime(160, now);
+    musicLfo.connect(musicLfoGain);
+    musicLfoGain.connect(musicFilter.frequency);
+
+    // Warm D-Dorian fifth/ninth chord voices (D2 73.42, A2 110.0, E3 164.81, F3 174.61)
+    const padFreqs = [73.42, 110.0, 164.81, 174.61];
+    const padOscs = padFreqs.map((freq, idx) => {
+      const osc = ac.createOscillator();
+      osc.type = idx % 2 === 0 ? "sine" : "triangle";
+      osc.frequency.setValueAtTime(freq, now);
+      if (osc.detune) {
+        osc.detune.setValueAtTime((idx - 1.5) * 3.5, now);
+      }
+      const g = ac.createGain();
+      g.gain.setValueAtTime(idx === 0 ? 0.42 : 0.22, now);
+      osc.connect(g);
+      g.connect(musicFilter);
+      return osc;
+    });
+
     // Start all continuous generators
     windSource.start(now);
     windLfo.start(now);
@@ -364,6 +405,8 @@
     breathLfo.start(now);
     roverOscSine.start(now);
     roverOscTri.start(now);
+    musicLfo.start(now);
+    for (const o of padOscs) o.start(now);
 
     nodes = {
       masterGain,
@@ -384,6 +427,10 @@
       roverOscTri,
       roverFilter,
       roverGain,
+      musicBusGain,
+      musicFilter,
+      musicLfo,
+      padOscs,
     };
 
     return nodes;
@@ -516,6 +563,150 @@
 
   function playAirlockTransition() {
     return playUiClick({ airlock: true });
+  }
+
+  // ===========================================================================
+  // ADDITIONAL EVA & ORBIT SOUND EFFECTS + GENERATIVE MUSIC BELLS
+  // ===========================================================================
+  function playJump(mode = "takeoff") {
+    if (muted || (hasDocument && document.hidden)) return false;
+    const ac = ensureAudioContext();
+    if (!ac) return false;
+    const g = buildGraph();
+    if (!g) return false;
+    if (ac.state === "suspended" && typeof ac.resume === "function") ac.resume().catch(() => {});
+
+    const now = ac.currentTime;
+    const isLand = mode === "land" || mode === "landing";
+    const osc = ac.createOscillator();
+    const env = ac.createGain();
+    osc.type = "sine";
+
+    if (isLand) {
+      osc.frequency.setValueAtTime(92, now);
+      osc.frequency.exponentialRampToValueAtTime(34, now + 0.16);
+      env.gain.setValueAtTime(0.0001, now);
+      env.gain.linearRampToValueAtTime(0.075, now + 0.012);
+      env.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      osc.connect(env);
+      env.connect(g.masterGain);
+      osc.start(now);
+      osc.stop(now + 0.19);
+    } else {
+      osc.frequency.setValueAtTime(110, now);
+      osc.frequency.exponentialRampToValueAtTime(210, now + 0.12);
+      env.gain.setValueAtTime(0.0001, now);
+      env.gain.linearRampToValueAtTime(0.042, now + 0.014);
+      env.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+      osc.connect(env);
+      env.connect(g.masterGain);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    }
+    return true;
+  }
+
+  function playScienceChime() {
+    if (muted || (hasDocument && document.hidden)) return false;
+    const ac = ensureAudioContext();
+    if (!ac) return false;
+    const g = buildGraph();
+    if (!g) return false;
+    if (ac.state === "suspended" && typeof ac.resume === "function") ac.resume().catch(() => {});
+
+    const now = ac.currentTime;
+    const notes = [587.33, 739.99, 880.0]; // D5 -> F#5 -> A5 ascending NASA telemetry chime
+    notes.forEach((freq, i) => {
+      const start = now + i * 0.075;
+      const osc = ac.createOscillator();
+      const env = ac.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, start);
+      env.gain.setValueAtTime(0.0001, start);
+      env.gain.linearRampToValueAtTime(0.036, start + 0.01);
+      env.gain.exponentialRampToValueAtTime(0.0001, start + 0.24);
+      osc.connect(env);
+      env.connect(g.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.26);
+    });
+    return true;
+  }
+
+  function playRadioSquelch() {
+    if (muted || (hasDocument && document.hidden)) return false;
+    const ac = ensureAudioContext();
+    if (!ac) return false;
+    const g = buildGraph();
+    if (!g) return false;
+    if (ac.state === "suspended" && typeof ac.resume === "function") ac.resume().catch(() => {});
+
+    const now = ac.currentTime;
+    const osc = ac.createOscillator();
+    const env = ac.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(1650, now);
+    osc.frequency.exponentialRampToValueAtTime(1180, now + 0.045);
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(0.028, now + 0.004);
+    env.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+    osc.connect(env);
+    env.connect(g.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.06);
+    return true;
+  }
+
+  function playDescentWhoosh() {
+    if (muted || (hasDocument && document.hidden)) return false;
+    const ac = ensureAudioContext();
+    if (!ac) return false;
+    const g = buildGraph();
+    if (!g) return false;
+    if (ac.state === "suspended" && typeof ac.resume === "function") ac.resume().catch(() => {});
+
+    const now = ac.currentTime;
+    const src = ac.createBufferSource();
+    src.buffer = createSoftWhiteNoiseBuffer(ac, 1.8);
+    const flt = ac.createBiquadFilter();
+    flt.type = "bandpass";
+    flt.Q.setValueAtTime(1.4, now);
+    flt.frequency.setValueAtTime(950, now);
+    flt.frequency.exponentialRampToValueAtTime(140, now + 1.5);
+    const env = ac.createGain();
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(0.09, now + 0.22);
+    env.gain.exponentialRampToValueAtTime(0.0001, now + 1.6);
+    src.connect(flt);
+    flt.connect(env);
+    env.connect(g.masterGain);
+    src.start(now);
+    src.stop(now + 1.65);
+    return true;
+  }
+
+  const DORIAN_CHIME_NOTES = [293.66, 329.63, 349.23, 440.0, 493.88, 523.25, 587.33]; // D4 E4 F4 A4 B4 C5 D5
+  let musicNoteIdx = 0;
+
+  function triggerAmbientMusicNote() {
+    if (muted || !musicEnabled || !unlocked || (hasDocument && document.hidden)) return false;
+    if (!ctx || !nodes || ctx.state !== "running") return false;
+    const now = ctx.currentTime;
+    const freq = DORIAN_CHIME_NOTES[(musicNoteIdx * 3 + 1) % DORIAN_CHIME_NOTES.length];
+    musicNoteIdx += 1;
+
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, now);
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(0.14, now + 0.35);
+    env.gain.exponentialRampToValueAtTime(0.0001, now + 3.2);
+    osc.connect(env);
+    env.connect(nodes.musicFilter);
+    osc.start(now);
+    osc.stop(now + 3.3);
+    return true;
   }
 
   /**
@@ -685,6 +876,21 @@
     const targetRoverGain = telemetry.isDriving ? telemetry.roverGain : 0.0001;
     const fadeTimeConstant = telemetry.isDriving ? 0.08 : 0.18;
     nodes.roverGain.gain.setTargetAtTime(targetRoverGain, now, fadeTimeConstant);
+
+    // 4. Procedural Ambient Space Music (warmer in Orbit/Start, ducks softly when driving fast or on alerts)
+    if (nodes.musicBusGain) {
+      let targetMusic = 0.048;
+      if (!musicEnabled) {
+        targetMusic = 0.0001;
+      } else if (telemetry.isAlert) {
+        targetMusic = 0.022;
+      } else if (telemetry.isDriving && speed > 4) {
+        targetMusic = 0.028;
+      } else if (telemetry.inHabitat) {
+        targetMusic = 0.056;
+      }
+      nodes.musicBusGain.gain.setTargetAtTime(targetMusic, now, 0.55);
+    }
   }
 
   /**
@@ -918,19 +1124,33 @@
           target.hasAttribute("data-hud-go") ||
           target.hasAttribute("data-drv-go") ||
           target.hasAttribute("data-drv-drive");
-        playUiClick({ airlock: isTransitBtn });
+        if (id === "orbit-confirm-go") {
+          playDescentWhoosh();
+        } else if (id === "hud-ping" || id === "esc-pin" || id === "mp-drop-ping") {
+          playScienceChime();
+        } else if (id === "npc-dlg-send" || target.closest("#mp-chat-form")) {
+          playRadioSquelch();
+        } else {
+          playUiClick({ airlock: isTransitBtn });
+        }
       },
       { passive: true, capture: true }
     );
 
-    // Keypress hooks for [E] interact (airlock / rover board / transit terminal)
+    // Keypress hooks for [E] interact, [P] pin, [Space] jump
     window.addEventListener(
       "keydown",
       (ev) => {
         if (ev.repeat) return;
+        const tag = ev.target && ev.target.tagName ? ev.target.tagName.toLowerCase() : "";
+        if (tag === "input" || tag === "textarea") return;
         const key = (ev.key || "").toLowerCase();
         if (key === "e") {
           playAirlockTransition();
+        } else if (key === "p") {
+          playScienceChime();
+        } else if (key === " " && !telemetry.isDriving) {
+          playJump("takeoff");
         } else if (key === "f" || key === "g" || key === "v" || key === "m" || key === "escape") {
           playUiClick();
         }
@@ -971,6 +1191,26 @@
         pollTimerId.unref();
       }
     }
+
+    // Generative D-Dorian space chime interval (~6.5 s)
+    if (!musicTimerId) {
+      musicTimerId = setInterval(() => {
+        triggerAmbientMusicNote();
+      }, 6500);
+      if (typeof musicTimerId === "object" && typeof musicTimerId.unref === "function") {
+        musicTimerId.unref();
+      }
+    }
+  }
+
+  function setMusicEnabled(nextEnabled) {
+    musicEnabled = Boolean(nextEnabled);
+    applyTelemetryToNodes();
+    return musicEnabled;
+  }
+
+  function toggleMusic() {
+    return setMusicEnabled(!musicEnabled);
   }
 
   function getState() {
@@ -978,6 +1218,7 @@
       initialized: Boolean(ctx && nodes),
       unlocked,
       muted,
+      musicEnabled,
       contextState: ctx ? ctx.state : "uninitialized",
       speedKmh: telemetry.speedKmh,
       slopeDeg: telemetry.slopeDeg,
@@ -1004,11 +1245,18 @@
     mute: () => setMuted(true),
     unmute: () => setMuted(false),
     isMuted: () => muted,
+    setMusicEnabled,
+    toggleMusic,
+    isMusicEnabled: () => musicEnabled,
     playClick: () => playUiClick({ airlock: false }),
     playUiClick,
     playAirlock: playAirlockTransition,
     playTeleport: playAirlockTransition,
     playHazardBeep,
+    playJump,
+    playScienceChime,
+    playRadioSquelch,
+    playDescentWhoosh,
     injectToggleButton,
     getState,
   };
