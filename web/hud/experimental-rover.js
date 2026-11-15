@@ -88,6 +88,9 @@ export function getDrivableVehicleSpec(id = "mmsev") {
   return DRIVABLE_VEHICLES.find((v) => v.id === id) || DRIVABLE_VEHICLES[0];
 }
 
+export const GARAGE_DRIVABLE_VEHICLES = DRIVABLE_VEHICLES;
+export const getGarageVehicleSpec = getDrivableVehicleSpec;
+
 const MMSEV_POD_AXLES = DRIVABLE_VEHICLES[0].axles;
 const MMSEV_TRACK_HALF_W = DRIVABLE_VEHICLES[0].trackHalfW;
 const MMSEV_POD_DROP_OFFSET_Y = 0.055;
