@@ -5483,33 +5483,33 @@ export async function initHud3D(
           }
           if (idleDrv.sim.step(dt, PARKED_INPUT, roverEnv)) idleDrv.rig.sync();
         }
-      }
 
-      if (
-        !isInsideHabitat(rs.pos.x, rs.pos.z) &&
-        devCfg.realisticDust &&
-        !roverAirState.airborne &&
-        (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)
-      ) {
-        const speedMag = Math.hypot(roverThrottleVel, roverLateralSpeed) + (dyn?.drifting ? 4.5 : 0);
-        roverDustAcc += dt * Math.min(54, 10 + speedMag * 3.1);
-        const burstCount = Math.floor(roverDustAcc);
-        if (burstCount > 0) {
-          roverDustAcc -= burstCount;
-          const rYaw = activeDriveRover.group.rotation.y;
-          const fx = -Math.sin(rYaw);
-          const fz = -Math.cos(rYaw);
-          const sideSign = Math.random() < 0.5 ? -1 : 1;
-          const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
-          marsFx.emitBurst(
-            emit.x,
-            sampleRenderedSurfaceY(emit.x, emit.z),
-            emit.z,
-            Math.min(7, burstCount),
-            Math.min(2.15, 0.72 + speedMag * 0.13),
-            -fx * roverThrottleVel * 0.24 - Math.cos(rYaw) * roverLateralSpeed * 0.22,
-            -fz * roverThrottleVel * 0.24 + Math.sin(rYaw) * roverLateralSpeed * 0.22
-          );
+        if (
+          !isInsideHabitat(rs.pos.x, rs.pos.z) &&
+          devCfg.realisticDust &&
+          !roverAirState.airborne &&
+          (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)
+        ) {
+          const speedMag = Math.hypot(roverThrottleVel, roverLateralSpeed) + (dyn?.drifting ? 4.5 : 0);
+          roverDustAcc += dt * Math.min(54, 10 + speedMag * 3.1);
+          const burstCount = Math.floor(roverDustAcc);
+          if (burstCount > 0) {
+            roverDustAcc -= burstCount;
+            const rYaw = activeDriveRover.group.rotation.y;
+            const fx = -Math.sin(rYaw);
+            const fz = -Math.cos(rYaw);
+            const sideSign = Math.random() < 0.5 ? -1 : 1;
+            const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
+            marsFx.emitBurst(
+              emit.x,
+              sampleRenderedSurfaceY(emit.x, emit.z),
+              emit.z,
+              Math.min(7, burstCount),
+              Math.min(2.15, 0.72 + speedMag * 0.13),
+              -fx * roverThrottleVel * 0.24 - Math.cos(rYaw) * roverLateralSpeed * 0.22,
+              -fz * roverThrottleVel * 0.24 + Math.sin(rYaw) * roverLateralSpeed * 0.22
+            );
+          }
         }
       }
 
