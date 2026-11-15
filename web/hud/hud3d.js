@@ -122,7 +122,10 @@ const TILE_RING = 1; // mirrored copies out to 1 tile in every direction (3x3 = 
 // (16.9 MB, NASA's Mars-oriented prototype) can be added in front of this list once downloaded
 // to ./assets/nasa-3d/z2-spacesuit.glb.
 const SUIT_MODELS = [
-  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III SUIT" },
+  {
+    url: "./assets/nasa-3d/mark-iii-spacesuit.glb",
+    label: "NASA MARK III · H-SUIT MESH · PROCEDURAL GAIT",
+  },
   {
     url: "./assets/nasa-3d/advanced-crew-escape-suit.glb",
     label: "NASA ACES · LAUNCH/ENTRY MESH · PROCEDURAL GAIT",
