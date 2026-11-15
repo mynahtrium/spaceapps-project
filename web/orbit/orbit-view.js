@@ -32,6 +32,13 @@ import {
   subsolarPoint,
 } from "../hud/MarsEphemeris.js";
 import { MARS_HISTORIC_ROVERS } from "../shared/mars-rovers.js";
+import {
+  MARS_ORBITERS,
+  MARS_SURFACE_HARDWARE,
+  orbiterElements,
+  orbiterPositionAtAnomaly,
+  orbiterPositionKm,
+} from "../shared/mars-hardware.js";
 
 const DEG = Math.PI / 180;
 const MOON_SIZE_EXAGGERATION = 8;
@@ -421,6 +428,51 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     html: `<span class="dot" style="background:${r.color}"></span>${r.name}${r.isHiRiseGaleSite ? " · HiRISE" : ""}`,
     rover: r,
   }));
+  // The three landers (Viking 1, Phoenix, InSight) at their listed coordinates.
+  for (const h of MARS_SURFACE_HARDWARE) {
+    if (h.kind !== "lander") continue;
+    sites.push({
+      id: `hw-${h.id}`,
+      lon: h.lon,
+      lat: h.lat,
+      html: `<span class="dot" style="background:#fbbf24"></span>${h.name}`,
+      rover: { name: h.name, siteShortName: h.site.split("·")[0].trim().toUpperCase(), isHiRiseGaleSite: false },
+      hardwareId: h.id,
+    });
+  }
+
+  // ---------- orbiters ----------
+  // Altitudes and inclinations are the nominal science orbits; the plane orientation and the
+  // position along each track are illustrative (no live ephemeris), and the labels say so.
+  const orbiterTex = makeGlowTexture("rgba(255,255,255,1)", "rgba(255,255,255,0.3)");
+  const orbiters = MARS_ORBITERS.map((def) => {
+    const marker = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: orbiterTex, color: def.color, depthWrite: false, toneMapped: false, sizeAttenuation: false })
+    );
+    marker.scale.setScalar(0.022);
+    scene.add(marker);
+    const ringGeo = new THREE.BufferGeometry();
+    ringGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(193 * 3), 3));
+    const ring = new THREE.Line(
+      ringGeo,
+      new THREE.LineBasicMaterial({ color: def.color, transparent: true, opacity: 0.32, depthWrite: false })
+    );
+    ring.frustumCulled = false;
+    scene.add(ring);
+    return { ...def, marker, ring, ringStamp: -Infinity, ...orbiterElements(def) };
+  });
+  function updateOrbiterRing(o, date) {
+    const arr = o.ring.geometry.attributes.position.array;
+    const tmp = new THREE.Vector3();
+    for (let i = 0; i <= 192; i++) {
+      const v = marsInertialToBodyFixed(orbiterPositionAtAnomaly(o, (i / 192) * Math.PI * 2), date);
+      bfToVec3(v, tmp).multiplyScalar(1 / R_KM);
+      arr[i * 3] = tmp.x;
+      arr[i * 3 + 1] = tmp.y;
+      arr[i * 3 + 2] = tmp.z;
+    }
+    o.ring.geometry.attributes.position.needsUpdate = true;
+  }
 
   // ---------- camera control ----------
   const cam = { lon: 137.4, lat: -4.8, dist: HOME_DIST, tLon: 137.4, tLat: -4.8, tDist: HOME_DIST, vLon: 0, vLat: 0 };
@@ -616,6 +668,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     startDescent(pick.lon, pick.lat, {
       sunMode: confirmLocalEl?.checked === false ? "day" : "local",
       roverId: pick.site?.rover?.id || null,
+      hardwareId: pick.site?.hardwareId || null,
     });
   });
   homeBtn?.addEventListener("click", () => {
@@ -860,6 +913,16 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       }
     }
 
+    // orbiters (illustrative position along a real-altitude, real-inclination track)
+    for (const o of orbiters) {
+      const inertial = orbiterPositionKm(o, simDate.getTime() / 1000);
+      bfToVec3(marsInertialToBodyFixed(inertial, simDate), o.marker.position).multiplyScalar(1 / R_KM);
+      if (now - o.ringStamp > (warp > 1 ? 120 : 1500)) {
+        updateOrbiterRing(o, simDate);
+        o.ringStamp = now;
+      }
+    }
+
     renderer.render(scene, camera);
     updateLabels(sub);
 
@@ -895,6 +958,16 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       for (const m of moons) {
         tmpV.copy(m.mesh.position);
         put(m.name, tmpV.clone(), `${m.label} <span style="opacity:.55">×${MOON_SIZE_EXAGGERATION} size</span>`, "moon", false);
+      }
+      for (const o of orbiters) {
+        const alt = o.periKm === o.apoKm ? `${o.periKm} km` : `${o.periKm.toLocaleString()} × ${o.apoKm.toLocaleString()} km`;
+        put(
+          `orb-${o.id}`,
+          o.marker.position.clone(),
+          `<span class="dot" style="background:${o.color}"></span>${o.name} <span style="opacity:.55">${alt} · ${isTr() ? "temsili konum" : "illustrative position"}</span>`,
+          "moon",
+          false
+        );
       }
       put("sun", sunSprite.position.clone().add(skyGroup.position), "Sun", "moon", false);
       put("earth", earthSprite.position.clone().add(skyGroup.position), "Earth", "moon", false);
@@ -934,7 +1007,11 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       const altKm = (v.length() - 1) * R_KM;
       return `${m.label} ${fmtLat(ll.lat, 1)} ${fmtLonE(ll.lon, 1)} · ${Math.round(altKm).toLocaleString()} km`;
     });
-    moonsEl.textContent = `${parts.join(" · ")} · JPL Horizons fit`;
+    moonsEl.textContent = `${parts.join(" · ")} · JPL Horizons fit · ${
+      tr
+        ? `${orbiters.length} yörünge aracı: irtifa ve eğim gerçek, yörünge üzerindeki konum temsili`
+        : `${orbiters.length} orbiters: altitude and inclination nominal, position along the track illustrative`
+    }`;
   }
 
   function updateHover(sub) {

@@ -72,6 +72,15 @@ import {
 } from "./experimental-rover.js";
 import { ENTRY_OFFSET_Z, createMarsHabitatStation } from "./mars-habitat.js";
 import { createMarsFxSystem } from "./mars-fx.js";
+import { buildInfoBeacon, buildIngenuity, buildLanderById, buildReturnPad } from "./mars-landers.js";
+import {
+  MARS_SURFACE_HARDWARE,
+  STAGING_PAD_DISTANCE_M,
+  formatHardwareDims,
+  formatHardwareLatLon,
+  getSurfaceHardwareById,
+  makeHardwareSiteSpec,
+} from "../shared/mars-hardware.js";
 import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
 import {
   MARS_HISTORIC_ROVERS,
@@ -2291,6 +2300,13 @@ export async function initHud3D(
   let justTeleportedOrWrapped = false;
   let lastMoveYaw = null;
   let drivingRover = false;
+  // hardware-site visit state (see "hardware sites + habitat <-> site transit" below)
+  const hardwareGroup = new THREE.Group();
+  hardwareGroup.name = "hardwareSite";
+  scene.add(hardwareGroup);
+  let hardwareSite = null;
+  let transitBringRover = true;
+  let transitPrompt = "";
   // [V] walking camera: helmet (first person) or over-the-shoulder (third person)
   let thirdPersonWalk = false;
   let thirdCamInit = false;
@@ -3057,6 +3073,7 @@ export async function initHud3D(
   /** Swap the active terrain site (Gale HiRISE tile, a rover site, or an arbitrary orbit landing). */
   function switchSite(spec) {
     if (!spec || spec.id === activeSiteId) return false;
+    clearHardwareSite();
     activeSiteRover = spec;
     activeSiteId = spec.id;
     historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
@@ -3214,6 +3231,256 @@ export async function initHud3D(
     );
   }
 
+  // ---------- hardware sites + habitat <-> site transit ----------
+  // The Transit Terminal (hologram table in the Pink Corridor) opens the Site Deployment Selector.
+  // Deploying switches to seeded procedural relief centred on the unit's listed coordinates, with
+  // the scale model at the origin and a staging pad STAGING_PAD_DISTANCE_M to the south.
+
+  function clearHardwareSite() {
+    if (!hardwareSite) return;
+    for (const child of [...hardwareGroup.children]) {
+      hardwareGroup.remove(child);
+      child.traverse?.((o) => {
+        if (o.isMesh) {
+          o.geometry?.dispose?.();
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) {
+            m?.map?.dispose?.();
+            m?.dispose?.();
+          }
+        }
+      });
+    }
+    hardwareSite = null;
+  }
+
+  function leaveRoverForTransit() {
+    if (!drivingRover) return;
+    drivingRover = false;
+    resetRoverMotionState();
+    chaseCamInit = false;
+    syncDrivingCameraVisualState(false);
+    if (self?.group) self.group.visible = suitRig != null;
+  }
+
+  function deployToHardwareSite(hwId, { bringRover = transitBringRover } = {}) {
+    const hw = getSurfaceHardwareById(hwId);
+    if (!hw) return false;
+    closeTransitPanel();
+    leaveRoverForTransit();
+    if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
+    const spec = makeHardwareSiteSpec(hw);
+    if (spec.id === activeSiteId) activeSiteId = null; // rebuild even when re-deploying to the same unit
+    switchSite(spec);
+
+    const tr = isTrLang();
+    const padX = 0;
+    const padZ = STAGING_PAD_DISTANCE_M;
+    let radius = Math.max(hw.lengthM, hw.widthM) * 0.5;
+    let landerObj = null;
+    if (hw.kind === "rover") {
+      historicRovers.spawnForSite(getHistoricRoverById(hw.id), { x: 0, z: 0, yaw: Math.PI, sampleElevY: sampleElevSceneY });
+    } else {
+      landerObj = buildLanderById(THREE, hw.id);
+      if (landerObj) {
+        landerObj.position.set(0, sampleElevSceneY(0, 0), 0);
+        hardwareGroup.add(landerObj);
+        radius = 0.95;
+      }
+    }
+    if (hw.companion?.id === "ingenuity") {
+      const heli = buildIngenuity(THREE);
+      heli.position.set(5.5, sampleElevSceneY(5.5, 2.5), 2.5);
+      heli.rotation.y = 0.6;
+      hardwareGroup.add(heli);
+    }
+    const beaconX = Math.max(hw.lengthM, hw.widthM) * 0.5 + 1.8;
+    const beacon = buildInfoBeacon(THREE, hw, { tr });
+    beacon.position.set(beaconX, sampleElevSceneY(beaconX, 2.0), 2.0);
+    hardwareGroup.add(beacon);
+    const pad = buildReturnPad(THREE, { tr });
+    pad.position.set(padX, sampleElevSceneY(padX, padZ), padZ);
+    hardwareGroup.add(pad);
+    hardwareSite = { hw, beacon, pad, padX, padZ, beaconX, beaconZ: 2.0, radius, isLander: Boolean(landerObj) };
+
+    teleportToLocal(padX, padZ + 0.8, { keepYaw: true });
+    autoYaw = 0;
+    userYaw = 0; // face north, towards the hardware
+    pitch = -0.05;
+    thirdCamInit = false;
+
+    for (const r of drivableRovers) r.group.visible = false;
+    if (bringRover && activeDriveRover?.group) {
+      activeDriveRover.group.visible = true;
+      activeDriveRover.spawnBeside(padX + 2.2, padZ + 2.0, Math.PI * 0.5, sampleElevSceneY);
+      roverDynState.yaw = activeDriveRover.group.rotation.y;
+      stationedAtHabitat = false;
+    }
+    if (fleetBtnEl) fleetBtnEl.textContent = `Site: ${hw.name}`;
+    showWrapNotice(
+      tr
+        ? `${hw.name.toUpperCase()} · ${formatHardwareLatLon(hw)} · PROSEDÜREL ARAZİ · [H] ÜSSE DÖN`
+        : `${hw.name.toUpperCase()} · ${formatHardwareLatLon(hw)} · PROCEDURAL RELIEF · [H] RETURN TO HABITAT`
+    );
+    return true;
+  }
+
+  function returnToHabitat() {
+    closeTransitPanel();
+    leaveRoverForTransit();
+    if (!freeRoam && btnFreeRoam) btnFreeRoam.click();
+    const gale = getHistoricRoverById("curiosity");
+    if (activeSiteId !== gale.id) switchSite(gale);
+    else clearHardwareSite();
+    const pt = habitatStation.getTransitPoints();
+    teleportToLocal(pt.arrival.x, pt.arrival.z, { keepYaw: true });
+    autoYaw = 0;
+    userYaw = pt.arrival.yaw;
+    pitch = -0.05;
+    thirdCamInit = false;
+    renderHudFleetPanel();
+    if (fleetBtnEl) fleetBtnEl.textContent = "Rovers (7)";
+    showWrapNotice(isTrLang() ? "MARS ÜSSÜ · PEMBE KORİDOR · TRANSİT TERMİNALİ" : "MARS HABITAT · PINK CORRIDOR · TRANSIT TERMINAL");
+  }
+
+  // Site Deployment Selector / site info card (DOM panel over the visor)
+  const transitPanelEl = document.createElement("div");
+  transitPanelEl.id = "hud-transit-panel";
+  transitPanelEl.className = "hud-transit-panel";
+  transitPanelEl.setAttribute("role", "dialog");
+  hudView.appendChild(transitPanelEl);
+  const transitPanelIsOpen = () => transitPanelEl.classList.contains("open");
+  function closeTransitPanel() {
+    transitPanelEl.classList.remove("open");
+  }
+  function openTransitPanel({ infoId = null } = {}) {
+    const tr = isTrLang();
+    releasePointerLock();
+    keys.clear();
+    const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const here = hardwareSite?.hw?.id || null;
+    const info = infoId ? getSurfaceHardwareById(infoId) : null;
+    let body = "";
+    if (info) {
+      body = `<div class="tp-card">
+        <div class="tp-name">${esc(info.name)}</div>
+        <div class="tp-meta">${esc(info.mission)} · ${esc(info.agency)} · ${esc(info.years)}</div>
+        <dl>
+          <dt>${tr ? "Konum" : "Location"}</dt><dd>${esc(info.site)}<br/>${esc(formatHardwareLatLon(info))}</dd>
+          <dt>${tr ? "Boyut (U × G × Y)" : "Size (L × W × H)"}</dt><dd>${esc(formatHardwareDims(info))}</dd>
+          <dt>${tr ? "Kütle" : "Mass"}</dt><dd>${info.massKg.toLocaleString("en-US")} kg</dd>
+          ${
+            info.companion
+              ? `<dt>${esc(info.companion.name)}</dt><dd>${info.companion.fuselageM.join(" × ")} m ${tr ? "gövde" : "fuselage"} · ${info.companion.rotorSpanM} m rotor · ${info.companion.heightM} m · ${info.companion.massKg} kg</dd>`
+              : ""
+          }
+        </dl>
+        <p>${esc(tr ? info.noteTr : info.noteEn)}</p>
+        <p class="tp-note">${
+          tr
+            ? "Ölçekli prosedürel model. Arazi tohumlanmış prosedürel yükseltidir, haritalanmış topoğrafya değildir."
+            : "Procedural scale model. The ground here is seeded procedural relief, not mapped topography."
+        } <a href="${esc(info.nasaUrl)}" target="_blank" rel="noopener">NASA</a></p>
+        <div class="tp-actions">
+          ${here ? `<button class="btn primary" data-act="return" type="button">${tr ? "Üsse dön [H]" : "Return to habitat [H]"}</button>` : ""}
+          <button class="btn" data-act="list" type="button">${tr ? "Tüm sahalar" : "All sites"}</button>
+        </div>
+      </div>`;
+    } else {
+      const rows = MARS_SURFACE_HARDWARE.map(
+        (h, i) => `<button class="tp-row${h.id === here ? " current" : ""}" data-hw="${h.id}" type="button">
+          <span class="tp-key">${i + 1}</span>
+          <span class="tp-main"><b>${esc(h.name)}</b><i>${esc(h.mission)} · ${esc(h.years)} · ${h.kind === "rover" ? (tr ? "gezgin" : "rover") : tr ? "iniş aracı" : "lander"}</i></span>
+          <span class="tp-coord">${esc(formatHardwareLatLon(h))}<i>${esc(h.site)}</i></span>
+          <span class="tp-dim">${esc(formatHardwareDims(h))}<i>${h.massKg.toLocaleString("en-US")} kg</i></span>
+          <span class="tp-go">${h.id === here ? (tr ? "BURADASIN" : "HERE") : tr ? "IŞINLA ▸" : "DEPLOY ▸"}</span>
+        </button>`
+      ).join("");
+      const drv = activeDriveRover?.getActiveSpec?.();
+      body = `<div class="tp-rows">${rows}</div>
+        <label class="tp-check"><input type="checkbox" data-act="bring" ${transitBringRover ? "checked" : ""}/> ${
+          tr ? "Aktif aracı da getir" : "Bring the active rover"
+        }${drv ? ` (${esc(drv.shortLabel)})` : ""}</label>
+        <p class="tp-note">${
+          tr
+            ? "Hazırlık pisti donanımdan 15 m uzaktadır. Koordinatlar yayımlanmış iniş noktalarıdır; saha arazisi prosedüreldir (haritalanmış topoğrafya değil)."
+            : "Staging pad is 15 m from the hardware. Coordinates are the published landing sites; site terrain is procedural relief, not mapped topography."
+        }</p>
+        ${here ? `<div class="tp-actions"><button class="btn primary" data-act="return" type="button">${tr ? "Üsse dön [H]" : "Return to habitat [H]"}</button></div>` : ""}`;
+    }
+    transitPanelEl.innerHTML = `<div class="tp-head">
+        <span>${info ? (tr ? "SAHA BİLGİSİ" : "SITE INFO") : tr ? "NASA SAHA KONUŞLANMA SEÇİCİ" : "NASA SITE DEPLOYMENT SELECTOR"}</span>
+        <button class="btn" data-act="close" type="button">${tr ? "Kapat [Esc]" : "Close [Esc]"}</button>
+      </div>${body}`;
+    transitPanelEl.classList.add("open");
+  }
+  transitPanelEl.addEventListener("click", (ev) => {
+    const row = ev.target.closest?.("[data-hw]");
+    if (row) {
+      ev.stopPropagation();
+      deployToHardwareSite(row.dataset.hw);
+      return;
+    }
+    const act = ev.target.closest?.("[data-act]")?.dataset.act;
+    if (!act) return;
+    ev.stopPropagation();
+    if (act === "close") closeTransitPanel();
+    else if (act === "return") returnToHabitat();
+    else if (act === "list") openTransitPanel();
+    else if (act === "bring") transitBringRover = Boolean(ev.target.checked);
+  });
+
+  /** What [E] would do here: "terminal", "return", "info" or null. */
+  function transitTargetNearby() {
+    if (drivingRover) return null;
+    if (hardwareSite) {
+      const s = hardwareSite;
+      if (Math.hypot(freePos.x - s.padX, freePos.z - s.padZ) < 3.0) return "return";
+      if (Math.hypot(freePos.x - s.beaconX, freePos.z - s.beaconZ) < 2.6) return "info";
+      if (Math.hypot(freePos.x, freePos.z) < s.radius + 3.2) return "info";
+      return null;
+    }
+    if (habitatStation.group.visible) {
+      const t = habitatStation.getTransitPoints().terminal;
+      if (Math.hypot(freePos.x - t.x, freePos.z - t.z) < 3.0) return "terminal";
+    }
+    return null;
+  }
+  function tryTransitInteract() {
+    const target = transitTargetNearby();
+    if (target === "terminal") openTransitPanel();
+    else if (target === "return") returnToHabitat();
+    else if (target === "info") openTransitPanel({ infoId: hardwareSite.hw.id });
+    return Boolean(target);
+  }
+  /** Per frame: spin the markers, keep the walker out of a lander, and show the [E] prompt once. */
+  function updateTransit(dt) {
+    if (hardwareSite) {
+      const s = hardwareSite;
+      if (s.beacon.userData.ring) s.beacon.userData.ring.rotation.z += dt * 1.6;
+      if (s.pad.userData.halo) s.pad.userData.halo.rotation.y += dt * 1.8;
+      if (s.pad.userData.core) s.pad.userData.core.rotation.y -= dt * 2.4;
+      if (s.isLander && !drivingRover) {
+        const d = Math.hypot(freePos.x, freePos.z);
+        const minD = s.radius + 0.35;
+        if (d < minD && d > 1e-4) {
+          freePos.x *= minD / d;
+          freePos.z *= minD / d;
+          phys.x = freePos.x;
+          phys.z = freePos.z;
+        }
+      }
+    }
+    const target = transitPanelIsOpen() ? transitPrompt : transitTargetNearby() || "";
+    if (target !== transitPrompt) {
+      transitPrompt = target;
+      const tr = isTrLang();
+      if (target === "terminal") showWrapNotice(tr ? "TRANSİT TERMİNALİ · SAHA SEÇİCİ İÇİN [E]" : "TRANSIT TERMINAL · PRESS [E] FOR SITE SELECTOR");
+      else if (target === "return") showWrapNotice(tr ? "DÖNÜŞ FENERİ · ÜSSE DÖNMEK İÇİN [E] / [H]" : "RETURN BEACON · PRESS [E] / [H] TO RETURN TO HABITAT");
+      else if (target === "info") showWrapNotice(tr ? `${hardwareSite.hw.name.toUpperCase()} · BİLGİ İÇİN [E]` : `${hardwareSite.hw.name.toUpperCase()} · PRESS [E] FOR INFO`);
+    }
+  }
+
   onVisitRoverSite((detail) => {
     if (detail?.roverId) visitRoverSite(detail.roverId, { approachRover: true, switchTerrain: true });
   });
@@ -3294,6 +3561,18 @@ export async function initHud3D(
     if (modalOpen || crewOpen || escMenuOpen || menuOpen || npcDialogueUi.isOpen()) return;
 
     const k = e.key.toLowerCase();
+    if (transitPanelIsOpen()) {
+      e.preventDefault();
+      if (e.key === "Escape" || k === "e") closeTransitPanel();
+      else if (k === "h" && hardwareSite) returnToHabitat();
+      else if (/^[1-8]$/.test(k) && transitPanelEl.querySelector("[data-hw]")) deployToHardwareSite(MARS_SURFACE_HARDWARE[Number(k) - 1].id);
+      if (e.key === "Escape") e.stopImmediatePropagation?.();
+      return;
+    }
+    if (k === "h" && !e.repeat) {
+      if (hardwareSite) returnToHabitat();
+      return;
+    }
     if (k === "5" && !e.repeat) {
       if (fleetPanelEl) {
         e.preventDefault();
@@ -3386,6 +3665,8 @@ export async function initHud3D(
         showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E)" : "EXITED MARS ROVER (PRESS E TO BOARD)");
         return;
       }
+
+      if (tryTransitInteract()) return;
 
       const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
       const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
@@ -3870,6 +4151,7 @@ export async function initHud3D(
       if (drivingRover && activeDriveRover?.group) actors.push(activeDriveRover.group.position);
       habitatStation.update(dt, { actors });
     }
+    updateTransit(dt);
 
     // controller look (right stick), off while a menu, dialog or the setup screen has the pad
     const padBusy = padBlocked();
@@ -4906,6 +5188,8 @@ export async function initHud3D(
     },
     dropLocalPing,
     visitRoverSite,
+    deployToHardwareSite,
+    returnToHabitat,
     getLonLat: () => ({ lon: xToLon(player.x), lat: zToLat(player.z) }),
     getActiveSiteId: () => activeSiteId,
     syncAlongM: (s) => {

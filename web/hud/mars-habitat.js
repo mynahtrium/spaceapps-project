@@ -119,6 +119,10 @@ const AIRLOCK_DOOR_W = 2.6;
 const AIRLOCK_DOOR_H = 3.0;
 const AIRLOCK_RAMP = Object.freeze({ x0: 32, x1: 36.5, z0: 5.2, z1: 8.8 });
 
+/** Transit Terminal (hologram table at the corridor junction) and where a returning walker arrives. */
+const TRANSIT_TERMINAL = Object.freeze({ x: -15, z: 7 });
+const TRANSIT_ARRIVAL = Object.freeze({ x: -11.6, z: 7, yaw: Math.PI / 2 }); // facing the terminal (-X)
+
 /** Where the walker spawns, relative to the station origin (+Z = in front of the garage). */
 export const ENTRY_OFFSET_Z = 40;
 
@@ -892,11 +896,12 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     hang(["AIRLOCK →", "HAVA KİLİDİ"], 9.5, 7, Math.PI / 2);
     hang(["← DORM · CAFE", "YATAKHANE · KAFETERYA"], -4.5, 7, Math.PI / 2, 3.0);
     hang(["↑ DORMITORY", "3 KATLI KABİNLER"], -15, 0.5, 0);
+    hang(["TRANSIT TERMINAL", "[E] SITE SELECTOR"], TRANSIT_TERMINAL.x, TRANSIT_TERMINAL.z + 1.6, 0, 2.4);
 
     // holographic terrain table at the corridor junction
     {
-      const x = -15;
-      const z = 7;
+      const x = TRANSIT_TERMINAL.x;
+      const z = TRANSIT_TERMINAL.z;
       cyl(S, 0.78, 0.14, M.titaniumDark, x, DECK + 0.07, z, { seg: 32 });
       cyl(S, 0.42, 0.75, M.titanium, x, DECK + 0.5, z, { seg: 24, r2: 0.55 });
       cyl(S, 0.82, 0.1, M.whiteGloss, x, DECK + 0.92, z, { seg: 40 });
@@ -1980,6 +1985,14 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     return { historicPlacements, drivablePlacements, entryPoint, airlockEntryPoint };
   }
 
+  /** World positions of the Transit Terminal and the return arrival point (inside the Pink Corridor). */
+  function getTransitPoints() {
+    return {
+      terminal: { x: baseX + TRANSIT_TERMINAL.x, z: baseZ + TRANSIT_TERMINAL.z },
+      arrival: { x: baseX + TRANSIT_ARRIVAL.x, z: baseZ + TRANSIT_ARRIVAL.z, yaw: TRANSIT_ARRIVAL.yaw },
+    };
+  }
+
   // initial pose of the animated parts
   update(0, { actors: [] });
 
@@ -2004,6 +2017,7 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     zoneAt,
     update,
     getBayPlacements,
+    getTransitPoints,
     hangarDoors,
     airlockDoors,
   };

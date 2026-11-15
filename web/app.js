@@ -1024,7 +1024,7 @@ async function boot() {
       demoSafe: data.demoSafe,
       isTr: () => readLang() === "tr",
       getPlayerLonLat: () => hudApi?.getLonLat?.() || (lastSelfPose?.lon != null ? lastSelfPose : null),
-      onLand: (lon, lat, { sunMode, roverId } = {}) => landFromOrbit(lon, lat, { sunMode, roverId }),
+      onLand: (lon, lat, { sunMode, roverId, hardwareId } = {}) => landFromOrbit(lon, lat, { sunMode, roverId, hardwareId }),
     });
     return orbitApi;
   }
@@ -1056,14 +1056,18 @@ async function boot() {
   };
 
   let pendingLanding = null;
-  function landFromOrbit(lon, lat, { sunMode = "local", roverId = null } = {}) {
+  function landFromOrbit(lon, lat, { sunMode = "local", roverId = null, hardwareId = null } = {}) {
     if (!hudApi) {
       // The 3D view is still loading (suit / terrain); land as soon as it is ready.
-      pendingLanding = [lon, lat, { sunMode, roverId }];
+      pendingLanding = [lon, lat, { sunMode, roverId, hardwareId }];
       switchView("hud");
       return;
     }
-    if (roverId && roverId !== "curiosity") {
+    if (hardwareId && hudApi.deployToHardwareSite) {
+      // a lander marker: deploy to its hardware site (scale model + staging pad + return beacon)
+      hudApi.deployToHardwareSite(hardwareId);
+      hudApi.setSunMode?.(sunMode);
+    } else if (roverId && roverId !== "curiosity") {
       dispatchVisitRoverSite(roverId);
       hudApi.setSunMode?.(sunMode);
     } else {
