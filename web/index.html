@@ -174,12 +174,12 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:4px;">
-              WASD MOVE · SHIFT BOOST · SPACE JUMP · E / RB INTERACT (BOARD ANY ROVER) · V 3RD PERSON · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · R RAY TRACING · O ORBIT · M WEATHER · ESC MENU
+              WASD MOVE · SHIFT BOOST · SPACE JUMP · E / RB INTERACT (BOARD ANY ROVER) · V 3RD PERSON · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · R RAY TRACING · M ORBIT · ESC MENU
             </div>
           </div>
 
           <div class="hud-controls">
-            <button id="hud-orbit-btn" class="btn">Orbit (O)</button>
+            <button id="hud-orbit-btn" class="btn">Orbit (M)</button>
             <button id="hud-sun-btn" class="btn">Sun: day</button>
             <button id="hud-gold-btn" class="btn">Gold (G)</button>
             <button id="hud-lamp-btn" class="btn">Flashlight (F)</button>
@@ -209,7 +209,7 @@
         <div class="esc-label" id="esc-lbl-views">VIEWS &amp; NAVIGATION</div>
         <div class="esc-grid">
           <button id="esc-go-hud" class="btn esc-btn" type="button">EVA Bodycam</button>
-          <button id="esc-go-orbit" class="btn esc-btn" type="button">Orbit View (O)</button>
+          <button id="esc-go-orbit" class="btn esc-btn" type="button">Orbit View (M)</button>
           <button id="esc-open-rovers" class="btn esc-btn" type="button">Rovers (5)</button>
         </div>
       </div>
@@ -328,7 +328,6 @@
 
   <script src="./vendor/maplibre-gl.js"></script>
   <script src="./shared/audioEngine.js"></script>
-  <script type="module" src="./environment/marsWeather.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

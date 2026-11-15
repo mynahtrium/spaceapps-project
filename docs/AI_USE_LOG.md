@@ -1274,3 +1274,14 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan reported the simulation beeping ("dı dı") at intervals for no reason. Two sources of the 880 Hz double-pulse hazard chime: (1) the audio engine played it every 4 s for as long as the slope was above 15 deg or an alert was set; most of the HiRISE terrain is steeper than 15 deg, so it beeped while walking and standing on ordinary hills. It is now a single beep when you step onto a slope above 20 deg (the walking limit), re-armed after returning to ground below 14 deg, with a 20 s cooldown. (2) During a solar particle event the weather module beeped every 3.6 s; it now beeps once when the event starts and once a minute as a reminder (the banner stays up). The generative music notes (every ~6.5 s) were not touched; the audio pill in the top right turns all sound off.
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-15 Europe/Istanbul — merge of main (landing perf, NPC dialogue) and a lighter lander warm-up
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Sonnet 5.5)
+- Role: backend implementer
+- Task id: LOAD-02 follow-up
+- Files changed: `web/hud/hud3d.js`, `web/hud/landing-sequence.js`, `docs/AI_USE_LOG.md`
+- Why: main added a shader pre-compile of the lander before the loading screen lifts (and a test that requires it). Keeping the idea, but `landing.warmup()` now compiles only the lander's own materials, lit by the scene (`renderer.compile(L.group, camera, scene)`), instead of the whole scene: the whole-scene compile at that point is what could block weak GPUs for minutes ("stuck on loading" for other players). The npc-system test (which checks that hud3d.js pre-compiles the lander shaders) passes.
+- Commit: this commit
+- Next step: none.

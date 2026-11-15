@@ -2712,6 +2712,9 @@ export async function initHud3D(
     onClose: () => {
       keys.clear();
     },
+    onReply: (spec, text, lang) => {
+      if (spec?.id) npcManager.setNpcSpeech?.(spec.id, text, lang);
+    },
     getLang: () => (isTrLang() ? "tr" : "en"),
   });
 
@@ -3838,7 +3841,7 @@ export async function initHud3D(
       }
       return;
     }
-    if (k === "o" && !e.repeat) {
+    if ((k === "m" || k === "o") && !e.repeat) {
       e.preventDefault();
       releasePointerLock();
       onOpenOrbit?.();
@@ -5242,6 +5245,7 @@ export async function initHud3D(
       npcManager.update(dt, { x: px, z: pz, y: player.y }, clockT, {
         activeNpcId: npcDialogueUi.getActiveNpc()?.id || null,
         terrainSampler: sampleElevSceneY,
+        lang: isTrLang() ? "tr" : "en",
       });
     }
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
@@ -5249,25 +5253,16 @@ export async function initHud3D(
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
     sun.castShadow = sunUpNow > 0.01;
-    window.MartianWeather?.update?.({
-      THREE,
-      scene,
-      camera,
-      sun,
-      hemiLight,
-      player: { x: px, y: player.y, z: pz },
-      groundY,
-      dt,
-      sampleElevY: sampleElevSceneY,
-    });
     // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
     if (now - sunStateStampMs > 30000) {
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });
     }
 
-    // the HUD text & rover reticle inspection only need ~10 updates a second
-    hudTimer += dt;
-    if (hudTimer > 0.1) {
+    // the HUD text & rover reticle inspection only need ~10 updates a second (skipped during landing cinematic)
+    if (!landing.active) {
+      hudTimer += dt;
+    }
+    if (!landing.active && hudTimer > 0.1) {
       hudTimer = 0;
       const metW = metabolicPowerW({
         eta: phys.eta,
@@ -5307,10 +5302,11 @@ export async function initHud3D(
         const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
         const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
         const hitNpc = pickTargetNpc(aimX, aimY);
-        const nearNpc =
+        const nearNpcHit =
           !hitNpc && !drivingRover && npcManager.npcGroup.visible
-            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)?.npc || null
+            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
             : null;
+        const nearNpc = nearNpcHit?.npc || null;
         const activeTargetNpc = hitNpc || nearNpc;
         const hitSpec = activeTargetNpc ? null : pickHistoricRover(aimX, aimY);
         if (activeTargetNpc !== hoveredNpcEntry || hitSpec !== hoveredRoverSpec) {
@@ -5344,8 +5340,12 @@ export async function initHud3D(
       }
     }
     curvAnchor.value.set(camera.position.x, camera.position.z);
-    followEndless(camera.position);
-    updateCorridorChunks(camera.position.x, camera.position.z, dt);
+    if (landing.active) {
+      followEndless(freePos);
+    } else {
+      followEndless(camera.position);
+      updateCorridorChunks(camera.position.x, camera.position.z, dt);
+    }
 
     goldSlide += (goldVisor - goldSlide) * Math.min(1, dt * 6.0);
     if (Math.abs(goldVisor - goldSlide) < 0.002) goldSlide = goldVisor;
@@ -5389,7 +5389,7 @@ export async function initHud3D(
     renderer.setRenderTarget(null);
     renderer.render(lensScene, lensCam);
   }
-  // Stream in the 1 m terrain where the EVA starts before the first frame (veil still up).
+  // Stream in the 1 m terrain where the EVA starts and precompile the lander before the first frame (veil still up).
   if (routeCoords.length > 1) await warmCorridorAt(lonToX(routeCoords[0][0]), latToZ(routeCoords[0][1]));
   else await warmCorridorAt(freePos.x, freePos.z);
   // ---------- no mid-game shader recompiles ----------
@@ -5402,10 +5402,17 @@ export async function initHud3D(
   for (const r of drivableRovers) stabilizeLights(r.group);
   stabilizeLights(landing.lander);
   syncStableLights();
-  // (There used to be a synchronous renderer.compile() here to pre-build every shader. On a weak or
-  // integrated GPU that call alone can take minutes, and it ran just before the loading screen
-  // goes away: the "stuck on loading" other players saw. Light counts no longer change at runtime
-  // (see the light rig above), so the only thing left to compile later is the lander itself.)
+  // Pre-build only the lander's shaders so the landing cut-scene does not hitch. (A whole-scene
+  // renderer.compile() here blocked weak or integrated GPUs for minutes before the loading screen
+  // lifted: the "stuck on loading" other players saw. Light counts no longer change at run time, see
+  // the light rig above, so nothing else needs pre-compiling.)
+  try {
+    const t0 = performance.now();
+    landing.warmup?.(renderer, camera);
+    console.info(`lander shaders compiled in ${Math.round(performance.now() - t0)} ms`);
+  } catch (err) {
+    console.warn("lander shader warm-up failed", err);
+  }
 
   requestAnimationFrame(animate);
   loadingVeil?.classList.add("done");
