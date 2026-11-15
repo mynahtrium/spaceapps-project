@@ -369,7 +369,9 @@ class MartianWeatherSystem {
       document.getElementById("start-screen") &&
       !document.getElementById("start-screen").classList.contains("hidden");
     const npcOpen = document.getElementById("npc-dialogue-modal")?.classList.contains("open");
-    if (modalOpen || crewOpen || escMenuOpen || startMenuOpen || npcOpen) return;
+    const landingActive = document.body?.classList?.contains("landing-active");
+    const orbitActive = document.getElementById("orbit-view")?.classList.contains("active");
+    if (modalOpen || crewOpen || escMenuOpen || startMenuOpen || npcOpen || landingActive || orbitActive) return;
 
     if (e.key?.toLowerCase() === "m") {
       e.preventDefault();
