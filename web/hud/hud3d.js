@@ -52,6 +52,7 @@ import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/M
 import { createMarsBody, stepPhysicsWorld } from "../physics/MarsPhysicsWorld.js";
 import { downhillLeanRad, JUMP_SPEED_MS, torsoLeanRad } from "../physics/SuitBiomechanics.js";
 import {
+  DRIVABLE_VEHICLES,
   ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
   createExperimentalRover,
@@ -59,6 +60,7 @@ import {
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "./experimental-rover.js";
+import { createMarsHabitatStation } from "./mars-habitat.js";
 import { createMarsFxSystem } from "./mars-fx.js";
 import { MARS_RADIUS_MEAN_M } from "../map/Geodesy.js";
 import {
@@ -714,7 +716,7 @@ export async function initHud3D(
 
   // Bilinear height (scene Y, metres above site base), mirror-wrapped beyond the tile.
   // At Gale (Curiosity), samples real HiRISE DTM; at other rover sites, uses deterministic site relief.
-  function sampleElevSceneY(x, z) {
+  function rawSampleElevSceneY(x, z) {
     if (!isGaleSite()) {
       const mx = (mirrorWrap(x / worldW + 0.5) - 0.5) * worldW;
       const mz = (mirrorWrap(z / worldH + 0.5) - 0.5) * worldH;
@@ -738,8 +740,24 @@ export async function initHud3D(
     return top + (bot - top) * ty - elevMin;
   }
 
+  const initRouteCoords = route?.geometry?.coordinates || [];
+  const initRouteOriginX = initRouteCoords.length > 0 ? lonToX(initRouteCoords[0][0]) : 0;
+  const initRouteOriginZ = initRouteCoords.length > 0 ? latToZ(initRouteCoords[0][1]) : 0;
+  const habitatStation = createMarsHabitatStation(THREE, {
+    originX: initRouteOriginX,
+    originZ: initRouteOriginZ - 33.5,
+    rawSampleElevY: rawSampleElevSceneY,
+  });
+  scene.add(habitatStation.group);
+
+  function sampleElevSceneY(x, z) {
+    const rawY = rawSampleElevSceneY(x, z);
+    return habitatStation.group.visible ? habitatStation.sampleElevWithHabitat(x, z, rawY) : rawY;
+  }
+
   const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 192);
   const rtUniforms = createRayTracerUniforms(THREE, worldW, worldH, sunDir, rtHeightInfo);
+  patchObjectRayTracer(THREE, habitatStation.group, rtUniforms, { reflectScale: 0.72 });
   function refreshRtHeightfield() {
     const packed = buildHeightfieldRtData(sampleElevSceneY, worldW, worldH, 192);
     if (rtHeightInfo?.texture?.image?.data) {
@@ -1398,18 +1416,47 @@ export async function initHud3D(
     }
   }
 
-  const rover = createExperimentalRover(THREE);
-  rover.group.visible = false;
-  scene.add(rover.group);
-  patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
-  rover.attachRealModel(sharedGltfLoader).then((ok) => {
-    if (ok) patchObjectRayTracer(THREE, rover.group, rtUniforms, { reflectScale: 1.18 });
+  const roverMmsev = createExperimentalRover(THREE, "mmsev");
+  const roverConcept = createExperimentalRover(THREE, "nasa_concept");
+  const drivableRovers = [roverMmsev, roverConcept];
+  let activeDriveRover = roverConcept;
+  for (const r of drivableRovers) {
+    r.group.visible = true;
+    scene.add(r.group);
+    patchObjectRayTracer(THREE, r.group, rtUniforms, { reflectScale: 1.18 });
+  }
+  roverMmsev.attachRealModel(sharedGltfLoader).then((ok) => {
+    if (ok) patchObjectRayTracer(THREE, roverMmsev.group, rtUniforms, { reflectScale: 1.18 });
   });
 
   const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
     onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
   });
+  let stationedAtHabitat = true;
+  function stationDrivableRoversAtHabitat() {
+    const bays = habitatStation.getBayPlacements();
+    for (const dp of bays.drivablePlacements) {
+      const target = dp.vehicleType === "nasa_concept" ? roverConcept : roverMmsev;
+      target.group.visible = habitatStation.group.visible;
+      target.group.position.set(dp.x, sampleElevSceneY(dp.x, dp.z), dp.z);
+      target.group.rotation.y = dp.yaw;
+      target.bodyRoot.position.set(0, 0, 0);
+      target.bodyRoot.rotation.set(0, 0, 0);
+      target.update(0.016, { sampleElevY: sampleElevSceneY, speed: 0, steer: 0, driving: false, physicsEnabled: false });
+    }
+  }
+  function stationRoversAtHabitat({ includeDrivable = true } = {}) {
+    stationedAtHabitat = true;
+    const bays = habitatStation.getBayPlacements();
+    historicRovers.spawnAllScattered(bays.historicPlacements, {
+      sampleElevY: sampleElevSceneY,
+      focusId: activeSiteId,
+    });
+    if (includeDrivable) stationDrivableRoversAtHabitat();
+    return bays.historicPlacements;
+  }
   function reScatterHistoricRovers(originX = 0, originZ = 0) {
+    stationedAtHabitat = false;
     const placements = scatterHistoricRoverCoords({
       sampleElevY: sampleElevSceneY,
       worldW,
@@ -1425,7 +1472,7 @@ export async function initHud3D(
     });
     return placements;
   }
-  reScatterHistoricRovers(0, 0);
+  stationRoversAtHabitat({ includeDrivable: true });
 
   const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
 
@@ -1828,11 +1875,16 @@ export async function initHud3D(
   const SPEEDS = [1, 2, 3];
   const freeRoam = true; // walking is always yours; the route is a guide line on the ground
   let userYaw = 0;
-  let pitch = -0.12;
+  let pitch = -0.1;
   let autoYaw = routeCoords.length > 1 ? routeHeading(0) : 0;
   const freePos = new THREE.Vector3(0, 0, 0);
-  // start at the beginning of the route, facing along it
-  if (routeCoords.length > 1) {
+  // Start overlooking the 5-Bay Mars Habitat Station, 2 drivable rovers, and 5 historic bays
+  if (habitatStation.group.visible) {
+    const ep = habitatStation.getBayPlacements().entryPoint;
+    freePos.set(ep.x, 0, ep.z);
+    userYaw = ep.yaw;
+    autoYaw = 0;
+  } else if (routeCoords.length > 1) {
     const p0 = routePoint(0);
     freePos.set(p0.x, 0, p0.z);
     userYaw = autoYaw;
@@ -1923,7 +1975,7 @@ export async function initHud3D(
     roverAirState.airTime = 0;
     roverAirState.peakLaunchVy = 0;
     roverAirState.landingCooldown = 0;
-    roverDynState.yaw = rover?.group?.rotation?.y || 0;
+    roverDynState.yaw = activeDriveRover?.group?.rotation?.y || 0;
     roverDynState.yawRate = 0;
     roverDynState.velX = 0;
     roverDynState.velZ = 0;
@@ -2242,9 +2294,9 @@ export async function initHud3D(
       player.x += dx;
       player.z += dz;
     }
-    if (rover?.group) {
-      rover.group.position.x += dx;
-      rover.group.position.z += dz;
+    for (const drvR of drivableRovers) {
+      drvR.group.position.x += dx;
+      drvR.group.position.z += dz;
     }
     if (chaseCamInit) {
       chaseCamPos.x += dx;
@@ -2267,7 +2319,7 @@ export async function initHud3D(
     return { wrapped: true, x: wx.val, z: wz.val, dx, dz, dirs };
   }
 
-  // A new route from the planner (Begin EVA): stand at its start, facing along it.
+  // A new route from the planner (Begin EVA): stand at the Habitat apron facing the 5 bays, or along route.
   onSetRoute((detail) => {
     const newRoute = detail?.route;
     const nextAlong = Number(detail?.alongM ?? detail?.along_m ?? 0) || 0;
@@ -2276,20 +2328,28 @@ export async function initHud3D(
     autoYaw = 0;
     if (routeCoords.length > 1) {
       const p = routePoint(alongM);
-      userYaw = routeHeading(alongM);
-      partnerPos.set(p.x, 0, p.z);
-      snapPhys(p.x, p.z);
+      if (alongM === 0 && habitatStation.group.visible) {
+        const ep = habitatStation.getBayPlacements().entryPoint;
+        userYaw = ep.yaw;
+        partnerPos.set(ep.x, 0, ep.z);
+        snapPhys(ep.x, ep.z);
+        stationRoversAtHabitat({ includeDrivable: true });
+      } else {
+        userYaw = routeHeading(alongM);
+        partnerPos.set(p.x, 0, p.z);
+        snapPhys(p.x, p.z);
+        if (devCfg.experimentalRover && activeDriveRover) {
+          activeDriveRover.group.visible = true;
+          activeDriveRover.spawnBeside(p.x, p.z, userYaw, sampleElevSceneY);
+          roverDynState.yaw = activeDriveRover.group.rotation.y;
+        }
+      }
       drivingRover = false;
       resetRoverMotionState();
       chaseCamInit = false;
       syncDrivingCameraVisualState(false);
       if (self?.group) self.group.visible = suitRig != null;
-      if (devCfg.experimentalRover && rover) {
-        rover.group.visible = true;
-        rover.spawnBeside(p.x, p.z, userYaw, sampleElevSceneY);
-        roverDynState.yaw = rover.group.rotation.y;
-        nearRoverPrompted = false;
-      }
+      nearRoverPrompted = false;
     }
   });
 
@@ -2333,34 +2393,138 @@ export async function initHud3D(
   function renderHudFleetPanel() {
     if (!fleetPanelEl) return;
     const tr = isTrLang();
-    fleetPanelEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+    fleetPanelEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
       <span style="font-size:9.5px;letter-spacing:0.15em;color:var(--faint);text-transform:uppercase;">${
-        tr ? "MARS ROVER FİLOSU (5 RASTGELE KONUM)" : "MARS ROVER FLEET (5 SCATTERED ON MAP)"
+        tr ? "MARS ÜSSÜ & ROVER FİLOSU (7 ARAÇ)" : "MARS HABITAT & ROVER FLEET (7 VEHICLES)"
       }</span>
-      <button id="hud-fleet-rescatter" class="btn" type="button" style="padding:2px 7px;font-size:9px;">${
-        tr ? "Karıştır" : "Rescatter"
-      }</button>
+      <div style="display:flex;gap:4px;">
+        <button id="hud-fleet-habitat" class="btn primary" type="button" style="padding:2px 7px;font-size:9px;">${
+          tr ? "Üs Garajı" : "Habitat Bay"
+        }</button>
+        <button id="hud-fleet-rescatter" class="btn" type="button" style="padding:2px 7px;font-size:9px;">${
+          tr ? "Karıştır" : "Rescatter"
+        }</button>
+      </div>
     </div>`;
+    fleetPanelEl.querySelector("#hud-fleet-habitat")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      fleetPanelEl.classList.remove("open");
+      if (drivingRover) {
+        drivingRover = false;
+        resetRoverMotionState();
+        chaseCamInit = false;
+        syncDrivingCameraVisualState(false);
+        if (self?.group) self.group.visible = suitRig != null;
+      }
+      stationRoversAtHabitat({ includeDrivable: true });
+      const ep = habitatStation.getBayPlacements().entryPoint;
+      teleportToLocal(ep.x, ep.z, { keepYaw: true });
+      autoYaw = 0;
+      userYaw = ep.yaw;
+      pitch = -0.08;
+      renderHudFleetPanel();
+      showWrapNotice(tr ? "MARS YAŞAM İSTASYONU · 5 BÖLGE + 7 ROVER" : "MARS HABITAT STATION · 5 ZONES + 7 ROVERS");
+    });
     fleetPanelEl.querySelector("#hud-fleet-rescatter")?.addEventListener("click", (ev) => {
       ev.stopPropagation();
       reScatterHistoricRovers(freePos.x, freePos.z);
       renderHudFleetPanel();
       showWrapNotice(
-        tr ? "5 NASA ROVER RASTGELE KONUMLARA YERLEŞTİRİLDİ" : "ALL 5 NASA ROVERS RESCATTERED ACROSS TERRAIN"
+        tr ? "5 NASA ROVER RASTGELE KONUMLARA YERLEŞTİRİLDİ" : "ALL 5 HISTORICAL ROVERS RESCATTERED ACROSS TERRAIN"
       );
     });
-    for (const r of MARS_HISTORIC_ROVERS) {
+
+    const drivableHeader = document.createElement("div");
+    drivableHeader.style.cssText =
+      "font-size:9px;letter-spacing:0.14em;color:#38bdf8;margin-top:6px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1);";
+    drivableHeader.textContent = tr ? "SÜRÜLEBİLİR ARAÇLAR (2)" : "DRIVABLE ROVERS (2)";
+    fleetPanelEl.appendChild(drivableHeader);
+
+    for (const rInstance of [roverConcept, roverMmsev]) {
+      const vSpec = rInstance.getActiveSpec();
+      const dDist = `${Math.round(
+        Math.hypot(rInstance.group.position.x - freePos.x, rInstance.group.position.z - freePos.z)
+      )} m`;
+      const row = document.createElement("div");
+      row.className = `hud-fleet-row ${drivingRover && activeDriveRover === rInstance ? "current" : ""}`;
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:7px;min-width:0;">
+          <span class="fleet-dot" style="background:${vSpec.badgeColor};"></span>
+          <div style="min-width:0;">
+            <div style="font-size:11px;color:#fff;letter-spacing:0.06em;">${
+              tr ? vSpec.nameTr : vSpec.nameEn
+            } <span style="color:var(--faint);font-size:9.5px;">· ${dDist}</span></div>
+            <div style="font-size:9px;color:var(--faint);">${tr ? "Sürülebilir · [E] ile bin" : "Drivable · Press [E] to drive"}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:5px;flex:none;">
+          <button class="btn" type="button" data-drv-go style="padding:3px 7px;font-size:9.5px;">${
+            tr ? "Git" : "Locate"
+          }</button>
+          <button class="btn primary" type="button" data-drv-drive style="padding:3px 7px;font-size:9.5px;">${
+            tr ? "Sür" : "Drive"
+          }</button>
+        </div>
+      `;
+      row.querySelector("[data-drv-go]")?.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        fleetPanelEl.classList.remove("open");
+        if (drivingRover) {
+          drivingRover = false;
+          resetRoverMotionState();
+          chaseCamInit = false;
+          syncDrivingCameraVisualState(false);
+          if (self?.group) self.group.visible = suitRig != null;
+        }
+        const rx = rInstance.group.position.x;
+        const rz = rInstance.group.position.z;
+        const stand = computeSpawnBesideOffset(rx, rz, rInstance.group.rotation.y, -3.5, 1.5);
+        teleportToLocal(stand.x, stand.z, { keepYaw: true });
+        autoYaw = 0;
+        userYaw = Math.atan2(-(rx - stand.x), -(rz - stand.z));
+        activeDriveRover = rInstance;
+        showWrapNotice(`${vSpec.shortLabel} · ${tr ? "BİNMEK İÇİN [E]" : "PRESS [E] TO DRIVE"}`);
+      });
+      row.querySelector("[data-drv-drive]")?.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        fleetPanelEl.classList.remove("open");
+        rInstance.group.visible = true;
+        activeDriveRover = rInstance;
+        drivingRover = true;
+        resetRoverMotionState();
+        prevFirstPersonPitch = pitch;
+        pitch = -0.25;
+        autoYaw = 0;
+        userYaw = rInstance.group.rotation.y;
+        roverDynState.yaw = rInstance.group.rotation.y;
+        chaseCamInit = false;
+        syncDrivingCameraVisualState(true);
+        if (drvVehEl) drvVehEl.textContent = vSpec.shortLabel;
+        if (self?.group) self.group.visible = false;
+        showWrapNotice(`${vSpec.shortLabel} · ${tr ? "3. ŞAHIS SÜRÜŞ AKTİF" : "3RD-PERSON DRIVE ACTIVE"}`);
+      });
+      fleetPanelEl.appendChild(row);
+    }
+
+    const histHeader = document.createElement("div");
+    histHeader.style.cssText =
+      "font-size:9px;letter-spacing:0.14em;color:#22c55e;margin-top:6px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1);";
+    histHeader.textContent = tr ? "GARAJ / TARİHİ ROVERLER (5)" : "GARAGE DISPLAY & HISTORIC ROVERS (5)";
+    fleetPanelEl.appendChild(histHeader);
+
+    MARS_HISTORIC_ROVERS.forEach((r, idx) => {
       const entry = historicRovers.getEntry(r.id);
       const distStr = entry
         ? `${Math.round(Math.hypot(entry.group.position.x - freePos.x, entry.group.position.z - freePos.z))} m`
         : "—";
+      const bayTag = stationedAtHabitat ? `BAY 0${idx + 1} · ` : "";
       const row = document.createElement("div");
       row.className = `hud-fleet-row ${r.id === activeSiteId ? "current" : ""}`;
       row.innerHTML = `
         <div style="display:flex;align-items:center;gap:7px;min-width:0;">
           <span class="fleet-dot" style="background:${r.color};"></span>
           <div style="min-width:0;">
-            <div style="font-size:11px;color:#fff;letter-spacing:0.08em;">${r.name} <span style="color:var(--faint);font-size:9.5px;">· ${distStr}</span></div>
+            <div style="font-size:11px;color:#fff;letter-spacing:0.08em;">${bayTag}${r.name} <span style="color:var(--faint);font-size:9.5px;">· ${distStr}</span></div>
             <div style="font-size:9px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.siteShortName}</div>
           </div>
         </div>
@@ -2382,7 +2546,7 @@ export async function initHud3D(
         visitRoverSite(r.id, { approachRover: true, switchTerrain: false });
       });
       fleetPanelEl.appendChild(row);
-    }
+    });
   }
 
   fleetBtnEl?.addEventListener("click", (ev) => {
@@ -2472,6 +2636,14 @@ export async function initHud3D(
     activeSiteId = spec.id;
     historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
     const gale = isGaleSite();
+    const showRovers = !spec.isCustomSite || Boolean(spec.nearRoverId);
+    habitatStation.group.visible = showRovers;
+    if (showRovers) {
+      const habX = gale ? initRouteOriginX : 0;
+      const habZ = gale ? initRouteOriginZ - 33.5 : -33.5;
+      habitatStation.setBasePose(habX, habZ, rawSampleElevSceneY);
+    }
+    for (const r of drivableRovers) r.group.visible = showRovers;
     galeStopsGroup.visible = gale;
     fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
     galeVista.visible = Boolean(devCfg.superGraphics) && gale;
@@ -2506,12 +2678,10 @@ export async function initHud3D(
         scene.fog.color.copy(HORIZON);
       }
     }
-    // The five NASA rovers stand near you at their own sites, at Gale, and near custom landings
-    // within 150 km of a rover site; far from any of them the area is empty.
-    const showRovers = !spec.isCustomSite || Boolean(spec.nearRoverId);
-    if (showRovers) reScatterHistoricRovers(0, 0);
+    // At Gale and NASA rover sites, station the 5-Bay Habitat Garage & 7 vehicles on the terrain.
+    if (showRovers) stationRoversAtHabitat({ includeDrivable: true });
     else historicRovers.clearAll();
-    if (fleetBtnEl) fleetBtnEl.textContent = showRovers ? `Rovers: ${spec.name} (5)` : "Rovers (5)";
+    if (fleetBtnEl) fleetBtnEl.textContent = showRovers ? `Rovers: ${spec.name} (7)` : "Rovers (7)";
 
     sunSite.lat = spec.lat;
     sunSite.lon = spec.lon;
@@ -2601,13 +2771,13 @@ export async function initHud3D(
       userYaw = Math.atan2(-(rx - standX), -(rz - standZ));
       pitch = -0.09;
 
-      if (devCfg.experimentalRover && rover.group.visible) {
-        rover.spawnBeside(standX, standZ, userYaw + Math.PI * 0.5, sampleElevSceneY);
-        roverDynState.yaw = rover.group.rotation.y;
+      if (devCfg.experimentalRover && activeDriveRover?.group?.visible && !stationedAtHabitat) {
+        activeDriveRover.spawnBeside(standX, standZ, userYaw + Math.PI * 0.5, sampleElevSceneY);
+        roverDynState.yaw = activeDriveRover.group.rotation.y;
       }
     }
 
-    if (fleetBtnEl) fleetBtnEl.textContent = `Rovers: ${spec.name} (5)`;
+    if (fleetBtnEl) fleetBtnEl.textContent = `Rovers: ${spec.name} (7)`;
     renderHudFleetPanel();
     const tr = isTrLang();
     showWrapNotice(
@@ -2620,7 +2790,7 @@ export async function initHud3D(
   onVisitRoverSite((detail) => {
     if (detail?.roverId) visitRoverSite(detail.roverId, { approachRover: true, switchTerrain: true });
   });
-  if (fleetBtnEl) fleetBtnEl.textContent = `Rovers (5)`;
+  if (fleetBtnEl) fleetBtnEl.textContent = `Rovers (7)`;
   renderHudFleetPanel();
 
   let goldVisor = 0;
@@ -2751,22 +2921,22 @@ export async function initHud3D(
 
     if (k === "e" && !e.repeat) {
       const tr = isTrLang();
-      if (drivingRover && devCfg.experimentalRover && rover.group.visible) {
+      if (drivingRover && activeDriveRover?.group?.visible) {
         drivingRover = false;
         resetRoverMotionState();
         chaseCamInit = false;
         pitch = prevFirstPersonPitch;
         const exitPt = computeSpawnBesideOffset(
-          rover.group.position.x,
-          rover.group.position.z,
-          rover.group.rotation.y,
-          -2.75,
+          activeDriveRover.group.position.x,
+          activeDriveRover.group.position.z,
+          activeDriveRover.group.rotation.y,
+          -2.85,
           0.0
         );
         let wx = wrapSceneCoord(exitPt.x, worldW * 2).val;
         let wz = wrapSceneCoord(exitPt.z, worldH * 2).val;
         const wy = sampleElevSceneY(wx, wz);
-        const outCol = rover.resolveCollision(wx, wz, PARTNER_COLLISION_R + 0.08, wy);
+        const outCol = activeDriveRover.resolveCollision(wx, wz, PARTNER_COLLISION_R + 0.08, wy);
         if (outCol.hit) {
           wx = wrapSceneCoord(outCol.x, worldW * 2).val;
           wz = wrapSceneCoord(outCol.z, worldH * 2).val;
@@ -2789,26 +2959,36 @@ export async function initHud3D(
         return;
       }
 
-      if (devCfg.experimentalRover && rover.group.visible) {
-        const dist = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
-        if (dist <= 5.4) {
-          drivingRover = true;
-          resetRoverMotionState();
-          prevFirstPersonPitch = pitch;
-          pitch = -0.25;
-          autoYaw = 0;
-          userYaw = rover.group.rotation.y;
-          roverDynState.yaw = rover.group.rotation.y;
-          chaseCamInit = false;
-          syncDrivingCameraVisualState(true);
-          if (self?.group) self.group.visible = false;
-          showWrapNotice(
-            tr
-              ? "3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN"
-              : "3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT"
-          );
-          return;
+      let nearestDrivable = null;
+      let bestDrivableDist = 5.8;
+      for (const drvR of drivableRovers) {
+        if (!drvR.group.visible) continue;
+        const dist = Math.hypot(freePos.x - drvR.group.position.x, freePos.z - drvR.group.position.z);
+        if (dist <= bestDrivableDist) {
+          bestDrivableDist = dist;
+          nearestDrivable = drvR;
         }
+      }
+      if (nearestDrivable) {
+        activeDriveRover = nearestDrivable;
+        const drvSpec = activeDriveRover.getActiveSpec();
+        if (drvVehEl) drvVehEl.textContent = drvSpec.shortLabel;
+        drivingRover = true;
+        resetRoverMotionState();
+        prevFirstPersonPitch = pitch;
+        pitch = -0.25;
+        autoYaw = 0;
+        userYaw = activeDriveRover.group.rotation.y;
+        roverDynState.yaw = activeDriveRover.group.rotation.y;
+        chaseCamInit = false;
+        syncDrivingCameraVisualState(true);
+        if (self?.group) self.group.visible = false;
+        showWrapNotice(
+          tr
+            ? `${drvSpec.shortLabel} · 3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN`
+            : `${drvSpec.shortLabel} · 3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT`
+        );
+        return;
       }
 
       let nearRover = null;
@@ -3153,15 +3333,16 @@ export async function initHud3D(
     const alertCount = alerts?.alerts?.length ?? 0;
     lensMat.uniforms.uRay.value = alertCount > 0 ? 0.0018 : 0.00035;
 
-    const vSpec = getDrivableVehicleSpec();
+    const vSpec = activeDriveRover ? activeDriveRover.getActiveSpec() : getDrivableVehicleSpec();
     if (drvVehEl) drvVehEl.textContent = vSpec.shortLabel;
 
     const wantRover = Boolean(cfg.experimentalRover);
-    rover.group.visible = wantRover;
-    if (wantRover && !roverWasOn) {
+    const keepHabitatVisible = habitatStation.group.visible;
+    for (const r of drivableRovers) r.group.visible = wantRover || keepHabitatVisible;
+    if (wantRover && !roverWasOn && activeDriveRover) {
       resetRoverMotionState();
-      rover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleElevSceneY);
-      roverDynState.yaw = rover.group.rotation.y;
+      activeDriveRover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleElevSceneY);
+      roverDynState.yaw = activeDriveRover.group.rotation.y;
       nearRoverPrompted = false;
       if (hudView.classList.contains("active")) {
         showWrapNotice(
@@ -3170,7 +3351,7 @@ export async function initHud3D(
             : `${vSpec.nameEn.toUpperCase()} SPAWNED BESIDE YOU (E TO BOARD)`
         );
       }
-    } else if (!wantRover && drivingRover) {
+    } else if (!wantRover && !keepHabitatVisible && drivingRover) {
       drivingRover = false;
       resetRoverMotionState();
       chaseCamInit = false;
@@ -3258,8 +3439,8 @@ export async function initHud3D(
     const prevZ = player.z;
     let roverLateralSpeed = 0;
 
-    if (freeRoam && drivingRover && devCfg.experimentalRover && rover.group.visible) {
-      const rYaw0 = rover.group.rotation.y;
+    if (freeRoam && drivingRover && activeDriveRover?.group?.visible) {
+      const rYaw0 = activeDriveRover.group.rotation.y;
       const fx0 = -Math.sin(rYaw0);
       const fz0 = -Math.cos(rYaw0);
       const rx0 = Math.cos(rYaw0);
@@ -3278,17 +3459,29 @@ export async function initHud3D(
         roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
 
-        const gHere = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
-        const gAheadSlope = sampleElevSceneY(rover.group.position.x + fx0 * 1.4, rover.group.position.z + fz0 * 1.4);
-        const gBehindSlope = sampleElevSceneY(rover.group.position.x - fx0 * 1.4, rover.group.position.z - fz0 * 1.4);
-        const gRightSlope = sampleElevSceneY(rover.group.position.x + rx0 * 1.3, rover.group.position.z + rz0 * 1.3);
-        const gLeftSlope = sampleElevSceneY(rover.group.position.x - rx0 * 1.3, rover.group.position.z - rz0 * 1.3);
+        const gHere = sampleElevSceneY(activeDriveRover.group.position.x, activeDriveRover.group.position.z);
+        const gAheadSlope = sampleElevSceneY(
+          activeDriveRover.group.position.x + fx0 * 1.4,
+          activeDriveRover.group.position.z + fz0 * 1.4
+        );
+        const gBehindSlope = sampleElevSceneY(
+          activeDriveRover.group.position.x - fx0 * 1.4,
+          activeDriveRover.group.position.z - fz0 * 1.4
+        );
+        const gRightSlope = sampleElevSceneY(
+          activeDriveRover.group.position.x + rx0 * 1.3,
+          activeDriveRover.group.position.z + rz0 * 1.3
+        );
+        const gLeftSlope = sampleElevSceneY(
+          activeDriveRover.group.position.x - rx0 * 1.3,
+          activeDriveRover.group.position.z - rz0 * 1.3
+        );
         const slopePitch = Math.atan2(gAheadSlope - gBehindSlope, 2.8);
         const slopeRoll = Math.atan2(gRightSlope - gLeftSlope, 2.6);
 
         roverDynState.yaw = rYaw0;
         dyn = stepAdvancedRoverPhysics(roverDynState, {
-          vehicleType: rover.vehicleType,
+          vehicleType: activeDriveRover.vehicleType,
           throttle,
           steer: roverSteer,
           boost: run,
@@ -3304,8 +3497,8 @@ export async function initHud3D(
         // Sheer vertical wall guard (> 55 deg cliff crest)
         const moveSign = Math.sign(roverDynState.forwardSpeed || throttle || 1);
         const probeAhead = sampleElevSceneY(
-          rover.group.position.x + moveSign * fx0 * 2.2,
-          rover.group.position.z + moveSign * fz0 * 2.2
+          activeDriveRover.group.position.x + moveSign * fx0 * 2.2,
+          activeDriveRover.group.position.z + moveSign * fz0 * 2.2
         );
         const slopeAheadDeg = Math.abs(Math.atan2(probeAhead - gHere, 2.2)) * (180 / Math.PI);
         if (!roverAirState.airborne && devCfg.realisticPhysics && slopeAheadDeg > 55 && probeAhead > gHere) {
@@ -3315,7 +3508,7 @@ export async function initHud3D(
         }
 
         const deltaYaw = roverDynState.yaw - rYaw0;
-        rover.group.rotation.y = roverDynState.yaw;
+        activeDriveRover.group.rotation.y = roverDynState.yaw;
         userYaw += deltaYaw;
         roverVelX = roverDynState.velX;
         roverVelZ = roverDynState.velZ;
@@ -3338,15 +3531,15 @@ export async function initHud3D(
         roverDynState.airRollOffset *= Math.exp(-dt * 12);
       }
 
-      rover.group.position.x += roverVelX * dt;
-      rover.group.position.z += roverVelZ * dt;
+      activeDriveRover.group.position.x += roverVelX * dt;
+      activeDriveRover.group.position.z += roverVelZ * dt;
 
       const resolveDrivingActor = (actorPos) => {
         if (!actorPos) return;
-        const hit = rover.resolveCollision(actorPos.x, actorPos.z, PARTNER_COLLISION_R + 0.08, actorPos.y);
+        const hit = activeDriveRover.resolveCollision(actorPos.x, actorPos.z, PARTNER_COLLISION_R + 0.08, actorPos.y);
         if (hit.hit) {
-          rover.group.position.x -= hit.nx * hit.pen;
-          rover.group.position.z -= hit.nz * hit.pen;
+          activeDriveRover.group.position.x -= hit.nx * hit.pen;
+          activeDriveRover.group.position.z -= hit.nz * hit.pen;
           roverVelX *= 0.25;
           roverVelZ *= 0.25;
           roverThrottleVel *= 0.25;
@@ -3356,19 +3549,54 @@ export async function initHud3D(
       };
       if (partner && partner.group.visible) resolveDrivingActor(partner.group.position);
       for (const remote of remoteAvatars.values()) resolveDrivingActor(remote.group.position);
+      for (const otherDrv of drivableRovers) {
+        if (otherDrv === activeDriveRover || !otherDrv.group.visible) continue;
+        const hitOther = activeDriveRover.resolveCollision(
+          otherDrv.group.position.x,
+          otherDrv.group.position.z,
+          otherDrv.radius * 0.72,
+          otherDrv.group.position.y
+        );
+        if (hitOther.hit) {
+          activeDriveRover.group.position.x -= hitOther.nx * hitOther.pen;
+          activeDriveRover.group.position.z -= hitOther.nz * hitOther.pen;
+          roverVelX *= 0.25;
+          roverVelZ *= 0.25;
+          roverThrottleVel *= 0.25;
+          roverDynState.velX = roverVelX;
+          roverDynState.velZ = roverVelZ;
+        }
+      }
+      if (habitatStation.group.visible) {
+        const hitHab = habitatStation.resolveCollision(
+          activeDriveRover.group.position.x,
+          activeDriveRover.group.position.z,
+          1.75,
+          activeDriveRover.group.position.y
+        );
+        if (hitHab.hit) {
+          activeDriveRover.group.position.x = hitHab.x;
+          activeDriveRover.group.position.z = hitHab.z;
+          roverVelX *= 0.25;
+          roverVelZ *= 0.25;
+          roverThrottleVel *= 0.25;
+          roverDynState.velX = roverVelX;
+          roverDynState.velZ = roverVelZ;
+        }
+      }
       for (const histEntry of historicRovers.getAllEntries()) {
         const hPos = histEntry.group?.position;
         const hSpec = histEntry.spec;
         if (!hPos || !hSpec) continue;
-        const hitHist = rover.resolveCollision(
+        const hitHist = activeDriveRover.resolveCollision(
           hPos.x,
           hPos.z,
           Math.max(hSpec.halfW || 1.2, hSpec.halfL || 1.3) * 0.72,
           hPos.y
         );
         if (hitHist.hit) {
-          rover.group.position.x -= hitHist.nx * hitHist.pen;
-          rover.group.position.z -= hitHist.nz * hitHist.pen;
+          activeDriveRover.group.position.x -= hitHist.nx * hitHist.pen;
+          activeDriveRover.group.position.z -= hitHist.nz * hitHist.pen;
           roverVelX *= 0.25;
           roverVelZ *= 0.25;
           roverThrottleVel *= 0.25;
@@ -3377,26 +3605,29 @@ export async function initHud3D(
         }
       }
 
-      applySeamlessWorldWrap(rover.group.position.x, rover.group.position.z);
+      applySeamlessWorldWrap(activeDriveRover.group.position.x, activeDriveRover.group.position.z);
 
       const horizSpeed = Math.hypot(roverVelX, roverVelZ);
-      const vehSpec = dyn?.spec || rover.getActiveSpec();
-      const supportGroundY = rover.sampleSupportGroundY(sampleElevSceneY);
+      const vehSpec = dyn?.spec || activeDriveRover.getActiveSpec();
+      const supportGroundY = activeDriveRover.sampleSupportGroundY(sampleElevSceneY);
       let slopeClimbVy = 0;
       let bumpImpulseVy = 0;
       if (horizSpeed > 0.8 && !roverAirState.airborne) {
         const dirX = roverVelX / horizSpeed;
         const dirZ = roverVelZ / horizSpeed;
-        const hBackVel = sampleElevSceneY(rover.group.position.x - dirX * 1.15, rover.group.position.z - dirZ * 1.15);
-        const hNow = sampleElevSceneY(rover.group.position.x, rover.group.position.z);
+        const hBackVel = sampleElevSceneY(
+          activeDriveRover.group.position.x - dirX * 1.15,
+          activeDriveRover.group.position.z - dirZ * 1.15
+        );
+        const hNow = sampleElevSceneY(activeDriveRover.group.position.x, activeDriveRover.group.position.z);
         slopeClimbVy = Math.max(0, (hNow - hBackVel) / 1.15) * horizSpeed;
         const hLeft = sampleElevSceneY(
-          rover.group.position.x + Math.cos(rover.group.rotation.y) * 1.34,
-          rover.group.position.z - Math.sin(rover.group.rotation.y) * 1.34
+          activeDriveRover.group.position.x + Math.cos(activeDriveRover.group.rotation.y) * 1.34,
+          activeDriveRover.group.position.z - Math.sin(activeDriveRover.group.rotation.y) * 1.34
         );
         const hRight = sampleElevSceneY(
-          rover.group.position.x - Math.cos(rover.group.rotation.y) * 1.34,
-          rover.group.position.z + Math.sin(rover.group.rotation.y) * 1.34
+          activeDriveRover.group.position.x - Math.cos(activeDriveRover.group.rotation.y) * 1.34,
+          activeDriveRover.group.position.z + Math.sin(activeDriveRover.group.rotation.y) * 1.34
         );
         const crossBump = Math.abs(hLeft - hRight);
         if ((steerJerk > 2.6 || Math.abs(roverLateralSpeed) > 5.0) && horizSpeed > 11.5 && (crossBump > 0.24 || slopeClimbVy > 2.2)) {
@@ -3414,14 +3645,14 @@ export async function initHud3D(
       });
       if (airStep.launched && devCfg.realisticDust) {
         for (const sideSign of [-1, 1]) {
-          const emit = rover.getWheelDustEmitPoint(sideSign);
+          const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
           marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 5, 1.35, -roverVelX * 0.2, -roverVelZ * 0.2);
         }
       }
       roverLandingImpact = airStep.landed ? airStep.impactSpeed : 0;
       if (airStep.landed && devCfg.realisticDust && airStep.impactSpeed > 1.0) {
-        const rYawL = rover.group.rotation.y;
-        marsFx.emitJumpBurst(rover.group.position.x, supportGroundY, rover.group.position.z, {
+        const rYawL = activeDriveRover.group.rotation.y;
+        marsFx.emitJumpBurst(activeDriveRover.group.position.x, supportGroundY, activeDriveRover.group.position.z, {
           mode: "land",
           impactSpeed: Math.max(1.2, airStep.impactSpeed * 1.15),
           rightX: Math.cos(rYawL),
@@ -3432,12 +3663,12 @@ export async function initHud3D(
           vz: roverVelZ,
         });
         for (const sideSign of [-1, 1]) {
-          const emit = rover.getWheelDustEmitPoint(sideSign);
+          const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
           marsFx.emitBurst(emit.x, sampleElevSceneY(emit.x, emit.z), emit.z, 6, 1.75, -roverVelX * 0.28, -roverVelZ * 0.28);
         }
       }
 
-      rover.update(dt, {
+      activeDriveRover.update(dt, {
         sampleElevY: sampleElevSceneY,
         speed: roverThrottleVel,
         steer: roverSteer,
@@ -3455,6 +3686,17 @@ export async function initHud3D(
         airPitchOffset: roverDynState.airPitchOffset,
         airRollOffset: roverDynState.airRollOffset,
       });
+      for (const idleDrv of drivableRovers) {
+        if (idleDrv === activeDriveRover || !idleDrv.group.visible) continue;
+        idleDrv.update(dt, {
+          sampleElevY: sampleElevSceneY,
+          speed: 0,
+          steer: 0,
+          clockT,
+          driving: false,
+          physicsEnabled: Boolean(devCfg.realisticPhysics),
+        });
+      }
 
       if (drvSpdEl) drvSpdEl.textContent = String(Math.round(horizSpeed * 3.6));
       if (drvGearEl) drvGearEl.textContent = String(dyn?.gear || 1);
@@ -3476,11 +3718,11 @@ export async function initHud3D(
         const burstCount = Math.floor(roverDustAcc);
         if (burstCount > 0) {
           roverDustAcc -= burstCount;
-          const rYaw = rover.group.rotation.y;
+          const rYaw = activeDriveRover.group.rotation.y;
           const fx = -Math.sin(rYaw);
           const fz = -Math.cos(rYaw);
           const sideSign = Math.random() < 0.5 ? -1 : 1;
-          const emit = rover.getWheelDustEmitPoint(sideSign);
+          const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
           marsFx.emitBurst(
             emit.x,
             sampleElevSceneY(emit.x, emit.z),
@@ -3493,9 +3735,9 @@ export async function initHud3D(
         }
       }
 
-      phys.x = rover.group.position.x;
-      phys.z = rover.group.position.z;
-      phys.y = rover.group.position.y;
+      phys.x = activeDriveRover.group.position.x;
+      phys.z = activeDriveRover.group.position.z;
+      phys.y = activeDriveRover.group.position.y;
       phys.vx = roverVelX;
       phys.vz = roverVelZ;
       phys.vy = roverAirState.velY;
@@ -3595,8 +3837,11 @@ export async function initHud3D(
 
       freePos.set(phys.x, phys.y, phys.z);
       if (partner && partner.group.visible) pushApart(partner.group.position);
-      if (devCfg.experimentalRover && rover.group.visible) {
-        const col = rover.resolveCollision(
+      let nearestR = null;
+      let minDistR = Infinity;
+      for (const drvR of drivableRovers) {
+        if (!drvR.group.visible) continue;
+        const col = drvR.resolveCollision(
           freePos.x,
           freePos.z,
           PARTNER_COLLISION_R,
@@ -3611,7 +3856,7 @@ export async function initHud3D(
             phys.vz -= col.nz * vn;
           }
         }
-        rover.update(dt, {
+        drvR.update(dt, {
           sampleElevY: sampleElevSceneY,
           speed: 0,
           steer: 0,
@@ -3619,14 +3864,38 @@ export async function initHud3D(
           driving: false,
           physicsEnabled: Boolean(devCfg.realisticPhysics),
         });
-        const distR = Math.hypot(freePos.x - rover.group.position.x, freePos.z - rover.group.position.z);
-        if (distR <= 4.6 && !nearRoverPrompted) {
-          nearRoverPrompted = true;
-          showWrapNotice(
-            isTrLang() ? "DENEYSEL MARS ARACI · BİNMEK İÇİN [E] TUŞUNA BAS" : "EXPERIMENTAL MARS ROVER · PRESS [E] TO DRIVE"
-          );
-        } else if (distR > 6.2) {
-          nearRoverPrompted = false;
+        const distR = Math.hypot(freePos.x - drvR.group.position.x, freePos.z - drvR.group.position.z);
+        if (distR < minDistR) {
+          minDistR = distR;
+          nearestR = drvR;
+        }
+      }
+      if (nearestR && minDistR <= 4.8 && !nearRoverPrompted) {
+        nearRoverPrompted = true;
+        const nSpec = nearestR.getActiveSpec();
+        showWrapNotice(
+          isTrLang()
+            ? `${nSpec.nameTr.toUpperCase()} · BİNMEK İÇİN [E] TUŞUNA BAS`
+            : `${nSpec.nameEn.toUpperCase()} · PRESS [E] TO DRIVE`
+        );
+      } else if (minDistR > 6.4) {
+        nearRoverPrompted = false;
+      }
+      if (habitatStation.group.visible) {
+        const habCol = habitatStation.resolveCollision(
+          freePos.x,
+          freePos.z,
+          PARTNER_COLLISION_R * 0.58,
+          player.init ? player.y : sampleElevSceneY(freePos.x, freePos.z)
+        );
+        if (habCol.hit) {
+          freePos.x = habCol.x;
+          freePos.z = habCol.z;
+          const vn = phys.vx * habCol.nx + phys.vz * habCol.nz;
+          if (vn < 0) {
+            phys.vx -= habCol.nx * vn;
+            phys.vz -= habCol.nz * vn;
+          }
         }
       }
       for (const remote of remoteAvatars.values()) pushApart(remote.group.position);
@@ -3796,9 +4065,9 @@ export async function initHud3D(
     const swayY = Math.sin(ph * 2) * 0.004 * amt;
     const swayX = Math.sin(ph) * 0.003 * amt;
     const micro = (f, a) => Math.sin(clockT * f) * a + Math.sin(clockT * f * 2.17 + 1.3) * a * 0.5;
-    if (drivingRover && rover.group.visible) {
-      const rPos = rover.group.position;
-      const rYaw = rover.group.rotation.y;
+    if (drivingRover && activeDriveRover?.group?.visible) {
+      const rPos = activeDriveRover.group.position;
+      const rYaw = activeDriveRover.group.rotation.y;
       const camDist = 6.9 + Math.min(1.6, Math.abs(roverThrottleVel) * 0.065) + (roverAirState.airborne ? 0.75 : 0);
       const elevAng = Math.max(0.06, Math.min(1.08, -pitch));
       const horizDist = camDist * Math.cos(elevAng);

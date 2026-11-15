@@ -27,11 +27,13 @@ import {
   DRIVABLE_VEHICLES,
   ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
+  createExperimentalRover,
   getDrivableVehicleSpec,
   resolveRoverObbCollision,
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
+import { HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
 import {
   RT_HEIGHT_GLSL,
   RT_LENS_PARS_GLSL,
@@ -624,10 +626,12 @@ test("scatterHistoricRoverCoords spreads all 5 unique rovers safely across walka
   }
 });
 
-test("drivable vehicle registry keeps only NASA MMSEV and normalizes roverSpeedMultiplier", () => {
-  assert.equal(DRIVABLE_VEHICLES.length, 1);
+test("drivable vehicle registry includes NASA MMSEV and NASA Mars Rover Concept", () => {
+  assert.equal(DRIVABLE_VEHICLES.length, 2);
   assert.equal(DRIVABLE_VEHICLES[0].id, "mmsev");
+  assert.equal(DRIVABLE_VEHICLES[1].id, "nasa_concept");
   assert.equal(getDrivableVehicleSpec("mmsev").shortLabel, "MMSEV 6×6");
+  assert.equal(getDrivableVehicleSpec("nasa_concept").shortLabel, "MARS CONCEPT");
   assert.equal(getDrivableVehicleSpec("anything-else").id, "mmsev");
   assert.equal(DEFAULT_DEV_SETTINGS.roverSpeedMultiplier, 1.0);
   assert.equal(normalizeDevSettings({ roverSpeedMultiplier: 2.5 }).roverSpeedMultiplier, 2.5);
@@ -753,4 +757,80 @@ test("resolveRoverObbCollision returns finite push-out when entity center lies i
     assert.ok(Number.isFinite(res.nz), "resolved nz must be finite");
     assert.ok(Number.isFinite(res.pen) && res.pen > 0, "resolved pen must be positive and finite");
   }
+});
+
+test("NASA Mars Rover Concept builds rigged 6x6 hollow wheels and drives with physics", () => {
+  const concept = createExperimentalRover(THREE, "nasa_concept");
+  assert.equal(concept.vehicleType, "nasa_concept");
+  assert.equal(concept.getActiveSpec().id, "nasa_concept");
+  assert.ok(concept.radius >= 3.0);
+
+  concept.group.position.set(7.2, 0, 25);
+  concept.update(0.1, {
+    sampleElevY: (x, z) => Math.sin(x * 0.25) * 0.12 + Math.cos(z * 0.2) * 0.08,
+    speed: 14,
+    steer: 0.55,
+    driving: true,
+    physicsEnabled: true,
+  });
+  assert.ok(Number.isFinite(concept.group.position.y));
+  const hit = concept.resolveCollision(7.4, 25.2, 0.45, 0);
+  assert.equal(hit.hit, true);
+
+  const dynState = {
+    yaw: 0,
+    yawRate: 0,
+    velX: 0,
+    velZ: 0,
+    forwardSpeed: 0,
+    lateralSpeed: 0,
+    slipRatio: 0,
+    gear: 1,
+    rpmNorm: 0,
+    drifting: false,
+    braking: false,
+    airPitchVel: 0,
+    airRollVel: 0,
+    airPitchOffset: 0,
+    airRollOffset: 0,
+    lastSlopePitch: 0,
+  };
+  const step = stepAdvancedRoverPhysics(dynState, {
+    vehicleType: "nasa_concept",
+    throttle: 1,
+    steer: -0.35,
+    boost: true,
+    realisticPhysics: true,
+    dt: 0.05,
+  });
+  assert.equal(step.spec.id, "nasa_concept");
+  assert.ok(step.vFwd > 0);
+});
+
+test("Mars Habitat Station builds 5 zones, 7 bay/lane placements, elevated dorm deck, and walkable openings", () => {
+  assert.equal(HABITAT_ZONES.length, 5);
+  const hab = createMarsHabitatStation(THREE, { originX: 0, originZ: 0, rawSampleElevY: () => 1.5 });
+  const zoneNames = new Set(hab.group.children.map((c) => c.name));
+  for (const z of HABITAT_ZONES) {
+    assert.ok(zoneNames.has(z.id), `Missing habitat zone ${z.id}`);
+  }
+
+  const bays = hab.getBayPlacements();
+  assert.deepEqual(
+    bays.historicPlacements.map((p) => p.id),
+    ["sojourner", "spirit", "opportunity", "curiosity", "perseverance"]
+  );
+  assert.deepEqual(
+    bays.drivablePlacements.map((p) => p.vehicleType),
+    ["mmsev", "nasa_concept"]
+  );
+
+  // Pad levels ground around baseY=1.5 and Dormitory raises +0.8m to 2.3m
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 10, 4.0) - 1.5) < 0.05);
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, -21, 1.5) - 2.3) < 0.05);
+
+  // Open center bay doorway and airlock entrance must remain unobstructed, while solid west outer wall collides
+  assert.equal(hab.resolveCollision(0, 18, 0.4, 1.5).hit, false);
+  assert.equal(hab.resolveCollision(27, 2, 0.4, 1.5).hit, false);
+  assert.equal(hab.resolveCollision(-18, -5, 0.4, 1.5).hit, true);
 });
