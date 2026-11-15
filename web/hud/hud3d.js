@@ -923,8 +923,8 @@ export async function initHud3D(
   /** Unit ground normal. Pass `out` to reuse an object (hot paths); without it a new one is returned. */
   function sampleNormal(x, z, out = { x: 0, y: 1, z: 0 }) {
     const e = 0.35;
-    const nx = sampleElevSceneY(x - e, z) - sampleElevSceneY(x + e, z);
-    const nz = sampleElevSceneY(x, z - e) - sampleElevSceneY(x, z + e);
+    const nx = sampleRenderedSurfaceY(x - e, z) - sampleRenderedSurfaceY(x + e, z);
+    const nz = sampleRenderedSurfaceY(x, z - e) - sampleRenderedSurfaceY(x, z + e);
     const ny = 2 * e;
     const len = Math.hypot(nx, ny, nz) || 1;
     out.x = nx / len;
@@ -941,7 +941,7 @@ export async function initHud3D(
     const one = (side) => {
       const px = x + fx * 0.16 + rx * side * 0.12;
       const pz = z + fz * 0.16 + rz * side * 0.12;
-      return { dy: sampleElevSceneY(px, pz) - bodyY, n: sampleNormal(px, pz) };
+      return { dy: sampleRenderedSurfaceY(px, pz) - bodyY, n: sampleNormal(px, pz) };
     };
     const L = one(-1);
     const R = one(1);
@@ -950,14 +950,15 @@ export async function initHud3D(
 
   // The base mesh (whole tile / corridor overview) never uses the streamed detail: detail chunks
   // draw their own meshes on top, and the base is cut away under them in the shader.
-  function buildTerrainGeometry(segX, segZ = segX) {
+  function buildTerrainGeometry(segX, segZ = segX, { includeHabitat = true } = {}) {
     const g = new THREE.PlaneGeometry(worldW, worldH, segX, segZ);
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      pos.setY(i, withHabitat(x, z, sampleBaseSceneY(x, z)));
+      const baseY = sampleBaseSceneY(x, z);
+      pos.setY(i, includeHabitat ? withHabitat(x, z, baseY) : baseY);
     }
     g.computeVertexNormals();
     return addSkirt(g, segX, segZ, 40);
@@ -1021,9 +1022,11 @@ export async function initHud3D(
   const fullSegZ = corridor ? Math.max(1, Math.floor((imgH - 1) / 2)) : fullSeg;
   const copySeg = Math.max(1, Math.floor(fullSeg / 3));
   const copySegZ = Math.max(1, Math.floor(fullSegZ / 3));
-  let terrainGeom = buildTerrainGeometry(fullSeg, fullSegZ);
-  // mirrored copies are seen from far away through fog: a quarter of the vertex density is plenty
-  let copyGeom = buildTerrainGeometry(copySeg, copySegZ);
+  let terrainGeom = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: true });
+  // immediate mirrored ring keeps full overview resolution (without a phantom habitat pad)
+  let ringCopyGeom = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: false });
+  // mirrored copies are seen from far away through fog: a third of the vertex density is plenty
+  let copyGeom = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
 
   // ---------- far terrain shadows (baked) ----------
   // The real-time shadow map only covers the ground near the walker. For the rest, march from every
@@ -1563,12 +1566,14 @@ export async function initHud3D(
   const endless = new THREE.Group();
   for (let i = -TILE_RING; i <= TILE_RING; i++) {
     for (let j = -TILE_RING; j <= TILE_RING; j++) {
-      const copy = new THREE.Mesh(i === 0 && j === 0 ? terrainGeom : copyGeom, terrainMat);
+      const ring = Math.max(Math.abs(i), Math.abs(j));
+      const geom = i === 0 && j === 0 ? terrainGeom : ring <= 1 ? ringCopyGeom : copyGeom;
+      const copy = new THREE.Mesh(geom, terrainMat);
       copy.position.set(i * worldW, 0, j * worldH);
       copy.scale.set(i % 2 === 0 ? 1 : -1, 1, j % 2 === 0 ? 1 : -1);
       copy.receiveShadow = true;
       copy.userData.mirrorCopy = true;
-      copy.userData.ring = Math.max(Math.abs(i), Math.abs(j));
+      copy.userData.ring = ring;
       if (i === 0 && j === 0) {
         copy.visible = false; // the real tile sits here until the ring moves
         endless.userData.centre = copy;
@@ -1874,22 +1879,75 @@ export async function initHud3D(
   scene.add(fieldKits);
   const footsteps = createFootsteps(THREE, scene);
 
-  /** Height of the terrain mesh currently drawn on screen (detail chunk once visible, else overview). */
-  function sampleRenderedSurfaceY(x, z) {
-    let rawY;
+  /** Exact triangle-plane height on a uniform grid geometry (PlaneGeometry / corridor chunk mesh). */
+  function sampleGridGeometryY(geom, x0, z0, w, h, segX, segZ, x, z) {
+    const pos = geom?.attributes?.position?.array;
+    if (!pos || segX < 1 || segZ < 1) return null;
+    const fx = Math.max(0, Math.min(segX - 1e-6, ((x - x0) / w) * segX));
+    const fz = Math.max(0, Math.min(segZ - 1e-6, ((z - z0) / h) * segZ));
+    const p = Math.min(segX - 1, Math.floor(fx));
+    const q = Math.min(segZ - 1, Math.floor(fz));
+    const tx = fx - p;
+    const tz = fz - q;
+    const nv = segX + 1;
+    const i0 = (q * nv + p) * 3 + 1;
+    const i1 = i0 + 3;
+    const i2 = i0 + nv * 3;
+    const i3 = i2 + 3;
+    const y00 = pos[i0];
+    const y10 = pos[i1];
+    const y01 = pos[i2];
+    const y11 = pos[i3];
+    if (tx + tz <= 1) return y00 + (y10 - y00) * tx + (y01 - y00) * tz;
+    return y11 + (y01 - y11) * (1 - tx) + (y10 - y11) * (1 - tz);
+  }
+
+  /** Height of the terrain mesh currently drawn on screen (detail chunk triangles once visible, else overview/mirror triangles). */
+  function sampleRenderedTerrainY(x, z) {
     if (corridor && isGaleSite()) {
       const cell = corridor.subSceneCellOf(x, z, CHUNK_SUBDIV);
       const cm = chunkMeshes.get(`${cell.a},${cell.b}`);
       if (cm && cm.ready && cm.mesh.visible) {
+        const { chunkW: subW, chunkH: subH } = corridor.subCellSize(CHUNK_SUBDIV);
+        const x0 = -corridor.worldW / 2 + cm.a * subW;
+        const z0 = -corridor.worldH / 2 + cm.b * subH;
+        const y = sampleGridGeometryY(cm.mesh.geometry, x0, z0, subW, subH, cm.seg, cm.seg, x, z);
+        if (y !== null) return y;
         const d = corridor.sampleDetail(x, z);
-        rawY = d !== null ? d - elevMin : sampleBaseSceneY(x, z);
-      } else {
-        rawY = sampleBaseSceneY(x, z);
+        return withHabitat(x, z, d !== null ? d - elevMin : sampleBaseSceneY(x, z));
       }
-    } else {
-      rawY = sampleBaseSceneY(x, z);
     }
-    return habitatStation.group.visible ? habitatStation.sampleElevWithHabitat(x, z, rawY) : rawY;
+    if (Math.abs(x) <= worldW * 0.5 && Math.abs(z) <= worldH * 0.5) {
+      const y = sampleGridGeometryY(terrainGeom, -worldW * 0.5, -worldH * 0.5, worldW, worldH, fullSeg, fullSegZ, x, z);
+      if (y !== null) return y;
+      return withHabitat(x, z, sampleBaseSceneY(x, z));
+    }
+    const ci = Math.round((x - endless.position.x) / worldW);
+    const cj = Math.round((z - endless.position.z) / worldH);
+    const ring = Math.max(Math.abs(ci), Math.abs(cj));
+    if (ring === 0 && endless.userData.centre?.visible) {
+      const lx = x - endless.position.x;
+      const lz = z - endless.position.z;
+      const y = sampleGridGeometryY(terrainGeom, -worldW * 0.5, -worldH * 0.5, worldW, worldH, fullSeg, fullSegZ, lx, lz);
+      if (y !== null) return y;
+    }
+    const sx = ci % 2 === 0 ? 1 : -1;
+    const sz = cj % 2 === 0 ? 1 : -1;
+    const lx = (x - (endless.position.x + ci * worldW)) * sx;
+    const lz = (z - (endless.position.z + cj * worldH)) * sz;
+    const copyG = ring <= 1 ? ringCopyGeom : copyGeom;
+    const cSegX = ring <= 1 ? fullSeg : copySeg;
+    const cSegZ = ring <= 1 ? fullSegZ : copySegZ;
+    const y = sampleGridGeometryY(copyG, -worldW * 0.5, -worldH * 0.5, worldW, worldH, cSegX, cSegZ, lx, lz);
+    return y !== null ? y : sampleBaseSceneY(x, z);
+  }
+
+  /** Height of the terrain mesh currently drawn on screen (including habitat decks and ramps). */
+  function sampleRenderedSurfaceY(x, z) {
+    const groundY = sampleRenderedTerrainY(x, z);
+    if (!habitatStation.group.visible) return groundY;
+    const deckY = habitatStation.sampleDeckElev(x, z);
+    return deckY !== null ? Math.max(groundY, deckY) : groundY;
   }
 
   // ---------- route ----------
@@ -2059,7 +2117,7 @@ export async function initHud3D(
     const group = entry.group;
     const P = roverParamsForHistoric(spec);
     const sim = createRoverDynamics(THREE, P);
-    sim.reset(group.position.x, group.position.z, group.rotation.y, sampleElevSceneY);
+    sim.reset(group.position.x, group.position.z, group.rotation.y, sampleRenderedSurfaceY);
     const label = String(spec.name || spec.id).toUpperCase();
     const rig = {
       sync() {
@@ -2166,8 +2224,8 @@ export async function initHud3D(
     for (const dp of bays.drivablePlacements) {
       const target = dp.vehicleType === "nasa_concept" ? roverConcept : roverMmsev;
       target.group.visible = habitatStation.group.visible;
-      target.placeAt(dp.x, dp.z, dp.yaw, sampleElevSceneY);
-      target.update(0.016, { sampleElevY: sampleElevSceneY, speed: 0, steer: 0, driving: false, physicsEnabled: false });
+      target.placeAt(dp.x, dp.z, dp.yaw, sampleRenderedSurfaceY);
+      target.update(0.016, { sampleElevY: sampleRenderedSurfaceY, speed: 0, steer: 0, driving: false, physicsEnabled: false });
 
       // Static Anchor Rule: NPC 1 (MMSEV) & NPC 2 (NASA Concept) stay fixed at initial bay spots
       // even when the player enters and drives either rover away.
@@ -2183,7 +2241,7 @@ export async function initHud3D(
     stationedAtHabitat = true;
     const bays = habitatStation.getBayPlacements();
     historicRovers.spawnAllScattered(bays.historicPlacements, {
-      sampleElevY: sampleElevSceneY,
+      sampleElevY: sampleRenderedSurfaceY,
       focusId: activeSiteId,
     });
     if (includeDrivable) stationDrivableRoversAtHabitat({ resetNpcAnchors });
@@ -2205,7 +2263,7 @@ export async function initHud3D(
       maxSlopeDeg: 16,
     });
     historicRovers.spawnAllScattered(placements, {
-      sampleElevY: sampleElevSceneY,
+      sampleElevY: sampleRenderedSurfaceY,
       focusId: activeSiteId,
     });
     npcManager.syncHistoricRoverNpcs(historicRovers, { bayCenter: { x: originX, z: originZ } });
@@ -2725,9 +2783,20 @@ export async function initHud3D(
     if (!corridor || !isGaleSite() || !player.init) return;
     const cell = corridor.subSceneCellOf(phys.x, phys.z, CHUNK_SUBDIV);
     if (cell.a === chunk.a && cell.b === chunk.b && phys.grounded) {
-      phys.y = sampleElevSceneY(phys.x, phys.z);
+      phys.y = sampleRenderedSurfaceY(phys.x, phys.z);
       syncPlayerFromPhys();
     }
+    const checkRoverChunk = (drv) => {
+      if (!drv?.group?.visible || !drv.sim?.setPosition) return;
+      const gx = drv.group.position.x;
+      const gz = drv.group.position.z;
+      const rc = corridor.subSceneCellOf(gx, gz, CHUNK_SUBDIV);
+      if (Math.abs(rc.a - chunk.a) <= 1 && Math.abs(rc.b - chunk.b) <= 1) {
+        drv.sim.setPosition(gx, gz, sampleRenderedSurfaceY);
+      }
+    };
+    for (const drvR of drivableRovers) checkRoverChunk(drvR);
+    if (activeDriveRover?.isHistoricAdapter) checkRoverChunk(activeDriveRover);
     footsteps.reprojectAll(sampleRenderedSurfaceY, sampleNormal);
   };
   let drivingRover = false;
@@ -3235,7 +3304,7 @@ export async function initHud3D(
         snapPhys(p.x, p.z);
         if (devCfg.experimentalRover && activeDriveRover) {
           activeDriveRover.group.visible = true;
-          activeDriveRover.spawnBeside(p.x, p.z, userYaw, sampleElevSceneY);
+          activeDriveRover.spawnBeside(p.x, p.z, userYaw, sampleRenderedSurfaceY);
           roverDynState.yaw = activeDriveRover.group.rotation.y;
         }
       }
@@ -3410,7 +3479,7 @@ export async function initHud3D(
         activeDriveRover = rInstance;
         drivingRover = true;
         resetRoverMotionState();
-        rInstance.sim.reset(rInstance.group.position.x, rInstance.group.position.z, rInstance.group.rotation.y, sampleElevSceneY);
+        rInstance.sim.reset(rInstance.group.position.x, rInstance.group.position.z, rInstance.group.rotation.y, sampleRenderedSurfaceY);
         prevFirstPersonPitch = pitch;
         pitch = -0.25;
         autoYaw = 0;
@@ -3560,17 +3629,20 @@ export async function initHud3D(
     galeStopsGroup.visible = gale;
     fieldKits.visible = gfx.sceneDetail && gale;
     galeVista.visible = gfx.sceneDetail && gale;
-    const nextMain = buildTerrainGeometry(fullSeg, fullSegZ);
-    const nextCopy = buildTerrainGeometry(copySeg, copySegZ);
+    const nextMain = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: true });
+    const nextRingCopy = buildTerrainGeometry(fullSeg, fullSegZ, { includeHabitat: false });
+    const nextCopy = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
     terrainMesh.geometry = nextMain;
     for (const child of endless.children) {
       if (child.isMesh) {
-        child.geometry = child === endless.userData.centre ? nextMain : nextCopy;
+        child.geometry = child === endless.userData.centre ? nextMain : child.userData.ring <= 1 ? nextRingCopy : nextCopy;
       }
     }
     terrainGeom.dispose();
+    ringCopyGeom.dispose();
     copyGeom.dispose();
     terrainGeom = nextMain;
+    ringCopyGeom = nextRingCopy;
     copyGeom = nextCopy;
 
     if (gale) {
@@ -3685,7 +3757,7 @@ export async function initHud3D(
       pitch = -0.09;
 
       if (devCfg.experimentalRover && activeDriveRover?.group?.visible && !stationedAtHabitat) {
-        activeDriveRover.spawnBeside(standX, standZ, userYaw + Math.PI * 0.5, sampleElevSceneY);
+        activeDriveRover.spawnBeside(standX, standZ, userYaw + Math.PI * 0.5, sampleRenderedSurfaceY);
         roverDynState.yaw = activeDriveRover.group.rotation.y;
       }
     }
@@ -3748,7 +3820,7 @@ export async function initHud3D(
     let radius = Math.max(hw.lengthM, hw.widthM) * 0.5;
     let landerObj = null;
     if (hw.kind === "rover") {
-      historicRovers.spawnForSite(getHistoricRoverById(hw.id), { x: 0, z: 0, yaw: Math.PI, sampleElevY: sampleElevSceneY });
+      historicRovers.spawnForSite(getHistoricRoverById(hw.id), { x: 0, z: 0, yaw: Math.PI, sampleElevY: sampleRenderedSurfaceY });
     } else {
       landerObj = buildLanderById(THREE, hw.id);
       if (landerObj) {
@@ -3781,7 +3853,7 @@ export async function initHud3D(
     for (const r of drivableRovers) r.group.visible = false;
     if (bringRover && activeDriveRover?.group) {
       activeDriveRover.group.visible = true;
-      activeDriveRover.spawnBeside(padX + 2.2, padZ + 2.0, Math.PI * 0.5, sampleElevSceneY);
+      activeDriveRover.spawnBeside(padX + 2.2, padZ + 2.0, Math.PI * 0.5, sampleRenderedSurfaceY);
       roverDynState.yaw = activeDriveRover.group.rotation.y;
       stationedAtHabitat = false;
     }
@@ -4234,7 +4306,7 @@ export async function initHud3D(
           activeDriveRover.group.position.x,
           activeDriveRover.group.position.z,
           activeDriveRover.group.rotation.y,
-          sampleElevSceneY
+          sampleRenderedSurfaceY
         );
         prevFirstPersonPitch = pitch;
         pitch = -0.25;
@@ -4675,7 +4747,7 @@ export async function initHud3D(
     for (const r of drivableRovers) r.group.visible = wantRover || keepHabitatVisible;
     if (wantRover && !roverWasOn && activeDriveRover) {
       resetRoverMotionState();
-      activeDriveRover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleElevSceneY);
+      activeDriveRover.spawnBeside(freePos.x, freePos.z, autoYaw + userYaw, sampleRenderedSurfaceY);
       roverDynState.yaw = activeDriveRover.group.rotation.y;
       nearRoverPrompted = false;
       if (hudView.classList.contains("active")) {
@@ -4799,7 +4871,7 @@ export async function initHud3D(
   // `park` lets the dynamics put a rover that has settled on its springs to sleep
   const PARKED_INPUT = Object.freeze({ throttle: 0, steer: 0, boost: false, handbrake: true, park: true });
   const wheelNormal = { x: 0, y: 1, z: 0 };
-  const roverEnv = { sampleY: sampleElevSceneY, sampleNormal: (x, z) => sampleNormal(x, z, wheelNormal) };
+  const roverEnv = { sampleY: sampleRenderedSurfaceY, sampleNormal: (x, z) => sampleNormal(x, z, wheelNormal) };
   const dashStruts = [0, 0, 0, 0, 0, 0];
   const strikes = [];
   const gaitDirScratch = { f: 0, s: 0 };
@@ -4914,7 +4986,7 @@ export async function initHud3D(
         const pushOut = (x, z, radius, y) => {
           const hit = activeDriveRover.resolveCollision(x, z, radius, y);
           if (!hit.hit) return;
-          sim.setPosition(rs.pos.x - hit.nx * hit.pen, rs.pos.z - hit.nz * hit.pen);
+          sim.setPosition(rs.pos.x - hit.nx * hit.pen, rs.pos.z - hit.nz * hit.pen, roverEnv.sampleY);
           sim.scaleVelocity(0.25);
           rig.sync();
         };
@@ -4929,7 +5001,7 @@ export async function initHud3D(
         if (habitatStation.group.visible) {
           const hitHab = habitatStation.resolveCollision(rs.pos.x, rs.pos.z, 1.75, rs.pos.y);
           if (hitHab.hit) {
-            sim.setPosition(hitHab.x, hitHab.z);
+            sim.setPosition(hitHab.x, hitHab.z, roverEnv.sampleY);
             sim.scaleVelocity(0.25);
             rig.sync();
           }
@@ -4950,7 +5022,7 @@ export async function initHud3D(
         // endless terrain: the wrap moves activeDriveRover.group; carry the simulation with it
         applySeamlessWorldWrap(activeDriveRover.group.position.x, activeDriveRover.group.position.z);
         if (activeDriveRover.group.position.x !== rs.pos.x || activeDriveRover.group.position.z !== rs.pos.z) {
-          sim.setPosition(activeDriveRover.group.position.x, activeDriveRover.group.position.z);
+          sim.setPosition(activeDriveRover.group.position.x, activeDriveRover.group.position.z, roverEnv.sampleY);
           rig.sync();
         }
 
@@ -4983,7 +5055,7 @@ export async function initHud3D(
         // dust when a wheel lands hard or the rover touches down after a crest
         if (rs.landingImpact > 1.0 && devCfg.realisticDust) {
           const rYawL = att.yaw;
-          marsFx.emitJumpBurst(rs.pos.x, sampleElevSceneY(rs.pos.x, rs.pos.z), rs.pos.z, {
+          marsFx.emitJumpBurst(rs.pos.x, sampleRenderedSurfaceY(rs.pos.x, rs.pos.z), rs.pos.z, {
             mode: "land",
             impactSpeed: Math.max(1.2, rs.landingImpact * 1.15),
             rightX: Math.cos(rYawL),
@@ -5033,7 +5105,7 @@ export async function initHud3D(
           if (idleDrv === activeDriveRover || !idleDrv.group.visible) continue;
           const rsIdle = idleDrv.sim.state;
           if (Math.hypot(rsIdle.pos.x - idleDrv.group.position.x, rsIdle.pos.z - idleDrv.group.position.z) > 0.5) {
-            idleDrv.sim.reset(idleDrv.group.position.x, idleDrv.group.position.z, idleDrv.group.rotation.y, sampleElevSceneY);
+            idleDrv.sim.reset(idleDrv.group.position.x, idleDrv.group.position.z, idleDrv.group.rotation.y, sampleRenderedSurfaceY);
           }
           if (idleDrv.sim.step(dt, PARKED_INPUT, roverEnv)) idleDrv.rig.sync();
         }
@@ -5052,7 +5124,7 @@ export async function initHud3D(
           const emit = activeDriveRover.getWheelDustEmitPoint(sideSign);
           marsFx.emitBurst(
             emit.x,
-            sampleElevSceneY(emit.x, emit.z),
+            sampleRenderedSurfaceY(emit.x, emit.z),
             emit.z,
             Math.min(7, burstCount),
             Math.min(2.15, 0.72 + speedMag * 0.13),
@@ -5186,7 +5258,7 @@ export async function initHud3D(
         // parked: settle briefly on its springs, then sleep until moved/re-seeded
         const rsP = drvR.sim.state;
         if (Math.hypot(rsP.pos.x - drvR.group.position.x, rsP.pos.z - drvR.group.position.z) > 0.5) {
-          drvR.sim.reset(drvR.group.position.x, drvR.group.position.z, drvR.group.rotation.y, sampleElevSceneY);
+          drvR.sim.reset(drvR.group.position.x, drvR.group.position.z, drvR.group.rotation.y, sampleRenderedSurfaceY);
         }
         if (drvR.sim.step(dt, PARKED_INPUT, roverEnv)) drvR.rig.sync();
         const distR = Math.hypot(freePos.x - drvR.group.position.x, freePos.z - drvR.group.position.z);
@@ -5635,7 +5707,7 @@ export async function initHud3D(
     updateMoons(camera.position);
     footsteps.update(dt, phys.g || surfaceG);
     rockField.update(px, pz, sampleElevSceneY, gfx.sceneDetail, habitatStation?.isOnFootprint);
-    historicRovers.update(dt, { sampleElevY: sampleElevSceneY, observerPos: camera.position, clockT });
+    historicRovers.update(dt, { sampleElevY: sampleRenderedSurfaceY, observerPos: camera.position, clockT });
     const detailLodR = gfx.level === "low" ? 14 : gfx.level === "medium" ? 18 : 26;
     if (roverMmsev?.nasaModelRoot) {
       const dxM = roverMmsev.group.position.x - camera.position.x;
@@ -5772,8 +5844,9 @@ export async function initHud3D(
     if (landing.active) {
       followEndless(freePos);
     } else {
-      followEndless(camera.position);
-      updateCorridorChunks(camera.position.x, camera.position.z, dt);
+      const chunkFocus = drivingRover && activeDriveRover?.group ? activeDriveRover.group.position : camera.position;
+      followEndless(chunkFocus);
+      updateCorridorChunks(chunkFocus.x, chunkFocus.z, dt);
     }
 
     goldSlide += (goldVisor - goldSlide) * Math.min(1, dt * 6.0);

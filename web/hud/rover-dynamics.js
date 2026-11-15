@@ -215,22 +215,42 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
   const euler = new THREE.Euler(0, 0, 0, "YXZ");
   const cgLocal = new THREE.Vector3(0, P.cgY, P.cgZ);
   const cgWorld = new THREE.Vector3();
-  // belly and bumper points (ground clearance ~0.55 m, like a high-riding pressurised rover)
-  const probe = [
-    [-0.9, 0.62, -2.25],
-    [0.9, 0.62, -2.25],
-    [-0.9, 0.62, 2.3],
-    [0.9, 0.62, 2.3],
-    [0, 0.55, 0.37],
-    [-0.8, 0.55, -1.0],
-    [0.8, 0.55, -1.0],
-    [-0.8, 0.55, 1.6],
-    [0.8, 0.55, 1.6],
-    [-1.1, 1.8, -1.6],
-    [1.1, 1.8, -1.6],
-    [-1.1, 1.8, 1.8],
-    [1.1, 1.8, 1.8],
-  ];
+  // belly, bumper, rocker, and roof probes scaled to the active vehicle's actual chassis footprint
+  const probe = (() => {
+    const ps = P.probeScale;
+    const hl = (P.dims?.l || 4.6) * 0.5;
+    const hw = (P.dims?.w || 2.6) * 0.5;
+    const a0 = P.axleZ[0];
+    const a1 = P.axleZ[1];
+    const a2 = P.axleZ[2];
+    const zFront = ps ? -2.25 * ps : Math.min(-hl * 0.96, a0 - P.wheelRadius * 0.85);
+    const zRear = ps ? 2.3 * ps : Math.max(hl * 0.96, a2 + P.wheelRadius * 0.85);
+    const xSide = ps ? 0.9 * ps : Math.min(P.trackHalfW * 0.85, hw * 0.72);
+    const xBumper = xSide * 0.9;
+    const xRoof = ps ? 1.1 * ps : Math.min(P.trackHalfW * 0.95, hw * 0.82);
+    const byLow = ps ? 0.55 * ps : 0.52;
+    const byBumper = ps ? 0.62 * ps : 0.58;
+    const byRoof = ps ? 1.8 * ps : Math.max(1.75, (P.dims?.h || 2.2) * 0.72);
+    const pts = [
+      [-xBumper, byBumper, zFront],
+      [0, byBumper, zFront],
+      [xBumper, byBumper, zFront],
+      [-xBumper, byBumper, zRear],
+      [0, byBumper, zRear],
+      [xBumper, byBumper, zRear],
+    ];
+    for (const z of [zFront * 0.55 + a0 * 0.45, 0.5 * (a0 + a1), a1, 0.5 * (a1 + a2), zRear * 0.55 + a2 * 0.45]) {
+      pts.push([-xSide, byLow, z], [0, byLow, z], [xSide, byLow, z]);
+    }
+    pts.push(
+      [-xRoof, byRoof, a0 * 1.1],
+      [xRoof, byRoof, a0 * 1.1],
+      [-xRoof, byRoof, a2 * 1.05],
+      [xRoof, byRoof, a2 * 1.05],
+      [0, byRoof * 1.08, P.cgZ]
+    );
+    return pts;
+  })();
 
   /** Put the rover at rest on the ground at (x, z), facing yaw. */
   function reset(x, z, yaw, sampleY) {
@@ -345,6 +365,8 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     const coastRegen = st.pedal === 0 && st.brake < 0.05 ? -Math.sign(vLong) * Math.min(1, speed / 0.6) * m * P.regenCoastG : 0;
 
     let contacts = 0;
+    let maxHardPen = 0;
+    const minLen = P.restLen * 0.05;
     for (const wh of wheels) {
       // strut top in world space
       mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
@@ -356,7 +378,11 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
         const gy = sampleY(hx, hz);
         len = Math.min(P.restLen, (mountW.y - gy - P.wheelRadius) / Math.max(0.3, up.y));
       }
-      const comp = Math.min(P.restLen * 0.95, P.restLen - len); // a strut cannot shorten past its body
+      if (up.y > 0.45 && len < minLen) {
+        maxHardPen = Math.max(maxHardPen, (minLen - len) * up.y - 0.015);
+      }
+      const clampedLen = Math.max(minLen, len);
+      const comp = P.restLen - clampedLen; // a strut cannot shorten past its body
       const prevComp = wh.comp;
       if (comp <= 0) {
         wh.contact = false;
@@ -372,7 +398,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       wh.contact = true;
       wh.comp = comp;
       wh.compVel = Math.max(-4, Math.min(4, (comp - prevComp) / dt));
-      wh.hubY = mountY - len;
+      wh.hubY = mountY - clampedLen;
 
       // contact point and its velocity
       const cx = mountW.x - up.x * (len + P.wheelRadius);
@@ -435,20 +461,29 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       wh.omega += (targetOmega - wh.omega) * Math.min(1, dt * 25);
     }
 
-    // chassis / belly against the terrain (rocks, crests): stiff penalty contact
-    const ps = P.probeScale || 1;
+    // chassis / belly against the terrain (rocks, crests, steep crater walls): normal-aware penalty + hard floor
     for (const [bx, by, bz] of probe) {
-      tmp.set(bx * ps, by * ps, bz * ps).applyQuaternion(st.q).add(st.pos);
+      tmp.set(bx, by, bz).applyQuaternion(st.q).add(st.pos);
       const gy = sampleY(tmp.x, tmp.z);
       const pen = gy - tmp.y;
       if (pen <= 0) continue;
+      maxHardPen = Math.max(maxHardPen, pen - 0.015);
       r.copy(tmp).sub(cgWorld);
       vPoint.crossVectors(st.angVel, r).add(st.vel);
-      const fn = Math.max(0, m * 40 * pen - m * 6 * Math.min(0, vPoint.y));
-      // sliding friction on the belly / bumper, never more than mu * normal force
-      const vt = Math.hypot(vPoint.x, vPoint.z);
-      const ft = vt > 1e-4 ? Math.min(0.45 * fn, m * 2 * vt) / vt : 0;
-      F.set(-vPoint.x * ft, fn, -vPoint.z * ft);
+      const pn = env.sampleNormal(tmp.x, tmp.z);
+      const nny = Math.max(0.42, pn.y);
+      const invN = 1 / Math.hypot(pn.x, nny, pn.z);
+      const nx = pn.x * invN;
+      const ny = nny * invN;
+      const nz = pn.z * invN;
+      const vn = vPoint.x * nx + vPoint.y * ny + vPoint.z * nz;
+      const fn = Math.max(0, m * 55 * pen - m * 8 * Math.min(0, vn));
+      const vtx = vPoint.x - vn * nx;
+      const vty = vPoint.y - vn * ny;
+      const vtz = vPoint.z - vn * nz;
+      const vt = Math.hypot(vtx, vty, vtz);
+      const ft = vt > 1e-4 ? Math.min(0.45 * fn, m * 2.5 * vt) / vt : 0;
+      F.set(nx * fn - vtx * ft, ny * fn - vty * ft, nz * fn - vtz * ft);
       force.add(F);
       torque.add(tmp.crossVectors(r, F));
     }
@@ -482,6 +517,13 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
       st.q.premultiply(dq).normalize();
     }
     st.pos.copy(cgWorld).sub(tmp.copy(cgLocal).applyQuaternion(st.q));
+    if (maxHardPen > 0) {
+      const pushY = Math.min(maxHardPen, 4.0);
+      st.pos.y += pushY;
+      cgWorld.y += pushY;
+      if (st.vel.y < 0) st.vel.y *= 0.15;
+      st.airborne = false;
+    }
 
     if (st.airborne) st.airTime += dt;
     else {
@@ -522,6 +564,13 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
   let restT = 0;
   let sleepCheckT = 0;
   let sleepGroundY = 0;
+  let sleepGroundF = 0;
+  let sleepGroundR = 0;
+  function sampleSleepEndY(env, isFront) {
+    fwd.set(0, 0, -1).applyQuaternion(st.q);
+    const along = isFront ? Math.abs(P.axleZ[0]) + P.wheelRadius : -(Math.abs(P.axleZ[2]) + P.wheelRadius);
+    return env.sampleY(st.pos.x + fwd.x * along, st.pos.z + fwd.z * along);
+  }
   function wake() {
     asleep = false;
     restT = 0;
@@ -532,11 +581,20 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     if (asleep) {
       if (inp.park !== true) wake();
       else {
-        // terrain detail can stream in under a parked rover: look at the ground twice a second
+        // terrain detail can stream in under a parked rover: check center, front, and rear twice a second
         sleepCheckT += frameDt;
         if (sleepCheckT < 0.5) return false;
         sleepCheckT = 0;
-        if (Math.abs(env.sampleY(st.pos.x, st.pos.z) - sleepGroundY) < 0.02) return false;
+        const gC = env.sampleY(st.pos.x, st.pos.z);
+        const gF = sampleSleepEndY(env, true);
+        const gR = sampleSleepEndY(env, false);
+        if (
+          Math.abs(gC - sleepGroundY) < 0.02 &&
+          Math.abs(gF - sleepGroundF) < 0.02 &&
+          Math.abs(gR - sleepGroundR) < 0.02
+        ) {
+          return false;
+        }
         wake();
       }
     }
@@ -553,6 +611,8 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
         asleep = true;
         sleepCheckT = 0;
         sleepGroundY = env.sampleY(st.pos.x, st.pos.z);
+        sleepGroundF = sampleSleepEndY(env, true);
+        sleepGroundR = sampleSleepEndY(env, false);
         st.vel.set(0, 0, 0);
         st.angVel.set(0, 0, 0);
       }
@@ -580,12 +640,26 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     get asleep() {
       return asleep;
     },
+    wake,
     attitude,
-    /** Rover was moved from outside (world wrap, collision push): keep velocities, take the new spot. */
-    setPosition(x, z) {
+    /** Rover was moved from outside (world wrap, collision push): keep velocities, keep ground clearance on the new spot. */
+    setPosition(x, z, sampleY = null) {
       wake();
       st.pos.x = x;
       st.pos.z = z;
+      if (typeof sampleY === "function") {
+        fwd.set(0, 0, -1).applyQuaternion(st.q);
+        const reachF = Math.abs(P.axleZ[0]) + P.wheelRadius * 0.5;
+        const reachR = Math.abs(P.axleZ[2]) + P.wheelRadius * 0.5;
+        const gC = sampleY(x, z);
+        const gF = sampleY(x + fwd.x * reachF, z + fwd.z * reachF);
+        const gR = sampleY(x - fwd.x * reachR, z - fwd.z * reachR);
+        const minY = Math.max(gC - 0.02, Math.max(gF, gR) - (P.restLen - P.sagM) - 0.05);
+        if (st.pos.y < minY) {
+          st.pos.y = minY;
+          if (st.vel.y < 0) st.vel.y = 0;
+        }
+      }
     },
     scaleVelocity(s) {
       wake();

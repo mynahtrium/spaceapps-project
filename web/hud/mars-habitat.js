@@ -2088,11 +2088,17 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
     return baseY + (rawTerrainY - baseY) * s;
   }
 
+  /** Deck or ramp world Y at (x, z), or null outside station decks/ramps. */
+  function sampleDeckElev(x, z) {
+    const deck = deckHeightLocal(x - baseX, z - baseZ);
+    return deck == null ? null : baseY + deck;
+  }
+
   /** What a walker or rover stands on: deck, dormitory deck, ramps, or the levelled pad. */
   function sampleElevWithHabitat(x, z, rawTerrainY) {
     const ground = sampleTerrainWithHabitat(x, z, rawTerrainY);
-    const deck = deckHeightLocal(x - baseX, z - baseZ);
-    return deck == null ? ground : Math.max(ground, baseY + deck);
+    const deckY = sampleDeckElev(x, z);
+    return deckY == null ? ground : Math.max(ground, deckY);
   }
 
   function zoneAt(x, z) {
@@ -2405,6 +2411,7 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
       return baseZ;
     },
     setBasePose,
+    sampleDeckElev,
     sampleElevWithHabitat,
     sampleTerrainWithHabitat,
     resolveCollision,
