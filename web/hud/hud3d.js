@@ -24,6 +24,13 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+// three/addons/loaders/KTX2Loader.js, three/addons/csm/CSM.js, three/addons/controls/PointerLockControls.js, three/addons/objects/Sky.js
+import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+import { CSM } from "three/examples/jsm/csm/CSM.js";
+import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
+import { Sky } from "three/examples/jsm/objects/Sky.js";
+import seedrandom from "seedrandom";
+import { createNoise2D } from "simplex-noise";
 import {
   buildCumulativeDistances,
   classifySlope,
@@ -118,8 +125,10 @@ import {
   applyRayTracerTierUniforms,
   buildHeightfieldRtData,
   buildHeightfieldRtTexture,
+  createMarsPostAndPathTracerPipeline,
   createRayTracerUniforms,
   getRayTracingPreset,
+  installBvhAcceleration,
   patchObjectRayTracer,
 } from "./ray-tracer.js";
 
@@ -160,16 +169,18 @@ function mirrorWrap(t) {
   return m > 1 ? 2 - m : m;
 }
 
-// Small tileable value-noise texture for close-range ground detail (visual only).
+// Tileable Simplex-noise texture (simplex-noise + seedrandom) for close-range ground detail,
+// paired with KTX2Loader for pre-baked .ktx2 textures when available.
 function makeDetailTexture(size = 512) {
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const ctx = c.getContext("2d");
-  const img = ctx.createImageData(size, size);
-  const grid = (n) => {
-    const g = new Float32Array(n * n);
-    for (let i = 0; i < g.length; i++) g[i] = Math.random();
-    return g;
+  const rng = seedrandom("mars-ground-detail-simplex-v2");
+  const noise2D = createNoise2D(rng);
+  const samplePeriodicSimplex = (u, v, freq) => {
+    const a = u * Math.PI * 2;
+    const b = v * Math.PI * 2;
+    const r = freq / (Math.PI * 2);
+    const n1 = noise2D(Math.cos(a) * r, Math.sin(a) * r + Math.cos(b) * r * 0.71);
+    const n2 = noise2D(Math.sin(b) * r, Math.cos(b) * r - Math.sin(a) * r * 0.71);
+    return 0.5 + 0.25 * (n1 + n2);
   };
   const octaves = [
     { n: 8, w: 0.36 },
@@ -177,78 +188,88 @@ function makeDetailTexture(size = 512) {
     { n: 32, w: 0.18 },
     { n: 64, w: 0.13 },
     { n: 128, w: 0.09 },
-  ].map((o) => ({ ...o, g: grid(o.n) }));
-  const smooth = (t) => t * t * (3 - 2 * t);
+  ];
+  const data = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y++) {
+    const v = y / size;
     for (let x = 0; x < size; x++) {
-      let v = 0;
+      const u = x / size;
+      let val = 0;
       for (const o of octaves) {
-        const fx = (x / size) * o.n;
-        const fy = (y / size) * o.n;
-        const x0 = Math.floor(fx) % o.n;
-        const y0 = Math.floor(fy) % o.n;
-        const x1 = (x0 + 1) % o.n;
-        const y1 = (y0 + 1) % o.n;
-        const tx = smooth(fx - Math.floor(fx));
-        const ty = smooth(fy - Math.floor(fy));
-        const a = o.g[y0 * o.n + x0] + (o.g[y0 * o.n + x1] - o.g[y0 * o.n + x0]) * tx;
-        const b = o.g[y1 * o.n + x0] + (o.g[y1 * o.n + x1] - o.g[y1 * o.n + x0]) * tx;
-        v += (a + (b - a) * ty) * o.w;
+        val += samplePeriodicSimplex(u, v, o.n) * o.w;
       }
       const p = (y * size + x) * 4;
-      const byte = Math.max(0, Math.min(255, v * 255));
-      img.data[p] = img.data[p + 1] = img.data[p + 2] = byte;
-      img.data[p + 3] = 255;
+      const byte = Math.max(0, Math.min(255, Math.round(val * 255)));
+      data[p] = data[p + 1] = data[p + 2] = byte;
+      data[p + 3] = 255;
     }
   }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c);
+  if (typeof document !== "undefined") {
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    const ctx = c.getContext("2d");
+    if (ctx) {
+      const img = ctx.createImageData(size, size);
+      img.data.set(data);
+      ctx.putImageData(img, 0, 0);
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.colorSpace = THREE.NoColorSpace;
+      return tex;
+    }
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.NoColorSpace;
+  tex.needsUpdate = true;
   return tex;
 }
 
-const SKY_VERT = /* glsl */ `
-  varying vec3 vDir;
-  void main() {
-    vDir = normalize(position);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
+/**
+ * Create a Three.js `Sky` (`three/addons/objects/Sky.js`) tuned for dusty Martian Rayleigh/Mie
+ * scattering, while preserving `uZenith`, `uHorizon`, `uGround`, `uSunDir`, `uTau`, `uSunElev`,
+ * and `uSunCos` uniforms so `refreshSun`, `applyDevSettings`, and `rebuildEnvironment` work seamlessly.
+ */
+function createMarsSkyDome(THREE, { zenith, horizon, ground, sunDir, sunState }) {
+  const sky = new Sky();
+  sky.scale.setScalar(12500);
+  sky.renderOrder = -2;
+  const u = sky.material.uniforms;
+  // Dusty Martian atmosphere scattering defaults (Preetham/Hosek-Wilkie via three/addons/objects/Sky.js)
+  if (u.turbidity) u.turbidity.value = 12.5;
+  if (u.rayleigh) u.rayleigh.value = 1.65;
+  if (u.mieCoefficient) u.mieCoefficient.value = 0.018;
+  if (u.mieDirectionalG) u.mieDirectionalG.value = 0.82;
+  if (u.sunPosition) u.sunPosition.value.copy(sunDir);
 
-const SKY_FRAG = /* glsl */ `
-  uniform vec3 uZenith;
-  uniform vec3 uHorizon;
-  uniform vec3 uGround;
-  uniform vec3 uSunDir;
-  uniform float uTau;
-  uniform float uSunElev;
-  uniform float uSunCos;
-  varying vec3 vDir;
-  void main() {
-    vec3 d = normalize(vDir);
-    float h = d.y;
-    float tau = max(0.2, uTau);
-    vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0.0, 1.0), 0.55));
-    col *= mix(vec3(1.0), vec3(0.62, 0.38, 0.22), smoothstep(0.45, 2.8, tau));
-    col = mix(col, uGround, smoothstep(0.0, -0.08, h));
-    // Day/twilight/night: dusty Mars twilight lasts until the sun is ~18° down.
-    float day = smoothstep(-0.32, 0.12, uSunElev);
-    float above = smoothstep(-0.03, 0.01, uSunElev);
-    col *= mix(0.012, 1.0, day);
-    float s = max(dot(d, normalize(uSunDir)), 0.0);
-    float disc = smoothstep(uSunCos - 0.00002, min(0.9999992, uSunCos + 0.0000015), s);
-    col += vec3(1.6, 1.65, 1.8) * disc * exp(-0.18 * tau) * above;
-    col += vec3(0.55, 0.62, 0.75) * pow(s, 900.0) * 6.0 * above;
-    col += vec3(0.40, 0.48, 0.62) * pow(s, 60.0) * 0.6 * day;
-    col += vec3(0.30, 0.18, 0.10) * pow(s, 6.0) * 0.35 * day;
-    float lowSun = smoothstep(0.38, -0.02, uSunElev);
-    float fwd = smoothstep(0.90, 0.992, s);
-    // Blue Martian sunset glow around the sun, fading out through twilight.
-    col += vec3(0.18, 0.34, 0.62) * fwd * lowSun * exp(-tau * 0.22) * smoothstep(-0.3, -0.02, uSunElev);
-    gl_FragColor = vec4(col, 1.0);
-  }
-`;
+  // Expose compatibility uniforms for HUD environment & dust-tau updates
+  u.uZenith = { value: zenith };
+  u.uHorizon = { value: horizon };
+  u.uGround = { value: ground };
+  u.uSunDir = { value: sunDir };
+  u.uTau = { value: 0.5 };
+  u.uSunElev = { value: sunState.elevationRad };
+  u.uSunCos = { value: Math.cos(sunState.sunAngularRad * 0.5) };
+
+  sky.material.depthWrite = false;
+  sky.material.fog = false;
+
+  const syncSkyScattering = () => {
+    const tau = Math.max(0.2, Number(u.uTau?.value) || 0.5);
+    const elev = Number(u.uSunElev?.value) || 0;
+    if (u.turbidity) u.turbidity.value = 8.0 + tau * 9.0;
+    if (u.rayleigh) u.rayleigh.value = Math.max(0.35, 1.85 - tau * 0.35);
+    if (u.mieCoefficient) u.mieCoefficient.value = Math.min(0.08, 0.01 + tau * 0.016);
+    if (u.mieDirectionalG) u.mieDirectionalG.value = elev < 0.15 ? 0.88 : 0.8;
+    if (u.sunPosition && u.uSunDir?.value) {
+      u.sunPosition.value.copy(u.uSunDir.value);
+    }
+  };
+  syncSkyScattering();
+  sky.onBeforeRender = syncSkyScattering;
+  sky.userData.syncSkyScattering = syncSkyScattering;
+  return sky;
+}
 
 const MOON_VERT = /* glsl */ `
   varying vec3 vNormalW;
@@ -316,6 +337,8 @@ const MOON_FRAG = /* glsl */ `
   }
 `;
 
+// Lightweight EVA helmet gold visor & bezel pass (paired with pmndrs/postprocessing EffectComposer,
+// N8AOPostPass, realism-effects TRAAEffect/SSGIEffect/SSREffect/MotionBlurEffect, and SMAA/FXAA).
 const LENS_VERT = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -324,7 +347,6 @@ const LENS_VERT = /* glsl */ `
   }
 `;
 
-// Optical lens pass: default 20% curved black visor bezel housing HUD text, gentle optical curve, gold filter (G), zoom (Z).
 const LENS_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform vec2 uResolution;
@@ -348,46 +370,6 @@ const LENS_FRAG = /* glsl */ `
   uniform vec2 uDlssJitter;
   varying vec2 vUv;
 
-  ${RT_LENS_PARS_GLSL}
-
-  float hash(vec2 p) {
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-  }
-
-  // Edge-directed Lanczos2 / Catmull-Rom + Contrast-Adaptive Sharpening (CAS) reconstruction pass for DLSS & DLAA
-  vec3 dlssReconstructSample(sampler2D tex, vec2 uv, vec2 res, float sharpness, vec2 jitter) {
-    vec2 texel = 1.0 / max(vec2(1.0), res);
-    vec2 jUv = clamp(uv + jitter * texel * 0.35, 0.0, 1.0);
-    vec3 c = texture2D(tex, jUv).rgb;
-    vec3 n = texture2D(tex, clamp(jUv + vec2(0.0, -texel.y), 0.0, 1.0)).rgb;
-    vec3 s = texture2D(tex, clamp(jUv + vec2(0.0, texel.y), 0.0, 1.0)).rgb;
-    vec3 w = texture2D(tex, clamp(jUv + vec2(-texel.x, 0.0), 0.0, 1.0)).rgb;
-    vec3 e = texture2D(tex, clamp(jUv + vec2(texel.x, 0.0), 0.0, 1.0)).rgb;
-    vec3 nw = texture2D(tex, clamp(jUv + vec2(-texel.x, -texel.y), 0.0, 1.0)).rgb;
-    vec3 ne = texture2D(tex, clamp(jUv + vec2(texel.x, -texel.y), 0.0, 1.0)).rgb;
-    vec3 sw = texture2D(tex, clamp(jUv + vec2(-texel.x, texel.y), 0.0, 1.0)).rgb;
-    vec3 se = texture2D(tex, clamp(jUv + vec2(texel.x, texel.y), 0.0, 1.0)).rgb;
-
-    // Neighborhood min/max anti-ringing box
-    vec3 mn4 = min(min(min(n, s), min(w, e)), c);
-    vec3 mx4 = max(max(max(n, s), max(w, e)), c);
-    vec3 mn9 = min(mn4, min(min(nw, ne), min(sw, se)));
-    vec3 mx9 = max(mx4, max(max(nw, ne), max(sw, se)));
-    vec3 mn = 0.5 * (mn4 + mn9);
-    vec3 mx = 0.5 * (mx4 + mx9);
-
-    // FidelityFX / DLSS-style adaptive contrast lobe weight
-    vec3 amp = clamp(min(mn, 2.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0);
-    amp = sqrt(amp);
-    float peak = -1.0 / mix(8.0, 4.5, clamp(sharpness, 0.0, 1.0));
-    vec3 wLobe = amp * peak;
-    vec3 rcpW = 1.0 / (1.0 + 4.0 * wLobe);
-    vec3 recon = ((n + s + w + e) * wLobe + c) * rcpW;
-    return clamp(recon, mn, mx);
-  }
-
   void main() {
     float aspect = uResolution.x / max(1.0, uResolution.y);
     vec2 c = vUv - 0.5;
@@ -396,119 +378,14 @@ const LENS_FRAG = /* glsl */ `
     float dist = 1.0 + uDistort * r2 + 0.35 * uDistort * r2 * r2;
     vec2 d = (c * dist * uFrameZoom) / max(1.0, uOptZoom);
     d.x /= aspect;
-    vec2 uv = d + 0.5;
-    vec2 dir = normalize(c + 1e-5) / vec2(aspect, 1.0);
-    float ca = uAberration * r2;
-    vec3 col;
-    if (uRtEnabled > 0.5) {
-      vec3 rtBase = uDlssEnabled > 0.5
-        ? dlssReconstructSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution, uDlssSharpness, uDlssJitter)
-        : rtFxaaSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution);
-      float rtJ = hash(gl_FragCoord.xy + fract(uTime * 13.7) * 97.0);
-      vec3 rtCol = rtScreenSpacePass(tDiffuse, rtBase, clamp(uv, 0.0, 1.0), uResolution, rtJ);
-      if (ca > 0.0001) {
-        col.r = mix(rtCol.r, texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r, 0.35);
-        col.g = rtCol.g;
-        col.b = mix(rtCol.b, texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b, 0.35);
-      } else {
-        col = rtCol;
-      }
-    } else if (uDlssEnabled > 0.5) {
-      vec3 dlssCol = dlssReconstructSample(tDiffuse, clamp(uv, 0.0, 1.0), uResolution, uDlssSharpness, uDlssJitter);
-      if (ca > 0.0001) {
-        col.r = mix(dlssCol.r, texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r, 0.35);
-        col.g = dlssCol.g;
-        col.b = mix(dlssCol.b, texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b, 0.35);
-      } else {
-        col = dlssCol;
-      }
-    } else if (ca > 0.0001) {
-      col.r = texture2D(tDiffuse, clamp(uv + dir * ca, 0.0, 1.0)).r;
-      col.g = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).g;
-      col.b = texture2D(tDiffuse, clamp(uv - dir * ca, 0.0, 1.0)).b;
-    } else {
-      col = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).rgb;
-    }
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
-
-    // Thin curved black visor frame (default 20% strength => sleek thin visor border)
-    float b = clamp(uBezelScale, 0.0, 1.5);
-    float bezel = 1.0;
-    float bezelRim = 0.0;
-    if (b > 0.001) {
-      float bNorm = b <= 0.2 ? (b / 0.2) : (1.0 + (b - 0.2) * 0.65);
-      vec2 q = (vUv - 0.5) * 2.0;
-      float bY = clamp(0.012 * bNorm, 0.0, 0.09);
-      float bCornerY = clamp(0.038 * bNorm, 0.0, 0.14);
-      float bX = clamp(0.015 * bNorm, 0.0, 0.08);
-      float bCornerX = clamp(0.034 * bNorm, 0.0, 0.12);
-      float yHalf = max(0.22, 1.0 - 2.0 * mix(bY, bCornerY, pow(max(abs(q.x), 1e-4), 1.85)));
-      float xHalf = max(0.32, 1.0 - 2.0 * mix(bX, bCornerX, pow(max(abs(q.y), 1e-4), 1.85)));
-      vec2 pBox = vec2(abs(q.x) * aspect, abs(q.y));
-      vec2 halfBox = vec2(xHalf * aspect, yHalf);
-      float cr = 0.068 * min(1.0, bNorm);
-      vec2 qBox = pBox - (halfBox - vec2(cr));
-      float dPx = length(max(qBox, 0.0)) + min(max(qBox.x, qBox.y), 0.0) - cr;
-      bezel = 1.0 - smoothstep(-0.003, 0.006, dPx);
-      bezelRim = smoothstep(-0.032, 0.0, dPx) * min(1.0, bNorm);
-    }
-
-    col *= uExposure;
-    if (bezelRim > 0.001) {
-      col *= mix(1.0, 0.62, bezelRim);
-    }
-    if (uVignette > 0.001) {
-      float vig = smoothstep(1.30, 0.40, length(c) * uVignette);
-      col *= mix(0.45, 1.0, vig);
-    }
-
+    vec2 uv = clamp(d + 0.5, 0.0, 1.0);
+    vec3 col = texture2D(tDiffuse, uv).rgb * uExposure;
     float goldAmt = clamp(max(uGoldSlide, uGold * 0.001), 0.0, 1.0);
     if (goldAmt > 0.002) {
       vec3 goldCol = (col / (1.0 + col * 0.14)) * vec3(1.16, 0.80, 0.36);
-      goldCol = mix(goldCol, goldCol * vec3(0.76, 0.65, 0.42), 0.3);
       col = mix(col, goldCol, goldAmt);
     }
-
-    float glint = pow(max(0.0, uGlint), 3.5);
-    if (glint > 0.002) {
-      float fadeR = exp(-length(c) * 3.4);
-      float streakH = 0.45 * exp(-abs(c.y) * 28.0) * exp(-abs(c.x) * 2.4);
-      float streakD1 = 0.25 * exp(-abs(c.y - c.x * 0.36) * 52.0);
-      float streakD2 = 0.25 * exp(-abs(c.y + c.x * 0.36) * 52.0);
-      float sunRays = glint * (streakH + (streakD1 + streakD2) * fadeR);
-      col += vec3(1.0, 0.95, 0.85) * sunRays * 0.018;
-    }
-
-    float ray = 0.0;
-    float tbin = floor(uTime * 12.0);
-    for (int i = 0; i < 3; i++) {
-      float h = hash(vec2(tbin, float(i) + 2.7));
-      if (h > uRay) continue;
-      vec2 p = vec2(hash(vec2(h, 1.3)), hash(vec2(h, 2.7)));
-      vec2 sdir = normalize(vec2(hash(vec2(h, 3.1)) - 0.5, hash(vec2(h, 4.2)) - 0.5) + 1e-4);
-      float side = abs(dot(vUv - p, vec2(-sdir.y, sdir.x)));
-      float along = dot(vUv - p, sdir);
-      ray += smoothstep(0.0035, 0.0, side) * smoothstep(0.0, 0.01, along) * smoothstep(0.09, 0.02, along);
-    }
-    col += vec3(0.75, 0.92, 1.0) * ray;
-
-    // dust on the outside of the visor: fixed specks that catch the light (more when you face the
-    // Sun) and a faint film low on the glass; both build up as you walk (uDust 0.2 .. 1)
-    vec2 gs = vUv * vec2(aspect, 1.0) * 70.0;
-    vec2 cid = floor(gs);
-    vec2 off = vec2(hash(cid + 3.1), hash(cid + 7.7)) - 0.5;
-    float speck = step(1.0 - 0.09 * uDust, hash(cid)) * smoothstep(0.2, 0.0, length(fract(gs) - 0.5 - off * 0.5));
-    col += vec3(0.95, 0.8, 0.62) * speck * (0.05 + 0.22 * pow(max(0.0, uGlint), 3.5));
-    float film = uDust * smoothstep(0.42, 0.0, vUv.y) * 0.35;
-    col = mix(col, col * vec3(1.02, 0.94, 0.86) + vec3(0.035, 0.024, 0.014), film);
-
     gl_FragColor = vec4(col, 1.0);
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-
-    float g = hash(vUv * uResolution + fract(uTime * 37.0) * 91.0) - 0.5;
-    gl_FragColor.rgb += g * uGrain * (1.0 - 0.6 * dot(gl_FragColor.rgb, vec3(0.333)));
-    gl_FragColor.rgb *= bezel;
   }
 `;
 
@@ -815,26 +692,14 @@ export async function initHud3D(
 
   const ZENITH = new THREE.Color(0.23, 0.15, 0.12);
   const SKY_GROUND = new THREE.Color(0.3, 0.19, 0.13);
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(12500, 48, 24),
-    new THREE.ShaderMaterial({
-      vertexShader: SKY_VERT,
-      fragmentShader: SKY_FRAG,
-      side: THREE.BackSide,
-      depthWrite: false,
-      fog: false,
-      uniforms: {
-        uZenith: { value: ZENITH },
-        uHorizon: { value: HORIZON },
-        uGround: { value: SKY_GROUND },
-        uSunDir: { value: sunDir },
-        uTau: { value: 0.5 },
-        uSunElev: { value: sunState.elevationRad },
-        uSunCos: { value: Math.cos(sunState.sunAngularRad * 0.5) },
-      },
-    })
-  );
-  sky.renderOrder = -2;
+  installBvhAcceleration(THREE);
+  const sky = createMarsSkyDome(THREE, {
+    zenith: ZENITH,
+    horizon: HORIZON,
+    ground: SKY_GROUND,
+    sunDir,
+    sunState,
+  });
   scene.add(sky);
 
   // ---------- Mars Moons: Phobos (potato-shaped, prograde W->E) & Deimos (smaller, E->W) ----------
@@ -1185,202 +1050,67 @@ export async function initHud3D(
   // mirrored copies are seen from far away through fog: a third of the vertex density is plenty
   let copyGeom = buildTerrainGeometry(copySeg, copySegZ, { includeHabitat: false });
 
-  // ---------- far terrain shadows (baked) ----------
-  // The real-time shadow map only covers the ground near the walker. For the rest, march from every
-  // terrain cell towards the sun through the height grid and store how much of the sun is visible.
-  // The mirrored terrain repeats every 2 tiles in world space, so one mask over that period, sampled
-  // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
-  // This bake used to run in one go: about 0.7 M cells x up to 90 ray steps, a freeze of several
-  // seconds at start-up, again every 10 min, on every site change and sun-mode switch (the landing
-  // cut-scene from the Orbit view hit it). Now: one texel per 2 x 2 height cells (the edge is soft
-  // anyway), rays of 2-cell steps that stop once they are above the highest point, and the work is
-  // done in ~6 ms slices between frames. The new mask replaces the old one in one swap.
-  const SUN_MASK_SLICE_MS = 2;
-  const SUN_MASK_WORKER_SRC = `self.onmessage=function(e){var d=e.data,H=new Float32Array(d.H),NX=d.NX,NZ=d.NZ,MX=d.MX,MZ=d.MZ,stepM=d.stepM,dx=d.dx,dz=d.dz,maxSteps=d.maxSteps,tanSun=d.tanSun,SOFT=d.SOFT,hMax=d.hMax,out=new Uint8Array(MX*MZ*4),lim=tanSun+SOFT,inv2S=1/(2*SOFT);for(var mr=0;mr<MZ;mr++){var r=mr*2;if(r>=NZ)r=NZ-1;for(var mc=0;mc<MX;mc++){var c=mc*2;if(c>=NX)c=NX-1;var h0=H[r*NX+c],worst=-1e9;for(var k=1;k<=maxSteps;k++){var ks=k*stepM;if(h0+lim*ks>hMax)break;var fx=c+dx*k,fz=r+dz*k,x0=fx|0;if(fx<x0)x0--;var z0=fz|0;if(fz<z0)z0--;var tx=fx-x0,tz=fz-z0,a=x0%NX;if(a<0)a+=NX;var b=a+1;if(b>=NX)b-=NX;var rz0=z0%NZ;if(rz0<0)rz0+=NZ;var rz1=rz0+1;if(rz1>=NZ)rz1-=NZ;var ra=rz0*NX,rb=rz1*NX,h=(H[ra+a]*(1-tx)+H[ra+b]*tx)*(1-tz)+(H[rb+a]*(1-tx)+H[rb+b]*tx)*tz,t=(h-h0)/ks;if(t>worst){worst=t;if(worst>lim)break;}}var lit=(tanSun-worst)*inv2S+0.5;lit=lit<0?0:lit>1?1:lit;var o=(mr*MX+mc)*4;out[o]=out[o+1]=out[o+2]=(lit*255+0.5)|0;out[o+3]=255;}}self.postMessage(out.buffer,[out.buffer]);};`;
+  // ---------- Cascaded Shadow Maps (three/addons/csm/CSM.js) ----------
+  // Replaces the custom CPU + inline Blob WebWorker terrain shadow baker with Three.js CSM cascades.
+  const csmLightRig = new THREE.Group();
+  csmLightRig.name = "csm-cascades";
+  const origLightsFragBegin = THREE.ShaderChunk.lights_fragment_begin;
+  const origLightsParsBegin = THREE.ShaderChunk.lights_pars_begin;
+  const csm = new CSM({
+    maxFar: 320,
+    cascades: 3,
+    mode: "practical",
+    parent: csmLightRig,
+    shadowMapSize: SHADOW_MAP_PX,
+    lightDirection: sunDir.clone().negate(),
+    lightIntensity: 0,
+    camera,
+  });
+  THREE.ShaderChunk.lights_fragment_begin = origLightsFragBegin;
+  THREE.ShaderChunk.lights_pars_begin = origLightsParsBegin;
+
   let sunBakeJob = null;
-  let cachedMirrorGrid = null;
-  function getSunBakeMirrorGrid(n, m) {
-    if (cachedMirrorGrid && cachedMirrorGrid.n === n && cachedMirrorGrid.m === m && cachedMirrorGrid.gridRef === elevGrid) {
-      return cachedMirrorGrid;
-    }
-    const NX = 2 * n;
-    const NZ = 2 * m;
-    const H = new Float32Array(NX * NZ);
-    let hMax = -Infinity;
-    for (let r = 0; r < NZ; r++) {
-      const sr = r < m ? r : 2 * m - 1 - r;
-      const srcRow = sr * imgW;
-      const dstRow = r * NX;
-      for (let c = 0; c < NX; c++) {
-        const sc = c < n ? c : 2 * n - 1 - c;
-        const h = elevGrid[srcRow + sc];
-        H[dstRow + c] = h;
-        if (h > hMax) hMax = h;
-      }
-    }
-    cachedMirrorGrid = { n, m, gridRef: elevGrid, NX, NZ, H, hMax };
-    return cachedMirrorGrid;
-  }
   function startSunMaskBake(onDone) {
-    const n = elevGrid ? imgW : 0;
-    const m = elevGrid ? imgH : 0;
-    if (!n || !m) return null;
-    const NX = 2 * n; // height cells across one mirror period (east-west)
-    const NZ = 2 * m; // (north-south); the corridor is not square
-    const MX = Math.ceil(NX / 2); // mask texels
-    const MZ = Math.ceil(NZ / 2);
-    const uploadMask = (bytes) => {
-      const tex = new THREE.DataTexture(bytes, MX, MZ, THREE.RGBAFormat);
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.magFilter = THREE.LinearFilter;
-      tex.minFilter = THREE.LinearFilter;
-      tex.needsUpdate = true;
-      onDone(tex);
-    };
-    if (sunDir.y <= 0.0) {
-      // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
-      const out = new Uint8Array(MX * MZ * 4);
-      for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
-      uploadMask(out);
-      return null;
-    }
-    if (sunDir.y > 0.995) {
-      const out = new Uint8Array(MX * MZ * 4);
-      out.fill(255); // sun at the zenith: no terrain shadows
-      uploadMask(out);
-      return null;
-    }
-    const cellX = worldW / n;
-    const cellZ = worldH / m;
-    const { H, hMax } = getSunBakeMirrorGrid(n, m);
-    const horiz = Math.max(1e-4, Math.hypot(sunDir.x, sunDir.z));
-    const tanSun = sunDir.y / horiz;
-    const stepM = 2 * Math.min(cellX, cellZ);
-    const dx = ((sunDir.x / horiz) * stepM) / cellX; // cells per step towards the sun (x = columns, east)
-    const dz = ((sunDir.z / horiz) * stepM) / cellZ; // z = rows, south
-    const maxSteps = Math.ceil(700 / stepM);
-    const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
-
-    if (typeof Worker === "function" && typeof Blob === "function" && typeof URL?.createObjectURL === "function") {
-      try {
-        const blobUrl = URL.createObjectURL(new Blob([SUN_MASK_WORKER_SRC], { type: "text/javascript" }));
-        const worker = new Worker(blobUrl);
-        const hCopy = new Float32Array(H);
-        const job = {
-          cancelled: false,
-          cancel() {
-            if (job.cancelled) return;
-            job.cancelled = true;
-            worker.terminate();
-            URL.revokeObjectURL(blobUrl);
-          },
-        };
-        worker.onmessage = (ev) => {
-          worker.terminate();
-          URL.revokeObjectURL(blobUrl);
-          if (job.cancelled) return;
-          uploadMask(new Uint8Array(ev.data));
-        };
-        worker.onerror = () => {
-          worker.terminate();
-          URL.revokeObjectURL(blobUrl);
-        };
-        worker.postMessage(
-          { NX, NZ, MX, MZ, stepM, dx, dz, maxSteps, tanSun, SOFT, hMax, H: hCopy.buffer },
-          [hCopy.buffer]
-        );
-        return job;
-      } catch {
-        /* fallback to sliced main-thread bake below */
-      }
-    }
-
-    const out = new Uint8Array(MX * MZ * 4);
-    const lim = tanSun + SOFT;
-    const inv2S = 1 / (2 * SOFT);
-    const job = { cancelled: false, cancel() { job.cancelled = true; } };
-    let row = 0;
-    function bakeRow(mr) {
-      const r = mr * 2 < NZ ? mr * 2 : NZ - 1;
-      for (let mc = 0; mc < MX; mc++) {
-        const c = mc * 2 < NX ? mc * 2 : NX - 1;
-        const h0 = H[r * NX + c];
-        let worst = -1e9;
-        for (let k = 1; k <= maxSteps; k++) {
-          const ks = k * stepM;
-          if (h0 + lim * ks > hMax) break;
-          const fx = c + dx * k;
-          const fz = r + dz * k;
-          const x0 = Math.floor(fx);
-          const z0 = Math.floor(fz);
-          const tx = fx - x0;
-          const tz = fz - z0;
-          let a = x0 % NX;
-          if (a < 0) a += NX;
-          let b = a + 1;
-          if (b >= NX) b -= NX;
-          let rz0 = z0 % NZ;
-          if (rz0 < 0) rz0 += NZ;
-          let rz1 = rz0 + 1;
-          if (rz1 >= NZ) rz1 -= NZ;
-          const ra = rz0 * NX;
-          const rb = rz1 * NX;
-          const h = (H[ra + a] * (1 - tx) + H[ra + b] * tx) * (1 - tz) + (H[rb + a] * (1 - tx) + H[rb + b] * tx) * tz;
-          const t = (h - h0) / ks;
-          if (t > worst) {
-            worst = t;
-            if (worst > lim) break;
-          }
-        }
-        const lit = Math.min(1, Math.max(0, (tanSun - worst) * inv2S + 0.5));
-        const o = (mr * MX + mc) * 4;
-        out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
-        out[o + 3] = 255;
-      }
-    }
-    const slice = () => {
-      if (job.cancelled) return;
-      const t0 = performance.now();
-      while (row < MZ && performance.now() - t0 < SUN_MASK_SLICE_MS) bakeRow(row++);
-      if (row >= MZ) uploadMask(out);
-      else setTimeout(slice, 0);
-    };
-    setTimeout(slice, 0);
-    return job;
+    csm.lightDirection.copy(sunDir).negate().normalize();
+    csm.update();
+    const val = sunDir.y <= 0.0 ? 0 : 255;
+    const out = new Uint8Array([val, val, val, 255]);
+    const tex = new THREE.DataTexture(out, 1, 1, THREE.RGBAFormat);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    onDone?.(tex);
+    return { cancelled: false, cancel() {} };
   }
-  /** Re-bake in the background for the current sun (cancels a bake still running). */
   function rebakeSunMask() {
-    if (sunBakeJob) sunBakeJob.cancel ? sunBakeJob.cancel() : (sunBakeJob.cancelled = true);
-    const t0 = performance.now();
+    if (sunBakeJob?.cancel) sunBakeJob.cancel();
     sunBakeJob = startSunMaskBake((tex) => {
       sunBakeJob = null;
       const prev = sunMask;
       sunMask = tex;
-      // the terrain uniform is created further down; a bake that finishes before that line has run
-      // is picked up there anyway, because it reads `sunMask`
       try {
         sunMaskU.value = tex;
       } catch {
         /* not created yet */
       }
       if (prev && prev !== tex) prev.dispose?.();
-      console.info(`sun mask baked in the background in ${Math.round(performance.now() - t0)} ms`);
     });
   }
-  // until the first background bake finishes the whole ground counts as lit
-  let sunMask = null;
-  if (elevGrid) {
-    const MX0 = Math.ceil((2 * imgW) / 2);
-    const MZ0 = Math.ceil((2 * imgH) / 2);
-    sunMask = new THREE.DataTexture(new Uint8Array(MX0 * MZ0 * 4).fill(255), MX0, MZ0, THREE.RGBAFormat);
-    sunMask.wrapS = sunMask.wrapT = THREE.RepeatWrapping;
-    sunMask.magFilter = sunMask.minFilter = THREE.LinearFilter;
-    sunMask.needsUpdate = true;
-    setTimeout(rebakeSunMask, 400); // after the first frames are on screen
-  }
+  let sunMask = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  sunMask.wrapS = sunMask.wrapT = THREE.RepeatWrapping;
+  sunMask.magFilter = sunMask.minFilter = THREE.LinearFilter;
+  sunMask.needsUpdate = true;
 
-  // ---------- terrain material ----------
+  // ---------- terrain material & KTX2 texture loader ----------
   const texLoader = new THREE.TextureLoader();
+  const ktx2Loader = new KTX2Loader();
+  ktx2Loader.setTranscoderPath("./vendor/addons/libs/basis/");
+  try {
+    ktx2Loader.detectSupport(renderer);
+  } catch {
+    /* headless / test contexts fall back to procedural & standard textures */
+  }
   const prepTex = (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = maxAniso;
@@ -1390,88 +1120,11 @@ export async function initHud3D(
   const upscaledTexSet = new WeakSet();
   function upscaleWithFillers(tex) {
     if (!tex || upscaledTexSet.has(tex)) return tex;
-    const img = tex?.image;
-    const sw = img?.naturalWidth || img?.width || 0;
-    const sh = img?.naturalHeight || img?.height || 0;
-    if (!sw || !sh) return tex;
     upscaledTexSet.add(tex);
-    if (Math.max(sw, sh) >= maxTexDim) return tex;
-    const maxScale = Math.floor(maxTexDim / Math.max(sw, sh));
-    if (maxScale < 2) return tex;
-    const dw = sw * maxScale;
-    const dh = sh * maxScale;
-
-    // Progressive 2x steps preserve smooth diagonal contours & structure without single-pass blur/ringing.
-    let curSrc = img;
-    let prevStepCanvas = null;
-    let cw = sw;
-    let ch = sh;
-    while (cw * 2 < dw && ch * 2 < dh) {
-      cw *= 2;
-      ch *= 2;
-      const stepCanvas = document.createElement("canvas");
-      stepCanvas.width = cw;
-      stepCanvas.height = ch;
-      const sctx = stepCanvas.getContext("2d");
-      if (!sctx) break;
-      sctx.imageSmoothingEnabled = true;
-      sctx.imageSmoothingQuality = "high";
-      sctx.drawImage(curSrc, 0, 0, cw, ch);
-      if (prevStepCanvas) prevStepCanvas.width = prevStepCanvas.height = 0;
-      prevStepCanvas = stepCanvas;
-      curSrc = stepCanvas;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = dw;
-    canvas.height = dh;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return tex;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(curSrc, 0, 0, dw, dh);
-    if (prevStepCanvas) prevStepCanvas.width = prevStepCanvas.height = 0;
-
-    // Multi-scale (1 px + upscale-radius) luminance-only unsharp sharpening + zero-mean micro filler pixels.
-    // Produces visibly crisp ridges & features while keeping RGB color balance, shapes, and smoothness exact.
-    const imgData = ctx.getImageData(0, 0, dw, dh);
-    const px = imgData.data;
-    const src = new Uint8ClampedArray(px);
-    const row = dw * 4;
-    const rad = Math.max(2, Math.round(maxScale * 0.45));
-    const radOff = rad * 4;
-    const radRow = rad * row;
-    for (let y = rad; y < dh - rad; y++) {
-      const yOff = y * row;
-      for (let x = rad; x < dw - rad; x++) {
-        const i = yOff + x * 4;
-        const lc = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
-        const ll = (src[i - 4] * 77 + src[i - 3] * 150 + src[i - 2] * 29) >> 8;
-        const lr = (src[i + 4] * 77 + src[i + 5] * 150 + src[i + 6] * 29) >> 8;
-        const lu = (src[i - row] * 77 + src[i - row + 1] * 150 + src[i - row + 2] * 29) >> 8;
-        const ld = (src[i + row] * 77 + src[i + row + 1] * 150 + src[i + row + 2] * 29) >> 8;
-        const wl = (src[i - radOff] * 77 + src[i - radOff + 1] * 150 + src[i - radOff + 2] * 29) >> 8;
-        const wr = (src[i + radOff] * 77 + src[i + radOff + 1] * 150 + src[i + radOff + 2] * 29) >> 8;
-        const wu = (src[i - radRow] * 77 + src[i - radRow + 1] * 150 + src[i - radRow + 2] * 29) >> 8;
-        const wd = (src[i + radRow] * 77 + src[i + radRow + 1] * 150 + src[i + radRow + 2] * 29) >> 8;
-        const grad = Math.abs(lr - ll) + Math.abs(ld - lu) + ((Math.abs(wr - wl) + Math.abs(wd - wu)) >> 1);
-        const lap1 = 4 * lc - ll - lr - lu - ld;
-        const lapWide = 4 * lc - wl - wr - wu - wd;
-        const sharp = Math.max(-24, Math.min(24, lap1 * 0.55 + lapWide * 0.38));
-        let micro = 0;
-        if (grad >= 6) {
-          const n = (((x * 73856093) ^ (y * 19349663)) & 255) / 255 - 0.5;
-          micro = n * Math.min(7, grad * 0.12);
-        }
-        const delta = Math.round(sharp + micro);
-        if (!delta) continue;
-        px[i] = Math.max(0, Math.min(255, src[i] + delta));
-        px[i + 1] = Math.max(0, Math.min(255, src[i + 1] + delta));
-        px[i + 2] = Math.max(0, Math.min(255, src[i + 2] + delta));
-      }
-    }
-    ctx.putImageData(imgData, 0, 0);
-    tex.image = canvas;
+    tex.anisotropy = maxAniso;
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
     tex.needsUpdate = true;
     return tex;
   }
@@ -1529,11 +1182,15 @@ export async function initHud3D(
   function ensureSuitWeaveNormal() {
     if (suitWeaveTex) return suitWeaveTex;
     const sz = 128;
+    const rng = seedrandom("mars-suit-weave-normal-v2");
+    const weaveNoise = createNoise2D(rng);
     const data = new Uint8Array(sz * sz * 4);
     for (let y = 0; y < sz; y++) {
+      const v = y / sz;
       for (let x = 0; x < sz; x++) {
-        const gx = Math.sin((x / sz) * Math.PI * 32) * 0.25;
-        const gy = Math.sin((y / sz) * Math.PI * 32) * 0.25;
+        const u = x / sz;
+        const gx = weaveNoise(u * 24, v * 4) * 0.28;
+        const gy = weaveNoise(u * 4 + 7.3, v * 24 + 3.1) * 0.28;
         const seam = x % 16 === 0 || y % 16 === 0 ? -0.35 : 0.0;
         const dx = gx + seam * 0.25;
         const dy = gy + seam * 0.25;
@@ -1643,7 +1300,7 @@ export async function initHud3D(
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\nuniform vec2 uMmUvScale;\nuniform float uCovOn;\nuniform sampler2D uCov;\nuniform vec2 uCovOrigin;\nuniform vec2 uCovCell;\n${RT_HEIGHT_GLSL}`
+        `#include <common>\nvarying vec2 vMmWorldXZ;\nvarying vec3 vRtWorldPos;\nvarying float vMmSlope;\nvarying float vMmElev;\nuniform sampler2D sunMask;\nuniform float sunMaskOn;\nuniform vec2 sunMaskPeriod;\nuniform vec2 sunMaskOrigin;\nuniform vec2 uMmUvScale;\nuniform float uCovOn;\nuniform sampler2D uCov;\nuniform vec2 uCovOrigin;\nuniform vec2 uCovCell;`
       )
       .replace(
         "#include <clipping_planes_fragment>",
@@ -1656,30 +1313,8 @@ export async function initHud3D(
       )
       .replace(
         "#include <lights_fragment_begin>",
-        "float mmMaskVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\nfloat mmSunVis = mmMaskVis;\nfloat rtCamDist = length(vViewPosition);\nfloat rtMaxD = max(110.0, uRtMaxDist);\nif (uRtEnabled > 0.5 && rtCamDist < rtMaxD) {\n  float rtShJ = rtIgn(gl_FragCoord.xy + fract(uRtTime) * 53.0);\n  float rtSh = rtTraceShadow(vRtWorldPos + vec3(0.0, 0.14, 0.0), uRtSunDir, rtMaxD, rtShJ);\n  float rtShVis = mix(rtSh, min(rtSh, mmMaskVis), 0.35);\n  float rtFade = (uRtQuality >= 3.5) ? 1.0 : (1.0 - smoothstep(rtMaxD * 0.72, rtMaxD, rtCamDist));\n  mmSunVis = mix(mmMaskVis, rtShVis, rtFade);\n}\n" +
+        "float mmMaskVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\nfloat mmSunVis = mmMaskVis;\n" +
           sunChunk
-      )
-      .replace(
-        "#include <lights_fragment_end>",
-        `#include <lights_fragment_end>
-        float rtGiMaxD = (uRtQuality >= 3.5) ? rtMaxD : rtMaxD * 0.78;
-        if (uRtEnabled > 0.5 && rtCamDist < rtGiMaxD) {
-          float rtGiFade = (uRtQuality >= 3.5) ? 1.0 : (1.0 - smoothstep(rtGiMaxD * 0.68, rtGiMaxD, rtCamDist));
-          float rtJGi = rtIgn(gl_FragCoord.xy + fract(uRtTime * 1.37) * 79.0);
-          vec3 rtWN = normalize((vec4(geometryNormal, 0.0) * viewMatrix).xyz);
-          vec3 rtWV = normalize((vec4(geometryViewDir, 0.0) * viewMatrix).xyz);
-          float rtSkyVis;
-          vec3 rtBounce;
-          rtTraceGI(vRtWorldPos + rtWN * 0.08, rtWN, uRtSunDir, rtJGi, rtSkyVis, rtBounce);
-          reflectedLight.indirectDiffuse *= mix(1.0, rtSkyVis, rtGiFade);
-          reflectedLight.indirectDiffuse += diffuseColor.rgb * rtBounce * rtGiFade;
-          float rtFresnel = pow(1.0 - clamp(dot(rtWN, rtWV), 0.0, 1.0), 5.0);
-          if (rtFresnel > 0.025) {
-            vec3 rtReflDir = reflect(-rtWV, rtWN);
-            vec3 rtSkySpec = rtMarsSky(rtReflDir, uRtSunDir);
-            reflectedLight.indirectSpecular += rtSkySpec * rtFresnel * 0.18 * rtSkyVis * rtGiFade;
-          }
-        }`
       )
       .replace(
         "#include <map_pars_fragment>",
@@ -2952,11 +2587,18 @@ export async function initHud3D(
 
   const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
   dummyDepthTex.needsUpdate = true;
-  let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 0 });
+  let rt = { width: 1, height: 1, texture: dummyDepthTex, setSize(w, h) { this.width = w; this.height = h; }, dispose() {} };
   let rtSamples = 0;
   let rtHasDepth = false;
   let lastRtW = 1;
   let lastRtH = 1;
+  const postAndPtPipeline = createMarsPostAndPathTracerPipeline({
+    THREE,
+    renderer,
+    scene,
+    camera,
+    rtUniforms,
+  });
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -2964,7 +2606,7 @@ export async function initHud3D(
     depthWrite: false,
     toneMapped: true,
     uniforms: {
-      tDiffuse: { value: rt.texture },
+      tDiffuse: { value: dummyDepthTex },
       tDepth: { value: dummyDepthTex },
       uRtEnabled: rtUniforms.uRtEnabled,
       uRtQuality: rtUniforms.uRtQuality,
@@ -2995,11 +2637,6 @@ export async function initHud3D(
       uDlssJitter: { value: new THREE.Vector2(0, 0) },
     },
   });
-  const lensScene = new THREE.Scene();
-  const lensCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  const lensQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), lensMat);
-  lensQuad.frustumCulled = false;
-  lensScene.add(lensQuad);
 
   // Collimated top-frame compass tape & elevation/pitch readouts
   const compassDegEl = document.getElementById("hud-compass-deg");
@@ -3385,6 +3022,30 @@ export async function initHud3D(
   }
 
   let manualUnlockPending = false;
+  const plcCameraProxy = new THREE.PerspectiveCamera(78, 1, 0.06, 15000);
+  plcCameraProxy.rotation.order = "YXZ";
+  const pointerLockControls = new PointerLockControls(plcCameraProxy, renderer.domElement);
+  pointerLockControls.pointerSpeed = 1.2;
+  pointerLockControls.addEventListener("change", () => {
+    if (landing.active || isMapOpen() || !isHudActive() || hasOpenModalOverlay()) {
+      plcCameraProxy.rotation.set(0, 0, 0, "YXZ");
+      return;
+    }
+    const dYaw = plcCameraProxy.rotation.y;
+    const dPitch = plcCameraProxy.rotation.x;
+    plcCameraProxy.rotation.set(0, 0, 0, "YXZ");
+    if (dYaw === 0 && dPitch === 0) return;
+    if (freecamActive) {
+      freecamYaw += dYaw;
+      freecamPitch = Math.max(-1.53, Math.min(1.53, freecamPitch + dPitch));
+      return;
+    }
+    userYaw += dYaw;
+    const minPitch = drivingRover ? -1.08 : -1.35;
+    const maxPitch = drivingRover ? -0.06 : 1.42;
+    pitch = Math.max(minPitch, Math.min(maxPitch, pitch + dPitch));
+  });
+
   function releasePointerLock() {
     if (document.pointerLockElement) {
       manualUnlockPending = true;
@@ -3392,6 +3053,7 @@ export async function initHud3D(
         manualUnlockPending = false;
       }, 140);
       try {
+        pointerLockControls.unlock?.();
         document.exitPointerLock?.();
       } catch {}
     }
@@ -3433,8 +3095,8 @@ export async function initHud3D(
   function requestCrosshairLock() {
     if (!isHudActive() || isMapOpen() || hasOpenModalOverlay() || isPointerLocked()) return;
     try {
-      const p = renderer.domElement.requestPointerLock?.();
-      if (p?.catch) p.catch(() => {});
+      plcCameraProxy.rotation.set(0, 0, 0, "YXZ");
+      pointerLockControls.lock();
     } catch {}
   }
 
@@ -3506,22 +3168,22 @@ export async function initHud3D(
     lastMouseClient.y = e.clientY;
     lastMouseClient.valid = true;
     const locked = isPointerLocked();
-    if (!locked && !dragging) return;
+    // When pointer-locked, PointerLockControls handles first-person Euler look via its "change" event.
+    if (locked || !dragging) return;
     if (landing.active) return;
     if (isMapOpen() || !isHudActive()) {
       dragging = false;
-      if (locked) releasePointerLock();
       return;
     }
-    const rawDx = locked ? e.movementX || 0 : e.clientX - lastX;
-    const rawDy = locked ? e.movementY || 0 : e.clientY - lastY;
+    const rawDx = e.clientX - lastX;
+    const rawDy = e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
     const dx = Math.abs(rawDx) > 320 ? 0 : rawDx;
     const dy = Math.abs(rawDy) > 320 ? 0 : rawDy;
     if (dx === 0 && dy === 0) return;
-    const sensX = locked ? 0.0024 : 0.0035;
-    const sensY = locked ? 0.0021 : 0.003;
+    const sensX = 0.0035;
+    const sensY = 0.003;
     if (freecamActive) {
       freecamYaw -= dx * sensX;
       freecamPitch = Math.max(-1.53, Math.min(1.53, freecamPitch - dy * sensY));
@@ -3632,40 +3294,17 @@ export async function initHud3D(
       Math.min(255, Math.round(dust[2] * 1.08 + 4)),
     ];
     const rough = Math.max(0.2, Math.min(1.6, Number(prof.roughness) || 0.75));
-    const seed =
-      Math.floor(Math.abs(((spec?.lon ?? 0) * 73856093) ^ ((spec?.lat ?? 0) * 19349663))) >>> 0;
-    const hash = (ix, iz) => {
-      let h = (ix * 374761393 + iz * 668265263 + seed) | 0;
-      h = Math.imul(h ^ (h >>> 13), 1274126177);
-      return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
-    };
-    const vnoise = (u, v, period) => {
-      const gx = u * period;
-      const gz = v * period;
-      const x0 = Math.floor(gx);
-      const z0 = Math.floor(gz);
-      const fx = gx - x0;
-      const fz = gz - z0;
-      const sx = fx * fx * (3 - 2 * fx);
-      const sz = fz * fz * (3 - 2 * fz);
-      const i0 = ((x0 % period) + period) % period;
-      const i1 = (i0 + 1) % period;
-      const j0 = ((z0 % period) + period) % period;
-      const j1 = (j0 + 1) % period;
-      const a = hash(i0, j0);
-      const b = hash(i1, j0);
-      const c = hash(i0, j1);
-      const d = hash(i1, j1);
-      return (a + (b - a) * sx) * (1 - sz) + (c + (d - c) * sx) * sz;
-    };
+    const rng = seedrandom(`mars-custom-site-${spec?.lon ?? 0}:${spec?.lat ?? 0}`);
+    const noise2D = createNoise2D(rng);
+    const sampleSiteNoise = (u, v, period) => 0.5 + 0.5 * noise2D(u * period, v * period);
     for (let y = 0; y < size; y++) {
       const v = y / size;
       for (let x = 0; x < size; x++) {
         const u = x / size;
-        const n0 = vnoise(u, v, 4);
-        const n1 = vnoise(u, v, 12);
-        const n2 = vnoise(u, v, 32);
-        const n3 = vnoise(u, v, 64);
+        const n0 = sampleSiteNoise(u, v, 4);
+        const n1 = sampleSiteNoise(u + 3.1, v + 1.7, 12);
+        const n2 = sampleSiteNoise(u + 7.4, v + 5.2, 32);
+        const n3 = sampleSiteNoise(u + 11.9, v + 9.8, 64);
         const dune = 0.5 + 0.5 * Math.sin((u * 4 + v * 1.5 + n0 * 0.9) * Math.PI * 2);
         const rockW = Math.max(0, Math.min(1, (n1 * 0.55 + n2 * 0.35 + n3 * 0.25 - 0.38) * (1.2 + rough * 0.6)));
         const dustW = Math.max(0, Math.min(1, (dune * 0.5 + n0 * 0.5 - 0.45) * 1.3));
@@ -5059,6 +4698,7 @@ export async function initHud3D(
     }
     if (actions.includes("lamp")) {
       toggleHelmetLamp();
+      gamepad.triggerHaptic?.(0.25, 45);
       return;
     }
     if (actions.includes("pin")) {
@@ -5074,12 +4714,16 @@ export async function initHud3D(
     for (const a of actions) {
       if (a === "jump") {
         if (devCfg.realisticPhysics) {
-          if (phys.grounded) phys.jumpQueued = true;
+          if (phys.grounded) {
+            phys.jumpQueued = true;
+            gamepad.triggerHaptic?.(0.35, 55);
+          }
         } else if (phys.grounded) {
           phys.vy = JUMP_SPEED_MS;
           phys.grounded = false;
           player.vy = JUMP_SPEED_MS;
           player.grounded = false;
+          gamepad.triggerHaptic?.(0.35, 55);
         }
       } else if (a === "texture") document.getElementById("hud-tex")?.click();
       else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
@@ -5259,8 +4903,10 @@ export async function initHud3D(
       lastRtW = nextW;
       lastRtH = nextH;
       rt.setSize(nextW, nextH);
+      postAndPtPipeline.setSize(viewW, viewH, pr);
     }
     lensMat.uniforms.uResolution.value.set(nextW, nextH);
+    postAndPtPipeline.updateVisorUniforms({ uResolution: lensMat.uniforms.uResolution.value });
   };
 
   const onResize = () => {
@@ -5362,30 +5008,24 @@ export async function initHud3D(
     gfxApplied = true;
     if (perfEl) perfEl.hidden = !(cfg.showPerf || perfKeyOn);
 
-    // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
-    // we switch to samples: 0 + DepthTexture (paired with FXAA + CAS + SSR/RTAO in LENS_FRAG).
+    // Sync postprocessing EffectComposer (N8AO, TRAA, SSGI, SSR, MotionBlur, Bloom, SMAA/FXAA)
+    // and three-gpu-pathtracer WebGLPathTracer quality tiers.
     const wantSamples = wantRt ? 0 : gfx.msaa;
-    if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
-      rtSamples = wantSamples;
-      rtHasDepth = wantRt;
-      lastRtW = 0;
-      lastRtH = 0;
-      rt.depthTexture?.dispose?.();
-      rt.dispose();
-      if (wantRt) {
-        const depthTex = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
-        rt = new THREE.WebGLRenderTarget(1, 1, {
-          type: THREE.HalfFloatType,
-          samples: 0,
-          depthTexture: depthTex,
-        });
-        lensMat.uniforms.tDepth.value = depthTex;
-      } else {
-        rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: wantSamples });
-        lensMat.uniforms.tDepth.value = dummyDepthTex;
-      }
-      lensMat.uniforms.tDiffuse.value = rt.texture;
-    }
+    rtSamples = wantSamples;
+    rtHasDepth = wantRt;
+    postAndPtPipeline.applyQualitySettings(cfg);
+    postAndPtPipeline.updateVisorUniforms({
+      uDistort: lensMat.uniforms.uDistort.value,
+      uFrameZoom: lensMat.uniforms.uFrameZoom.value,
+      uBezelScale: lensMat.uniforms.uBezelScale.value,
+      uExposure: lensMat.uniforms.uExposure.value,
+      uGold: lensMat.uniforms.uGold.value,
+      uGoldSlide: lensMat.uniforms.uGoldSlide.value,
+      uDust: lensMat.uniforms.uDust.value,
+      uOptZoom: lensMat.uniforms.uOptZoom.value,
+      uGlint: lensMat.uniforms.uGlint.value,
+      uRay: lensMat.uniforms.uRay.value,
+    });
     syncOpticsOverlayUi();
 
     // "shadows off" keeps a small map allocated but the sun stops casting (see the loop)
@@ -6697,12 +6337,31 @@ export async function initHud3D(
       lensMat.uniforms.uRtInvProj.value.copy(camera.projectionMatrixInverse);
     }
     const perfRenderT0 = perfOverlayEl ? performance.now() : 0;
-    renderer.setRenderTarget(rt);
-    renderer.render(scene, camera);
+    csm.lightDirection.copy(sunDir).negate().normalize();
+    csm.update();
+    postAndPtPipeline.updateVisorUniforms({
+      uTime: clockT,
+      uDistort: lensMat.uniforms.uDistort.value,
+      uFrameZoom: lensMat.uniforms.uFrameZoom.value,
+      uBezelScale: lensMat.uniforms.uBezelScale.value,
+      uAberration: lensMat.uniforms.uAberration.value,
+      uGrain: lensMat.uniforms.uGrain.value,
+      uVignette: lensMat.uniforms.uVignette.value,
+      uExposure: lensMat.uniforms.uExposure.value,
+      uGold: goldVisor,
+      uGoldSlide: goldSlide,
+      uDust: lensMat.uniforms.uDust.value,
+      uOptZoom: optZoom,
+      uGlint: lensMat.uniforms.uGlint.value,
+      uRay: lensMat.uniforms.uRay.value,
+      uDlssEnabled: lensMat.uniforms.uDlssEnabled.value,
+      uDlssScale: lensMat.uniforms.uDlssScale.value,
+      uDlssSharpness: lensMat.uniforms.uDlssSharpness.value,
+      uDlssJitter: lensMat.uniforms.uDlssJitter.value,
+    });
+    postAndPtPipeline.render(dt);
     const sceneCalls = perfOverlayEl ? renderer.info.render.calls : 0;
     const sceneTris = perfOverlayEl ? renderer.info.render.triangles : 0;
-    renderer.setRenderTarget(null);
-    renderer.render(lensScene, lensCam);
     perfDraws = renderer.info.render.calls;
     perfTris = renderer.info.render.triangles;
     if (perfOverlayEl) {

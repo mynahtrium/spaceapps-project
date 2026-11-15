@@ -1,19 +1,25 @@
 /**
  * Entry, descent and landing cinematic (`web/hud/landing-sequence.js`).
  *
- * A crew lander drops out of the sky over the landing site, lights its engines to brake (a
- * supersonic-retropropulsion-style burn), deploys its legs, and settles in a storm of blasted
- * regolith. No characters are shown. Then the camera glides to the walker's eyes beside the lander
- * and the EVA starts there; the lander stays on the ground as a landmark.
- *
- * Kinematics are simple and honest: free fall at constant speed (terminal velocity in thin air),
- * a constant-deceleration burn from the ignition height to a hover height, then a slow final
- * descent. Mars gravity is ~3.71 m/s^2, so the burn needs only modest thrust. The vehicle is a
- * generic illustrative lander, not a specific NASA or commercial design.
- *
- * Shots (one camera, cut with short fades): aerial chase while falling, a long ground shot during
- * the burn, a close low shot for touchdown and the dust storm, then a glide to the visor.
+ * Rocket exhaust plumes and cold-gas RCS thruster puffs are driven by `three.quarks`
+ * (`BatchedRenderer`, `ParticleSystem`), while hull textures use `seedrandom` + `simplex-noise`.
  */
+
+import seedrandom from "seedrandom";
+import { createNoise2D } from "simplex-noise";
+import {
+  BatchedRenderer,
+  Bezier,
+  ColorOverLife,
+  ColorRange,
+  ConeEmitter,
+  ConstantValue,
+  Gradient,
+  IntervalValue,
+  ParticleSystem,
+  PiecewiseBezier,
+  SizeOverLife,
+} from "three.quarks";
 
 const H_START = 720; // m above the pad
 const V_FALL = 95; // m/s, falling before ignition
@@ -24,56 +30,11 @@ const V_TOUCH = 1.3;
 const SETTLE_S = 2.6; // dust settles before the camera goes to the visor
 const GLIDE_S = 2.4;
 
-const FLAME_VERT = /* glsl */ `
-  varying vec2 vUv;
-  varying vec3 vN;
-  varying vec3 vV;
-  void main() {
-    vUv = uv;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    vN = normalize(normalMatrix * normal);
-    vV = normalize(-mv.xyz);
-    gl_Position = projectionMatrix * mv;
-  }
-`;
-const FLAME_FRAG = /* glsl */ `
-  uniform float uTime;
-  uniform float uThrottle;
-  uniform float uOuter;
-  varying vec2 vUv;
-  varying vec3 vN;
-  varying vec3 vV;
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-  float noise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-  }
-  void main() {
-    // vUv.y: 1 at the nozzle, 0 at the tip of the plume; vUv.x runs round the cone
-    float along = vUv.y;
-    // soft silhouette: bright where the surface faces the camera, fading at the rim
-    float facing = pow(abs(dot(normalize(vN), normalize(vV))), 1.4);
-    float turb = noise(vec2(vUv.x * 14.0, along * 9.0 - uTime * 26.0));
-    float turb2 = noise(vec2(vUv.x * 31.0 + 7.0, along * 17.0 - uTime * 41.0));
-    float body = smoothstep(0.0, 0.92, along) * (0.72 + 0.5 * turb * turb2 + 0.12 * turb);
-    // raw engine light: white-blue core at the throat, yellow-orange body, red-brown tail
-    vec3 core = vec3(0.92, 0.95, 1.0);
-    vec3 mid = vec3(1.0, 0.72, 0.32);
-    vec3 tail = vec3(0.85, 0.3, 0.1);
-    vec3 col = mix(tail, mid, smoothstep(0.1, 0.55, along));
-    col = mix(col, core, pow(smoothstep(0.6, 1.0, along), 1.6));
-    // shock diamonds: stationary bright rings in the exhaust column
-    float dia = pow(0.5 + 0.5 * sin(along * 46.0), 6.0) * smoothstep(0.35, 0.95, along);
-    col += vec3(1.0, 0.85, 0.65) * dia * 0.8 * (1.0 - 0.4 * uOuter);
-    float a = body * facing * uThrottle * mix(1.0, 0.32, uOuter);
-    gl_FragColor = vec4(col * a * 1.5, a);
-  }
-`;
-
 /** Canvas texture for the hull: weld seams, panel lines, rivets, scorching and lettering. */
 function makeHullTextures(THREE) {
+  if (typeof document === "undefined") {
+    return { map: null, bump: null };
+  }
   const W = 1024;
   const H = 1024;
   const TEX_W = 512;
@@ -94,16 +55,19 @@ function makeHullTextures(THREE) {
     t.anisotropy = 4;
     return t;
   };
-  let seed = 11;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rnd = seedrandom("edl-crew-lander-hull-v2");
+  const noise2D = createNoise2D(seedrandom("edl-crew-lander-soot-v2"));
   const rings = [0.1, 0.27, 0.45, 0.63, 0.79, 0.92];
   const map = make((g) => {
     g.fillStyle = "#d9d6cf";
     g.fillRect(0, 0, W, H);
     // brushed / painted panel mottling
     for (let i = 0; i < 700; i++) {
-      g.fillStyle = `rgba(${rnd() < 0.5 ? "255,255,255" : "90,86,80"},${0.02 + rnd() * 0.035})`;
-      g.fillRect(rnd() * W, rnd() * H, 4 + rnd() * 72, 2 + rnd() * 4);
+      const nx = rnd() * W;
+      const ny = rnd() * H;
+      const nVal = 0.5 + 0.5 * noise2D(nx * 0.01, ny * 0.01);
+      g.fillStyle = `rgba(${nVal > 0.5 ? "255,255,255" : "90,86,80"},${0.02 + rnd() * 0.035})`;
+      g.fillRect(nx, ny, 4 + rnd() * 72, 2 + rnd() * 4);
     }
     // vertical panel lines and horizontal welds, rivets along the welds
     g.strokeStyle = "rgba(60,58,54,0.55)";
@@ -213,7 +177,6 @@ function buildLander(THREE) {
   };
   const R = 2.1;
 
-  // main hull as one smooth profile: skirt, barrel, shoulder, ogive nose (lathe, u = round, v = up)
   const prof = [
     [R * 1.06, 1.7],
     [R * 1.06, 2.5],
@@ -228,16 +191,13 @@ function buildLander(THREE) {
     [0.0, 18.0],
   ].map(([x, y]) => new THREE.Vector2(x, y));
   const body = add(g, new THREE.LatheGeometry(prof, 36), hull);
-  // lathe v follows the profile length: stretch it so the texture seams land where drawn
   const uv = body.geometry.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * 1.0);
 
-  // heat-scorched engine skirt, a gold thermal band, interstage ring
   add(g, new THREE.CylinderGeometry(R * 1.04, R * 1.1, 1.5, 36, 1, true), scorched, 0, 2.2, 0);
   add(g, new THREE.CylinderGeometry(R * 1.08, R * 1.08, 0.28, 36), gold, 0, 3.05, 0);
   add(g, new THREE.TorusGeometry(R * 1.01, 0.07, 6, 36), steel, 0, 11.4, 0, false).rotation.x = Math.PI / 2;
 
-  // crew windows: a row of dark panes with frames
   for (let i = 0; i < 6; i++) {
     const a = -0.9 + (i / 5) * 1.8;
     const x = Math.sin(a) * (R * 0.93);
@@ -248,7 +208,6 @@ function buildLander(THREE) {
     pane.rotation.y = -a;
   }
 
-  // side hatch with a frame, a handle and a short ladder
   const hatchA = Math.PI * 0.5;
   const hx = Math.cos(hatchA) * R;
   const hz = Math.sin(hatchA) * R;
@@ -262,7 +221,6 @@ function buildLander(THREE) {
   for (let i = 0; i < 6; i++) add(hatch, new THREE.CylinderGeometry(0.035, 0.035, 0.7, 8), steel, 0, -2.4 - i * 0.5, 0.18, false).rotation.z = Math.PI / 2;
   for (const sx of [-0.35, 0.35]) add(hatch, new THREE.CylinderGeometry(0.04, 0.04, 3.2, 8), steel, sx, -3.7, 0.18, false);
 
-  // cold-gas attitude thrusters: four clusters near the shoulder (they puff during the fall)
   const rcs = [];
   for (let k = 0; k < 4; k++) {
     const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
@@ -278,7 +236,6 @@ function buildLander(THREE) {
     rcs.push({ cluster, a });
   }
 
-  // engines: four gimballed bells (lathe), turbopump boxes and feed lines
   const bellProf = [
     [0.2, 0.0],
     [0.16, 0.18],
@@ -305,7 +262,6 @@ function buildLander(THREE) {
     const eng = new THREE.Group();
     eng.position.set(bx, 3.2, bz);
     g.add(eng);
-    // bell hangs below the skirt: flip so the wide mouth points down
     const bell = add(eng, bellGeom, bellMat, 0, 0, 0);
     bell.rotation.x = Math.PI;
     bell.position.y = 0;
@@ -315,7 +271,6 @@ function buildLander(THREE) {
     nozzle.push({ x: bx, z: bz, y: 3.2 - 1.55 });
   }
 
-  // landing legs: a main strut with a telescoping piston and a crush-core foot, plus a brace
   const legs = [];
   const braceGeom = new THREE.CylinderGeometry(0.06, 0.06, 1, 10);
   braceGeom.translate(0, 0.5, 0);
@@ -327,14 +282,14 @@ function buildLander(THREE) {
     hinge.position.set(Math.cos(a) * R * 0.98, 3.9, Math.sin(a) * R * 0.98);
     hinge.rotation.y = -a;
     g.add(hinge);
-    add(hinge, new THREE.BoxGeometry(0.4, 0.5, 0.5), dark, -0.05, 0, 0, false); // hinge block
+    add(hinge, new THREE.BoxGeometry(0.4, 0.5, 0.5), dark, -0.05, 0, 0, false);
     add(hinge, strutGeom, dark, 0, -1.45, 0);
     const piston = add(hinge, pistonGeom, steel, 0, -3.0, 0);
     const foot = new THREE.Group();
     foot.position.set(0, -4.35, 0);
     hinge.add(foot);
     add(foot, new THREE.CylinderGeometry(0.62, 0.74, 0.14, 14), dark, 0, 0, 0, false);
-    add(foot, new THREE.CylinderGeometry(0.5, 0.5, 0.2, 14), gold, 0, 0.16, 0, false); // crush honeycomb
+    add(foot, new THREE.CylinderGeometry(0.5, 0.5, 0.2, 14), gold, 0, 0.16, 0, false);
     const brace = add(g, braceGeom, steel, 0, 0, 0);
     legs.push({ hinge, a, brace, piston, foot, anchor: new THREE.Vector3(Math.cos(a) * R * 0.99, 7.4, Math.sin(a) * R * 0.99) });
   }
@@ -343,12 +298,11 @@ function buildLander(THREE) {
   const _m = new THREE.Vector3();
   function setDeploy(d) {
     const th = 0.04 + 0.44 * d;
-    const ext = 0.72 + 0.28 * d; // the piston extends as the leg opens
+    const ext = 0.72 + 0.28 * d;
     for (const leg of legs) {
       leg.hinge.rotation.z = th;
       leg.piston.position.y = -2.2 - 0.8 * ext;
       leg.foot.position.y = -3.55 - 0.8 * ext;
-      // brace: from a hull anchor to a point on the main strut
       const sx = Math.sin(th) * 2.3;
       const sy = -Math.cos(th) * 2.3;
       _m.set(leg.hinge.position.x + sx * Math.cos(leg.a), leg.hinge.position.y + sy, leg.hinge.position.z + sx * Math.sin(leg.a));
@@ -361,64 +315,162 @@ function buildLander(THREE) {
   }
   setDeploy(0);
 
-  // exhaust plumes: an inner bright cone and a wide faint one per engine (shader), plus engine glow
-  const mkFlame = (outer) =>
-    new THREE.ShaderMaterial({
-      vertexShader: FLAME_VERT,
-      fragmentShader: FLAME_FRAG,
-      uniforms: { uTime: { value: 0 }, uThrottle: { value: 0 }, uOuter: { value: outer } },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-    });
-  const flameMat = mkFlame(0);
-  const flameOuterMat = mkFlame(1);
-  const flames = [];
+  // Rocket exhaust plumes & RCS puffs powered by three.quarks BatchedRenderer
+  const batchedRenderer = new BatchedRenderer();
+  g.add(batchedRenderer);
+
+  const corePlumeMat = new THREE.MeshBasicMaterial({
+    color: 0xfff2d6,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const outerPlumeMat = new THREE.MeshBasicMaterial({
+    color: 0xff8a3d,
+    transparent: true,
+    opacity: 0.65,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const plumeSystems = [];
   for (const n of nozzle) {
-    const inner = new THREE.ConeGeometry(0.55, 8.5, 16, 1, true);
-    inner.rotateX(Math.PI); // tip down
-    inner.translate(0, -4.25, 0);
-    const outer = new THREE.ConeGeometry(0.95, 6.5, 16, 1, true);
-    outer.rotateX(Math.PI);
-    outer.translate(0, -3.25, 0);
-    for (const [geom, mat] of [
-      [inner, flameMat],
-      [outer, flameOuterMat],
-    ]) {
-      const f = new THREE.Mesh(geom, mat);
-      f.position.set(n.x, n.y + 0.05, n.z);
-      f.frustumCulled = false;
-      f.renderOrder = 5;
-      g.add(f);
-      flames.push(f);
-    }
+    const innerRate = new ConstantValue(0);
+    const innerSys = new ParticleSystem({
+      duration: 2,
+      looping: true,
+      startLife: new IntervalValue(0.14, 0.28),
+      startSpeed: new IntervalValue(24, 34),
+      startSize: new IntervalValue(0.55, 1.05),
+      startColor: new ColorRange(
+        new THREE.Vector4(0.95, 0.97, 1.0, 0.95),
+        new THREE.Vector4(1.0, 0.78, 0.38, 0.85)
+      ),
+      worldSpace: false,
+      maxParticle: 120,
+      emissionOverTime: innerRate,
+      shape: new ConeEmitter({ radius: 0.28, angle: 0.12 }),
+      material: corePlumeMat,
+      renderOrder: 5,
+    });
+    innerSys.emitter.position.set(n.x, n.y + 0.05, n.z);
+    // Point cone downward along -Y
+    innerSys.emitter.rotation.x = Math.PI / 2;
+    innerSys.addBehavior(
+      new SizeOverLife(new PiecewiseBezier([[new Bezier(0.85, 1.15, 0.65, 0.15), 0]]))
+    );
+    innerSys.addBehavior(
+      new ColorOverLife(
+        new Gradient(
+          [
+            [new THREE.Vector3(0.95, 0.97, 1.0), 0],
+            [new THREE.Vector3(1.0, 0.72, 0.32), 0.45],
+            [new THREE.Vector3(0.85, 0.3, 0.1), 1],
+          ],
+          [
+            [0.95, 0],
+            [0.75, 0.4],
+            [0.0, 1],
+          ]
+        )
+      )
+    );
+
+    const outerRate = new ConstantValue(0);
+    const outerSys = new ParticleSystem({
+      duration: 2,
+      looping: true,
+      startLife: new IntervalValue(0.18, 0.36),
+      startSpeed: new IntervalValue(16, 26),
+      startSize: new IntervalValue(0.9, 1.65),
+      startColor: new ColorRange(
+        new THREE.Vector4(1.0, 0.68, 0.28, 0.55),
+        new THREE.Vector4(0.85, 0.32, 0.12, 0.35)
+      ),
+      worldSpace: false,
+      maxParticle: 90,
+      emissionOverTime: outerRate,
+      shape: new ConeEmitter({ radius: 0.45, angle: 0.24 }),
+      material: outerPlumeMat,
+      renderOrder: 5,
+    });
+    outerSys.emitter.position.set(n.x, n.y + 0.05, n.z);
+    outerSys.emitter.rotation.x = Math.PI / 2;
+    outerSys.addBehavior(
+      new SizeOverLife(new PiecewiseBezier([[new Bezier(0.75, 1.35, 1.65, 0.25), 0]]))
+    );
+
+    g.add(innerSys.emitter, outerSys.emitter);
+    batchedRenderer.addSystem(innerSys);
+    batchedRenderer.addSystem(outerSys);
+    plumeSystems.push({ innerSys, outerSys, innerRate, outerRate });
   }
-  // Keep lander glow lightweight (no permanent hardware PointLight compiled into every scene shader).
+
+  // RCS cold-gas attitude thruster particle systems
+  const rcsMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const rcsSystems = rcs.map((r) => {
+    const rate = new ConstantValue(0);
+    const sys = new ParticleSystem({
+      duration: 1,
+      looping: true,
+      startLife: new IntervalValue(0.08, 0.18),
+      startSpeed: new IntervalValue(8, 16),
+      startSize: new IntervalValue(0.28, 0.65),
+      startColor: new ColorRange(
+        new THREE.Vector4(0.92, 0.96, 1.0, 0.68),
+        new THREE.Vector4(0.85, 0.92, 1.0, 0.35)
+      ),
+      worldSpace: false,
+      maxParticle: 40,
+      emissionOverTime: rate,
+      shape: new ConeEmitter({ radius: 0.08, angle: 0.32 }),
+      material: rcsMat,
+      renderOrder: 5,
+    });
+    sys.emitter.position.set(Math.cos(r.a) * (R + 0.35), 12.2, Math.sin(r.a) * (R + 0.35));
+    sys.emitter.rotation.y = -r.a + Math.PI / 2;
+    g.add(sys.emitter);
+    batchedRenderer.addSystem(sys);
+    return { sys, rate };
+  });
+
   const glow = { intensity: 0, distance: 120, decay: 1.5 };
 
-  // cold-gas puffs (sprites: soft white points) at the thruster clusters
-  const puffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
-  const puffs = rcs.map((r) => {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), puffMat.clone());
-    m.position.set(Math.cos(r.a) * (R + 0.5), 12.2, Math.sin(r.a) * (R + 0.5));
-    m.visible = false;
-    g.add(m);
-    return m;
-  });
-  function updateRcs(t, active) {
-    puffs.forEach((m, i) => {
-      const phase = (t * 1.7 + i * 0.37) % 1;
-      const on = active && phase < 0.16 && Math.sin(t * 2.3 + i * 5.1) > 0.2;
-      m.visible = on;
-      if (on) {
-        const k = phase / 0.16;
-        m.material.opacity = 0.7 * (1 - k);
-        m.scale.setScalar(0.5 + k * 2.2);
-      }
+  function updatePlumesAndRcs(dt, clockT, throttle, rcsActive) {
+    const th = Math.max(0, Math.min(1, Number(throttle) || 0));
+    for (const p of plumeSystems) {
+      p.innerRate.value = th > 0.01 ? 40 + th * 140 : 0;
+      p.outerRate.value = th > 0.01 ? 25 + th * 85 : 0;
+    }
+    rcsSystems.forEach(({ rate }, i) => {
+      const phase = (clockT * 1.7 + i * 0.37) % 1;
+      const on = rcsActive && phase < 0.16 && Math.sin(clockT * 2.3 + i * 5.1) > 0.2;
+      rate.value = on ? 95 : 0;
     });
+    let root = g;
+    while (root.parent) root = root.parent;
+    if (root.type !== "Scene") root.type = "Scene";
+    g.updateMatrixWorld(true);
+    batchedRenderer.update(Math.min(0.05, Math.max(0.001, dt || 0.016)));
   }
-  return { group: g, legs, flames, flameMat, flameOuterMat, glow, setDeploy, updateRcs };
+
+  return {
+    group: g,
+    legs,
+    glow,
+    setDeploy,
+    batchedRenderer,
+    plumeSystems,
+    rcsSystems,
+    updatePlumesAndRcs,
+  };
 }
 
 export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) {
@@ -426,16 +478,19 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
   L.group.visible = false;
   scene.add(L.group);
 
-  // overlay: letterbox bars, caption, fades
-  const overlay = document.createElement("div");
-  overlay.className = "landing-cine";
-  overlay.innerHTML = `
-    <div class="lc-bar lc-top"></div><div class="lc-bar lc-bot"></div>
-    <div class="lc-caption"><div class="lc-title" data-k="title">ENTRY · DESCENT · LANDING</div><div class="lc-sub" data-k="sub">—</div></div>
-    <div class="lc-skip" data-k="skip">PRESS ANY KEY TO SKIP</div>
-    <div class="lc-fade" data-k="fade"></div>`;
-  document.body.appendChild(overlay);
-  const ui = Object.fromEntries([...overlay.querySelectorAll("[data-k]")].map((n) => [n.dataset.k, n]));
+  const hasDom = typeof document !== "undefined";
+  const overlay = hasDom ? document.createElement("div") : null;
+  let ui = { title: {}, sub: {}, skip: {}, fade: { style: {} } };
+  if (overlay) {
+    overlay.className = "landing-cine";
+    overlay.innerHTML = `
+      <div class="lc-bar lc-top"></div><div class="lc-bar lc-bot"></div>
+      <div class="lc-caption"><div class="lc-title" data-k="title">ENTRY · DESCENT · LANDING</div><div class="lc-sub" data-k="sub">—</div></div>
+      <div class="lc-skip" data-k="skip">PRESS ANY KEY TO SKIP</div>
+      <div class="lc-fade" data-k="fade"></div>`;
+    document.body.appendChild(overlay);
+    ui = Object.fromEntries([...overlay.querySelectorAll("[data-k]")].map((n) => [n.dataset.k, n]));
+  }
 
   // burn kinematics
   const D_BURN = H_IGNITE - H_HOVER;
@@ -477,25 +532,23 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
   }
 
   function setFade(a) {
-    ui.fade.style.opacity = String(Math.max(0, Math.min(1, a)));
+    if (ui.fade?.style) {
+      ui.fade.style.opacity = String(Math.max(0, Math.min(1, a)));
+    }
   }
 
-  /**
-   * @param {{x:number,z:number,yaw:number,padX:number,padZ:number,site?:string}} o
-   *   x/z: where the walker will stand; pad: where the lander touches down
-   */
   function start(o) {
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    const reduced = typeof window !== "undefined" ? (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false) : false;
     s = { t: reduced ? T_END - GLIDE_S * 0.4 : 0, ...o, groundY: sampleY(o.padX, o.padZ), shake: 0, dustAcc: 0, touched: false, isEnding: false };
     s.fogBase = scene.fog?.density ?? null;
     L.group.visible = true;
     L.group.position.set(o.padX, s.groundY + H_START, o.padZ);
     L.group.rotation.set(0, o.yaw + 0.7, 0);
     placeLegs(0);
-    ui.sub.textContent = o.site || "GALE CRATER · MOUNT SHARP";
-    overlay.classList.remove("ending");
-    overlay.classList.add("on");
-    document.body.classList.add("landing-active");
+    if (ui.sub) ui.sub.textContent = o.site || "GALE CRATER · MOUNT SHARP";
+    overlay?.classList.remove("ending");
+    overlay?.classList.add("on");
+    if (hasDom) document.body.classList.add("landing-active");
     setFade(1);
   }
 
@@ -504,49 +557,34 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     if (scene.fog && s.fogBase != null) scene.fog.density = s.fogBase;
     const pad = { x: s.padX, z: s.padZ };
     s = null;
-    overlay.classList.remove("on", "ending");
-    document.body.classList.remove("landing-active");
+    overlay?.classList.remove("on", "ending");
+    if (hasDom) document.body.classList.remove("landing-active");
     setFade(0);
-    L.flameMat.uniforms.uThrottle.value = 0;
-    L.flameOuterMat.uniforms.uThrottle.value = 0;
-    L.updateRcs(0, false);
+    L.updatePlumesAndRcs(0.016, 0, 0, false);
     L.glow.intensity = 0;
-    // the lander stays where it landed
     L.group.position.y = sampleY(pad.x, pad.z);
     placeLegs(1);
     return pad;
   }
 
-  /** Jump to a time in the sequence (for checking shots). */
   function seek(t) {
     if (s) s.t = Math.max(0, Math.min(T_END - 0.05, t));
   }
 
-  /** Jump to the end (any key). */
   function skip() {
     if (!s) return;
     s.t = Math.max(s.t, T_END - 0.6);
   }
 
-  /**
-   * Advance and, while running, take over the camera. `camera` arrives already posed at the walker's
-   * eyes for this frame (used as the end of the glide). Returns true while the cinematic runs.
-   */
   function warmup(renderer, camera) {
     if (!renderer || !camera || typeof renderer.compile !== "function") return;
     const wasVisible = L.group.visible;
-    const prevInner = L.flameMat.uniforms.uThrottle.value;
-    const prevOuter = L.flameOuterMat.uniforms.uThrottle.value;
     L.group.visible = true;
-    L.flameMat.uniforms.uThrottle.value = 0.5;
-    L.flameOuterMat.uniforms.uThrottle.value = 0.5;
+    L.updatePlumesAndRcs(0.016, 0, 0.5, false);
     try {
-      // only the lander's own materials (about a dozen), lit by the scene's lights. Compiling the
-      // whole scene here could block a weak GPU for minutes before the loading screen lifts.
       renderer.compile(L.group, camera, scene);
     } finally {
-      L.flameMat.uniforms.uThrottle.value = prevInner;
-      L.flameOuterMat.uniforms.uThrottle.value = prevOuter;
+      L.updatePlumesAndRcs(0.016, 0, 0, false);
       L.group.visible = wasVisible;
     }
   }
@@ -563,18 +601,11 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     const gy = s.groundY;
     const rocketY = gy + p.h;
     L.group.position.set(s.padX, rocketY, s.padZ);
-    // a small attitude wobble while falling and during the burn, none once down
     const wob = p.h > 1 ? Math.min(1, p.h / 200) : 0;
     L.group.rotation.x = Math.sin(clockT * 0.7) * 0.03 * wob;
     L.group.rotation.z = Math.cos(clockT * 0.55) * 0.03 * wob;
     placeLegs(Math.max(0, Math.min(1, (40 - p.h) / 25)));
-    L.flameMat.uniforms.uTime.value = clockT;
-    L.flameMat.uniforms.uThrottle.value = p.throttle;
-    L.flameOuterMat.uniforms.uTime.value = clockT;
-    L.flameOuterMat.uniforms.uThrottle.value = p.throttle;
-    const flick = 1 + 0.06 * Math.sin(clockT * 47) + 0.04 * Math.sin(clockT * 83);
-    for (const f of L.flames) f.scale.set(1, (0.55 + p.throttle * 0.95) * flick, 1);
-    L.updateRcs(clockT, p.h > 12);
+    L.updatePlumesAndRcs(stepDt, clockT, p.throttle, p.h > 12);
     L.glow.intensity = p.throttle * 260;
 
     // blasted regolith: the closer the engines get to the ground, the more and faster the dust
@@ -608,27 +639,23 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
     }
     s.shake *= Math.exp(-stepDt * 2.2);
 
-    // thinner haze while the camera is high, so the crater floor reads from the air
     if (scene.fog && s.fogBase != null) scene.fog.density = s.fogBase * (0.3 + 0.7 * Math.min(1, Math.max(0, 1 - (p.h - 60) / 300)));
 
     // ---- camera shots ----
     const pad = tmp.set(s.padX, gy, s.padZ);
     let fade = 0;
-    const T_B = T_FALL + 0.6; // cut to the ground shot just after ignition
-    const T_C = T_FALL + T_BURN * 0.72; // cut to the close shot for the touchdown
+    const T_B = T_FALL + 0.6;
+    const T_C = T_FALL + T_BURN * 0.72;
     if (t < T_B) {
-      // A: aerial chase beside the falling lander, ground far below
       camera.position.set(pad.x + 34, rocketY + 14, pad.z + 46);
       look.set(pad.x, rocketY + 6, pad.z);
       fade = Math.max(1 - t / 0.8, t > T_B - 0.25 ? (t - (T_B - 0.25)) / 0.25 : 0);
     } else if (t < T_C) {
-      // B: long ground shot looking up at the burn
       const u = (t - T_B) / (T_C - T_B);
       camera.position.set(pad.x + 70 - 10 * u, sampleY(pad.x + 70, pad.z + 48) + 2.2, pad.z + 48 - 6 * u);
       look.set(pad.x, rocketY + 4, pad.z);
       fade = Math.max(1 - (t - T_B) / 0.25, t > T_C - 0.25 ? (t - (T_C - 0.25)) / 0.25 : 0);
     } else if (t < T_TOUCH + SETTLE_S) {
-      // C: close, low, slowly orbiting; touchdown and the dust storm
       const u = (t - T_C) / (T_TOUCH + SETTLE_S - T_C);
       const ang = 0.9 + u * 0.35;
       const dist = 30 - 6 * u;
@@ -638,7 +665,6 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
       look.set(pad.x, Math.max(gy + 6, rocketY + 5), pad.z);
       fade = 1 - (t - T_C) / 0.25;
     } else {
-      // D: glide from the close shot to the walker's eyes
       const u = Math.min(1, (t - T_TOUCH - SETTLE_S) / GLIDE_S);
       const e = u * u * (3 - 2 * u);
       const ang = 1.25;
@@ -653,7 +679,7 @@ export function createLandingSequence(THREE, scene, { marsFx = null, sampleY }) 
       const endingNow = u > 0.4;
       if (endingNow !== s.isEnding) {
         s.isEnding = endingNow;
-        overlay.classList.toggle("ending", endingNow);
+        overlay?.classList.toggle("ending", endingNow);
       }
       if (u >= 1) {
         finish();

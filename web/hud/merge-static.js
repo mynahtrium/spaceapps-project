@@ -7,63 +7,30 @@
  * picture. Call it on a subtree whose parts do not animate (a wheel spinner is fine: it turns as one).
  */
 
-/** Concatenate geometries with identical attribute layouts (all indexed or all non-indexed). */
-function mergeGeometries(THREE, geoms) {
-  const first = geoms[0];
-  const names = Object.keys(first.attributes);
-  const indexed = Boolean(first.index);
-  const out = new THREE.BufferGeometry();
-  for (const name of names) {
-    const a0 = first.attributes[name];
-    if (a0.isInterleavedBufferAttribute) return null;
-    let total = 0;
-    for (const g of geoms) {
-      const a = g.attributes[name];
-      if (!a || a.itemSize !== a0.itemSize || a.normalized !== a0.normalized || a.array.constructor !== a0.array.constructor) return null;
-      total += a.array.length;
-    }
-    const arr = new a0.array.constructor(total);
-    let off = 0;
-    for (const g of geoms) {
-      arr.set(g.attributes[name].array, off);
-      off += g.attributes[name].array.length;
-    }
-    out.setAttribute(name, new THREE.BufferAttribute(arr, a0.itemSize, a0.normalized));
-  }
-  if (indexed) {
-    let count = 0;
-    let verts = 0;
-    for (const g of geoms) {
-      if (!g.index) return null;
-      count += g.index.count;
-    }
-    const idx = new Uint32Array(count);
-    let o = 0;
-    for (const g of geoms) {
-      const src = g.index.array;
-      for (let i = 0; i < src.length; i++) idx[o + i] = src[i] + verts;
-      o += src.length;
-      verts += g.attributes.position.count;
-    }
-    out.setIndex(new THREE.BufferAttribute(idx, 1));
-  }
-  return out;
-}
+import {
+  mergeGeometries,
+  mergeVertices,
+} from "../vendor/addons/utils/BufferGeometryUtils.js";
 
-function flipWinding(THREE, geom) {
-  if (!geom.index) {
-    const n = geom.attributes.position.count;
-    const idx = new Uint32Array(n);
-    for (let i = 0; i < n; i++) idx[i] = i;
-    geom.setIndex(new THREE.BufferAttribute(idx, 1));
+export { mergeGeometries, mergeVertices };
+
+function prepareGeometryForMerge(geom, matrix) {
+  let g = geom.clone();
+  g.applyMatrix4(matrix);
+  if (!g.index) {
+    g = mergeVertices(g, 1e-6);
   }
-  const a = geom.index.array;
-  for (let i = 0; i < a.length; i += 3) {
-    const t = a[i + 1];
-    a[i + 1] = a[i + 2];
-    a[i + 2] = t;
+  if (matrix.determinant() < 0 && g.index) {
+    const a = g.index.array;
+    for (let i = 0; i < a.length; i += 3) {
+      const t = a[i + 1];
+      a[i + 1] = a[i + 2];
+      a[i + 2] = t;
+    }
+    g.index.needsUpdate = true;
   }
-  geom.index.needsUpdate = true;
+  g.clearGroups();
+  return g;
 }
 
 /**
@@ -101,15 +68,10 @@ export function mergeStaticMeshes(THREE, subtree, { castShadow = true, receiveSh
     }
     const geoms = [];
     for (const o of items) {
-      const g = o.geometry.clone();
       const m = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
-      g.applyMatrix4(m);
-      if (m.determinant() < 0) flipWinding(THREE, g);
-      // drop anything the merge cannot align (groups, ranges) so draw ranges stay whole
-      g.clearGroups();
-      geoms.push(g);
+      geoms.push(prepareGeometryForMerge(o.geometry, m));
     }
-    const merged = mergeGeometries(THREE, geoms);
+    const merged = mergeGeometries(geoms, false);
     for (const g of geoms) g.dispose();
     if (!merged) {
       after += items.length;
@@ -213,14 +175,10 @@ export function mergeRigidParts(THREE, root, movers = []) {
       if (b.items.length < 2) continue;
       const geoms = [];
       for (const o of b.items) {
-        const g = o.geometry.clone();
         m.multiplyMatrices(inv, o.matrixWorld);
-        g.applyMatrix4(m);
-        if (m.determinant() < 0) flipWinding(THREE, g);
-        g.clearGroups();
-        geoms.push(g);
+        geoms.push(prepareGeometryForMerge(o.geometry, m));
       }
-      const merged = mergeGeometries(THREE, geoms);
+      const merged = mergeGeometries(geoms, false);
       for (const g of geoms) g.dispose();
       if (!merged) continue;
       merged.computeBoundingSphere();

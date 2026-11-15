@@ -1,19 +1,25 @@
 /**
- * Instanced rocks in a bubble around the walker. Super Graphics only.
- * Positions are a deterministic hash of the cell, so the field does not shimmer.
+ * Instanced rocks in a bubble around the walker (`web/hud/MarsRockField.js`).
+ * Uses `MeshSurfaceSampler` (`three/addons/math/MeshSurfaceSampler.js`) weighted by 2D Simplex noise
+ * (`simplex-noise`) and deterministic `seedrandom` PRNG so boulder clusters follow terrain relief
+ * without shimmering or overlapping excluded footprints.
  */
+
+import seedrandom from "seedrandom";
+import { createNoise2D } from "simplex-noise";
+// three/addons/math/MeshSurfaceSampler.js
+import { MeshSurfaceSampler } from "three/examples/jsm/math/MeshSurfaceSampler.js";
 
 const CELL = 3.2;
 const RADIUS = 72;
 const PER_MESH = 280;
-
-function hash01(ix, iz, salt) {
-  let n = Math.imul(ix | 0, 374761393) ^ Math.imul(iz | 0, 668265263) ^ Math.imul(salt, 1440678779);
-  n = Math.imul(n ^ (n >>> 13), 1274126177);
-  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
-}
+const PATCH_SEGMENTS = 28;
+const SAMPLE_CANDIDATES = 960;
 
 export function createRockField(THREE) {
+  const noisePrng = seedrandom("mars-gale-rock-simplex-v1");
+  const noise2D = createNoise2D(noisePrng);
+
   const mat = new THREE.MeshStandardMaterial({ color: 0x8d684c, roughness: 0.94, metalness: 0.02 });
   const geos = [
     new THREE.DodecahedronGeometry(0.28, 0),
@@ -31,42 +37,81 @@ export function createRockField(THREE) {
   });
   const group = new THREE.Group();
   for (const mesh of meshes) group.add(mesh);
+
   const dummy = new THREE.Object3D();
+  const samplePos = new THREE.Vector3();
+  const sampleNormal = new THREE.Vector3();
   let anchorX = Infinity;
   let anchorZ = Infinity;
+
+  function buildSurfacePatch(cx, cz, sampleY, exclude) {
+    const geom = new THREE.PlaneGeometry(RADIUS * 2, RADIUS * 2, PATCH_SEGMENTS, PATCH_SEGMENTS);
+    geom.rotateX(-Math.PI / 2);
+    const pos = geom.attributes.position;
+    const weights = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++) {
+      const wx = cx + pos.getX(i);
+      const wz = cz + pos.getZ(i);
+      const wy = sampleY(wx, wz);
+      pos.setXYZ(i, wx, wy, wz);
+      if (exclude && exclude(wx, wz)) {
+        weights[i] = 0;
+      } else {
+        const n = 0.5 + 0.5 * noise2D(wx * 0.035, wz * 0.035);
+        weights[i] = Math.max(0.05, n * n);
+      }
+    }
+    geom.setAttribute("rockWeight", new THREE.BufferAttribute(weights, 1));
+    geom.computeVertexNormals();
+    return new THREE.Mesh(geom, mat);
+  }
 
   function rebuild(px, pz, sampleY, exclude) {
     anchorX = px;
     anchorZ = pz;
+    const snapX = Math.round(px / CELL) * CELL;
+    const snapZ = Math.round(pz / CELL) * CELL;
+    const rng = seedrandom(`mars-rock-patch:${snapX}:${snapZ}`);
+
+    const patchMesh = buildSurfacePatch(snapX, snapZ, sampleY, exclude);
+    const sampler = new MeshSurfaceSampler(patchMesh)
+      .setWeightAttribute("rockWeight")
+      .setRandomGenerator(rng)
+      .build();
+
     const cursors = [0, 0, 0, 0];
-    const minX = Math.floor((px - RADIUS) / CELL);
-    const maxX = Math.ceil((px + RADIUS) / CELL);
-    const minZ = Math.floor((pz - RADIUS) / CELL);
-    const maxZ = Math.ceil((pz + RADIUS) / CELL);
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let iz = minZ; iz <= maxZ; iz++) {
-      for (let ix = minX; ix <= maxX; ix++) {
-        const h = hash01(ix, iz, 1);
-        if (h > 0.22) continue;
-        const jx = (hash01(ix, iz, 2) - 0.5) * CELL;
-        const jz = (hash01(ix, iz, 3) - 0.5) * CELL;
-        const x = ix * CELL + jx;
-        const z = iz * CELL + jz;
-        if (Math.hypot(x - px, z - pz) > RADIUS) continue;
-        if (exclude && exclude(x, z)) continue;
-        const kind = Math.floor(hash01(ix, iz, 4) * 4) % 4;
-        const slot = cursors[kind];
-        if (slot >= PER_MESH) continue;
-        cursors[kind] += 1;
-        const y = sampleY(x, z);
-        dummy.position.set(x, y + 0.02, z);
-        dummy.rotation.set(0, hash01(ix, iz, 5) * Math.PI * 2, (hash01(ix, iz, 6) - 0.5) * 0.4);
-        const s = 0.45 + hash01(ix, iz, 7) * 1.5;
-        dummy.scale.set(s, s * (0.45 + hash01(ix, iz, 8) * 0.8), s);
-        dummy.updateMatrix();
-        meshes[kind].setMatrixAt(slot, dummy.matrix);
-      }
+
+    for (let sIdx = 0; sIdx < SAMPLE_CANDIDATES; sIdx++) {
+      sampler.sample(samplePos, sampleNormal);
+      const x = samplePos.x;
+      const z = samplePos.z;
+      if (Math.hypot(x - px, z - pz) > RADIUS) continue;
+      if (exclude && exclude(x, z)) continue;
+
+      const density = 0.5 + 0.5 * noise2D(x * 0.06, z * 0.06);
+      if (rng() > 0.32 + density * 0.45) continue;
+
+      const kind = Math.floor(rng() * 4) % 4;
+      const slot = cursors[kind];
+      if (slot >= PER_MESH) continue;
+      cursors[kind] += 1;
+
+      const y = sampleY(x, z);
+      dummy.position.set(x, y + 0.02, z);
+      dummy.rotation.set(
+        (sampleNormal.z || 0) * 0.25,
+        rng() * Math.PI * 2,
+        -(sampleNormal.x || 0) * 0.25 + (rng() - 0.5) * 0.35
+      );
+      const s = 0.45 + rng() * 1.5;
+      dummy.scale.set(s, s * (0.45 + rng() * 0.8), s);
+      dummy.updateMatrix();
+      meshes[kind].setMatrixAt(slot, dummy.matrix);
     }
+
+    patchMesh.geometry.dispose();
+
     for (let k = 0; k < 4; k++) {
       for (let i = cursors[k]; i < PER_MESH; i++) meshes[k].setMatrixAt(i, zero);
       meshes[k].instanceMatrix.needsUpdate = true;

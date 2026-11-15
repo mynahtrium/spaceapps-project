@@ -6,15 +6,57 @@
  * and the materials simply render without a map.
  */
 
+import seedrandom from "seedrandom";
+import { createNoise2D } from "simplex-noise";
+// three/addons/loaders/KTX2Loader.js
+import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+
 function rng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  return seedrandom(String(seed));
+}
+
+function noise2DForSeed(seed) {
+  return createNoise2D(seedrandom(`habitat-noise:${seed}`));
+}
+
+export function createHabitatKtx2Loader(renderer = null, transcoderPath = "./vendor/basis/") {
+  if (typeof document === "undefined" || !renderer) return null;
+  try {
+    const loader = new KTX2Loader();
+    loader.setTranscoderPath(transcoderPath);
+    if (typeof loader.detectSupport === "function") {
+      loader.detectSupport(renderer);
+    }
+    return loader;
+  } catch {
+    return null;
+  }
+}
+
+export function loadHabitatKtx2OrFallback(loader, url, fallbackTexture, onReady = null) {
+  if (!loader || !url || typeof document === "undefined") {
+    onReady?.(fallbackTexture);
+    return fallbackTexture;
+  }
+  try {
+    loader.load(
+      url,
+      (ktxTex) => {
+        if (fallbackTexture) {
+          ktxTex.wrapS = fallbackTexture.wrapS;
+          ktxTex.wrapT = fallbackTexture.wrapT;
+          ktxTex.repeat.copy(fallbackTexture.repeat);
+          ktxTex.colorSpace = fallbackTexture.colorSpace;
+        }
+        onReady?.(ktxTex);
+      },
+      undefined,
+      () => onReady?.(fallbackTexture)
+    );
+  } catch {
+    onReady?.(fallbackTexture);
+  }
+  return fallbackTexture;
 }
 
 function canvasTexture(THREE, w, h, draw, { repeat = true, srgb = true } = {}) {
@@ -383,15 +425,15 @@ function drawTelemetryScreenOnCtx(g, ox, oy, destW, destH, spec, accentHex = "#f
         });
       } else if (spec.kind === "map") {
         const r = rng(91);
+        const noise2D = noise2DForSeed(91);
         const cols = 48;
         const rows = 22;
         const cw = (right - left) / cols;
         const ch = (bottom - top) / rows;
         const field = (x, y) =>
           0.5 +
-          0.28 * Math.sin(x * 0.21 + y * 0.12) +
-          0.18 * Math.sin(x * 0.07 - y * 0.31 + 1.3) +
-          0.1 * Math.sin(x * 0.45 + y * 0.4);
+          0.32 * noise2D(x * 0.08, y * 0.08) +
+          0.16 * noise2D(x * 0.2, y * 0.2);
         for (let y = 0; y < rows; y++) {
           for (let x = 0; x < cols; x++) {
             const v = Math.max(0, Math.min(1, field(x, y) + (r() - 0.5) * 0.06));
