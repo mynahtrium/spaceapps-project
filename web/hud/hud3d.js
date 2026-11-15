@@ -1461,6 +1461,7 @@ export async function initHud3D(
   let covDirty = true;
   let covA0 = Number.NaN;
   let covB0 = Number.NaN;
+  let onCorridorMeshShown = null;
   if (corridor) {
     corridor.onChunkLoaded(() => {
       chunkPlanT = 0; // new data: queue the cells that were waiting for it
@@ -1590,6 +1591,7 @@ export async function initHud3D(
         existing.mesh.geometry.dispose();
         existing.mesh.geometry = g;
         existing.seg = w.seg;
+        if (existing.ready) onCorridorMeshShown?.(existing);
         continue;
       }
       const { ci, cj } = corridor.dataChunkForCell(w.a, w.b);
@@ -1607,6 +1609,7 @@ export async function initHud3D(
         c.ready = true;
         c.mesh.visible = true;
         covDirty = true;
+        onCorridorMeshShown?.(c);
       };
       if (e.loaded || e.failed) show();
       else e.waiters.push(show);
@@ -1663,6 +1666,8 @@ export async function initHud3D(
     await corridor.warmup(px, pz, 450, 6000);
     planCorridorChunks(px, pz);
     buildQueuedChunks(250);
+    const { a, b } = corridor.sceneCellOf(px, pz);
+    updateCoverage(a, b);
     chunkPlanT = 0;
   }
 
@@ -1703,6 +1708,24 @@ export async function initHud3D(
   const fieldKits = createFieldKits(THREE, stops, lonToX, latToZ, sampleElevSceneY);
   scene.add(fieldKits);
   const footsteps = createFootsteps(THREE, scene);
+
+  /** Height of the terrain mesh currently drawn on screen (detail chunk once visible, else overview). */
+  function sampleRenderedSurfaceY(x, z) {
+    let rawY;
+    if (corridor && isGaleSite()) {
+      const cell = corridor.sceneCellOf(x, z);
+      const cm = chunkMeshes.get(`${cell.a},${cell.b}`);
+      if (cm && cm.ready && cm.mesh.visible) {
+        const d = corridor.sampleDetail(x, z);
+        rawY = d !== null ? d - elevMin : sampleBaseSceneY(x, z);
+      } else {
+        rawY = sampleBaseSceneY(x, z);
+      }
+    } else {
+      rawY = sampleBaseSceneY(x, z);
+    }
+    return habitatStation.group.visible ? habitatStation.sampleElevWithHabitat(x, z, rawY) : rawY;
+  }
 
   // ---------- route ----------
   let activeRoute = route;
@@ -2526,7 +2549,18 @@ export async function initHud3D(
   }
   let partnerS = PARTNER_AHEAD_M;
   let justTeleportedOrWrapped = false;
+  let teleportSeq = 0;
   let lastMoveYaw = null;
+
+  onCorridorMeshShown = (chunk) => {
+    if (!corridor || !isGaleSite() || !player.init) return;
+    const cell = corridor.sceneCellOf(phys.x, phys.z);
+    if (cell.a === chunk.a && cell.b === chunk.b && phys.grounded) {
+      phys.y = sampleElevSceneY(phys.x, phys.z);
+      syncPlayerFromPhys();
+    }
+    footsteps.reprojectAll(sampleRenderedSurfaceY, sampleNormal);
+  };
   let drivingRover = false;
   // hardware-site visit state (see "hardware sites + habitat <-> site transit" below)
   const hardwareGroup = new THREE.Group();
@@ -3040,13 +3074,21 @@ export async function initHud3D(
   }
 
   function teleportToLocal(tx, tz, { keepYaw = false } = {}) {
+    const prevX = phys.x;
+    const prevZ = phys.z;
     const wx = wrapSceneCoord(tx, worldW * 2).val;
     const wz = wrapSceneCoord(tz, worldH * 2).val;
     const lon = xToLon(wx);
     const lat = zToLat(wz);
 
+    teleportSeq++;
+    const seq = teleportSeq;
     const nearestGeomS = closestAlongM(routeCoords, cumDist, lon, lat);
     alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+
+    if (Math.hypot(wx - prevX, wz - prevZ) > 12) {
+      footsteps.clear();
+    }
 
     snapPhys(wx, wz);
 
@@ -3058,6 +3100,21 @@ export async function initHud3D(
     }
     pitch = Math.max(-0.55, Math.min(0.25, keepYaw ? pitch : -0.06));
     followEndless({ x: player.x, y: player.y, z: player.z });
+
+    if (corridor && isGaleSite()) {
+      const cell = corridor.sceneCellOf(wx, wz);
+      const cm = chunkMeshes.get(`${cell.a},${cell.b}`);
+      if (corridor.sampleDetail(wx, wz) === null || !cm || !cm.ready) {
+        warmCorridorAt(wx, wz).then(() => {
+          if (seq !== teleportSeq || !isGaleSite()) return;
+          if (phys.grounded && Math.hypot(phys.x - wx, phys.z - wz) < 8) {
+            phys.y = sampleElevSceneY(phys.x, phys.z);
+            syncPlayerFromPhys();
+          }
+          footsteps.reprojectAll(sampleRenderedSurfaceY, sampleNormal);
+        });
+      }
+    }
   }
 
   onTeleport(({ lon, lat }) => {
@@ -3299,6 +3356,7 @@ export async function initHud3D(
   function switchSite(spec) {
     if (!spec || spec.id === activeSiteId) return false;
     clearHardwareSite();
+    footsteps.clear();
     activeSiteRover = spec;
     activeSiteId = spec.id;
     historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
@@ -4977,22 +5035,24 @@ export async function initHud3D(
     }
     const feet = footSample(px, pz, yaw, player.y);
     const strikes = [];
+    if (snappedThisFrame) groundSpeedSm = 0;
     groundSpeedSm += (groundSpeed - groundSpeedSm) * Math.min(1, dt * 9);
     if (groundSpeedSm < 0.03 && step === 0) groundSpeedSm = 0;
     self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir, {
       crouch: phys.crouch,
       lean,
       brake,
+      reset: snappedThisFrame,
       ...feet,
       onStrike: (side) => strikes.push(side),
     });
     self.group.updateMatrixWorld(true);
-    if (!drivingRover) {
+    if (!drivingRover && !snappedThisFrame) {
       for (const side of strikes) {
         const bone = side === "L" ? self.bones.footL : self.bones.footR;
         if (!bone) continue;
         bone.getWorldPosition(footPos);
-        const gy = sampleElevSceneY(footPos.x, footPos.z);
+        const gy = sampleRenderedSurfaceY(footPos.x, footPos.z);
         const n = sampleNormal(footPos.x, footPos.z);
         footsteps.play(side, phys.faciesId);
         footsteps.stamp(footPos.x, gy, footPos.z, n, lastMoveYaw ?? yaw, phys.faciesId, side);

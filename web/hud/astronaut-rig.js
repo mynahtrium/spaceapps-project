@@ -724,6 +724,22 @@ export function createAstronaut(rig, { hideHead = false, handRoll = null, handCu
    * @param pose optional { crouch, lean, brake, footDyL, footDyR, normalL, normalR, onStrike }
    */
   function update(dt, moved, speed, airborne, dir, pose) {
+    if (pose?.reset) {
+      sSpeed = 0;
+      amount = 0;
+      dirF = 0;
+      dirS = 0;
+      sFootDyL = 0;
+      sFootDyR = 0;
+      sDyWeightL = 0;
+      sDyWeightR = 0;
+      hasFootDyL = false;
+      hasFootDyR = false;
+      hasNormL = false;
+      hasNormR = false;
+      prevStanceL = 0;
+      prevStanceR = 0;
+    }
     const safeDt = Math.min(0.05, Math.max(0, dt || 0.016));
     const damp = (rate) => 1 - Math.exp(-rate * safeDt);
     const rawSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
