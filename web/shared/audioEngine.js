@@ -417,7 +417,7 @@
     }
     lastHazardBeepMs = nowMs;
 
-    if (muted || (hasDocument && document.hidden)) return false;
+    if (!unlocked || muted || (hasDocument && document.hidden)) return false;
     const ac = ensureAudioContext();
     if (!ac) return false;
     const g = buildGraph();
@@ -459,7 +459,7 @@
   // LAYER 5: UI & Airlock Interaction Clicks (1200 Hz Tactile Micro-Clicks)
   // ===========================================================================
   function playUiClick(options = {}) {
-    if (muted || (hasDocument && document.hidden)) return false;
+    if (!unlocked || muted || (hasDocument && document.hidden)) return false;
     const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
     if (nowMs - lastUiClickMs < 28) return false;
     lastUiClickMs = nowMs;
@@ -928,6 +928,8 @@
       "keydown",
       (ev) => {
         if (ev.repeat) return;
+        const tag = ev.target?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || ev.target?.isContentEditable) return;
         const key = (ev.key || "").toLowerCase();
         if (key === "e") {
           playAirlockTransition();

@@ -694,11 +694,13 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
 
   // ---------- descent (stepped, GTA-style "switch" zoom) ----------
   let descent = null;
+  let descentTimerId = 0;
   const STEPS_KM = [2000, 400, 60, 8];
   function startDescent(lon, lat, landOpts) {
+    clearTimeout(descentTimerId);
     if (reducedMotion()) {
       descentEl.classList.add("on", "flash");
-      setTimeout(() => finishDescent(lon, lat, landOpts), 450);
+      descentTimerId = setTimeout(() => finishDescent(lon, lat, landOpts), 450);
       descent = { reduced: true };
       return;
     }
@@ -715,7 +717,13 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     descentEl.classList.remove("flash", "whoosh");
   }
   function finishDescent(lon, lat, landOpts) {
+    descentTimerId = 0;
     descent = null;
+    if (!active) {
+      descentEl.classList.remove("on", "flash", "whoosh");
+      if (descentAltEl) descentAltEl.textContent = "";
+      return;
+    }
     onLand?.(lon, lat, landOpts);
     // Reset the overlay a moment later (the view is hidden by then).
     setTimeout(() => {
@@ -745,7 +753,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       cam.lon = descent.from.lon + wrap180(descent.lon - descent.from.lon) * k;
       cam.lat = descent.from.lat + (descent.lat - descent.from.lat) * k;
       cam.dist = descent.from.dist + (startDist - descent.from.dist) * k;
-      descentAltEl.textContent = `ALT ${Math.round((cam.dist - 1) * R_KM).toLocaleString()} km`;
+      if (descentAltEl) descentAltEl.textContent = `ALT ${Math.round((cam.dist - 1) * R_KM).toLocaleString()} km`;
     } else {
       const tt = t - ALIGN;
       const idx = Math.floor(tt / (STEP + HOLD));
@@ -758,7 +766,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
           descentEl.classList.add("flash");
           const { lon, lat, landOpts } = descent;
           descent.done = true;
-          setTimeout(() => finishDescent(lon, lat, landOpts), 320);
+          descentTimerId = setTimeout(() => finishDescent(lon, lat, landOpts), 320);
         }
         return;
       }
@@ -983,6 +991,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     const o = camera.position;
     const d = tmpV2.copy(v).sub(o);
     const len = d.length();
+    if (len < 1e-6) return false;
     d.divideScalar(len);
     const b = o.dot(d);
     const c = o.lengthSq() - 1;
@@ -1049,7 +1058,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       active = true;
       onResize();
       descentEl.classList.remove("on", "flash", "whoosh");
-      if (from && Number.isFinite(from.lon)) {
+      if (from && Number.isFinite(from.lon) && Number.isFinite(from.lat)) {
         cam.lon = cam.tLon = from.lon;
         cam.lat = cam.tLat = Math.max(-89, Math.min(89, from.lat));
         cam.dist = 1 + 6 / R_KM;
@@ -1061,6 +1070,11 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     },
     hide() {
       active = false;
+      clearTimeout(descentTimerId);
+      descentTimerId = 0;
+      descent = null;
+      descentEl.classList.remove("on", "flash", "whoosh");
+      if (descentAltEl) descentAltEl.textContent = "";
       cancelAnimationFrame(raf);
       confirmEl.hidden = true;
     },
