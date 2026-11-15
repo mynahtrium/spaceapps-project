@@ -137,6 +137,30 @@ export class EvaVisorEffect extends Effect {
   }
 }
 
+const NAN_GUARD_FRAG = /* glsl */ `
+// isnan()/isinf() can be optimised away by GPU compilers, so test with comparisons instead:
+// a NaN fails every ordered comparison, and an infinite or huge value fails the range test.
+bool okValue(float v) { return v >= -65000.0 && v <= 65000.0; }
+
+void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+  bool ok = okValue(inputColor.r) && okValue(inputColor.g) && okValue(inputColor.b) && okValue(inputColor.a);
+  // Clean pixels are capped to a sane HDR range (negative colour also breaks bloom's averaging).
+  outputColor = ok ? vec4(clamp(inputColor.rgb, 0.0, 64.0), clamp(inputColor.a, 0.0, 1.0)) : vec4(0.0, 0.0, 0.0, 1.0);
+}
+`;
+
+/**
+ * Replaces NaN / infinite pixels with black and caps HDR values before bloom. Bloom's blur spreads a single NaN pixel
+ * over the whole frame, which turned the screen blank whenever such a pixel was in view (a bump-mapped
+ * surface can produce NaN in three.js's bump-map derivative maths).
+ */
+export class NanGuardEffect extends Effect {
+  constructor() {
+    // SRC replaces the pixel; NORMAL would blend with the input, and NaN * 0 is still NaN.
+    super("NanGuardEffect", NAN_GUARD_FRAG, { blendFunction: BlendFunction.SRC });
+  }
+}
+
 /**
  * @param {{THREE?: object, renderer: object, scene: object, camera: object}} opts
  * @returns pipeline controller: applySettings, setSize, setVisor, render
@@ -176,6 +200,7 @@ export function createMarsPostPipeline({ THREE = THREE_DEFAULT, renderer, scene,
       const noiseEffect = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: true });
       if (noiseEffect.blendMode?.opacity) noiseEffect.blendMode.opacity.value = 0.025;
       vignetteEffect = new VignetteEffect({ offset: 0.36, darkness: 0.34 });
+      composer.addPass(new EffectPass(camera, new NanGuardEffect()));
       lensPass = new EffectPass(camera, bloomEffect, chromaticAberrationEffect, noiseEffect, vignetteEffect, visorEffect);
       composer.addPass(lensPass);
       fxaaPass = new EffectPass(camera, new FXAAEffect());

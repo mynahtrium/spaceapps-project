@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "../vendor/three.module.js";
 
-import { createGaleVista } from "../hud/GaleVista.js";
 import {
   MARS_ATMO_HAZE_FRAG_APPLY,
   MARS_ATMO_HAZE_FRAG_PARS,
@@ -66,8 +65,8 @@ test("createAtmosphericHazeUniforms shares references and updates cleanly", () =
   assert.equal(u.uAtmoEnabled.value, 0);
 });
 
-test("patchAtmosphericHaze patches GaleVista cleanly", () => {
-  const vista = createGaleVista(THREE);
+test("patchAtmosphericHaze patches a terrain material with curvature", () => {
+  const mat = new THREE.MeshStandardMaterial();
   const sunDir = new THREE.Vector3(0.5, 0.6, 0.6).normalize();
   const atmoUniforms = createAtmosphericHazeUniforms(THREE, { sunDir });
   const curvature = {
@@ -75,23 +74,17 @@ test("patchAtmosphericHaze patches GaleVista cleanly", () => {
     uCurvInv2N: { value: 1e-7 },
     uCurvInv2M: { value: 1e-7 },
   };
-
-  patchAtmosphericHaze(THREE, vista, atmoUniforms, { curvature });
-
-  const key = vista.material.customProgramCacheKey();
-  assert.match(key, /mm-atmo-haze-curv/);
-
+  patchAtmosphericHaze(THREE, mat, atmoUniforms, { curvature });
+  assert.match(mat.customProgramCacheKey(), /mm-atmo-haze-curv/);
   const mockShader = {
     uniforms: {},
     vertexShader: "#include <common>\nvoid main() {\n#include <project_vertex>\n}",
-    fragmentShader: "#include <common>\nvoid main() {\n#include <lights_fragment_begin>\n#include <lights_fragment_end>\n#include <fog_fragment>\n}",
+    fragmentShader: "#include <common>\nvoid main() {\n#include <fog_fragment>\n}",
   };
-  vista.material.onBeforeCompile(mockShader, {});
-
+  mat.onBeforeCompile(mockShader, {});
   assert.match(mockShader.vertexShader, /vAtmoWorldPos = mmAtmoWorld\.xyz;/);
   assert.match(mockShader.vertexShader, /uCurvInv2N/);
   assert.doesNotMatch(mockShader.vertexShader, /#include <project_vertex>/);
   assert.match(mockShader.fragmentShader, /mmMarsAtmoHaze\(/);
-  assert.ok(mockShader.uniforms.uAtmoHorizon);
   assert.ok(mockShader.uniforms.uCurvAnchor);
 });

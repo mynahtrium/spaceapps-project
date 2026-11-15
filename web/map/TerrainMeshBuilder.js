@@ -54,7 +54,7 @@ export function buildAdaptiveRtinMesh(terrainGrid, gridSize, maxError = 0) {
  *   `flipY = false` DataTexture written row 0 = south to row H-1 = north.
  *
  * @param {object} params
- * @param {import('./MarsDemSampler.js').MarsDemSampler} params.demSampler
+ * @param {object} params.demSampler
  * @param {{ west: number, south: number, east: number, north: number }} params.bounds
  * @param {ReturnType<typeof import('./Geodesy.js').makeLocalTangentOrigin>} params.rtcOrigin
  * @param {number} [params.segments=48] Grid subdivisions per edge

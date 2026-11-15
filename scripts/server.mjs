@@ -1,9 +1,8 @@
 /**
- * Martian Mappers Static + Multiplayer WebSocket Server (`scripts/server.mjs`).
+ * Martian Mappers static server (`scripts/server.mjs`).
  *
- * Serves the repository root (`/web/`, `/data/`, `/docs/`, `/node_modules/`) via `sirv`,
- * provides hardware telemetry on `/api/hw/info` via `systeminformation`,
- * and hosts WebSocket EVA multiplayer rooms on `/ws?room=<code>`.
+ * Serves the repository root (`/web/`, `/data/`, `/docs/`, `/node_modules/`) via `sirv`.
+ * Dotfiles are never served. No APIs, no WebSockets.
  */
 
 import { execSync } from "node:child_process";
@@ -13,36 +12,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sirv from "sirv";
-import si from "systeminformation";
-
-import { createMultiplayerHub } from "./mp-hub.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, "..");
-
-let cachedHwInfo = null;
-let pendingHwPromise = null;
-
-async function getSystemHardwareInfo() {
-  if (cachedHwInfo) return cachedHwInfo;
-  if (!pendingHwPromise) {
-    pendingHwPromise = Promise.all([si.mem(), si.cpu()])
-      .then(([mem, cpu]) => {
-        cachedHwInfo = {
-          ok: true,
-          totalMemGb: +(Number(mem?.total || 0) / 1073741824).toFixed(1),
-          freeMemGb: +(Number(mem?.available || mem?.free || 0) / 1073741824).toFixed(1),
-          cpuModel: `${cpu?.manufacturer || ""} ${cpu?.brand || ""}`.trim(),
-          cpuCores: Number(cpu?.cores) || 4,
-        };
-        return cachedHwInfo;
-      })
-      .finally(() => {
-        pendingHwPromise = null;
-      });
-  }
-  return pendingHwPromise;
-}
 
 export function listLanIpv4Addresses() {
   const out = [];
@@ -60,7 +32,6 @@ export function listLanIpv4Addresses() {
 
 export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
   const safeRoot = path.resolve(rootDir);
-  const hub = createMultiplayerHub();
   const assets = sirv(safeRoot, {
     dev: true,
     dotfiles: false,
@@ -84,40 +55,6 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
       return;
     }
 
-    if (pathname === "/api/mp/status") {
-      const hostHdr = req.headers.host || "localhost:8000";
-      const portMatch = hostHdr.match(/:(\d+)$/);
-      const port = portMatch ? portMatch[1] : "8000";
-      const lanUrls = listLanIpv4Addresses().map((ip) => `http://${ip}:${port}/web/`);
-      const body = JSON.stringify({
-        ok: true,
-        ws: true,
-        ...hub.getStats(),
-        lanUrls,
-      });
-      res.writeHead(200, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
-      res.end(body);
-      return;
-    }
-
-    if (pathname === "/api/hw/info") {
-      try {
-        const hwInfo = await getSystemHardwareInfo();
-        res.writeHead(200, {
-          "Content-Type": "application/json; charset=utf-8",
-          "Cache-Control": "no-store",
-        });
-        res.end(JSON.stringify(hwInfo));
-      } catch {
-        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify({ ok: false }));
-      }
-      return;
-    }
-
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { "Content-Type": "text/plain" });
       res.end("Method Not Allowed");
@@ -136,28 +73,18 @@ export function createServerApp({ rootDir = DEFAULT_ROOT } = {}) {
     });
   });
 
-  server.on("upgrade", (req, socket, head) => {
-    const reqUrl = new URL(req.url || "/", "http://localhost");
-    if (reqUrl.pathname === "/ws") {
-      hub.handleUpgrade(req, socket, head);
-    } else {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
-    }
-  });
-
-  return { server, hub };
+  return { server };
 }
 
 export async function startServer({ port = 8000, host = "0.0.0.0", rootDir = DEFAULT_ROOT } = {}) {
-  const { server, hub } = createServerApp({ rootDir });
+  const { server } = createServerApp({ rootDir });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, resolve);
   });
   const addr = server.address();
   const actualPort = typeof addr === "object" && addr ? addr.port : port;
-  return { server, hub, port: actualPort, host };
+  return { server, port: actualPort, host };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -175,10 +102,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const port = Number(process.env.PORT || process.argv[2] || 8000);
   const host = process.env.HOST || "0.0.0.0";
   const { port: boundPort } = await startServer({ port, host });
-  console.log(`Martian Mappers Multiplayer + Static server listening on http://${host}:${boundPort}/web/`);
-  console.log(`Local Demo-Safe : http://localhost:${boundPort}/web/?demo=1`);
-  console.log(`Local Normal    : http://localhost:${boundPort}/web/`);
-  for (const ip of listLanIpv4Addresses()) {
-    console.log(`LAN Multiplayer : http://${ip}:${boundPort}/web/?room=GALE-01`);
-  }
+  console.log(`Martian Mappers server listening on http://${host}:${boundPort}/web/`);
+  console.log(`Offline data    : http://localhost:${boundPort}/web/?demo=1`);
+  console.log(`Live data       : http://localhost:${boundPort}/web/`);
+  for (const ip of listLanIpv4Addresses()) console.log(`On this network : http://${ip}:${boundPort}/web/`);
 }

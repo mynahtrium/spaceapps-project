@@ -2,11 +2,10 @@
  * Project Data Loader & HiRISE DEM Initializer.
  *
  * Resolution cascade:
- * - Normal mode: `../data/processed/...` -> `../docs/contracts/...`
+ * - Normal mode: `../data/processed/...` -> `../data/demo/...` (never `docs/contracts/`: shape examples only)
  * - Demo-safe mode (`?demo=1` or `?DEMO_SAFE=1`): strictly `../data/demo/...` ONLY (zero external network, zero `data/processed/` reads).
  */
 
-import { MarsDemSampler, decodeHiRiseHeightRgbaBuffer } from "../map/MarsDemSampler.js";
 
 export function isDemoSafeMode() {
   if (typeof window === "undefined") return false;
@@ -58,73 +57,6 @@ function collectSources(namedPayloads) {
   return out;
 }
 
-/**
- * Load height-preview.png into an in-memory RGBA buffer and decode into a void-filled `MarsDemSampler`.
- * Falls back cleanly to a synthetic Gale gradient DEM if PNG decoding is unavailable.
- * @param {object} data Loaded project bundle from `loadAllProjectData()`
- * @returns {Promise<MarsDemSampler>}
- */
-export async function loadDemSamplerFromData(data) {
-  const cm = data?.costMap;
-  const url = data?.assets?.heightPreviewUrl;
-  const bounds = cm?.bounds || {
-    west_lon_deg: 137.372831,
-    south_lat_deg: -4.816946,
-    east_lon_deg: 137.406542,
-    north_lat_deg: -4.783236,
-  };
-  const range = cm?.height_preview_elevation_range_m || [-3850.6, -3369.3];
-  const cellSizeM = cm?.cell_size_m || 5.059;
-
-  if (!url || typeof Image === "undefined" || typeof document === "undefined") {
-    const synth = MarsDemSampler.createSyntheticGale();
-    synth.isSyntheticFallback = true;
-    return synth;
-  }
-
-  try {
-    const img = await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error(`Failed to load DEM image: ${url}`));
-      image.src = url;
-    });
-    const w = img.naturalWidth || img.width || cm?.grid?.ncols || 395;
-    const h = img.naturalHeight || img.height || cm?.grid?.nrows || 395;
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0, w, h);
-    const { data: rgba } = ctx.getImageData(0, 0, w, h);
-    const { raw, filled, holeCountBefore, holeCountAfter } = decodeHiRiseHeightRgbaBuffer(
-      rgba,
-      w,
-      h,
-      range[0],
-      range[1]
-    );
-    const sampler = new MarsDemSampler({
-      bounds,
-      ncols: w,
-      nrows: h,
-      cellSizeM,
-      elevations: filled,
-      rawElevations: raw,
-      minElevM: range[0],
-      maxElevM: range[1],
-    });
-    sampler.isSyntheticFallback = false;
-    sampler.voidStats = { holeCountBefore, holeCountAfter };
-    return sampler;
-  } catch (err) {
-    console.warn("[data-loader] DEM image load failed; using synthetic Gale DEM:", err);
-    const synth = MarsDemSampler.createSyntheticGale();
-    synth.isSyntheticFallback = true;
-    return synth;
-  }
-}
-
 export async function loadAllProjectData() {
   const demoSafe = isDemoSafeMode();
   const base = "..";
@@ -133,8 +65,9 @@ export async function loadAllProjectData() {
     demoSafe
       ? [`${base}/data/demo/${demoRel}`]
       : [
+          // Never fall back to docs/contracts/: those are shape examples with invented values.
           `${base}/data/processed/${processedRel}`,
-          `${base}/docs/contracts/${contractRel}`,
+          `${base}/data/demo/${demoRel}`,
         ];
 
   const [
