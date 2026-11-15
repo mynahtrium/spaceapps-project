@@ -10,6 +10,8 @@
  * - Vertical frame: MOLA Mars areoid (meters; DTEEC_019698 elevations -3850.6..-3369.3 m)
  */
 
+// Order matters: the shim must be evaluated before the UMD build below (Web Worker support).
+import { shimmedWindow } from "./umd-window-shim.js";
 import * as GeodesicPkg from "../../node_modules/geographiclib-geodesic/geographiclib-geodesic.min.js";
 
 export const MARS_RADIUS_MEAN_M = 3389500;
@@ -22,6 +24,8 @@ const GeodesicCtor =
   GeodesicPkg?.Geodesic?.Geodesic ||
   GeodesicPkg?.default?.Geodesic?.Geodesic ||
   globalThis.geodesic?.Geodesic?.Geodesic;
+
+if (shimmedWindow) delete self.window;
 
 /** Pre-configured IAU 2015 Mars oblate ellipsoid geodesic solver (`a = 3396190 m, b = 3376200 m`). */
 export const MARS_ELLIPSOID_GEODESIC = new GeodesicCtor(MARS_RADIUS_EQ_M, MARS_FLATTENING);

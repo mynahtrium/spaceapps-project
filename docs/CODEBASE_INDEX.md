@@ -30,6 +30,7 @@ Generated from a scan of tracked files. Excludes `AGENTS.md`, `CLAUDE.md`, `GEMI
 ### `web/map/` (terrain and map engine)
 - Terrain pipeline: `TileSourceRegistry.js` (fallback cascade), `MarsDemSampler.js`, `TerrainMeshBuilder.js`, `terrain.worker.js` + `TerrainWorkerPool.js`, `MarsPbrTextures.js`, `GaleCorridor.js` (streamed corridor chunks).
 - `Geodesy.js`: Mars projection, tile maths, RTC datum.
+- `umd-window-shim.js`: lets the `geographiclib-geodesic` UMD build load inside `terrain.worker.js`.
 
 ### `web/physics/`
 `MarsConstants.js`, `MarsGravityField.js`, `MarsPhysicsWorld.js` (120 Hz walker), `VehicleDynamics.js`, `Terramechanics.js`, `SuitBiomechanics.js`, `MetabolicPlssModel.js`, `MarsAcoustics.js`.
@@ -41,6 +42,7 @@ Generated from a scan of tracked files. Excludes `AGENTS.md`, `CLAUDE.md`, `GEMI
 - `web/orbit/orbit-view.js`: Mars globe, landing-site picking.
 - `web/assets/`: 4k globe textures, NASA GLBs (Perseverance, MMSEV, spacesuits).
 - `web/vendor/`: three.module.js, GLTF/DRACO loaders, BufferGeometryUtils.
+- npm packages: `web/index.html` holds the import map that points bare imports (`three.quarks`, `postprocessing`, `simplex-noise`, …) at files in `node_modules/`, so run `npm install` first. Packages with no browser ES build go through a shim (`web/shared/seedrandom-esm.js`, `web/shared/tone-esm.js`). `web/tests/importmap.test.mjs` fails when an import is missing from the map.
 - `web/tests/` (Node test runner, `node --test web/tests/*.test.mjs`): context-menu, corridor, ephemeris, fallback, geodesy, multiplayer, npc-system, physics, route-bridge, rover-dynamics, vehicles.
 
 ## scripts/

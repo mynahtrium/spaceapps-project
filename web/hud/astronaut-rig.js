@@ -728,7 +728,9 @@ export function createAstronaut(rig, { hideHead = false, handRoll = null, handCu
   // Initialize THREE.AnimationMixer with procedural idle breathing clip
   const mixer = new THREE.AnimationMixer(group);
   const idleTrack = new THREE.NumberKeyframeTrack(
-    ".bones[chest].rotation[x]",
+    // Bound by bone name: the mixer root is a Group, so the `.bones[...]` form (which needs a
+    // SkinnedMesh root) cannot resolve. `chest` is a named Bone below `group`.
+    "chest.rotation[x]",
     [0, 2.0, 4.0],
     [0, 0.012, 0]
   );

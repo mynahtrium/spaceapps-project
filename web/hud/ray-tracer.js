@@ -45,6 +45,17 @@ import {
 
 export const RT_INTERNAL_RESOLUTION_SCALE = 0.5;
 
+/**
+ * `realism-effects` 1.1.2 (SSGI / SSR / TRAA / motion blur) is unmaintained and its shaders use
+ * three.js internals that were later removed (`boneTextureSize`, `OptimizedCineonToneMapping`),
+ * so they fail to compile on the three.js r170 this project ships. Building those passes then
+ * breaks the whole composer on the HIGH / ULTRA tiers. They are only created on a three.js
+ * revision they are known to compile on; otherwise those tiers use the N8AO + bloom + AA passes.
+ */
+const REALISM_EFFECTS_MAX_THREE_REVISION = 151;
+export const REALISM_EFFECTS_SUPPORTED =
+  Number.parseInt(THREE_DEFAULT.REVISION, 10) <= REALISM_EFFECTS_MAX_THREE_REVISION;
+
 const TIER_OFF = Object.freeze({
   id: "off",
   tier: 0,
@@ -462,6 +473,7 @@ export function createMarsPostAndPathTracerPipeline({
       }
 
       try {
+        if (!REALISM_EFFECTS_SUPPORTED) throw new Error("realism-effects unsupported on this three.js revision");
         velocityDepthNormalPass = new VelocityDepthNormalPass(scene, camera);
         composer.addPass(velocityDepthNormalPass);
         ssgiEffect = new SSGIEffect(scene, camera, velocityDepthNormalPass, {
@@ -661,7 +673,68 @@ export function createMarsPostAndPathTracerPipeline({
     return { mode: "direct", samples: 1, preset: rtPreset };
   }
 
+  // --- Per-frame bridge used by hud3d.js ---------------------------------------------------
+  // hud3d.js keeps the helmet state in its own lens uniforms and drives this pipeline with
+  // applyQualitySettings(cfg) / updateVisorUniforms({...}) / render(dt). These translate that
+  // state into the renderFrame() arguments above.
+  let bridgeDevCfg = null;
+  const bridgeLens = {
+    uBezelScale: 1,
+    uGlint: 0,
+    uDlssEnabled: 0,
+    uDlssScale: 1,
+    uDlssSharpness: 0.52,
+  };
+  const bridgeSunNdc = new THREE.Vector3();
+
+  function applyQualitySettings(cfg) {
+    bridgeDevCfg = cfg || null;
+    // Force the next renderFrame() to re-apply the pass toggles for the new settings.
+    lastTierId = null;
+    lastDlssId = null;
+  }
+
+  function updateVisorUniforms(values) {
+    if (!values) return;
+    for (const key of Object.keys(bridgeLens)) {
+      const v = values[key];
+      if (typeof v === "number" && Number.isFinite(v)) bridgeLens[key] = v;
+    }
+  }
+
+  function render(_dt) {
+    const dlssEnabled = bridgeLens.uDlssEnabled > 0.5;
+    let sunGlare = 0;
+    let sunScreenX = 0.5;
+    let sunScreenY = 0.5;
+    const sunDir = rtUniforms?.uRtSunDir?.value;
+    if (bridgeLens.uGlint > 0 && sunDir && camera) {
+      // Screen position of the solar disc; glare only while it is in front of the camera.
+      bridgeSunNdc.copy(sunDir).multiplyScalar(1000).add(camera.position).project(camera);
+      if (bridgeSunNdc.z < 1 && Number.isFinite(bridgeSunNdc.x) && Number.isFinite(bridgeSunNdc.y)) {
+        sunScreenX = bridgeSunNdc.x * 0.5 + 0.5;
+        sunScreenY = bridgeSunNdc.y * 0.5 + 0.5;
+        sunGlare = bridgeLens.uGlint;
+      }
+    }
+    return renderFrame({
+      devCfg: bridgeDevCfg,
+      dlssPreset: {
+        id: `${dlssEnabled ? "on" : "off"}:${bridgeLens.uDlssScale}`,
+        enabled: dlssEnabled,
+        sharpness: bridgeLens.uDlssSharpness,
+      },
+      visorOn: bridgeLens.uBezelScale > 0.001,
+      sunGlare,
+      sunScreenX,
+      sunScreenY,
+    });
+  }
+
   return {
+    applyQualitySettings,
+    updateVisorUniforms,
+    render,
     composer,
     pathTracer,
     visorEffect,
