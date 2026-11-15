@@ -1,7 +1,7 @@
 # GEMINI.md
 
-This is the Gemini / Gemini CLI entry point for **nasathingamajig** (team Martian Mappers, NASA Space Apps 2026).
+Gemini / Gemini CLI entry point for **nasathingamajig** (team Martian Mappers, NASA Space Apps 2026).
 
-**[AGENTS.md](./AGENTS.md) is the single source of truth.** Read it first and follow it. Do not treat this file as a second project guide.
+Read **[AGENTS.md](./AGENTS.md)** first; it is the only project guide. For a file map see [docs/CODEBASE_INDEX.md](./docs/CODEBASE_INDEX.md).
 
-Short version: no secrets, no personal data about team members (they are minors), cite data sources, label placeholders honestly, keep `?demo=1` offline, and keep this repository private. Run `node --test web/tests/*.test.mjs` after changing `web/`.
+Short version: no secrets, no personal data about team members (they are minors), cite data sources, label placeholders honestly, keep `?demo=1` offline, keep the repository private, and commit only when asked. Run `node --test web/tests/*.test.mjs` after changing `web/`.

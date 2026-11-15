@@ -54,4 +54,4 @@ docs/GITHUB_WORKFLOW.md   docs/AI_USE.md   docs/AI_USE_LOG.md   docs/DECISIONS.m
 
 ## Sources
 
-See the source list at the end of [AGENTS.md](./AGENTS.md). Planning content follows the team's 11 November 2026 internal note plus the 12 November decisions, and does not replace the official challenge page.
+See [docs/DATA_SOURCES.md](./docs/DATA_SOURCES.md) and the data table in [AGENTS.md](./AGENTS.md). This does not replace the official challenge page.
