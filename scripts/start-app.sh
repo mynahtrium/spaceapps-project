@@ -7,6 +7,11 @@ cd "$ROOT_DIR"
 PORT="${PORT:-8000}"
 URL="http://localhost:${PORT}/web/?demo=1"
 
+if command -v npm >/dev/null 2>&1 && [ ! -d node_modules ]; then
+  echo "Installing local npm packages for offline bundle..."
+  npm install --no-audit --no-fund
+fi
+
 if command -v node >/dev/null 2>&1; then
   SERVER_CMD=(node scripts/server.mjs)
 elif command -v python3 >/dev/null 2>&1; then

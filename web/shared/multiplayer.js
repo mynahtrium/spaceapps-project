@@ -1,13 +1,13 @@
 /**
  * Dual-transport EVA Multiplayer Client (`web/shared/multiplayer.js`).
  *
- * Supports two seamless zero-dependency transports:
- * 1. `BroadcastChannel` (`mm-eva-mp:<room>`): same-browser multi-tab multiplayer, works even
- *    with a static `python3 -m http.server` AND in `?demo=1` with zero network calls.
- * 2. Same-origin / LAN WebSocket (`/ws?room=<room>`): cross-device multiplayer when served
- *    via `node scripts/server.mjs` (or `./scripts/start-app.sh` / `start.bat`). Automatically
- *    skipped in `?demo=1` unless the user explicitly enables LAN relay.
+ * Uses `reconnecting-websocket` for cross-device LAN WebSocket transport (`/ws?room=<room>`),
+ * `BroadcastChannel` (`mm-eva-mp:<room>`) for offline / `?demo=1` same-browser multi-tab sync,
+ * and `mitt` as the lightweight event emitter.
  */
+
+import mitt from "mitt";
+import ReconnectingWebSocket from "reconnecting-websocket";
 
 const SUIT_PALETTE = [
   "#38bdf8",
@@ -100,17 +100,13 @@ export class MultiplayerClient {
     this._seq = 0;
     this._bc = null;
     this._ws = null;
-    this._reconnectTimer = null;
-    this._helloTimer = null;
-    this._pruneTimer = null;
-    this._reconnectAttempt = 0;
     this._disposed = false;
 
     this.peers = new Map();
     this.pins = [];
     this.lastState = null;
 
-    this._listeners = new Map();
+    this._emitter = mitt();
 
     if (typeof window !== "undefined") {
       window.addEventListener("beforeunload", () => this.disconnect(false));
@@ -118,20 +114,15 @@ export class MultiplayerClient {
   }
 
   on(event, fn) {
-    if (!this._listeners.has(event)) this._listeners.set(event, new Set());
-    this._listeners.get(event).add(fn);
-    return () => this._listeners.get(event)?.delete(fn);
+    this._emitter.on(event, fn);
+    return () => this._emitter.off(event, fn);
   }
 
   _emit(event, detail) {
-    const set = this._listeners.get(event);
-    if (!set) return;
-    for (const fn of set) {
-      try {
-        fn(detail);
-      } catch (err) {
-        console.warn(`[mp] listener error (${event}):`, err);
-      }
+    try {
+      this._emitter.emit(event, detail);
+    } catch (err) {
+      console.warn(`[mp] listener error (${event}):`, err);
     }
   }
 
@@ -176,33 +167,6 @@ export class MultiplayerClient {
     if (this.lanEnabled) {
       await this._probeAndConnectWs();
     }
-
-    clearInterval(this._helloTimer);
-    this._helloTimer = setInterval(() => {
-      this._publish({
-        type: "hello",
-        id: this.id,
-        callsign: this.callsign,
-        color: this.color,
-        role: this.role,
-        state: this.lastState,
-      });
-    }, 3000);
-
-    clearInterval(this._pruneTimer);
-    this._pruneTimer = setInterval(() => {
-      const now = Date.now();
-      let changed = false;
-      for (const [pid, p] of this.peers.entries()) {
-        // LAN-WS peers stay alive via TCP socket; BroadcastChannel peers timeout after 12s silence.
-        if (p.source !== "ws" && now - (p.lastSeenAt || 0) > 12000) {
-          this.peers.delete(pid);
-          changed = true;
-          this._emit("peerleave", p);
-        }
-      }
-      if (changed) this._emit("status", this.getStatusSummary());
-    }, 4000);
 
     // Announce immediately over BroadcastChannel
     this._publish({
@@ -269,13 +233,16 @@ export class MultiplayerClient {
     const url = `${proto}//${loc.host}/ws?room=${encodeURIComponent(this.room)}`;
 
     try {
-      const ws = new WebSocket(url);
+      const ws = new ReconnectingWebSocket(url, [], {
+        maxReconnectionDelay: 8000,
+        minReconnectionDelay: 1000,
+        reconnectionDelayGrowFactor: 1.6,
+      });
       this._ws = ws;
 
-      ws.onopen = () => {
+      ws.addEventListener("open", () => {
         if (this._ws !== ws) return;
         this.wsConnected = true;
-        this._reconnectAttempt = 0;
         this._sendWs({
           type: "hello",
           id: this.id,
@@ -285,9 +252,9 @@ export class MultiplayerClient {
           state: this.lastState,
         });
         this._emit("status", this.getStatusSummary());
-      };
+      });
 
-      ws.onmessage = (ev) => {
+      ws.addEventListener("message", (ev) => {
         if (typeof ev.data !== "string") return;
         try {
           const msg = JSON.parse(ev.data);
@@ -295,29 +262,20 @@ export class MultiplayerClient {
         } catch {
           /* ignore malformed JSON */
         }
-      };
+      });
 
-      ws.onclose = () => {
+      ws.addEventListener("close", () => {
         if (this._ws !== ws) return;
         this.wsConnected = false;
         this._emit("status", this.getStatusSummary());
-        if (!this._disposed && this.lanEnabled) {
-          const delay = Math.min(8000, 1000 * Math.pow(1.6, this._reconnectAttempt++));
-          clearTimeout(this._reconnectTimer);
-          this._reconnectTimer = setTimeout(() => this._openWebSocket(), delay);
-        }
-      };
-
-      ws.onerror = () => {
-        /* onclose handles cleanup/reconnect cleanly */
-      };
+      });
     } catch {
       this.wsConnected = false;
     }
   }
 
   _sendWs(packet) {
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+    if (this._ws && this._ws.readyState === ReconnectingWebSocket.OPEN) {
       try {
         this._ws.send(JSON.stringify(packet));
       } catch {
@@ -392,11 +350,9 @@ export class MultiplayerClient {
       return;
     }
 
-    // Deduplicate sequence numbers across BroadcastChannel + WebSocket dual transport
     if (senderId && typeof msg.seq === "number") {
       const prev = this.peers.get(senderId);
       if (prev && typeof prev.lastSeq === "number" && msg.seq <= prev.lastSeq && msg.type !== "hello") {
-        // Still allow seq reset if peer reloaded tab (`hello` resets lastSeq cleanly)
         return;
       }
     }
@@ -417,7 +373,6 @@ export class MultiplayerClient {
       );
       if (isNew) {
         this._emit("peerjoin", peer);
-        // Reply once so the newly opened BroadcastChannel tab immediately discovers us + our pins!
         if (source === "bc" && this._bc) {
           try {
             this._bc.postMessage({
@@ -534,7 +489,6 @@ export class MultiplayerClient {
     if (raw.role) peer.role = raw.role;
     if (raw.state) peer.state = raw.state;
     if (typeof raw.lastSeq === "number") peer.lastSeq = raw.lastSeq;
-    // Prefer "ws" marker once seen over WebSocket so BroadcastChannel reaper doesn't drop LAN peers
     if (source === "ws") peer.source = "ws";
     peer.lastSeenAt = Date.now();
     this.peers.set(peer.id, peer);
@@ -602,12 +556,6 @@ export class MultiplayerClient {
 
   disconnect(clearPeers = true) {
     this._disposed = true;
-    clearInterval(this._helloTimer);
-    clearInterval(this._pruneTimer);
-    clearTimeout(this._reconnectTimer);
-    this._helloTimer = null;
-    this._pruneTimer = null;
-    this._reconnectTimer = null;
 
     if (this._bc) {
       try {

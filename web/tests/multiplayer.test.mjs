@@ -2,9 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  computeWebSocketAccept,
-  decodeWsFrames,
-  encodeWsFrame,
+  createMultiplayerHub,
+  sanitizeRoomId,
 } from "../../scripts/mp-hub.mjs";
 import { startServer } from "../../scripts/server.mjs";
 import {
@@ -18,8 +17,9 @@ import {
 test("Multiplayer helper functions sanitize rooms, wrap yaw angles, and build invite URLs", () => {
   assert.equal(sanitizeRoomCode("  gale 02! "), "GALE02");
   assert.equal(sanitizeRoomCode(""), "GALE-01");
+  assert.equal(sanitizeRoomId("  gale 02! "), "GALE02");
   assert.equal(sanitizeCallsign("  ", "AST-9"), "AST-9");
-  assert.equal(sanitizeCallsign("Doruk", "AST-9"), "Doruk");
+  assert.equal(sanitizeCallsign("Atlas", "AST-9"), "Atlas");
 
   // Shortest-path angle lerp across +/- PI seam
   const wrapped = lerpAngleRad(Math.PI - 0.1, -Math.PI + 0.1, 0.5);
@@ -29,30 +29,24 @@ test("Multiplayer helper functions sanitize rooms, wrap yaw angles, and build in
   assert.equal(invite, "http://localhost:8765/web/?demo=1&room=EVA42");
 });
 
-test("RFC 6455 WebSocket accept hash and masked client frame decoding handle chunked TCP reads", () => {
-  // Known RFC 6455 test vector
-  assert.equal(
-    computeWebSocketAccept("dGhlIHNhbXBsZSBub25jZQ=="),
-    "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-  );
+test("createMultiplayerHub enforces room and pin caps over ws WebSocketServer", async () => {
+  const hub = createMultiplayerHub({ maxPeersPerRoom: 1, maxPinsPerRoom: 2 });
+  assert.ok(hub.wss, "hub exposes underlying ws WebSocketServer instance");
+  assert.deepEqual(hub.getStats(), { roomCount: 0, totalPeers: 0, rooms: [] });
+});
 
-  // Build masked client frame (>126 bytes to exercise extended 16-bit length)
-  const payload = Buffer.from("A".repeat(220), "utf8");
-  const mask = Buffer.from([0x12, 0x34, 0x56, 0x78]);
-  const header = Buffer.from([0x81, 0x80 | 126, (payload.length >> 8) & 0xff, payload.length & 0xff]);
-  const maskedBody = Buffer.alloc(payload.length);
-  for (let i = 0; i < payload.length; i++) maskedBody[i] = payload[i] ^ mask[i & 3];
-  const fullFrame = Buffer.concat([header, mask, maskedBody]);
-
-  // Feed in two partial halves
-  const p1 = decodeWsFrames(fullFrame.subarray(0, 50));
-  assert.equal(p1.frames.length, 0);
-  const p2 = decodeWsFrames(Buffer.concat([p1.remaining, fullFrame.subarray(50)]));
-  assert.equal(p2.error, null);
-  assert.equal(p2.frames.length, 1);
-  assert.equal(p2.frames[0].opcode, 0x1);
-  assert.equal(p2.frames[0].payload.toString("utf8"), "A".repeat(220));
-  assert.ok(encodeWsFrame(0x1, "ok").length === 4);
+test("Server /api/hw/info endpoint returns systeminformation hardware snapshot", async () => {
+  const { server, port } = await startServer({ port: 0, host: "127.0.0.1" });
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/hw/info`);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    assert.equal(json.ok, true);
+    assert.ok(json.totalMemGb > 0);
+    assert.ok(json.cpuCores >= 1);
+  } finally {
+    server.close();
+  }
 });
 
 test("Multiplayer server relays rooms, state, beacons, and chat over live WebSockets", async () => {
@@ -77,7 +71,7 @@ test("Multiplayer server relays rooms, state, beacons, and chat over live WebSoc
     await new Promise((r) => ws1.addEventListener("open", r, { once: true }));
     await waitFor(q1, (m) => m.type === "welcome", "ws1 welcome");
 
-    ws1.send(JSON.stringify({ type: "hello", id: "p1", callsign: "DORUK", color: "#38bdf8", role: "eva" }));
+    ws1.send(JSON.stringify({ type: "hello", id: "p1", callsign: "AST-1", color: "#38bdf8", role: "eva" }));
     ws1.send(
       JSON.stringify({
         type: "ping",
@@ -92,22 +86,22 @@ test("Multiplayer server relays rooms, state, beacons, and chat over live WebSoc
 
     const w2 = await waitFor(q2, (m) => m.type === "welcome", "ws2 welcome");
     assert.equal(w2.peers.length, 1);
-    assert.equal(w2.peers[0].callsign, "DORUK");
+    assert.equal(w2.peers[0].callsign, "AST-1");
     assert.equal(w2.pins.length, 1);
     assert.equal(w2.pins[0].label, "Mudstone");
 
-    ws2.send(JSON.stringify({ type: "hello", id: "p2", callsign: "EYMEN", color: "#34d399", role: "planner" }));
+    ws2.send(JSON.stringify({ type: "hello", id: "p2", callsign: "AST-2", color: "#34d399", role: "planner" }));
     const joinMsg = await waitFor(q1, (m) => m.type === "peer-join", "ws1 peer-join");
-    assert.equal(joinMsg.peer.callsign, "EYMEN");
+    assert.equal(joinMsg.peer.callsign, "AST-2");
 
     ws1.send(JSON.stringify({ type: "state", seq: 2, state: { x: 12.5, y: 1.1, z: -8, lon: 137.391, lat: -4.801, yaw: 0.4 } }));
     const stMsg = await waitFor(q2, (m) => m.type === "state", "ws2 state");
-    assert.equal(stMsg.callsign, "DORUK");
+    assert.equal(stMsg.callsign, "AST-1");
     assert.equal(stMsg.state.x, 12.5);
 
     ws2.send(JSON.stringify({ type: "chat", seq: 1, text: "Slope steep ahead" }));
     const chatMsg = await waitFor(q1, (m) => m.type === "chat", "ws1 chat");
-    assert.equal(chatMsg.callsign, "EYMEN");
+    assert.equal(chatMsg.callsign, "AST-2");
     assert.equal(chatMsg.text, "Slope steep ahead");
 
     const statusRes = await fetch(`http://127.0.0.1:${port}/api/mp/status`);

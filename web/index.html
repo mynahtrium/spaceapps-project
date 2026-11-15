@@ -10,7 +10,23 @@
     {
       "imports": {
         "three": "./vendor/three.module.js",
-        "three/addons/": "./vendor/addons/"
+        "three/addons/": "./vendor/addons/",
+        "@floating-ui/dom": "../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs",
+        "@floating-ui/core": "../node_modules/@floating-ui/core/dist/floating-ui.core.mjs",
+        "@floating-ui/utils": "../node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs",
+        "@floating-ui/utils/dom": "../node_modules/@floating-ui/utils/dist/floating-ui.utils.dom.mjs",
+        "preact": "../node_modules/preact/dist/preact.mjs",
+        "preact/hooks": "../node_modules/preact/hooks/dist/hooks.mjs",
+        "@preact/signals": "../node_modules/@preact/signals/dist/signals.mjs",
+        "@preact/signals-core": "../node_modules/@preact/signals-core/dist/signals-core.mjs",
+        "htm": "../node_modules/htm/dist/htm.mjs",
+        "i18next": "../node_modules/i18next/dist/esm/i18next.js",
+        "tweakpane": "../node_modules/tweakpane/dist/tweakpane.min.js",
+        "zod": "../node_modules/zod/index.js",
+        "detect-gpu": "../node_modules/detect-gpu/dist/detect-gpu.esm.js",
+        "minisearch": "../node_modules/minisearch/dist/es/index.js",
+        "mitt": "../node_modules/mitt/dist/mitt.mjs",
+        "reconnecting-websocket": "../node_modules/reconnecting-websocket/dist/reconnecting-websocket.mjs"
       }
     }
   </script>
@@ -331,7 +347,7 @@
     </div>
   </div>
 
-  <script src="./shared/audioEngine.js"></script>
+  <script type="module" src="./shared/audioEngine.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

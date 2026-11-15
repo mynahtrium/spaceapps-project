@@ -2,12 +2,11 @@
  * Custom right-click menu (`web/shared/context-menu.js`).
  *
  * Replaces the browser context menu with a mission-styled one whose items depend on
- * where you right-clicked. The caller supplies `getItems(ctx)`; this module only
- * handles opening, positioning, keyboard navigation and closing.
- *
- * Native menu is kept for text fields, selected text, and Shift + right-click.
- * A right-drag (MapLibre rotate / tilt, globe drag) never opens the menu.
+ * where you right-clicked. Uses `@floating-ui/dom` (`computePosition`, `flip`, `shift`)
+ * for viewport-aware positioning and flipping.
  */
+
+import { computePosition, flip, shift } from "@floating-ui/dom";
 
 const DRAG_PX = 5;
 
@@ -26,7 +25,6 @@ export function normalizeItems(items) {
       continue;
     }
     if (it.heading) {
-      // A heading also starts a group; drop a separator right before it.
       if (out.length && out[out.length - 1].separator) out.pop();
       if (out.length && out[out.length - 1].heading) out.pop();
       out.push({ heading: String(it.heading) });
@@ -38,13 +36,17 @@ export function normalizeItems(items) {
   return out;
 }
 
-/** Keep a menu of size (w, h) inside the viewport (vw, vh) with a margin. */
+/**
+ * Synchronous viewport flip + shift helper matching `@floating-ui/dom` `right-start` +
+ * `flip({ fallbackPlacements: ["left-start"] })` + `shift({ padding: margin })`.
+ */
 export function clampMenuPosition(x, y, w, h, vw, vh, margin = 8) {
-  let left = x;
-  let top = y;
-  if (left + w + margin > vw) left = Math.max(margin, x - w);
-  if (top + h + margin > vh) top = Math.max(margin, vh - h - margin);
-  return { left: Math.max(margin, left), top: Math.max(margin, top) };
+  const flippedLeft = x + w + margin > vw ? x - w : x;
+  const shiftedTop = y + h + margin > vh ? vh - h - margin : y;
+  return {
+    left: Math.max(margin, flippedLeft),
+    top: Math.max(margin, shiftedTop),
+  };
 }
 
 /** True when the browser's own menu is more useful (copy/paste, links). */
@@ -67,7 +69,6 @@ export function initContextMenu({ getItems, root = document.body } = {}) {
   let focusIdx = -1;
   let restoreFocus = null;
 
-  // Right-button drag tracking (contextmenu fires on mousedown on Linux/macOS, on mouseup on Windows).
   const right = { down: false, x: 0, y: 0, moved: false, pending: null };
 
   function isOpen() {
@@ -77,7 +78,7 @@ export function initContextMenu({ getItems, root = document.body } = {}) {
   function close() {
     if (!isOpen()) return;
     menu.hidden = true;
-    menu.innerHTML = "";
+    menu.replaceChildren();
     buttons = [];
     focusIdx = -1;
     if (restoreFocus && document.contains(restoreFocus)) {
@@ -94,10 +95,48 @@ export function initContextMenu({ getItems, root = document.body } = {}) {
     buttons[focusIdx].focus({ preventScroll: true });
   }
 
+  function positionMenu(x, y) {
+    const r = menu.getBoundingClientRect();
+    const initial = clampMenuPosition(x, y, r.width, r.height, window.innerWidth, window.innerHeight, 8);
+    menu.style.left = `${initial.left}px`;
+    menu.style.top = `${initial.top}px`;
+
+    const virtualReference = {
+      getBoundingClientRect() {
+        return {
+          width: 0,
+          height: 0,
+          x,
+          y,
+          top: y,
+          left: x,
+          right: x,
+          bottom: y,
+        };
+      },
+    };
+
+    computePosition(virtualReference, menu, {
+      strategy: "fixed",
+      placement: "right-start",
+      middleware: [
+        flip({ padding: 8, fallbackPlacements: ["left-start"] }),
+        shift({ padding: 8 }),
+      ],
+    })
+      .then(({ x: fx, y: fy }) => {
+        if (!menu.hidden) {
+          menu.style.left = `${Math.round(fx)}px`;
+          menu.style.top = `${Math.round(fy)}px`;
+        }
+      })
+      .catch(() => {});
+  }
+
   function open(ctx) {
     const items = normalizeItems(getItems?.(ctx));
     if (!items.length) return false;
-    menu.innerHTML = "";
+    menu.replaceChildren();
     buttons = [];
     for (const it of items) {
       if (it.separator) {
@@ -148,12 +187,7 @@ export function initContextMenu({ getItems, root = document.body } = {}) {
 
     restoreFocus = document.activeElement;
     menu.hidden = false;
-    menu.style.left = "0px";
-    menu.style.top = "0px";
-    const r = menu.getBoundingClientRect();
-    const pos = clampMenuPosition(ctx.x, ctx.y, r.width, r.height, window.innerWidth, window.innerHeight);
-    menu.style.left = `${pos.left}px`;
-    menu.style.top = `${pos.top}px`;
+    positionMenu(ctx.x, ctx.y);
     if (ctx.viaKeyboard) setFocus(0);
     else menu.focus?.({ preventScroll: true });
     return true;
@@ -205,18 +239,16 @@ export function initContextMenu({ getItems, root = document.body } = {}) {
       }
       e.preventDefault();
       close();
-      // While the mouse is pointer-locked (Bodycam look mode) there is no cursor to menu from.
       if (document.pointerLockElement) return;
       const viaKeyboard = e.button !== 2 && e.clientX === 0 && e.clientY === 0;
       if (viaKeyboard) {
-        // Menu key / Shift+F10: anchor on the focused element.
-        const r = (e.target?.getBoundingClientRect?.() || { left: 16, bottom: 16 });
+        const r = e.target?.getBoundingClientRect?.() || { left: 16, bottom: 16 };
         open({ x: r.left + 8, y: r.bottom, target: e.target, viaKeyboard: true });
         return;
       }
       const ctx = contextFromEvent(e);
-      if (right.down) right.pending = ctx; // Linux/macOS: wait for release so a right-drag stays a drag.
-      else if (!right.moved) open(ctx); // Windows: fires after release.
+      if (right.down) right.pending = ctx;
+      else if (!right.moved) open(ctx);
     },
     true
   );
@@ -236,7 +268,6 @@ export function initContextMenu({ getItems, root = document.body } = {}) {
         if (focusIdx >= 0) buttons[focusIdx].click();
         else return;
       } else {
-        // Swallow other keys so WASD etc. do not drive the walker behind an open menu.
         e.stopImmediatePropagation();
         return;
       }

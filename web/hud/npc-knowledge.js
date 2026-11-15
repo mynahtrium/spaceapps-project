@@ -13,6 +13,8 @@
  *    modular `registerNpcAiHook` for optional external LLM integration.
  */
 
+import MiniSearch from "minisearch";
+
 export const MARS_STATION_NPCS = Object.freeze([
   {
     id: "npc_active_rover",
@@ -985,46 +987,144 @@ const VEHICLE_SYNONYMS = {
   perseverance: ["perseverance", "percy", "mars 2020", "jezero", "ingenuity", "helicopter", "helikopter", "moxie", "sherloc", "pixl"],
 };
 
-function scoreKeywords(normQ, keywords) {
-  if (!normQ) return 0;
-  const tokens = normQ.split(" ");
-  let score = 0;
-  for (const kw of keywords) {
-    if (kw.includes(" ")) {
-      if (` ${normQ} `.includes(` ${kw} `)) score += 3.2;
-      continue;
-    }
-    if (kw.length <= 4) {
-      // Short words ("su", "sol", "rad", "ice", "km") match whole tokens (or 4-char stems)
-      // so e.g. "su" never matches "suspension" and "sol" never matches "solar".
-      if (tokens.some((t) => t === kw || (kw.length === 4 && t.startsWith(kw)))) {
-        score += 1.8;
-      }
-    } else if (normQ.includes(kw)) {
-      score += 1.8;
-    }
+const STOP_WORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "was",
+  "were",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "for",
+  "and",
+  "or",
+  "do",
+  "did",
+  "does",
+  "how",
+  "what",
+  "tell",
+  "me",
+  "about",
+  "its",
+  "it",
+  "i",
+  "like",
+  "ne",
+  "kadar",
+  "nedir",
+  "mi",
+  "mu",
+]);
+
+function createKnowledgeIndices() {
+  const processTerm = (term) => {
+    const t = normalizeQueryText(term);
+    if (!t || STOP_WORDS.has(t)) return null;
+    return t;
+  };
+
+  const marsIndex = new MiniSearch({
+    fields: ["keywords"],
+    storeFields: ["id", "topicKey"],
+    processTerm,
+    searchOptions: {
+      boost: { keywords: 4 },
+      fuzzy: (term) => (term.length >= 5 ? 0.2 : false),
+      prefix: (term) => term.length >= 5,
+    },
+  });
+  for (const [topicKey, entry] of Object.entries(GENERAL_MARS_TOPICS)) {
+    marsIndex.add({
+      id: `mars:${topicKey}`,
+      topicKey,
+      keywords: entry.keywords.join(" "),
+    });
   }
-  return score;
+
+  const vehicleTopicIndex = new MiniSearch({
+    fields: ["keywords"],
+    storeFields: ["id", "topicKey"],
+    processTerm,
+    searchOptions: {
+      boost: { keywords: 3 },
+      fuzzy: (term) => (term.length >= 5 ? 0.2 : false),
+      prefix: (term) => term.length >= 5,
+    },
+  });
+  for (const [topicKey, kws] of Object.entries(VEHICLE_TOPIC_KEYWORDS)) {
+    vehicleTopicIndex.add({
+      id: `vtopic:${topicKey}`,
+      topicKey,
+      keywords: kws.join(" "),
+    });
+  }
+
+  const crossRoverIndex = new MiniSearch({
+    fields: ["synonyms"],
+    storeFields: ["id", "vehicleId"],
+    processTerm: (term) => {
+      const t = processTerm(term);
+      if (!t || t === "mars" || t === "rover" || t === "active" || t === "current") return null;
+      return t;
+    },
+    searchOptions: {
+      boost: { synonyms: 3 },
+      fuzzy: (term) => (term.length >= 6 ? 0.2 : false),
+      prefix: (term) => term.length >= 5,
+    },
+  });
+  for (const [vehicleId, words] of Object.entries(VEHICLE_SYNONYMS)) {
+    crossRoverIndex.add({
+      id: `veh:${vehicleId}`,
+      vehicleId,
+      synonyms: words.join(" "),
+    });
+  }
+
+  const intentIndex = new MiniSearch({
+    fields: ["keywords"],
+    storeFields: ["id", "intent"],
+    processTerm,
+    searchOptions: {
+      boost: { keywords: 3 },
+      fuzzy: (term) => (term.length >= 5 ? 0.2 : false),
+      prefix: (term) => term.length >= 4,
+    },
+  });
+  intentIndex.addAll([
+    {
+      id: "intent:identity",
+      intent: "identity",
+      keywords: "who are you your name hello hi hey greetings kimsin adin merhaba selam",
+    },
+    {
+      id: "intent:ingenuity_moxie",
+      intent: "ingenuity_moxie",
+      keywords: "helicopter ingenuity fly flight rotor drone helikopter ucus moxie",
+    },
+  ]);
+
+  return { marsIndex, vehicleTopicIndex, crossRoverIndex, intentIndex };
 }
 
+const { marsIndex, vehicleTopicIndex, crossRoverIndex, intentIndex } = createKnowledgeIndices();
+
 function detectCrossRoverMention(normQ, ownVehicleId) {
-  let bestId = null;
-  let bestScore = 0;
-  for (const [vid, words] of Object.entries(VEHICLE_SYNONYMS)) {
-    const sc = scoreKeywords(normQ, words);
-    if (sc > bestScore) {
-      bestScore = sc;
-      bestId = vid;
-    }
-  }
-  if (bestId && bestId !== ownVehicleId && bestScore >= 1.8) {
-    return bestId;
+  const hits = crossRoverIndex.search(normQ);
+  if (hits.length > 0 && hits[0].vehicleId !== ownVehicleId && hits[0].score >= 1.5) {
+    return hits[0].vehicleId;
   }
   return null;
 }
 
 /**
- * Deterministic, 100% offline intent & keyword Q&A resolver.
+ * Deterministic, 100% offline BM25/TF-IDF + fuzzy Q&A resolver powered by `minisearch`.
  * Guarantees accurate in-character answers about the assigned rover AND general Mars science.
  */
 export function answerNpcQuestion(npcId, rawQuestion, { lang = "en" } = {}) {
@@ -1046,20 +1146,7 @@ export function answerNpcQuestion(npcId, rawQuestion, { lang = "en" } = {}) {
     return mkResult(isTr ? npc.greeting.tr : npc.greeting.en, "greeting");
   }
 
-  // 1. Identity / greeting intents
-  const idKeywords = ["who are you", "your name", "hello", "hi", "hey", "greetings", "kimsin", "adin", "merhaba", "selam"];
-  if (scoreKeywords(normQ, idKeywords) >= 1.8 && normQ.split(" ").length <= 7) {
-    const roleStr = isTr ? npc.role.tr : npc.role.en;
-    const vehStr = isTr ? npc.vehicleName.tr : npc.vehicleName.en;
-    return mkResult(
-      isTr
-        ? `Ben ${npc.name} (${roleStr}). Görevim buradaki ${vehStr} aracını denetlemek ve Mars bilimi sorularını yanıtlamak.`
-        : `I'm ${npc.name}, your ${roleStr}. My station is assigned to ${vehStr} — ask me anything about its engineering, discoveries, or Mars science!`,
-      "identity"
-    );
-  }
-
-  // 2. Exact / near match to one of this NPC's preset questions
+  // 1. Exact / near match to one of this NPC's preset questions
   for (const preset of npc.presets) {
     const pNormEn = normalizeQueryText(preset.question.en);
     const pNormTr = normalizeQueryText(preset.question.tr);
@@ -1070,9 +1157,24 @@ export function answerNpcQuestion(npcId, rawQuestion, { lang = "en" } = {}) {
     }
   }
 
+  const intentHits = intentIndex.search(normQ);
+
+  // 2. Identity / greeting intents
+  const idHit = intentHits.find((h) => h.intent === "identity");
+  if (idHit && idHit.score >= 1.2 && normQ.split(" ").length <= 7) {
+    const roleStr = isTr ? npc.role.tr : npc.role.en;
+    const vehStr = isTr ? npc.vehicleName.tr : npc.vehicleName.en;
+    return mkResult(
+      isTr
+        ? `Ben ${npc.name} (${roleStr}). Görevim buradaki ${vehStr} aracını denetlemek ve Mars bilimi sorularını yanıtlamak.`
+        : `I'm ${npc.name}, your ${roleStr}. My station is assigned to ${vehStr} — ask me anything about its engineering, discoveries, or Mars science!`,
+      "identity"
+    );
+  }
+
   // 3. Special Ingenuity / Helicopter / MOXIE check (always route accurately, tying back to Perseverance if needed)
-  const heloKeywords = ["helicopter", "ingenuity", "fly", "flight", "rotor", "drone", "helikopter", "ucus", "moxie"];
-  if (scoreKeywords(normQ, heloKeywords) >= 1.8) {
+  const heloHit = intentHits.find((h) => h.intent === "ingenuity_moxie");
+  if (heloHit && heloHit.score >= 1.5) {
     const percy = getNpcByVehicleId("perseverance");
     const ans =
       percy?.presets.find((p) => p.id === "rover_ingenuity_moxie")?.answer[isTr ? "tr" : "en"] ||
@@ -1086,26 +1188,14 @@ export function answerNpcQuestion(npcId, rawQuestion, { lang = "en" } = {}) {
     return mkResult(prefix + ans, "ingenuity_moxie", "NASA/JPL Mars 2020 Ingenuity & MOXIE");
   }
 
-  // 4. Score General Mars Science topics vs Vehicle-specific topics
-  let bestMarsTopic = null;
-  let bestMarsScore = 0;
-  for (const [topicKey, entry] of Object.entries(GENERAL_MARS_TOPICS)) {
-    const sc = scoreKeywords(normQ, entry.keywords);
-    if (sc > bestMarsScore) {
-      bestMarsScore = sc;
-      bestMarsTopic = topicKey;
-    }
-  }
+  // 4. Score General Mars Science topics vs Vehicle-specific topics via MiniSearch BM25
+  const marsHits = marsIndex.search(normQ);
+  const bestMarsTopic = marsHits[0]?.topicKey || null;
+  const bestMarsScore = marsHits[0]?.score || 0;
 
-  let bestVehicleTopic = null;
-  let bestVehicleScore = 0;
-  for (const [vTopic, kws] of Object.entries(VEHICLE_TOPIC_KEYWORDS)) {
-    const sc = scoreKeywords(normQ, kws);
-    if (sc > bestVehicleScore) {
-      bestVehicleScore = sc;
-      bestVehicleTopic = vTopic;
-    }
-  }
+  const vehicleHits = vehicleTopicIndex.search(normQ);
+  const bestVehicleTopic = vehicleHits[0]?.topicKey || null;
+  const bestVehicleScore = vehicleHits[0]?.score || 0;
 
   // Cross-rover query? (e.g., asking Cmdr. Rivera about Opportunity)
   const otherVehId = detectCrossRoverMention(normQ, npc.vehicleId);
@@ -1124,16 +1214,15 @@ export function answerNpcQuestion(npcId, rawQuestion, { lang = "en" } = {}) {
     }
   }
 
-  // Did user explicitly mention Mars science topics strongly without focusing purely on the vehicle?
   const asksOwnVehicle = normQ.includes("this") || normQ.includes("your") || normQ.includes("bu ") || normQ.includes("senin");
-  if (bestMarsTopic && bestMarsScore >= 1.8 && (!asksOwnVehicle || bestMarsScore > bestVehicleScore + 0.5)) {
+  if (bestMarsTopic && bestMarsScore >= 1.5 && (!asksOwnVehicle || bestMarsScore > bestVehicleScore + 0.5) && bestMarsScore >= bestVehicleScore) {
     const topicObj = GENERAL_MARS_TOPICS[bestMarsTopic];
     const responseText = topicObj[isTr ? "tr" : "en"];
     return mkResult(responseText, bestMarsTopic, topicObj.sourceNote || "NASA Mars Data");
   }
 
   // Vehicle-specific preset / deep knowledge match
-  if (bestVehicleTopic && bestVehicleScore >= 1.5) {
+  if (bestVehicleTopic && bestVehicleScore >= 1.0) {
     if (bestVehicleTopic === "discoveries") {
       const p = npc.presets.find((x) => x.id === "rover_discovery");
       return mkResult((p ? p.answer[isTr ? "tr" : "en"] : null) || npc.knowledge.discoveries, "vehicle_discoveries");
@@ -1155,12 +1244,21 @@ export function answerNpcQuestion(npcId, rawQuestion, { lang = "en" } = {}) {
       return mkResult(npc.knowledge.powerAndControls || p?.answer?.en, "vehicle_power_controls");
     }
     if (bestVehicleTopic === "siteAndLongevity") {
-      const p = npc.presets.find((x) => x.id === "rover_longevity" || x.id === "rover_storm" || x.id === "rover_rad_rems");
+      const p = npc.presets.find((x) => x.id === "rover_longevity" || x.id === "rover_storm" || x.id === "rover_rad_rems") || npc.presets[0];
       if (isTr && p) return mkResult(p.answer.tr, "vehicle_site_longevity");
-      return mkResult(npc.knowledge.siteAndLongevity || p?.answer?.en, "vehicle_site_longevity");
+      const baseEn = p?.answer?.en || npc.presets[0]?.answer?.en || "";
+      if (baseEn && npc.knowledge.siteAndLongevity && !baseEn.includes(npc.knowledge.siteAndLongevity.slice(0, 24))) {
+        return mkResult(`${baseEn}\n\n${npc.knowledge.siteAndLongevity}`, "vehicle_site_longevity");
+      }
+      return mkResult(npc.knowledge.siteAndLongevity || baseEn, "vehicle_site_longevity");
     }
     const pOverview = npc.presets[0];
     return mkResult(isTr ? pOverview.answer.tr : `${pOverview.answer.en}\n\n${npc.knowledge.siteAndLongevity}`, "vehicle_overview");
+  }
+
+  if (bestMarsTopic && bestMarsScore > 0) {
+    const topicObj = GENERAL_MARS_TOPICS[bestMarsTopic];
+    return mkResult(topicObj[isTr ? "tr" : "en"], bestMarsTopic, topicObj.sourceNote || "NASA Mars Data");
   }
 
   // General "mars" mention fallback

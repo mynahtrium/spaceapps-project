@@ -10,6 +10,7 @@ import {
   detectGraphicsLevel,
   estimateGpuVram,
   estimateSceneVramMb,
+  probeGpuTier,
   resolveGraphics,
 } from "../shared/graphics-profile.js";
 import {
@@ -90,7 +91,7 @@ test("DLSS experimental presets and normalization work across all modes", () => 
   assert.equal(cycled.dlssMode, "ultra_performance");
 });
 
-test("hardware detection cleans ANGLE GPU strings, estimates VRAM, and builds telemetry summary", () => {
+test("hardware detection cleans ANGLE GPU strings, estimates VRAM, and builds telemetry summary", async () => {
   const rawNvidia = "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)";
   assert.equal(cleanGpuModelName(rawNvidia), "NVIDIA GeForce RTX 4070");
   assert.equal(detectGpuVendor(rawNvidia), "NVIDIA");
@@ -133,4 +134,9 @@ test("hardware detection cleans ANGLE GPU strings, estimates VRAM, and builds te
     realisticTextures: true,
   });
   assert.ok(sceneMb >= 60 && sceneMb <= 350, `scene VRAM estimate ${sceneMb} MB within realistic range`);
+
+  const tier4070 = await probeGpuTier({ gpu: rawNvidia });
+  assert.equal(tier4070.tier, 3);
+  const tierSwift = await probeGpuTier({ gpu: "Google SwiftShader" });
+  assert.equal(tierSwift.tier, 0);
 });
