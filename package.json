@@ -1,19 +1,41 @@
 {
-  "name": "nasathingamajig",
+  "name": "martian-mappers",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Martian Mappers — Gale Crater / Mount Sharp Marswalk EVA Simulator",
   "scripts": {
     "start": "node scripts/server.mjs",
-    "build": "node --check web/shared/gamepad.js && node --check web/shared/gamepad-ui.js && node --check web/shared/controller-haptics.js && node --check web/shared/touch-controls.js && node --check web/hud/rover-dash.js && node --check web/shared/audioEngine.js && node --check web/hud/footsteps.js && node --check web/physics/MarsAcoustics.js",
-    "test": "node --test web/tests/*.test.mjs"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test web/tests/*.test.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@floating-ui/dom": "^1.6.13",
     "@nkzw/joymap": "^5.0.0",
+    "@preact/signals": "^2.0.1",
+    "detect-gpu": "^5.0.70",
     "dualsense-ts": "^6.15.38",
     "gamepad_standardizer": "^1.0.5",
+    "htm": "^3.1.1",
+    "i18next": "^24.2.2",
+    "minisearch": "^7.1.2",
+    "mitt": "^3.0.1",
     "nipplejs": "^0.10.2",
-    "tone": "^15.1.22"
+    "preact": "^10.25.4",
+    "reconnecting-websocket": "^4.4.0",
+    "sirv": "^3.0.1",
+    "systeminformation": "^5.25.11",
+    "three": "~0.170.0",
+    "tone": "^15.1.22",
+    "tweakpane": "^4.0.5",
+    "ws": "^8.18.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "vite": "^6.1.0"
   }
 }

@@ -1,7 +1,10 @@
 /**
  * Persistent developer / experimental visual & movement settings (`web/shared/dev-settings.js`).
  * Stored in `localStorage["mm-dev-settings"]` and broadcast via `mm:dev-settings`.
+ * Validated and normalized via `zod`.
  */
+
+import { z } from "zod";
 
 const STORAGE_KEY = "mm-dev-settings";
 export const DEV_SETTINGS_EVENT = "mm:dev-settings";
@@ -9,7 +12,6 @@ export const DEV_SETTINGS_EVENT = "mm:dev-settings";
 export const QUALITY_LEVELS = Object.freeze(["auto", "low", "medium", "high", "ultra"]);
 // names used before the graphics presets existed
 const LEGACY_QUALITY = Object.freeze({ performance: "medium", balanced: "high", quality: "high" });
-const pick = (val, allowed, fallback) => (allowed.includes(String(val)) ? String(val) : fallback);
 export const RT_MODES = Object.freeze(["off", "performance", "balanced", "high", "ultra"]);
 export const DLSS_MODES = Object.freeze(["off", "ultra_performance", "performance", "balanced", "quality", "dlaa"]);
 
@@ -138,11 +140,58 @@ try {
   /* ignore storage errors */
 }
 
-function clampNum(v, min, max, fallback) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
+const zEnumChoice = (allowed, fallback, mapLegacy = null) =>
+  z
+    .preprocess((v) => {
+      const mapped = mapLegacy && v !== undefined && v !== null ? mapLegacy[v] || v : v;
+      return String(mapped ?? fallback);
+    }, z.enum(allowed))
+    .catch(fallback);
+
+const zClampedNumber = (min, max, fallback) =>
+  z
+    .preprocess((v) => {
+      if (v === undefined || v === null || v === "") return fallback;
+      const n = Number(v);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(min, Math.min(max, n));
+    }, z.number().min(min).max(max))
+    .catch(fallback);
+
+const zBoolWithDefault = (fallback) =>
+  z.preprocess((v) => (v === undefined ? fallback : Boolean(v)), z.boolean()).catch(fallback);
+
+const DevSettingsSchema = z.object({
+  quality: zEnumChoice(QUALITY_LEVELS, DEFAULT_DEV_SETTINGS.quality, LEGACY_QUALITY),
+  gfxShadows: zEnumChoice(["auto", "off", "low", "high", "ultra"], "auto"),
+  gfxViewDistance: zEnumChoice(["auto", "near", "medium", "far", "max"], "auto"),
+  gfxRenderScale: zEnumChoice(["auto", "0.5", "0.75", "1", "1.25"], "auto"),
+  gfxAntialias: zEnumChoice(["auto", "0", "2", "4"], "auto"),
+  fpsLimit: zEnumChoice(["0", "30", "60", "120"], "0").transform(Number),
+  showPerf: zBoolWithDefault(DEFAULT_DEV_SETTINGS.showPerf),
+  hudTheme: zEnumChoice(["cyan", "untitled", "mono"], DEFAULT_DEV_SETTINGS.hudTheme),
+  frameEffect: zBoolWithDefault(DEFAULT_DEV_SETTINGS.frameEffect),
+  frameStrength: zClampedNumber(0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
+  speedMultiplier: zClampedNumber(0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
+  roverSpeedMultiplier: zClampedNumber(0.3, 4.0, DEFAULT_DEV_SETTINGS.roverSpeedMultiplier),
+  superGraphics: zBoolWithDefault(DEFAULT_DEV_SETTINGS.superGraphics),
+  rayTracing: zBoolWithDefault(DEFAULT_DEV_SETTINGS.rayTracing),
+  rayTracingMode: zEnumChoice(RT_MODES, DEFAULT_DEV_SETTINGS.rayTracingMode),
+  dlss: zBoolWithDefault(DEFAULT_DEV_SETTINGS.dlss),
+  dlssMode: zEnumChoice(DLSS_MODES, DEFAULT_DEV_SETTINGS.dlssMode),
+  dlssSharpness: zClampedNumber(0, 1, DEFAULT_DEV_SETTINGS.dlssSharpness),
+  experimentalRover: zBoolWithDefault(DEFAULT_DEV_SETTINGS.experimentalRover),
+  realisticTextures: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticTextures),
+  realisticDust: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticDust),
+  realisticPhysics: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticPhysics),
+  realisticWeather: zBoolWithDefault(DEFAULT_DEV_SETTINGS.realisticWeather),
+  dustTau: zClampedNumber(0.35, 3, DEFAULT_DEV_SETTINGS.dustTau),
+  dustDevil: zBoolWithDefault(DEFAULT_DEV_SETTINGS.dustDevil),
+  fov: zClampedNumber(60, 110, DEFAULT_DEV_SETTINGS.fov),
+  cleanHud: zBoolWithDefault(DEFAULT_DEV_SETTINGS.cleanHud),
+  audioMuted: zBoolWithDefault(DEFAULT_DEV_SETTINGS.audioMuted),
+  audioMusic: zBoolWithDefault(DEFAULT_DEV_SETTINGS.audioMusic),
+});
 
 function normalizeRtModeString(val) {
   if (typeof val !== "string") return null;
@@ -217,43 +266,16 @@ export function cycleDlssMode(current = {}) {
 }
 
 export function normalizeDevSettings(raw = {}) {
-  const rtState = resolveRayTracingState(raw);
-  const dlssState = resolveDlssState(raw);
-  return {
-    quality: pick(LEGACY_QUALITY[raw.quality] || raw.quality, QUALITY_LEVELS, DEFAULT_DEV_SETTINGS.quality),
-    gfxShadows: pick(raw.gfxShadows, ["auto", "off", "low", "high", "ultra"], "auto"),
-    gfxViewDistance: pick(raw.gfxViewDistance, ["auto", "near", "medium", "far", "max"], "auto"),
-    gfxRenderScale: pick(raw.gfxRenderScale, ["auto", "0.5", "0.75", "1", "1.25"], "auto"),
-    gfxAntialias: pick(raw.gfxAntialias, ["auto", "0", "2", "4"], "auto"),
-    fpsLimit: Number(pick(raw.fpsLimit, ["0", "30", "60", "120"], "0")),
-    showPerf: Boolean(raw.showPerf),
-    hudTheme: ["cyan", "untitled", "mono"].includes(raw.hudTheme) ? raw.hudTheme : DEFAULT_DEV_SETTINGS.hudTheme,
-    frameEffect: raw.frameEffect !== undefined ? Boolean(raw.frameEffect) : DEFAULT_DEV_SETTINGS.frameEffect,
-    frameStrength: clampNum(raw.frameStrength, 0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
-    speedMultiplier: clampNum(raw.speedMultiplier, 0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
-    roverSpeedMultiplier: clampNum(raw.roverSpeedMultiplier, 0.3, 4.0, DEFAULT_DEV_SETTINGS.roverSpeedMultiplier),
-    superGraphics: raw.superGraphics !== undefined ? Boolean(raw.superGraphics) : DEFAULT_DEV_SETTINGS.superGraphics,
+  const safeRaw = raw && typeof raw === "object" ? raw : {};
+  const rtState = resolveRayTracingState(safeRaw);
+  const dlssState = resolveDlssState(safeRaw);
+  return DevSettingsSchema.parse({
+    ...safeRaw,
     rayTracing: rtState.rayTracing,
     rayTracingMode: rtState.rayTracingMode,
     dlss: dlssState.dlss,
     dlssMode: dlssState.dlssMode,
-    dlssSharpness: clampNum(raw.dlssSharpness, 0, 1, DEFAULT_DEV_SETTINGS.dlssSharpness),
-    experimentalRover:
-      raw.experimentalRover !== undefined ? Boolean(raw.experimentalRover) : DEFAULT_DEV_SETTINGS.experimentalRover,
-    realisticTextures:
-      raw.realisticTextures !== undefined ? Boolean(raw.realisticTextures) : DEFAULT_DEV_SETTINGS.realisticTextures,
-    realisticDust: raw.realisticDust !== undefined ? Boolean(raw.realisticDust) : DEFAULT_DEV_SETTINGS.realisticDust,
-    realisticPhysics:
-      raw.realisticPhysics !== undefined ? Boolean(raw.realisticPhysics) : DEFAULT_DEV_SETTINGS.realisticPhysics,
-    realisticWeather:
-      raw.realisticWeather !== undefined ? Boolean(raw.realisticWeather) : DEFAULT_DEV_SETTINGS.realisticWeather,
-    dustTau: clampNum(raw.dustTau, 0.35, 3, DEFAULT_DEV_SETTINGS.dustTau),
-    dustDevil: raw.dustDevil !== undefined ? Boolean(raw.dustDevil) : DEFAULT_DEV_SETTINGS.dustDevil,
-    fov: clampNum(raw.fov, 60, 110, DEFAULT_DEV_SETTINGS.fov),
-    cleanHud: raw.cleanHud !== undefined ? Boolean(raw.cleanHud) : DEFAULT_DEV_SETTINGS.cleanHud,
-    audioMuted: raw.audioMuted !== undefined ? Boolean(raw.audioMuted) : DEFAULT_DEV_SETTINGS.audioMuted,
-    audioMusic: raw.audioMusic !== undefined ? Boolean(raw.audioMusic) : DEFAULT_DEV_SETTINGS.audioMusic,
-  };
+  });
 }
 
 export function loadDevSettings() {

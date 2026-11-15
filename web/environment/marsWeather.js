@@ -8,6 +8,12 @@
  * Exposes `window.MartianWeather` and exports state helpers for unit testing.
  */
 
+import { h, render } from "preact";
+import { signal } from "@preact/signals";
+import htm from "htm";
+
+const html = htm.bind(h);
+
 export const WEATHER_STATES = Object.freeze([
   Object.freeze({
     id: "CLEAR_SOL",
@@ -769,54 +775,46 @@ class MartianWeatherSystem {
 
     const root = document.createElement("div");
     root.id = "mm-weather-hud";
-
-    const pill = document.createElement("button");
-    pill.id = "mm-weather-pill";
-    pill.type = "button";
-    pill.title = "Click or press [M] to cycle weather (Shift+Click / Shift+M for Auto Mode)";
-    pill.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (e.shiftKey) {
-        this.setAutoMode(!this.autoMode);
-      } else {
-        this.cycleState();
-      }
-    });
-
-    const banner = document.createElement("div");
-    banner.id = "mm-weather-banner";
-    banner.setAttribute("role", "alert");
-
-    root.appendChild(pill);
-    root.appendChild(banner);
     visor.appendChild(root);
 
     this._ui.root = root;
-    this._ui.pill = pill;
-    this._ui.banner = banner;
+    this._ui.telemetrySig = signal(this.getState());
     this._refreshUi();
   }
 
   _refreshUi() {
-    const { pill, banner } = this._ui;
-    if (!pill || !banner) return;
+    const { root } = this._ui;
+    if (!root) return;
 
     const t = this.getState();
+    if (this._ui.telemetrySig) this._ui.telemetrySig.value = t;
     const modeSuffix = this.autoMode ? `AUTO:${t.shortLabel}` : t.shortLabel;
-    const radExtra =
-      t.stateId === "DONKI_SPE" ? ` | ${t.radMsvHr.toFixed(2)} mSv/hr` : "";
+    const radExtra = t.stateId === "DONKI_SPE" ? ` | ${t.radMsvHr.toFixed(2)} mSv/hr` : "";
+    const pillClass = t.banner?.level === "warning" ? "is-warning" : t.banner?.level === "caution" ? "is-caution" : "";
+    const bannerClass = t.banner ? (t.banner.level === "warning" ? "is-warning" : "is-caution") : "";
 
-    pill.textContent = `SOL ${t.sol} | ${t.pressurePa} Pa | \u03c4 ${t.tau.toFixed(1)} | ${modeSuffix}${radExtra} | [M] WEATHER`;
-    pill.classList.toggle("is-caution", t.banner?.level === "caution");
-    pill.classList.toggle("is-warning", t.banner?.level === "warning");
-
-    if (t.banner) {
-      banner.textContent = t.banner.text;
-      banner.className = t.banner.level === "warning" ? "is-warning" : "is-caution";
-    } else {
-      banner.textContent = "";
-      banner.className = "";
-    }
+    render(
+      html`
+        <button
+          id="mm-weather-pill"
+          type="button"
+          class=${pillClass}
+          title="Click or press [M] to cycle weather (Shift+Click / Shift+M for Auto Mode)"
+          onClick=${(e) => {
+            e.stopPropagation();
+            if (e.shiftKey) {
+              this.setAutoMode(!this.autoMode);
+            } else {
+              this.cycleState();
+            }
+          }}
+        >
+          ${`SOL ${t.sol} | ${t.pressurePa} Pa | \u03c4 ${t.tau.toFixed(1)} | ${modeSuffix}${radExtra} | [M] WEATHER`}
+        </button>
+        <div id="mm-weather-banner" role="alert" class=${bannerClass}>${t.banner ? t.banner.text : ""}</div>
+      `,
+      root
+    );
   }
 }
 

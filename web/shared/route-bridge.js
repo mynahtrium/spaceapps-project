@@ -1,8 +1,9 @@
 /**
  * Route Event Bridge (`mm:set-route`) and Mars Route Polyline Utilities.
- * Delegates planetary spherical math cleanly to `../map/Geodesy.js`.
+ * Powered by `mitt` for in-process event pub/sub and `../map/Geodesy.js` for spherical math.
  */
 
+import mitt from "mitt";
 import {
   MARS_RADIUS_MEAN_M,
   marsBearingDeg,
@@ -12,21 +13,37 @@ import {
 
 export { MARS_RADIUS_MEAN_M, marsDistanceM, marsBearingDeg };
 
+const bridgeBus = mitt();
 let pendingTeleport = null;
-const teleportListeners = new Set();
+let pendingRoverSite = null;
+
+function hasListeners(type) {
+  const list = bridgeBus.all.get(type);
+  return Boolean(list && list.length > 0);
+}
 
 export function dispatchSetRoute(route, alongM = 0) {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent("mm:set-route", { detail: { route, alongM, along_m: alongM } })
-  );
+  const detail = { route, alongM, along_m: alongM };
+  bridgeBus.emit("mm:set-route", detail);
+  if (typeof window !== "undefined" && typeof CustomEvent === "function") {
+    window.dispatchEvent(new CustomEvent("mm:set-route", { detail }));
+  }
 }
 
 export function onSetRoute(handler) {
-  if (typeof window === "undefined") return () => {};
-  const wrapped = (e) => handler(e.detail);
-  window.addEventListener("mm:set-route", wrapped);
-  return () => window.removeEventListener("mm:set-route", wrapped);
+  if (typeof handler !== "function") return () => {};
+  bridgeBus.on("mm:set-route", handler);
+  const winListener =
+    typeof window !== "undefined"
+      ? (e) => {
+          if (e?.detail && !hasListeners("mm:set-route")) handler(e.detail);
+        }
+      : null;
+  if (winListener) window.addEventListener("mm:set-route", winListener);
+  return () => {
+    bridgeBus.off("mm:set-route", handler);
+    if (winListener) window.removeEventListener("mm:set-route", winListener);
+  };
 }
 
 /**
@@ -36,13 +53,13 @@ export function onSetRoute(handler) {
 export function dispatchTeleport(lonLat) {
   const [lon, lat] = toLngLat(lonLat);
   const detail = { lon, lat };
-  if (teleportListeners.size === 0) {
+  if (!hasListeners("mm:teleport")) {
     pendingTeleport = detail;
   } else {
     pendingTeleport = null;
-    for (const fn of [...teleportListeners]) fn(detail);
+    bridgeBus.emit("mm:teleport", detail);
   }
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && typeof CustomEvent === "function") {
     window.dispatchEvent(new CustomEvent("mm:teleport", { detail }));
   }
   return detail;
@@ -50,13 +67,13 @@ export function dispatchTeleport(lonLat) {
 
 export function onTeleport(handler) {
   if (typeof handler !== "function") return () => {};
-  teleportListeners.add(handler);
+  bridgeBus.on("mm:teleport", handler);
   if (pendingTeleport) {
     const detail = pendingTeleport;
     pendingTeleport = null;
     handler(detail);
   }
-  return () => teleportListeners.delete(handler);
+  return () => bridgeBus.off("mm:teleport", handler);
 }
 
 export function buildCumulativeDistances(coords) {
@@ -105,7 +122,6 @@ export function closestAlongM(coords, cumDist, lon, lat) {
 }
 
 export function classifySlope(slopeDeg, strictLimitDeg = 20) {
-  // `id` and `level` are aliases (2D planner reads `level`/`color`, bodycam HUD reads `id`).
   const make = (level, label, color) => ({ id: level, level, label, color });
   if (slopeDeg == null || Number.isNaN(slopeDeg)) return make("green", "NO DATA", "#64748b");
   if (slopeDeg <= 10) return make("green", "NOMINAL <=10°", "#34d399");
@@ -160,23 +176,19 @@ export function resolveNextStopAlongRoute(route, stops, sM, lonLat) {
   return { stop: nearest, distanceM: minStopDist, mode: "nearest" };
 }
 
-let pendingRoverSite = null;
-const roverSiteListeners = new Set();
-const roverInfoListeners = new Set();
-
 /**
  * Switch the 3D exploration view to a historic NASA rover's real Martian landing site
  * (or walk directly up to Curiosity inside Gale Crater).
  */
 export function dispatchVisitRoverSite(roverId) {
   const detail = { roverId: String(roverId || "curiosity").toLowerCase() };
-  if (roverSiteListeners.size === 0) {
+  if (!hasListeners("mm:visit-rover-site")) {
     pendingRoverSite = detail;
   } else {
     pendingRoverSite = null;
-    for (const fn of [...roverSiteListeners]) fn(detail);
+    bridgeBus.emit("mm:visit-rover-site", detail);
   }
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && typeof CustomEvent === "function") {
     window.dispatchEvent(new CustomEvent("mm:visit-rover-site", { detail }));
   }
   return detail;
@@ -184,13 +196,13 @@ export function dispatchVisitRoverSite(roverId) {
 
 export function onVisitRoverSite(handler) {
   if (typeof handler !== "function") return () => {};
-  roverSiteListeners.add(handler);
+  bridgeBus.on("mm:visit-rover-site", handler);
   if (pendingRoverSite) {
     const detail = pendingRoverSite;
     pendingRoverSite = null;
     handler(detail);
   }
-  return () => roverSiteListeners.delete(handler);
+  return () => bridgeBus.off("mm:visit-rover-site", handler);
 }
 
 /**
@@ -199,8 +211,8 @@ export function onVisitRoverSite(handler) {
  */
 export function dispatchOpenRoverInfo(roverId) {
   const detail = { roverId: String(roverId || "").toLowerCase() };
-  for (const fn of [...roverInfoListeners]) fn(detail);
-  if (typeof window !== "undefined") {
+  bridgeBus.emit("mm:open-rover-info", detail);
+  if (typeof window !== "undefined" && typeof CustomEvent === "function") {
     window.dispatchEvent(new CustomEvent("mm:open-rover-info", { detail }));
   }
   return detail;
@@ -208,7 +220,6 @@ export function dispatchOpenRoverInfo(roverId) {
 
 export function onOpenRoverInfo(handler) {
   if (typeof handler !== "function") return () => {};
-  roverInfoListeners.add(handler);
-  return () => roverInfoListeners.delete(handler);
+  bridgeBus.on("mm:open-rover-info", handler);
+  return () => bridgeBus.off("mm:open-rover-info", handler);
 }
-
