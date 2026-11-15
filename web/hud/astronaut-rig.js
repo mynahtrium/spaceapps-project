@@ -836,6 +836,10 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
     group,
     bones: { root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR },
     update,
+    /** Show the helmet for a 3rd-person camera; hide it for the helmet (1st-person) camera. */
+    setHeadVisible(v) {
+      head.scale.setScalar(v ? 1 : 1e-4);
+    },
     get phase() { return phase; },
     get amount() { return amount; },
   };

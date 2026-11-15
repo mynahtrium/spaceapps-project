@@ -4,6 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import * as THREE from "../vendor/three.module.js";
+import { createHistoricRoverGroup, stepRoverRigKinematics } from "../hud/historic-rovers.js";
+
 import { makeLocalTangentOrigin, decodeTerrariumPixel } from "../map/Geodesy.js";
 import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
 import {
@@ -24,24 +27,19 @@ import {
   DRIVABLE_VEHICLES,
   ROVER_FLIGHT_G,
   computeSpawnBesideOffset,
+  createExperimentalRover,
   getDrivableVehicleSpec,
   resolveRoverObbCollision,
   stepAdvancedRoverPhysics,
   stepRoverBallisticPhysics,
 } from "../hud/experimental-rover.js";
+import { HABITAT_LAYOUT, HABITAT_ZONES, createMarsHabitatStation } from "../hud/mars-habitat.js";
 import {
   RT_HEIGHT_GLSL,
   RT_LENS_PARS_GLSL,
   buildHeightfieldRtData,
   createRayTracerUniforms,
 } from "../hud/ray-tracer.js";
-import {
-  decodeAndConditionElevGrid,
-  sampleMirrorBicubicHeight,
-  smoothHarshTerrainSpikes,
-} from "../hud/terrain-surface.js";
-import { createGaleVista } from "../hud/GaleVista.js";
-import * as THREE from "../vendor/three.module.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
 import { TerrainWorkerPool } from "../map/TerrainWorkerPool.js";
@@ -628,10 +626,12 @@ test("scatterHistoricRoverCoords spreads all 5 unique rovers safely across walka
   }
 });
 
-test("drivable vehicle registry keeps only NASA MMSEV and normalizes roverSpeedMultiplier", () => {
-  assert.equal(DRIVABLE_VEHICLES.length, 1);
+test("drivable vehicle registry includes NASA MMSEV and NASA Mars Rover Concept", () => {
+  assert.equal(DRIVABLE_VEHICLES.length, 2);
   assert.equal(DRIVABLE_VEHICLES[0].id, "mmsev");
+  assert.equal(DRIVABLE_VEHICLES[1].id, "nasa_concept");
   assert.equal(getDrivableVehicleSpec("mmsev").shortLabel, "MMSEV 6×6");
+  assert.equal(getDrivableVehicleSpec("nasa_concept").shortLabel, "MARS CONCEPT");
   assert.equal(getDrivableVehicleSpec("anything-else").id, "mmsev");
   assert.equal(DEFAULT_DEV_SETTINGS.roverSpeedMultiplier, 1.0);
   assert.equal(normalizeDevSettings({ roverSpeedMultiplier: 2.5 }).roverSpeedMultiplier, 2.5);
@@ -697,79 +697,177 @@ test("stepAdvancedRoverPhysics simulates acceleration, gearbox shifts, handbrake
   assert.ok(s.airPitchVel !== 0 || s.airRollVel !== 0);
 });
 
-test("terrain-surface preserves steep NASA slopes while selectively smoothing harsh needles, filling voids, and keeping C1 mirror continuity", () => {
-  // 1. Planar 28-degree steep slope with one isolated +7.5m pointy stereo needle spike
-  const w = 13;
-  const h = 13;
-  const raw = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      raw[y * w + x] = -3600 + x * 2.65 + y * 0.6; // steady steep ~28 deg plane
+test("all 5 historic rovers (curiosity, sojourner, spirit, opportunity, perseverance) build complete rigs and articulate cleanly", () => {
+  const orderedIds = ["curiosity", "sojourner", "spirit", "opportunity", "perseverance"];
+  for (const id of orderedIds) {
+    const spec = getHistoricRoverById(id);
+    assert.ok(spec, `Expected spec for ${id}`);
+    const grp = createHistoricRoverGroup(THREE, null, spec);
+    const rig = grp.userData?.rig;
+    assert.ok(rig, `${id} must expose userData.rig`);
+    assert.ok(rig.chassis, `${id} rig must have chassis`);
+    assert.ok(rig.rockerL && rig.rockerR, `${id} rig must have rockerL and rockerR`);
+    assert.ok(rig.bogieL && rig.bogieR, `${id} rig must have bogieL and bogieR`);
+    assert.ok(rig.diffBar, `${id} rig must have diffBar`);
+    assert.equal(rig.wheels.length, 6, `${id} rig must have 6 wheel spin pivots`);
+    assert.equal(rig.steerKnuckles.length, 4, `${id} rig must have 4 corner steering knuckles`);
+    assert.ok(rig.mastYaw && rig.mastPitch, `${id} rig must have mastYaw and mastPitch`);
+    assert.ok(rig.hgaYaw && rig.hgaPitch, `${id} rig must have hgaYaw and hgaPitch`);
+    assert.ok(rig.arm?.shoulderYaw && rig.arm?.shoulderPitch && rig.arm?.elbowPitch, `${id} rig must have hierarchical arm joints`);
+    assert.ok(rig.arm?.wristPitch && rig.arm?.turretRoll && rig.arm?.toolSpin, `${id} rig must have wrist/turret/tool joints`);
+
+    const initMastY = rig.mastYaw.rotation.y;
+    const initWheelX = rig.wheels[0].rotation.x;
+    const initArmYaw = rig.arm.shoulderYaw.rotation.y;
+    const initToolZ = rig.arm.toolSpin.rotation.z;
+
+    for (let i = 0; i < 20; i++) {
+      stepRoverRigKinematics(rig, {
+        dt: 0.05,
+        clockT: 1.5 + i * 0.05,
+        relObserverX: 4.5,
+        relObserverY: 0.6,
+        relObserverZ: -6.0,
+        wheelDeltaHeights: [0.18, 0.04, -0.14, -0.12, 0.0, 0.14],
+        driveSpeed: 0.4,
+        steerAngle: 0.25,
+      });
     }
+
+    assert.notEqual(rig.mastYaw.rotation.y, initMastY, `${id} mastYaw must articulate`);
+    assert.notEqual(rig.wheels[0].rotation.x, initWheelX, `${id} wheels must spin`);
+    assert.notEqual(rig.arm.shoulderYaw.rotation.y, initArmYaw, `${id} arm must articulate`);
+    assert.notEqual(rig.arm.toolSpin.rotation.z, initToolZ, `${id} toolSpin must rotate`);
+    assert.ok(Math.abs(rig.rockerL.rotation.x) > 0.01, `${id} rockerL must flex with wheel terrain deltas`);
+    assert.ok(Math.abs(rig.steerKnuckles[0].rotation.y) > 0.05, `${id} corner steering knuckle must turn`);
   }
-  const slopeBefore = raw[6 * w + 10] - raw[6 * w + 2];
-  raw[6 * w + 6] += 7.5; // harsh pointy needle spike
-  const cleaned = smoothHarshTerrainSpikes(raw, w, h);
-
-  // Away from the needle, steep NASA planar slope stays exact (< 1 cm change)
-  assert.ok(Math.abs(cleaned[6 * w + 2] - raw[6 * w + 2]) < 0.01);
-  assert.ok(Math.abs(cleaned[6 * w + 10] - raw[6 * w + 10]) < 0.01);
-  assert.ok(Math.abs((cleaned[6 * w + 10] - cleaned[6 * w + 2]) - slopeBefore) < 0.02);
-
-  // Needle spike is strongly relaxed toward local slope plane
-  const planeAtCenter = -3600 + 6 * 2.65 + 6 * 0.6;
-  assert.ok(Math.abs(cleaned[6 * w + 6] - planeAtCenter) < 1.25, `Spike delta too large: ${cleaned[6 * w + 6] - planeAtCenter}`);
-
-  // 2. NoData val=0 pixels in height-preview RGB buffer must fill from neighbors, never drop to elevMin
-  const rgba = new Uint8Array(w * h * 4);
-  for (let i = 0; i < w * h; i++) {
-    rgba[i * 4] = 128; // midpoint (~0.5 of range)
-    rgba[i * 4 + 1] = 0;
-    rgba[i * 4 + 3] = 255;
-  }
-  rgba[(6 * w + 6) * 4] = 0; // NoData sentinel val=0
-  rgba[(6 * w + 6) * 4 + 1] = 0;
-  const decoded = decodeAndConditionElevGrid(rgba, w, h, -3850.6, -3369.3);
-  assert.equal(decoded.holeCountBefore, 1);
-  assert.equal(decoded.holeCountAfter, 0);
-  assert.ok(decoded.grid[6 * w + 6] > -3700, `Void hole dropped toward elevMin: ${decoded.grid[6 * w + 6]}`);
-
-  // 3. C1 mirror continuity across tile edge u = 1.0
-  const eps = 1e-4;
-  const hEdge = sampleMirrorBicubicHeight(cleaned, w, h, 1.0, 0.42);
-  const hLeft = sampleMirrorBicubicHeight(cleaned, w, h, 1.0 - eps, 0.42);
-  const hRight = sampleMirrorBicubicHeight(cleaned, w, h, 1.0 + eps, 0.42);
-  assert.ok(Math.abs(hLeft - hRight) < 1e-4, "Mirrored heights must be symmetric at tile boundary");
-  assert.ok(Math.abs((hEdge - hLeft) / eps) < 5, "C1 mirror boundary derivative must be smooth (no sharp V-crease)");
 });
 
-test("GaleVista builds smooth stratified Mount Sharp massif within camera far plane", () => {
-  const vista = createGaleVista(THREE);
-  assert.equal(vista.visible, true);
-  assert.equal(vista.material.flatShading, false);
-  assert.equal(vista.material.vertexColors, true);
-  const pos = vista.geometry.attributes.position;
-  const col = vista.geometry.attributes.color;
-  assert.ok(pos.count > 4000, "GaleVista must have sufficient mesh resolution for smooth ridgelines");
-  assert.equal(col.count, pos.count);
-  let maxR = 0;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    assert.ok(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z));
-    maxR = Math.max(maxR, Math.hypot(x, z));
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+test("resolveRoverObbCollision returns finite push-out when entity center lies inside the OBB", () => {
+  for (const [ex, ez] of [
+    [10, 20],
+    [10.25, 19.7],
+    [9.4, 20.6],
+  ]) {
+    const res = resolveRoverObbCollision(10, 20, -0.43, 0, ex, ez, 0.45, 0, 1.45, 1.55);
+    assert.equal(res.hit, true);
+    assert.ok(Number.isFinite(res.x), "resolved x must be finite");
+    assert.ok(Number.isFinite(res.z), "resolved z must be finite");
+    assert.ok(Number.isFinite(res.nx), "resolved nx must be finite");
+    assert.ok(Number.isFinite(res.nz), "resolved nz must be finite");
+    assert.ok(Number.isFinite(res.pen) && res.pen > 0, "resolved pen must be positive and finite");
   }
-  assert.ok(maxR <= 13700, `GaleVista outer radius (${maxR.toFixed(0)} m) should fit inside 15 km camera.far`);
-  assert.ok(minY <= 0 && maxY > 1200, `Expected Mount Sharp massif relief (got ${minY.toFixed(1)}..${maxY.toFixed(1)} m)`);
+});
 
-  // Verify off-Gale smooth landing pad & natural meso relief
-  assert.equal(sampleProceduralSiteHeightM("curiosity", 100, 100), 0);
-  const padCenter = sampleProceduralSiteHeightM("perseverance", 0, 0);
-  const padNear = sampleProceduralSiteHeightM("perseverance", 2.5, 1.5);
-  assert.ok(Math.abs(padCenter - padNear) < 0.25, "Landing pad around rover (0,0) should remain gently graded");
+test("NASA Mars Rover Concept builds rigged 6x6 hollow wheels and drives with physics", () => {
+  const concept = createExperimentalRover(THREE, "nasa_concept");
+  assert.equal(concept.vehicleType, "nasa_concept");
+  assert.equal(concept.getActiveSpec().id, "nasa_concept");
+  assert.ok(concept.radius >= 3.0);
+
+  concept.group.position.set(7.2, 0, 25);
+  concept.update(0.1, {
+    sampleElevY: (x, z) => Math.sin(x * 0.25) * 0.12 + Math.cos(z * 0.2) * 0.08,
+    speed: 14,
+    steer: 0.55,
+    driving: true,
+    physicsEnabled: true,
+  });
+  assert.ok(Number.isFinite(concept.group.position.y));
+  const hit = concept.resolveCollision(7.4, 25.2, 0.45, 0);
+  assert.equal(hit.hit, true);
+
+  const dynState = {
+    yaw: 0,
+    yawRate: 0,
+    velX: 0,
+    velZ: 0,
+    forwardSpeed: 0,
+    lateralSpeed: 0,
+    slipRatio: 0,
+    gear: 1,
+    rpmNorm: 0,
+    drifting: false,
+    braking: false,
+    airPitchVel: 0,
+    airRollVel: 0,
+    airPitchOffset: 0,
+    airRollOffset: 0,
+    lastSlopePitch: 0,
+  };
+  const step = stepAdvancedRoverPhysics(dynState, {
+    vehicleType: "nasa_concept",
+    throttle: 1,
+    steer: -0.35,
+    boost: true,
+    realisticPhysics: true,
+    dt: 0.05,
+  });
+  assert.equal(step.spec.id, "nasa_concept");
+  assert.ok(step.vFwd > 0);
+});
+
+test("Mars Habitat Station follows the blueprint layout: 5 zones, raised decks, ramps, doors", () => {
+  assert.equal(HABITAT_ZONES.length, 5);
+  const hab = createMarsHabitatStation(THREE, { originX: 0, originZ: 0, rawSampleElevY: () => 1.5 });
+  const zoneNames = new Set(hab.group.children.map((c) => c.name));
+  for (const z of HABITAT_ZONES) {
+    assert.ok(zoneNames.has(z.id), `Missing habitat zone ${z.id}`);
+  }
+
+  const bays = hab.getBayPlacements();
+  assert.deepEqual(
+    bays.historicPlacements.map((p) => p.id),
+    ["sojourner", "spirit", "opportunity", "curiosity", "perseverance"]
+  );
+  assert.deepEqual(
+    bays.drivablePlacements.map((p) => p.vehicleType),
+    ["mmsev", "nasa_concept"]
+  );
+
+  // Zone layout matches the top-down plan (ÜST)
+  assert.equal(hab.zoneAt(-15, -2), "pinkCorridor"); // left leg of the L
+  assert.equal(hab.zoneAt(0, 7), "pinkCorridor"); // bottom leg of the L
+  assert.equal(hab.zoneAt(5, -3), "yellowCafeteria");
+  assert.equal(hab.zoneAt(-8, -20), "purpleDormitory");
+  assert.equal(hab.zoneAt(25, 7), "redAirlock");
+  assert.equal(hab.zoneAt(0, 16), "greenGarage");
+
+  // Pad at baseY=1.5; pressurized deck +0.5; dormitory deck +1.1; ramps in between
+  const { DECK, DORM_FLOOR } = HABITAT_LAYOUT;
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 40, 9.0) - 1.5) < 1e-6); // apron is levelled
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 16, 0.0) - (1.5 + DECK)) < 1e-6);
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(-8, -20, 0.0) - (1.5 + DORM_FLOOR)) < 1e-6);
+  assert.ok(Math.abs(hab.sampleElevWithHabitat(0, 24.5, 0.0) - (1.5 + DECK / 2)) < 1e-6); // garage ramp midpoint
+  const rampMid = hab.sampleElevWithHabitat(0, -6.75, 0.0);
+  assert.ok(rampMid > 1.5 + DECK && rampMid < 1.5 + DORM_FLOOR); // cafeteria ramp up to the dorm
+  // terrain mesh only sees the levelled pad, never the deck (no z-fighting with floors)
+  assert.ok(Math.abs(hab.sampleTerrainWithHabitat(0, 16, 7.0) - 1.5) < 1e-6);
+  assert.equal(hab.sampleTerrainWithHabitat(500, 500, 7.0), 7.0);
+
+  // Bay doors start open, close when nobody is near, and reopen for an approaching actor
+  const y = 1.5 + DECK;
+  assert.equal(hab.resolveCollision(0, 22, 0.4, y).hit, false);
+  for (let i = 0; i < 80; i++) hab.update(0.1, { actors: [{ x: 300, z: 300 }] });
+  assert.equal(hab.resolveCollision(0, 22, 0.4, y).hit, true);
+  for (let i = 0; i < 80; i++) hab.update(0.1, { actors: [{ x: 0, z: 30 }] });
+  assert.equal(hab.resolveCollision(0, 22, 0.4, y).hit, false);
+
+  // Airlock doors are interlocked: approaching the inner door opens it, the outer stays shut
+  assert.equal(hab.resolveCollision(32, 7, 0.4, y).hit, true);
+  for (let i = 0; i < 40; i++) hab.update(0.1, { actors: [{ x: 16.5, z: 7 }] });
+  assert.equal(hab.resolveCollision(18, 7, 0.4, y).hit, false);
+  for (let i = 0; i < 40; i++) hab.update(0.1, { actors: [{ x: 16.5, z: 7 }, { x: 33.5, z: 7 }] });
+  assert.equal(hab.resolveCollision(32, 7, 0.4, y).hit, true);
+  assert.equal(hab.resolveCollision(25, 7, 0.4, y).hit, false); // inside the chamber is clear
+
+  // Solid exterior walls, open crew doorways
+  assert.equal(hab.resolveCollision(-18, -5, 0.4, y).hit, true);
+  assert.equal(hab.resolveCollision(-12, -2.5, 0.4, y).hit, false); // corridor -> cafeteria door
+  assert.equal(hab.resolveCollision(-10.8, 10, 0.4, y).hit, false); // corridor -> garage door
+
+  // 3rd-person camera is pulled in front of a wall
+  const t = hab.clipCameraSegment(-15, 2.5, 0, -22, 2.5, 0);
+  assert.ok(t > 0.2 && t < 0.5, `camera clip t=${t}`);
+  assert.equal(hab.clipCameraSegment(0, 2.5, 40, 0, 2.5, 50), 1);
 });

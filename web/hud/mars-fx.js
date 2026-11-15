@@ -443,8 +443,8 @@ export function createMarsFxSystem(scene, sampleElevSceneY) {
   function update(dt, camPos, clockT, { dustEnabled = true, weatherEnabled = true } = {}) {
     lastWindState = computeAtmosphericState(clockT, weatherEnabled);
 
-    wispPoints.visible = dustEnabled;
-    motePoints.visible = dustEnabled;
+    wispPoints.visible = false;
+    motePoints.visible = false;
     plumePoints.visible = dustEnabled;
     clodPoints.visible = dustEnabled;
 

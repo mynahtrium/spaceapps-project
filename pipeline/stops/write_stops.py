@@ -1,8 +1,9 @@
 """Write data/processed/routing/stops.json (example / not locked).
 
 Uses cited MSL waypoint candidates from PRE07_LOCK_REQUEST.md for habitat and
-boxwork bonus, and docs/contracts example points for the two mudstone placeholders.
-All features keep is_example: true. Does not invent official outcrop names or mineral IDs.
+boxwork bonus, and two real Curiosity drill sites in the clay-bearing Glen Torridon unit for the
+lake-sediment stops (Glen Etive 1, Mary Anning 3), at the rover's parked position on the drill sol.
+All features keep is_example: true until the team locks PRE-07. No mineral IDs are invented.
 """
 
 from __future__ import annotations
@@ -22,27 +23,51 @@ OUT = ROOT / "data/processed/routing/stops.json"
 SOL_4527 = {"lat": -4.79721368, "lon": 137.38750650, "sol": 4527}
 SOL_4534 = {"lat": -4.79761763, "lon": 137.38643610, "sol": 4534}
 
-# Example contract mudstone placeholders (docs/contracts/stops.json) — still illustrative.
-MUD_A = {"lon": 137.39, "lat": -4.8}
-MUD_B = {"lon": 137.3915, "lat": -4.8015}
+# Glen Torridon drill sites: rover position from MSL_waypoints.json at the parked waypoint before
+# drilling (no drive in between). Glen Etive 1: parked Sol 2481, drilled Sol 2486.
+# Mary Anning 3: parked Sol 2829, drilled ~Sol 2870 (go-for-drill post, sols 2870-2871).
+MUD_A = {"lon": 137.3835412, "lat": -4.73030915, "sol": 2486, "parked_sol": 2481}
+MUD_B = {"lon": 137.3911375, "lat": -4.72930656, "sol": 2870, "parked_sol": 2829}
+GLEN_ETIVE_BLOG = "https://science.nasa.gov/blog/sols-2485-2487-affirm-etive-we-are-go-for-drilling-at-glen-etive-1/"
+MARY_ANNING_BLOG = "https://science.nasa.gov/blog/sols-2870-2871-we-are-go-for-drilling/"
+MILLAN_2022 = "https://doi.org/10.1029/2021JE007107"
+BENNETT_2023 = "https://ntrs.nasa.gov/citations/20230001618"
 
 
 WAYPOINTS_URL = "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json"
 FETCH_DATE = "2026-11-14"
+GT_FETCH_DATE = "2026-11-15"
 SOURCES = [
     {
         "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
         "product_id": "MSL_waypoints.json",
         "url": WAYPOINTS_URL,
         "fetch_date": FETCH_DATE,
-        "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates",
+        "used_for": "stop-habitat (Sol 4527), stop-boxwork-bonus (Sol 4534), Glen Etive 1 (Sol 2481) and Mary Anning 3 (Sol 2829) coordinates",
     },
     {
-        "name": "UNVERIFIED example points",
-        "product_id": None,
-        "url": None,
-        "fetch_date": None,
-        "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07",
+        "name": "NASA Curiosity blog, Sols 2485-2487: go for drilling at Glen Etive 1 (L. Thompson, 2 Aug 2019)",
+        "url": GLEN_ETIVE_BLOG,
+        "fetch_date": GT_FETCH_DATE,
+        "used_for": "stop-mudstone-a target name and drill sol",
+    },
+    {
+        "name": "NASA Curiosity blog, Sols 2870-2871: go for drilling Mary Anning 3 (S. Schwenzer, 31 Aug 2020)",
+        "url": MARY_ANNING_BLOG,
+        "fetch_date": GT_FETCH_DATE,
+        "used_for": "stop-mudstone-b target name, drill sol and SAM wet-chemistry plan",
+    },
+    {
+        "name": "Millan et al. 2022, Sedimentary organics in Glen Torridon, Gale Crater, Mars (JGR Planets)",
+        "url": MILLAN_2022,
+        "fetch_date": GT_FETCH_DATE,
+        "used_for": "organics detected by SAM in Glen Torridon samples; clays may have helped preserve them",
+    },
+    {
+        "name": "Bennett et al. 2023, The Curiosity rover's exploration of Glen Torridon (JGR Planets)",
+        "url": BENNETT_2023,
+        "fetch_date": GT_FETCH_DATE,
+        "used_for": "lowest Glen Torridon strata continue the lacustrine Murray formation; highest clay abundances of the mission",
     },
 ]
 
@@ -53,9 +78,10 @@ def build_stops() -> dict:
         "status": "example",
         "note": (
             "PRE-07 still open. Habitat uses cited Sol 4527 waypoint; boxwork bonus uses cited "
-            "Sol 4534 waypoint (MSL waypoints.json via STOP_COORDINATE_CHECK.md). Mudstone stops "
-            "are docs/contracts example points only — not official outcrop names. All is_example "
-            "true. Do not treat as locked. Inside DTEEC_019698 footprint check is required at lock."
+            "Sol 4534 waypoint. The two lake-sediment stops are real Curiosity drill sites in the "
+            "Glen Torridon clay-bearing unit (Glen Etive 1, Mary Anning 3), at the rover's parked "
+            "waypoint. All four sit inside DTEEC_009149 (the streamed corridor terrain). All "
+            "is_example true until the team locks the stops."
         ),
         "sources": SOURCES,
         "crs": "mars-geographic-planetocentric",
@@ -87,17 +113,18 @@ def build_stops() -> dict:
                 "type": "Feature",
                 "properties": {
                     "id": "stop-mudstone-a",
-                    "name": "Lake-sediment mudstone A (example)",
+                    "name": "Glen Etive 1 drill site (Glen Torridon, Sol 2486)",
                     "kind": "lake_sediment",
                     "science_summary": (
-                        "Placeholder for a mudstone / ancient-lake-sediment stop supporting the "
-                        "habitability and organics science goal. Official outcrop name and "
-                        "coordinates still required at PRE-07 lock. No mineral IDs invented."
+                        "Curiosity drilled Glen Etive 1 on Sol 2486 in Glen Torridon, the clay-bearing "
+                        "unit with the highest clay abundances of the mission. Bennett et al. (2023) "
+                        "read the lowest Glen Torridon strata as a continuation of the lacustrine "
+                        "Murray formation. Position is the rover's parked waypoint (Sol 2481)."
                     ),
-                    "sol_hint": None,
-                    "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
-                    "source_url": None,
-                    "source_fetch_date": None,
+                    "sol_hint": MUD_A["sol"],
+                    "source": "NASA Curiosity blog Sols 2485-2487; MSL waypoints Sol 2481; Bennett et al. 2023",
+                    "source_url": GLEN_ETIVE_BLOG,
+                    "source_fetch_date": GT_FETCH_DATE,
                     "is_example": True,
                 },
                 "geometry": {"type": "Point", "coordinates": [MUD_A["lon"], MUD_A["lat"]]},
@@ -106,16 +133,18 @@ def build_stops() -> dict:
                 "type": "Feature",
                 "properties": {
                     "id": "stop-mudstone-b",
-                    "name": "Lake-sediment contact B (example)",
+                    "name": "Mary Anning 3 drill site (Glen Torridon, ~Sol 2870)",
                     "kind": "lake_sediment",
                     "science_summary": (
-                        "Placeholder second sediment or contact stop from the example contract. "
-                        "Do not invent mineral IDs. Replace at PRE-07 lock."
+                        "Curiosity drilled Mary Anning 3 (go-for-drill post, Sols 2870-2871) for a SAM "
+                        "wet-chemistry experiment. SAM found sulfur-bearing organic molecules in Glen "
+                        "Torridon samples; Millan et al. (2022) suggest clay minerals helped preserve "
+                        "ancient organic matter. Position is the rover's parked waypoint (Sol 2829)."
                     ),
-                    "sol_hint": None,
-                    "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
-                    "source_url": None,
-                    "source_fetch_date": None,
+                    "sol_hint": MUD_B["sol"],
+                    "source": "NASA Curiosity blog Sols 2870-2871; MSL waypoints Sol 2829; Millan et al. 2022",
+                    "source_url": MARY_ANNING_BLOG,
+                    "source_fetch_date": GT_FETCH_DATE,
                     "is_example": True,
                 },
                 "geometry": {"type": "Point", "coordinates": [MUD_B["lon"], MUD_B["lat"]]},

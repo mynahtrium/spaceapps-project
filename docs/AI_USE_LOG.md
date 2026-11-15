@@ -1177,3 +1177,11 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Tests: `node --test web/tests/*.test.mjs` passes. Checked shots A, B and the end state in the browser.
 - Commit: this commit
 - Next step: Cagan watches it at full frame rate; timing constants are at the top of `landing-sequence.js`.
+### 2026-11-15 Europe/Istanbul — Final pull and branch consolidation into `main`
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Task id: branch-consolidation
+- Files changed: `web/shared/dev-settings.js`, `web/styles.css`, `web/planner/map-gamepad.js`, `web/tests/fallback.test.mjs`, `docs/AI_USE.md`, `docs/AI_USE_LOG.md`, plus unified stash integration onto `origin/main` (`aacadf6`)
+- Why: Pulled latest `origin/main` (`aacadf6`, PERF-01 / LOAD-01 / PERF-02), merged `QUALITY_LEVELS` / `quality` seamlessly with the 3 HUD themes (`cyan`, `untitled`, `mono`) and `windDust` controls, restored `web/planner/map-gamepad.js` from `origin/demo1-controller` so nothing was lost, recorded merge commits (`-s ours`) unifying `origin/backend/science`, `origin/demo1-controller`, `origin/developermenu`, and `origin/frontend/planner-hud` into `main`, and removed local non-`main` branch pointers so only `main` remains locally.
+- Commit: consolidated commits on `main`

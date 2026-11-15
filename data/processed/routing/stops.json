@@ -1,21 +1,38 @@
 {
   "contract": "martian-mappers.stops.v1",
   "status": "example",
-  "note": "PRE-07 still open. Habitat uses cited Sol 4527 waypoint; boxwork bonus uses cited Sol 4534 waypoint (MSL waypoints.json via STOP_COORDINATE_CHECK.md). Mudstone stops are docs/contracts example points only \u2014 not official outcrop names. All is_example true. Do not treat as locked. Inside DTEEC_019698 footprint check is required at lock.",
+  "note": "PRE-07 still open. Habitat uses cited Sol 4527 waypoint; boxwork bonus uses cited Sol 4534 waypoint. The two lake-sediment stops are real Curiosity drill sites in the Glen Torridon clay-bearing unit (Glen Etive 1, Mary Anning 3), at the rover's parked waypoint. All four sit inside DTEEC_009149 (the streamed corridor terrain). All is_example true until the team locks the stops.",
   "sources": [
     {
       "name": "Curiosity (MSL) waypoints, NASA Mars Maps / MMGIS layer",
       "product_id": "MSL_waypoints.json",
       "url": "https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json",
       "fetch_date": "2026-11-14",
-      "used_for": "stop-habitat (Sol 4527) and stop-boxwork-bonus (Sol 4534) coordinates"
+      "used_for": "stop-habitat (Sol 4527), stop-boxwork-bonus (Sol 4534), Glen Etive 1 (Sol 2481) and Mary Anning 3 (Sol 2829) coordinates"
     },
     {
-      "name": "UNVERIFIED example points",
-      "product_id": null,
-      "url": null,
-      "fetch_date": null,
-      "used_for": "stop-mudstone-a and stop-mudstone-b are docs/contracts placeholders with no NASA citation; replace at PRE-07"
+      "name": "NASA Curiosity blog, Sols 2485-2487: go for drilling at Glen Etive 1 (L. Thompson, 2 Aug 2019)",
+      "url": "https://science.nasa.gov/blog/sols-2485-2487-affirm-etive-we-are-go-for-drilling-at-glen-etive-1/",
+      "fetch_date": "2026-11-15",
+      "used_for": "stop-mudstone-a target name and drill sol"
+    },
+    {
+      "name": "NASA Curiosity blog, Sols 2870-2871: go for drilling Mary Anning 3 (S. Schwenzer, 31 Aug 2020)",
+      "url": "https://science.nasa.gov/blog/sols-2870-2871-we-are-go-for-drilling/",
+      "fetch_date": "2026-11-15",
+      "used_for": "stop-mudstone-b target name, drill sol and SAM wet-chemistry plan"
+    },
+    {
+      "name": "Millan et al. 2022, Sedimentary organics in Glen Torridon, Gale Crater, Mars (JGR Planets)",
+      "url": "https://doi.org/10.1029/2021JE007107",
+      "fetch_date": "2026-11-15",
+      "used_for": "organics detected by SAM in Glen Torridon samples; clays may have helped preserve them"
+    },
+    {
+      "name": "Bennett et al. 2023, The Curiosity rover's exploration of Glen Torridon (JGR Planets)",
+      "url": "https://ntrs.nasa.gov/citations/20230001618",
+      "fetch_date": "2026-11-15",
+      "used_for": "lowest Glen Torridon strata continue the lacustrine Murray formation; highest clay abundances of the mission"
     }
   ],
   "crs": "mars-geographic-planetocentric",
@@ -46,20 +63,20 @@
       "type": "Feature",
       "properties": {
         "id": "stop-mudstone-a",
-        "name": "Lake-sediment mudstone A (example)",
+        "name": "Glen Etive 1 drill site (Glen Torridon, Sol 2486)",
         "kind": "lake_sediment",
-        "science_summary": "Placeholder for a mudstone / ancient-lake-sediment stop supporting the habitability and organics science goal. Official outcrop name and coordinates still required at PRE-07 lock. No mineral IDs invented.",
-        "sol_hint": null,
-        "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
-        "source_url": null,
-        "source_fetch_date": null,
+        "science_summary": "Curiosity drilled Glen Etive 1 on Sol 2486 in Glen Torridon, the clay-bearing unit with the highest clay abundances of the mission. Bennett et al. (2023) read the lowest Glen Torridon strata as a continuation of the lacustrine Murray formation. Position is the rover's parked waypoint (Sol 2481).",
+        "sol_hint": 2486,
+        "source": "NASA Curiosity blog Sols 2485-2487; MSL waypoints Sol 2481; Bennett et al. 2023",
+        "source_url": "https://science.nasa.gov/blog/sols-2485-2487-affirm-etive-we-are-go-for-drilling-at-glen-etive-1/",
+        "source_fetch_date": "2026-11-15",
         "is_example": true
       },
       "geometry": {
         "type": "Point",
         "coordinates": [
-          137.39,
-          -4.8
+          137.3835412,
+          -4.73030915
         ]
       }
     },
@@ -67,20 +84,20 @@
       "type": "Feature",
       "properties": {
         "id": "stop-mudstone-b",
-        "name": "Lake-sediment contact B (example)",
+        "name": "Mary Anning 3 drill site (Glen Torridon, ~Sol 2870)",
         "kind": "lake_sediment",
-        "science_summary": "Placeholder second sediment or contact stop from the example contract. Do not invent mineral IDs. Replace at PRE-07 lock.",
-        "sol_hint": null,
-        "source": "docs/contracts/stops.json example point (UNVERIFIED: no NASA citation)",
-        "source_url": null,
-        "source_fetch_date": null,
+        "science_summary": "Curiosity drilled Mary Anning 3 (go-for-drill post, Sols 2870-2871) for a SAM wet-chemistry experiment. SAM found sulfur-bearing organic molecules in Glen Torridon samples; Millan et al. (2022) suggest clay minerals helped preserve ancient organic matter. Position is the rover's parked waypoint (Sol 2829).",
+        "sol_hint": 2870,
+        "source": "NASA Curiosity blog Sols 2870-2871; MSL waypoints Sol 2829; Millan et al. 2022",
+        "source_url": "https://science.nasa.gov/blog/sols-2870-2871-we-are-go-for-drilling/",
+        "source_fetch_date": "2026-11-15",
         "is_example": true
       },
       "geometry": {
         "type": "Point",
         "coordinates": [
-          137.3915,
-          -4.8015
+          137.3911375,
+          -4.72930656
         ]
       }
     },

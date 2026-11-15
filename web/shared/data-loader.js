@@ -197,6 +197,8 @@ export async function loadAllProjectData() {
     reliefTextureUrl: `${terrainBase}/texture-relief.jpg`,
     povBaseUrl: demoSafe ? `${base}/data/demo/pov` : `${base}/data/processed/science/pov`,
     themisTileBaseUrl: `${base}/data/demo/tiles/themis`,
+    // Streamed HiRISE corridor (local static files, same in both modes like the THEMIS tiles).
+    corridorBaseUrl: `${base}/data/demo/corridor`,
   };
 
   const sources = collectSources([

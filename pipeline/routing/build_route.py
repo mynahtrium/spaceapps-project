@@ -31,9 +31,9 @@ from write_stops import SOURCES as STOP_SOURCES, build_stops
 
 TERRAIN_SOURCE = {
     "name": "HiRISE DTM (MRO), PDS",
-    "product_id": "DTEEC_019698_1750_019988_1750_U01",
-    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_019600_019699/ESP_019698_1750_ESP_019988_1750/DTEEC_019698_1750_019988_1750_U01.IMG",
-    "fetch_date": "2026-11-14",
+    "product_id": "DTEEC_009149_1750_009294_1750_U01",
+    "url": "https://hirise-pds.lpl.arizona.edu/PDS/DTM/PSP/ORB_009100_009199/PSP_009149_1750_PSP_009294_1750/DTEEC_009149_1750_009294_1750_U01.IMG",
+    "fetch_date": "2026-11-15",
     "used_for": "cost grid (data/processed/terrain/cost-map.json) and height preview the route, profile and HUD samples are computed on",
 }
 ROUTE_SOURCES = [TERRAIN_SOURCE] + STOP_SOURCES
@@ -225,18 +225,29 @@ def geodesic_coords(coords: dict[str, tuple[float, float]], seg_per_leg: int = 8
     return line
 
 
-def leg_distances(coords: dict[str, tuple[float, float]]) -> list[dict]:
+def leg_distances(line: list[list[float]], coords: dict[str, tuple[float, float]]) -> list[dict]:
+    """Walked length of each leg, measured along the routed line between consecutive stops.
+
+    Straight-line stop-to-stop distance understates the walk once the route detours around
+    blocked slopes, so the leg ends are found on the line (searching forward) and summed there.
+    """
+    idx = [0]
+    for sid in STOP_ORDER[1:]:
+        lon, lat = coords[sid]
+        start = idx[-1]
+        best, best_d = start, float("inf")
+        for i in range(start, len(line)):
+            d = haversine_m(line[i][0], line[i][1], lon, lat)
+            if d < best_d:
+                best, best_d = i, d
+        idx.append(best)
+    idx[-1] = len(line) - 1
     legs = []
-    for a, b in zip(STOP_ORDER, STOP_ORDER[1:]):
-        lon1, lat1 = coords[a]
-        lon2, lat2 = coords[b]
-        legs.append(
-            {
-                "from": a,
-                "to": b,
-                "distance_m": round(haversine_m(lon1, lat1, lon2, lat2), 1),
-            }
-        )
+    for k, (a, b) in enumerate(zip(STOP_ORDER, STOP_ORDER[1:])):
+        dist = 0.0
+        for i in range(idx[k] + 1, idx[k + 1] + 1):
+            dist += haversine_m(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1])
+        legs.append({"from": a, "to": b, "distance_m": round(dist, 1)})
     return legs
 
 
@@ -548,9 +559,8 @@ def main() -> None:
             "Re-run after PRE-07 lock and B1 re-crop covering all stops."
         )
 
-    legs = leg_distances(coords)
-    # Reported distance is the sum of the stop-to-stop legs. The cell-center
-    # path can be longer; using that length made the total disagree with the legs.
+    legs = leg_distances(line, coords)
+    # Reported distance is the sum of the legs, each measured along the routed line.
     total_m = round(sum(leg["distance_m"] for leg in legs), 1)
     planned_min = total_m / WALK_SPEED_M_PER_MIN if WALK_SPEED_M_PER_MIN > 0 else 0.0
     route_id = "eva-example-pre07-scaffold-001"
@@ -585,7 +595,7 @@ def main() -> None:
         "note": (
             "Example route while PRE-07 is open. Not locked science stops. "
             + method_note
-            + " Reported distance_m is the sum of the stop-to-stop legs."
+            + " Reported distance_m is the walked length along the routed line (sum of legs)."
             + ref_sentence
             + " "
             + block_sentence

@@ -2,6 +2,10 @@
  * Deterministic 120 Hz Martian walker.
  * Scene axes: +X east, +Y up, +Z south.
  *
+ * Character controller: Mars gravity (≈3.72 m/s² at Gale) for jumps and falls,
+ * the walker never slides: any slope can be walked (slower uphill), small ledges
+ * are stepped onto, and taller ones block and need a jump.
+ *
  * ICollisionWorld is a no-op adapter. A later Rapier WASM build can replace
  * createNullCollisionWorld without changing the visor. Do not vendor Rapier here.
  */
@@ -9,7 +13,14 @@
 import { M_MARS_KG_MOL, MARS_GEODESY, P_GALE_PA, R_UNIV_J_MOL_K, SUIT_BODY } from "./MarsConstants.js";
 import { coriolisAccel, marsGravityMs2 } from "./MarsGravityField.js";
 import { bootSinkM, classifyFacies, frictionAccelMax } from "./Terramechanics.js";
-import { JUMP_SPEED_MS, RESPONSE_TAU_S, landingCrouchM, targetSpeedMs } from "./SuitBiomechanics.js";
+import {
+  JUMP_SPEED_MS,
+  RESPONSE_TAU_S,
+  gradeSpeedScale,
+  landingControl,
+  landingCrouchM,
+  targetSpeedMs,
+} from "./SuitBiomechanics.js";
 
 export const FIXED_DT = 1 / 120;
 const DRAG_CD = 1;
@@ -113,6 +124,33 @@ function clampAccel(ax, az, cap) {
   return [ax, az];
 }
 
+// Character-controller tuning. Gameplay values, not measured suit data.
+/** Ledge the walker steps onto without jumping, metres. */
+export const STEP_UP_M = 0.45;
+/** Ground drop the walker follows instead of going airborne, metres per substep. */
+const SNAP_DOWN_M = 0.12;
+/** Mid-air steering, m/s². Small, so jumps keep their Mars arc. */
+const AIR_CONTROL_MS2 = 1.2;
+
+function slideAlongWall(body, oldX, oldZ, sampleHeight, maxRise) {
+  // Try each axis on its own so the walker slides along a ledge it cannot climb.
+  const hX = sampleHeight(body.x, oldZ);
+  const hZ = sampleHeight(oldX, body.z);
+  const okX = hX - body.y <= maxRise;
+  const okZ = hZ - body.y <= maxRise;
+  if (!okX) body.vx = 0;
+  if (!okZ) body.vz = 0;
+  body.x = okX ? body.x : oldX;
+  body.z = okZ ? body.z : oldZ;
+  if (okX && okZ) {
+    // Diagonal into a corner: both axes fine alone but not together.
+    body.x = oldX;
+    body.z = oldZ;
+    body.vx = 0;
+    body.vz = 0;
+  }
+}
+
 function substep(body, dt, input, env) {
   const sampleHeight = env.sampleHeight;
   const patch = samplePatch(sampleHeight, body.x, body.z);
@@ -121,7 +159,6 @@ function substep(body, dt, input, env) {
   const lat = input.latDeg ?? MARS_GEODESY.GALE_ANCHOR_LAT_DEG;
   const elev = env.molaElevM ? env.molaElevM(body.x, body.z) : MARS_GEODESY.GALE_ANCHOR_ELEV_M + patch.height;
   const g = marsGravityMs2(lat, elev);
-  const limit = input.slopeLimitDeg ?? 20;
   body.g = g;
   body.slopeDeg = slopeDeg;
   body.cosSlope = patch.ny;
@@ -146,10 +183,8 @@ function substep(body, dt, input, env) {
   const along = patch.dhdx * wishUx + patch.dhdz * wishUz;
   const slopeAlongDeg = (Math.atan(along) * 180) / Math.PI;
   body.gradePercent = 100 * along;
-  let gradeScale = 1;
-  if (slopeAlongDeg > 0) {
-    gradeScale = Math.min(1, Math.max(0.35, 1 - Math.max(0, slopeAlongDeg - 10) / 22));
-  }
+  let gradeScale = gradeSpeedScale(slopeAlongDeg);
+  if (body.grounded) gradeScale *= landingControl(body.impactSpeed, body.crouchT, body.crouchDur);
   const speed = wishLen > 1e-6 ? targetSpeedMs(Boolean(input.run), input.speedMultiplier ?? 1) * gradeScale : 0;
   const vTargetX = wishUx * speed;
   const vTargetZ = wishUz * speed;
@@ -157,68 +192,59 @@ function substep(body, dt, input, env) {
   if (body.grounded && body.jumpQueued) {
     body.vy = JUMP_SPEED_MS;
     body.grounded = false;
-    body.y = patch.height + 0.02;
-    body.jumpQueued = false;
+    body.y = Math.max(body.y, patch.height) + 0.02;
     body.crouch = 0;
   }
+  body.jumpQueued = false;
 
-  if (body.grounded && body.y - patch.height > 0.25) {
-    body.grounded = false;
-  }
+  const oldX = body.x;
+  const oldZ = body.z;
 
   if (!body.grounded) {
+    // Ballistic flight under Mars g with thin-air drag and a little steering.
     const rho = airDensity(elev);
     const sp = Math.hypot(body.vx, body.vy, body.vz);
     const drag = (0.5 * rho * DRAG_CD * DRAG_AREA_M2 * sp) / SUIT_BODY.totalMassKg;
     const cor = coriolisAccel(body.vx, body.vy, body.vz, lat);
-    body.vx += (-drag * body.vx + cor.x) * dt;
-    body.vz += (-drag * body.vz + cor.z) * dt;
+    let ax = -drag * body.vx + cor.x;
+    let az = -drag * body.vz + cor.z;
+    if (wishLen > 1e-6) {
+      // Steer toward the wish direction without adding speed beyond the walk target.
+      const vAlong = body.vx * wishUx + body.vz * wishUz;
+      if (vAlong < Math.max(speed, 0.5)) {
+        ax += wishUx * AIR_CONTROL_MS2;
+        az += wishUz * AIR_CONTROL_MS2;
+      }
+    }
+    body.vx += ax * dt;
+    body.vz += az * dt;
     body.vy += (-g + -drag * body.vy + cor.y) * dt;
     body.x += body.vx * dt;
     body.z += body.vz * dt;
     body.y += body.vy * dt;
-    const landed = sampleHeight(body.x, body.z);
-    if (body.y <= landed && body.vy <= 0) {
+    // Hitting a wall mid-air: stop the horizontal motion into it.
+    if (sampleHeight(body.x, body.z) - body.y > STEP_UP_M) {
+      slideAlongWall(body, oldX, oldZ, sampleHeight, STEP_UP_M);
+    }
+    const ground = sampleHeight(body.x, body.z);
+    if (body.y <= ground && body.vy <= 0) {
       body.impactSpeed = -body.vy;
-      body.y = landed - bootSinkM(facies);
+      body.y = ground - body.sinkM;
       body.vy = 0;
       body.grounded = true;
       body.crouchT = 0;
       body.crouchDur = 0.35 + Math.min(0.4, body.impactSpeed * 0.08);
-    }
-  } else if (slopeDeg > limit) {
-    // Above the lunar stand-in limit the boots do not hold a climb.
-    const gDotN = -g * patch.ny;
-    const gpx = -gDotN * patch.nx;
-    const gpz = -gDotN * patch.nz;
-    const sp = Math.hypot(body.vx, body.vz);
-    const fric = frictionAccelMax(facies.muKinetic, g, patch.ny);
-    const eps = 0.04;
-    let ax = gpx - (fric * body.vx) / (sp + eps);
-    let az = gpz - (fric * body.vz) / (sp + eps);
-    const steer = 0.25 * fric;
-    ax += wishUx * steer;
-    az += wishUz * steer;
-    body.vx += ax * dt;
-    body.vz += az * dt;
-    body.x += body.vx * dt;
-    body.z += body.vz * dt;
-    const next = sampleHeight(body.x, body.z);
-    if (body.y - next > 0.25) {
-      body.grounded = false;
-    } else {
-      body.y = next - bootSinkM(classifyFacies({
-        slopeDeg,
-        laplacian: patch.laplacian,
-      }));
-      body.vy = 0;
+    } else if (body.y < ground) {
+      // Rising through a lip: lift onto it instead of clipping inside the terrain.
+      body.y = ground;
     }
   } else {
     const cap = frictionAccelMax(facies.muStatic, g, patch.ny);
     const sp = Math.hypot(body.vx, body.vz);
     let ax;
     let az;
-    // Game-feel pass: releasing the keys stops the walker almost at once (no ice-skating).
+    // Game-feel pass: releasing the keys stops the walker almost at once (no ice-skating),
+    // and standing still holds position on any slope (no sliding).
     if (speed === 0) {
       const stopStep = cap * BRAKE_BOOST * dt;
       if (sp <= Math.max(0.12, stopStep)) {
@@ -233,14 +259,22 @@ function substep(body, dt, input, env) {
     } else {
       ax = (vTargetX - body.vx) / RESPONSE_TAU_S;
       az = (vTargetZ - body.vz) / RESPONSE_TAU_S;
-      [ax, az] = clampAccel(ax, az, cap * ACCEL_BOOST);
+      // Never let low grip or a steep grade stop the walker from getting moving.
+      [ax, az] = clampAccel(ax, az, Math.max(cap * ACCEL_BOOST, 1.2));
     }
     body.vx += ax * dt;
     body.vz += az * dt;
     body.x += body.vx * dt;
     body.z += body.vz * dt;
-    const next = sampleHeight(body.x, body.z);
-    if (body.y - next > 0.25) {
+    let next = sampleHeight(body.x, body.z);
+    const footY = body.y + body.sinkM;
+    if (next - footY > STEP_UP_M) {
+      // A ledge taller than a step: block, slide along it. Jump to get up.
+      slideAlongWall(body, oldX, oldZ, sampleHeight, STEP_UP_M + footY - body.y);
+      next = sampleHeight(body.x, body.z);
+    }
+    if (footY - next > SNAP_DOWN_M + Math.hypot(body.vx, body.vz) * dt * 1.2) {
+      // Walked off an edge: fall.
       body.grounded = false;
     } else {
       body.y = next - body.sinkM;

@@ -174,7 +174,7 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:4px;">
-              WASD MOVE · SHIFT BOOST · SPACE JUMP · E INTERACT · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · R RAY TRACING · M ORBIT · ESC MENU
+              WASD MOVE · SHIFT BOOST · SPACE JUMP · E INTERACT · V 3RD PERSON · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · R RAY TRACING · M ORBIT · ESC MENU
             </div>
           </div>
 
@@ -230,6 +230,7 @@
         <div class="esc-label" id="esc-lbl-system">MISSION &amp; SETTINGS</div>
         <div class="esc-grid">
           <button id="esc-crew" class="btn esc-btn" type="button">Crew (1)</button>
+          <button id="esc-theme" class="btn esc-btn" type="button">Theme: Ice-Cyan</button>
           <button id="esc-dev" class="btn esc-btn" type="button">Developer Settings</button>
           <button id="esc-sources" class="btn esc-btn" type="button">Sources &amp; Honesty</button>
           <button id="esc-title-btn" class="btn esc-btn" type="button">Title Screen</button>
@@ -284,6 +285,44 @@
         <button id="modal-close" class="btn">Close</button>
       </div>
       <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Interactive Astronaut NPC Dialogue & Q&A HUD Overlay -->
+  <div id="npc-dialogue-modal" class="npc-dialogue-backdrop" role="dialog" aria-modal="true" aria-labelledby="npc-dlg-name">
+    <div class="npc-dialogue-panel">
+      <div class="npc-dlg-head">
+        <div class="npc-dlg-identity">
+          <div class="npc-dlg-kicker">
+            <span class="npc-dlg-dot" id="npc-dlg-dot"></span>
+            <span id="npc-dlg-channel">EVA COMMS // GREEN ZONE BAY</span>
+          </div>
+          <h3 id="npc-dlg-name" class="npc-dlg-name">—</h3>
+          <div id="npc-dlg-role" class="npc-dlg-role">—</div>
+        </div>
+        <div class="npc-dlg-head-right">
+          <span id="npc-dlg-vehicle" class="npc-dlg-vehicle-pill">—</span>
+          <button id="npc-dlg-close" class="btn" type="button">Close (ESC)</button>
+        </div>
+      </div>
+
+      <div id="npc-dlg-messages" class="npc-dlg-messages" aria-live="polite"></div>
+
+      <div class="npc-dlg-presets-wrap">
+        <div id="npc-dlg-presets-lbl" class="npc-dlg-section-lbl">QUICK QUESTIONS</div>
+        <div id="npc-dlg-presets" class="npc-dlg-presets"></div>
+      </div>
+
+      <form id="npc-dlg-form" class="npc-dlg-form" autocomplete="off">
+        <input
+          id="npc-dlg-input"
+          class="npc-dlg-input"
+          type="text"
+          maxlength="220"
+          placeholder="Ask anything about Mars, gravity, dust storms, radiation, or this rover…"
+        />
+        <button id="npc-dlg-send" class="btn primary" type="submit">Ask</button>
+      </form>
     </div>
   </div>
 

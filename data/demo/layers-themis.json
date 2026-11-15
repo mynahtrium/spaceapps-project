@@ -37,7 +37,7 @@
         "row": 8,
         "col": 28,
         "bytes": 65615,
-        "relpath": "data/processed/science/tiles/themis/day/z4_r8_c28.png",
+        "relpath": "data/demo/tiles/themis/day/z4_r8_c28.png",
         "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/4/8/28.png"
       },
       {
@@ -45,7 +45,7 @@
         "row": 33,
         "col": 112,
         "bytes": 62641,
-        "relpath": "data/processed/science/tiles/themis/day/z6_r33_c112.png",
+        "relpath": "data/demo/tiles/themis/day/z6_r33_c112.png",
         "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/6/33/112.png"
       },
       {
@@ -53,7 +53,7 @@
         "row": 134,
         "col": 451,
         "bytes": 52070,
-        "relpath": "data/processed/science/tiles/themis/day/z8_r134_c451.png",
+        "relpath": "data/demo/tiles/themis/day/z8_r134_c451.png",
         "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/8/134/451.png"
       }
     ]
@@ -90,7 +90,7 @@
         "row": 8,
         "col": 28,
         "bytes": 62290,
-        "relpath": "data/processed/science/tiles/themis/night/z4_r8_c28.png",
+        "relpath": "data/demo/tiles/themis/night/z4_r8_c28.png",
         "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/4/8/28.png"
       },
       {
@@ -98,7 +98,7 @@
         "row": 33,
         "col": 112,
         "bytes": 64911,
-        "relpath": "data/processed/science/tiles/themis/night/z6_r33_c112.png",
+        "relpath": "data/demo/tiles/themis/night/z6_r33_c112.png",
         "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/6/33/112.png"
       },
       {
@@ -106,11 +106,11 @@
         "row": 134,
         "col": 451,
         "bytes": 57168,
-        "relpath": "data/processed/science/tiles/themis/night/z8_r134_c451.png",
+        "relpath": "data/demo/tiles/themis/night/z8_r134_c451.png",
         "source_url": "https://trek.nasa.gov/tiles/Mars/EQ/THEMIS_NightIR_ControlledMosaics_100m_v2_oct2018/1.0.0//default/default028mm/8/134/451.png"
       }
     ]
   },
-  "cached_tiles_relpath": "data/processed/science/tiles/themis/",
+  "cached_tiles_relpath": "data/demo/tiles/themis/",
   "legend_note": "Relative day/night infrared brightness. Do not over-claim surface mineralogy from THEMIS alone."
 }
