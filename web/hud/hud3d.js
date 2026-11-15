@@ -1950,6 +1950,14 @@ export async function initHud3D(
     return deckY !== null ? Math.max(groundY, deckY) : groundY;
   }
 
+  /** True when (x, z) lies inside any habitat module floor/deck or entry ramp (suppresses dirt dust and footprints). */
+  function isInsideHabitat(x, z) {
+    return (
+      habitatStation.group.visible &&
+      (habitatStation.zoneAt(x, z) !== null || habitatStation.sampleDeckElev(x, z) !== null)
+    );
+  }
+
   // ---------- route ----------
   let activeRoute = route;
   let routeCoords = activeRoute?.geometry?.coordinates || [];
@@ -5053,7 +5061,7 @@ export async function initHud3D(
         };
 
         // dust when a wheel lands hard or the rover touches down after a crest
-        if (rs.landingImpact > 1.0 && devCfg.realisticDust) {
+        if (rs.landingImpact > 1.0 && devCfg.realisticDust && !isInsideHabitat(rs.pos.x, rs.pos.z)) {
           const rYawL = att.yaw;
           marsFx.emitJumpBurst(rs.pos.x, sampleRenderedSurfaceY(rs.pos.x, rs.pos.z), rs.pos.z, {
             mode: "land",
@@ -5111,7 +5119,12 @@ export async function initHud3D(
         }
       }
 
-      if (devCfg.realisticDust && !roverAirState.airborne && (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)) {
+      if (
+        !isInsideHabitat(rs.pos.x, rs.pos.z) &&
+        devCfg.realisticDust &&
+        !roverAirState.airborne &&
+        (Math.abs(roverThrottleVel) > 0.7 || Math.abs(roverLateralSpeed) > 1.2 || dyn?.drifting)
+      ) {
         const speedMag = Math.hypot(roverThrottleVel, roverLateralSpeed) + (dyn?.drifting ? 4.5 : 0);
         roverDustAcc += dt * Math.min(54, 10 + speedMag * 3.1);
         const burstCount = Math.floor(roverDustAcc);
@@ -5333,7 +5346,7 @@ export async function initHud3D(
       px = phys.x;
       pz = phys.z;
 
-      if (devCfg.realisticDust) {
+      if (devCfg.realisticDust && !isInsideHabitat(px, pz)) {
         const jYaw = autoYaw + userYaw;
         if (wasGrounded && !phys.grounded && phys.vy > 0.4) {
           marsFx.emitJumpBurst(px, phys.y, pz, {
@@ -5455,18 +5468,20 @@ export async function initHud3D(
         const gy = sampleRenderedSurfaceY(footPos.x, footPos.z);
         const n = sampleNormal(footPos.x, footPos.z);
         footsteps.play(side, phys.faciesId);
-        footsteps.stamp(footPos.x, gy, footPos.z, n, lastMoveYaw ?? yaw, phys.faciesId, side);
-        if (devCfg.realisticDust && groundSpeed > 0.35 && movedXZ > 1e-5) {
-          const runFast = groundSpeed > 1.9;
-          marsFx.emitBurst(
-            footPos.x,
-            gy,
-            footPos.z,
-            runFast ? 6 : 3,
-            runFast ? 1.1 : 0.72,
-            -(mvx / movedXZ) * groundSpeed * 0.18,
-            -(mvz / movedXZ) * groundSpeed * 0.18
-          );
+        if (!isInsideHabitat(footPos.x, footPos.z)) {
+          footsteps.stamp(footPos.x, gy, footPos.z, n, lastMoveYaw ?? yaw, phys.faciesId, side);
+          if (devCfg.realisticDust && groundSpeed > 0.35 && movedXZ > 1e-5) {
+            const runFast = groundSpeed > 1.9;
+            marsFx.emitBurst(
+              footPos.x,
+              gy,
+              footPos.z,
+              runFast ? 6 : 3,
+              runFast ? 1.1 : 0.72,
+              -(mvx / movedXZ) * groundSpeed * 0.18,
+              -(mvz / movedXZ) * groundSpeed * 0.18
+            );
+          }
         }
       }
     }
