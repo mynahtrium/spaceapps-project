@@ -1208,3 +1208,19 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: Cagan said the vehicle physics had been changed and asked for the version he got back. The team's merges had put the old scripted model (`stepAdvancedRoverPhysics`: blended speed, faked body motion) back into the driving code, while `rover-dynamics.js`, `rover-rig.js` and `rover-dash.js` were still in the repository but not connected. Now both drivable vehicles (MMSEV and the NASA concept rover) run on the rigid-body model with six spring-damper struts again, each with its own parameters from its spec (`roverParamsFor`: axles, track, wheel radius, mass, top speed), the visible control arms and coil springs follow the real strut travel, and the digital dashboard is shown while driving. The unused `web/physics/VehicleDynamics.js` (not imported anywhere) was left alone. Fixed on the way: the start pose fit used absolute heights, so on high terrain (about 526 m here) the vehicle started tilted and flew off; it is now computed from heights relative to their mean (regression test added). Parked vehicles are held on their springs too; a vehicle that is not driven is no longer updated while another one is being driven.
 - Commit: this commit
 - Next step: none.
+
+### 2026-11-15 Europe/Istanbul — PERF-03 freezes at cut-scenes and site changes; plain white station
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: PERF-03
+- Files changed: `web/hud/hud3d.js`, `web/hud/mars-habitat.js`, `docs/AI_USE_LOG.md`
+- Why: Cagan reported freezes now and then, especially in cut-scenes, and asked for white-only lights and a plain exterior on the habitat station. Causes found in the code:
+  1. The far-terrain shadow bake ran in one go over the corridor's height grid (about 0.7 M cells x up to 90 steps): several seconds of frozen page at start-up, every 10 min, at every site change and sun-mode switch (the Orbit-view landing cut-scene hit it). It now runs at half resolution with early exit in ~6 ms slices between frames and swaps in when done. App ready in the preview went from ~25.5 s to ~5.8 s.
+  2. Showing or hiding a group that contains a light (the station's 7 point lights, each rover's headlights, the lander's engine glow) changed the light count, and three.js recompiles every lit material when that happens. All those lights now live in one always-visible rig, follow anchors where they used to be, and are dimmed to 0 while their owner is hidden, so the count never changes.
+  3. Materials that first appear during the landing were compiled mid-scene; every material (the hidden lander included) is now compiled once while the loading screen is up.
+- Station: all LEDs, panels, beacons, holograms and point lights are plain white; exterior paints (crane, hazard stripes, red/yellow paint, tool red), glass and viewports are neutral grey/white; signs, floor numbers and telemetry screens use white accents. The building itself is unchanged.
+- Not measured: frame-time on the RTX 4060; the preview pane is throttled.
+- Commit: this commit
+- Next step: Cagan checks the cut-scenes and site changes on his machine.

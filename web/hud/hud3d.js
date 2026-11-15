@@ -952,50 +952,73 @@ export async function initHud3D(
   // terrain cell towards the sun through the height grid and store how much of the sun is visible.
   // The mirrored terrain repeats every 2 tiles in world space, so one mask over that period, sampled
   // with world x/z and repeat wrapping, is correct for the real tile and every mirrored copy.
-  function bakeSunMask() {
+  // This bake used to run in one go: about 0.7 M cells x up to 90 ray steps, a freeze of several
+  // seconds at start-up, again every 10 min, on every site change and sun-mode switch (the landing
+  // cut-scene from the Orbit view hit it). Now: one texel per 2 x 2 height cells (the edge is soft
+  // anyway), rays of 2-cell steps that stop once they are above the highest point, and the work is
+  // done in ~6 ms slices between frames. The new mask replaces the old one in one swap.
+  const SUN_MASK_SLICE_MS = 6;
+  let sunBakeJob = null;
+  function startSunMaskBake(onDone) {
     const n = elevGrid ? imgW : 0;
     const m = elevGrid ? imgH : 0;
     if (!n || !m) return null;
-    const NX = 2 * n; // cells across one mirror period (east-west)
+    const NX = 2 * n; // height cells across one mirror period (east-west)
     const NZ = 2 * m; // (north-south); the corridor is not square
+    const MX = Math.ceil(NX / 2); // mask texels
+    const MZ = Math.ceil(NZ / 2);
+    const out = new Uint8Array(MX * MZ * 4);
+    const finish = () => {
+      const tex = new THREE.DataTexture(out, MX, MZ, THREE.RGBAFormat);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.magFilter = THREE.LinearFilter;
+      tex.minFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
+      onDone(tex);
+    };
+    if (sunDir.y <= 0.0) {
+      // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
+      for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
+      finish();
+      return null;
+    }
+    if (sunDir.y > 0.995) {
+      out.fill(255); // sun at the zenith: no terrain shadows
+      finish();
+      return null;
+    }
     const cellX = worldW / n;
     const cellZ = worldH / m;
     const H = new Float32Array(NX * NZ);
+    let hMax = -Infinity;
     for (let r = 0; r < NZ; r++) {
       const sr = r < m ? r : 2 * m - 1 - r;
       for (let c = 0; c < NX; c++) {
         const sc = c < n ? c : 2 * n - 1 - c;
-        H[r * NX + c] = elevGrid[sr * imgW + sc];
+        const h = elevGrid[sr * imgW + sc];
+        H[r * NX + c] = h;
+        if (h > hMax) hMax = h;
       }
     }
     const horiz = Math.max(1e-4, Math.hypot(sunDir.x, sunDir.z));
     const tanSun = sunDir.y / horiz;
-    const stepM = Math.min(cellX, cellZ);
+    const stepM = 2 * Math.min(cellX, cellZ);
     const dx = ((sunDir.x / horiz) * stepM) / cellX; // cells per step towards the sun (x = columns, east)
     const dz = ((sunDir.z / horiz) * stepM) / cellZ; // z = rows, south
     const maxSteps = Math.ceil(700 / stepM);
     const SOFT = 0.012; // about the sun disc plus dust: soft edge in tan(angle)
-    const out = new Uint8Array(NX * NZ * 4);
-    if (sunDir.y <= 0.0) {
-      // Sun below the horizon: nothing is directly lit (the sun light is also switched off).
-      for (let i = 0; i < out.length; i += 4) out[i + 3] = 255;
-      const dark = new THREE.DataTexture(out, NX, NZ, THREE.RGBAFormat);
-      dark.needsUpdate = true;
-      return dark;
-    }
-    if (sunDir.y > 0.995) {
-      out.fill(255); // sun at the zenith: no terrain shadows
-      const lit = new THREE.DataTexture(out, NX, NZ, THREE.RGBAFormat);
-      lit.needsUpdate = true;
-      return lit;
-    }
     const wrapX = (v) => ((v % NX) + NX) % NX;
     const wrapZ = (v) => ((v % NZ) + NZ) % NZ;
-    for (let r = 0; r < NZ; r++) {
-      for (let c = 0; c < NX; c++) {
+    const job = { cancelled: false };
+    let row = 0;
+    function bakeRow(mr) {
+      const r = Math.min(NZ - 1, mr * 2);
+      for (let mc = 0; mc < MX; mc++) {
+        const c = Math.min(NX - 1, mc * 2);
         const h0 = H[r * NX + c];
         let worst = -1e9;
         for (let k = 1; k <= maxSteps; k++) {
+          if (h0 + (tanSun + SOFT) * k * stepM > hMax) break; // above every hill from here on
           const fx = c + dx * k;
           const fz = r + dz * k;
           const x0 = Math.floor(fx);
@@ -1016,25 +1039,50 @@ export async function initHud3D(
         }
         const lit = Math.min(1, Math.max(0, (tanSun - worst) / (2 * SOFT) + 0.5));
         // texture row 0 = smallest world z (north), matching the shader's lookup
-        const o = (r * NX + c) * 4;
+        const o = (mr * MX + mc) * 4;
         out[o] = out[o + 1] = out[o + 2] = Math.round(lit * 255);
         out[o + 3] = 255;
       }
     }
-    const tex = new THREE.DataTexture(out, NX, NZ, THREE.RGBAFormat);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.magFilter = THREE.LinearFilter;
-    tex.minFilter = THREE.LinearFilter;
-    tex.needsUpdate = true;
-    return tex;
+    const slice = () => {
+      if (job.cancelled) return;
+      const t0 = performance.now();
+      while (row < MZ && performance.now() - t0 < SUN_MASK_SLICE_MS) bakeRow(row++);
+      if (row >= MZ) finish();
+      else setTimeout(slice, 0);
+    };
+    setTimeout(slice, 0);
+    return job;
   }
-  const bakeT0 = performance.now();
-  let sunMask = bakeSunMask();
-  if (sunMask) {
-    const d = sunMask.image.data;
-    let shade = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i] < 128) shade++;
-    console.info(`sun mask baked in ${Math.round(performance.now() - bakeT0)} ms, ${((100 * shade) / (d.length / 4)).toFixed(1)}% of ground in terrain shadow`);
+  /** Re-bake in the background for the current sun (cancels a bake still running). */
+  function rebakeSunMask() {
+    if (sunBakeJob) sunBakeJob.cancelled = true;
+    const t0 = performance.now();
+    sunBakeJob = startSunMaskBake((tex) => {
+      sunBakeJob = null;
+      const prev = sunMask;
+      sunMask = tex;
+      // the terrain uniform is created further down; a bake that finishes before that line has run
+      // is picked up there anyway, because it reads `sunMask`
+      try {
+        sunMaskU.value = tex;
+      } catch {
+        /* not created yet */
+      }
+      if (prev && prev !== tex) prev.dispose?.();
+      console.info(`sun mask baked in the background in ${Math.round(performance.now() - t0)} ms`);
+    });
+  }
+  // until the first background bake finishes the whole ground counts as lit
+  let sunMask = null;
+  if (elevGrid) {
+    const MX0 = Math.ceil((2 * imgW) / 2);
+    const MZ0 = Math.ceil((2 * imgH) / 2);
+    sunMask = new THREE.DataTexture(new Uint8Array(MX0 * MZ0 * 4).fill(255), MX0, MZ0, THREE.RGBAFormat);
+    sunMask.wrapS = sunMask.wrapT = THREE.RepeatWrapping;
+    sunMask.magFilter = sunMask.minFilter = THREE.LinearFilter;
+    sunMask.needsUpdate = true;
+    setTimeout(rebakeSunMask, 400); // after the first frames are on screen
   }
 
   // ---------- terrain material ----------
@@ -1870,6 +1918,49 @@ export async function initHud3D(
   // rocket landing cinematic at the start of an EVA (landing-sequence.js); the lander stays as a landmark
   const landing = createLandingSequence(THREE, scene, { marsFx, sampleY: sampleElevSceneY });
   let landingHidNpcs = false;
+
+  const lightRig = new THREE.Group();
+  lightRig.name = "stable-lights";
+  scene.add(lightRig);
+  const stableLights = [];
+  /** Move the local lights under `root` into the always-visible rig (see the note before the loop). */
+  function stabilizeLights(root) {
+    if (!root) return;
+    const found = [];
+    root.traverse((o) => {
+      if (o.isLight && (o.isPointLight || o.isSpotLight)) found.push(o);
+    });
+    for (const l of found) {
+      const anchor = new THREE.Object3D();
+      anchor.name = "light-anchor";
+      l.parent.add(anchor);
+      anchor.position.copy(l.position);
+      lightRig.add(l);
+      stableLights.push({ l, anchor, saved: l.intensity, parked: false });
+    }
+  }
+  function syncStableLights() {
+    for (const e of stableLights) {
+      let vis = true;
+      for (let q = e.anchor; q; q = q.parent) {
+        if (!q.visible) {
+          vis = false;
+          break;
+        }
+      }
+      e.anchor.getWorldPosition(e.l.position);
+      if (!vis) {
+        if (!e.parked) {
+          e.saved = e.l.intensity;
+          e.parked = true;
+        } else if (e.l.intensity !== 0) e.saved = e.l.intensity; // someone set it while hidden
+        e.l.intensity = 0;
+      } else if (e.parked) {
+        e.l.intensity = e.saved;
+        e.parked = false;
+      }
+    }
+  }
 
   // ---------- contact shadows under the boots ----------
   // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
@@ -3053,15 +3144,7 @@ export async function initHud3D(
     renderer.toneMappingExposure = (devCfg.superGraphics ? 1.06 : 1.0) * (1 + 0.55 * (1 - up));
     if (rebake) {
       rebuildEnvironment();
-      if (isGaleSite() && elevGrid) {
-        const next = bakeSunMask();
-        if (next) {
-          const prev = sunMask;
-          sunMask = next;
-          sunMaskU.value = next;
-          prev?.dispose?.();
-        }
-      }
+      if (isGaleSite() && elevGrid) rebakeSunMask();
       lastSunBakeMs = performance.now();
     }
     sunMaskOnU.value = isGaleSite() && sunMask ? 1 : 0;
@@ -4227,6 +4310,7 @@ export async function initHud3D(
     requestAnimationFrame(animate);
     const dt = Math.min(0.1, (now - prevT) / 1000);
     prevT = now;
+    syncStableLights();
     clockT += dt;
     if (!hudView.classList.contains("active")) return; // do not render while hidden
 
@@ -5127,6 +5211,33 @@ export async function initHud3D(
   // Stream in the 1 m terrain where the EVA starts before the first frame (veil still up).
   if (routeCoords.length > 1) await warmCorridorAt(lonToX(routeCoords[0][0]), latToZ(routeCoords[0][1]));
   else await warmCorridorAt(freePos.x, freePos.z);
+  // ---------- no mid-game shader recompiles ----------
+  // three.js builds every lit shader for the exact number of lights in view. Showing or hiding a
+  // group that holds a light (the station, a rover's headlights, the lander's engine glow) changed
+  // that number and recompiled every material at once: the freezes at cut-scenes and site changes.
+  // The lights now live in one always-visible rig; each follows an anchor left where it used to be
+  // and is dimmed to 0 (not removed) while its owner is hidden.
+  stabilizeLights(habitatStation.group);
+  for (const r of drivableRovers) stabilizeLights(r.group);
+  stabilizeLights(landing.lander);
+  syncStableLights();
+  // compile every material once now (the loading screen is still up), the hidden lander included,
+  // so nothing compiles in the middle of the landing cut-scene. Synchronous on purpose: three r170's
+  // compileAsync throws when a material changes while it waits.
+  {
+    const L = landing.lander;
+    const wasVisible = L.visible;
+    L.visible = true;
+    try {
+      const t0 = performance.now();
+      renderer.compile(scene, camera);
+      console.info(`shaders compiled in ${Math.round(performance.now() - t0)} ms`);
+    } catch (err) {
+      console.warn("shader warm-up failed", err);
+    }
+    L.visible = wasVisible;
+  }
+
   requestAnimationFrame(animate);
   loadingVeil?.classList.add("done");
 

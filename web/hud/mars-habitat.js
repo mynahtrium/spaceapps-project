@@ -243,7 +243,7 @@ function makeMaterials(THREE, tex) {
     grate: std({ color: 0xffffff, map: tex.grate, roughness: 0.5, metalness: 0.8 }, 0.5),
     composite: std({ color: 0xffffff, map: tex.composite, roughness: 0.68, metalness: 0.05 }, 2),
     dormFloor: std({ color: 0xffffff, map: tex.dormFloor, roughness: 0.85, metalness: 0.02 }, 2),
-    hazard: std({ color: 0xffffff, map: tex.hazard, roughness: 0.6, metalness: 0.2 }, 0.6),
+    hazard: std({ color: 0x5c6168, roughness: 0.6, metalness: 0.35 }, 0.6),
     slat: std({ color: 0xffffff, map: tex.slat, roughness: 0.45, metalness: 0.55 }, 1),
     solar: std({ color: 0xffffff, map: tex.solar, roughness: 0.25, metalness: 0.6 }, 1),
     whiteGloss: std({ color: 0xf3f5f7, roughness: 0.22, metalness: 0.05 }),
@@ -256,42 +256,44 @@ function makeMaterials(THREE, tex) {
     leaf: std({ color: 0x3c9a3a, roughness: 0.8, metalness: 0 }),
     leafLight: std({ color: 0x6cc24a, roughness: 0.8, metalness: 0 }),
     soil: std({ color: 0x3a2a22, roughness: 1, metalness: 0 }),
-    toolRed: std({ color: 0xb3261e, roughness: 0.38, metalness: 0.55 }),
-    redPaint: std({ color: 0xc81e1e, roughness: 0.5, metalness: 0.1 }),
-    craneYellow: std({ color: 0xe3a812, roughness: 0.45, metalness: 0.5 }),
-    paintYellow: std({ color: 0xe8b417, roughness: 0.65, metalness: 0.05 }),
+    toolRed: std({ color: 0x6e737a, roughness: 0.38, metalness: 0.55 }),
+    redPaint: std({ color: 0xd9dbde, roughness: 0.5, metalness: 0.1 }),
+    craneYellow: std({ color: 0x9aa0a7, roughness: 0.45, metalness: 0.5 }),
+    paintYellow: std({ color: 0xc9ccd0, roughness: 0.65, metalness: 0.05 }),
     suit: std({ color: 0xebe8e0, roughness: 0.85, metalness: 0.02 }),
     visor: std({ color: 0xd4a017, roughness: 0.12, metalness: 1.0 }),
     cable: std({ color: 0x15161a, roughness: 0.6, metalness: 0.1 }),
     regolithPad: std({ color: 0x5b4a40, roughness: 0.96, metalness: 0.02 }, 3),
     doorPaint: std({ color: 0x59616b, roughness: 0.48, metalness: 0.6 }),
-    viewport: std({ color: 0x0e2233, roughness: 0.05, metalness: 0.9, emissive: 0x06233a, emissiveIntensity: 0.4 }),
+    viewport: std({ color: 0x101316, roughness: 0.05, metalness: 0.9 }),
     // Built opaque so the static merge bakes it; switched to transparent once merging is done.
-    glass: std({ color: 0xa8d8ff, roughness: 0.04, metalness: 0.3, opacity: 0.2, depthWrite: false }),
-    ledRed: glow(0xef4444, 2.0),
-    ledPink: glow(0xec4899, 1.8),
-    ledYellow: glow(0xfacc15, 1.6),
-    ledPurple: glow(0xa855f7, 1.9),
-    ledGreen: glow(0x22c55e, 1.8),
-    ledCool: glow(0xcfe8ff, 1.4),
-    warmPanel: glow(0xfff1d6, 1.5),
-    coolPanel: glow(0xe3f2ff, 1.6),
-    growLight: glow(0x8dff73, 2.2),
-    readingLight: glow(0xffd9a0, 1.8),
-    statusGreen: glow(0x22ff88, 2.0),
-    statusCyan: glow(0x22d3ee, 2.0),
-    amber: glow(0xffa21a, 2.0),
-    beacon: glow(0xff2a1a, 2.5),
-    beamRed: additive(0xff3a22, 0.16),
+    glass: std({ color: 0xdfe3e7, roughness: 0.04, metalness: 0.3, opacity: 0.2, depthWrite: false }),
+    // every light in the station is plain white (Cagan: no coloured lighting); the names are kept so
+    // the builders below need no changes
+    ledRed: glow(0xf4f6f8, 1.6),
+    ledPink: glow(0xf4f6f8, 1.6),
+    ledYellow: glow(0xf4f6f8, 1.6),
+    ledPurple: glow(0xf4f6f8, 1.6),
+    ledGreen: glow(0xf4f6f8, 1.6),
+    ledCool: glow(0xf4f6f8, 1.4),
+    warmPanel: glow(0xf4f6f8, 1.5),
+    coolPanel: glow(0xf4f6f8, 1.6),
+    growLight: glow(0xf4f6f8, 1.8),
+    readingLight: glow(0xf4f6f8, 1.6),
+    statusGreen: glow(0xf4f6f8, 1.6),
+    statusCyan: glow(0xf4f6f8, 1.6),
+    amber: glow(0xf4f6f8, 1.6),
+    beacon: glow(0xf4f6f8, 2.0),
+    beamRed: additive(0xffffff, 0.07),
     holo: new THREE.MeshBasicMaterial({
-      color: 0x5eead4,
+      color: 0xe8ecf0,
       wireframe: true,
       transparent: true,
       opacity: 0.75,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
-    holoCone: additive(0x22d3ee, 0.1),
+    holoCone: additive(0xffffff, 0.06),
   };
 }
 
@@ -410,7 +412,8 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
   }
 
   function pointLight(parent, color, intensity, distance, x, y, z, decay = 1.6) {
-    const l = new THREE.PointLight(color, intensity, distance, decay);
+    // white light only, whatever colour the caller asked for
+    const l = new THREE.PointLight(0xffffff, intensity, distance, decay);
     l.position.set(x, y, z);
     parent.add(l);
     return l;
@@ -420,7 +423,7 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
   function screenMaterial(idx, accent) {
     const key = `${idx}|${accent}`;
     if (!screenMats.has(key)) {
-      const map = makeTelemetryScreenTexture(THREE, SCREEN_SPECS[idx % SCREEN_SPECS.length], accent);
+      const map = makeTelemetryScreenTexture(THREE, SCREEN_SPECS[idx % SCREEN_SPECS.length], "#e6e9ee");
       screenMats.set(key, new THREE.MeshBasicMaterial({ map, color: map ? 0xd8d8d8 : 0x0b1a2e, toneMapped: false }));
     }
     return screenMats.get(key);
@@ -445,7 +448,7 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
   }
 
   function signPlane(parent, lines, accent, x, yc, z, ry, w, h, { doubleSide = false } = {}) {
-    const map = makeSignTexture(THREE, lines, accent, { w: 512, h: Math.max(96, Math.round((512 * h) / w)) });
+    const map = makeSignTexture(THREE, lines, "#e6e9ee", { w: 512, h: Math.max(96, Math.round((512 * h) / w)) });
     const m = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshBasicMaterial({
@@ -1332,7 +1335,7 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
       // threshold and floor markings
       bx(S, c, DECK, BAY_FRONT_Z - 0.3, BAY_DOOR_W, 0.012, 0.5, M.hazard);
       for (const e of [-1, 1]) bx(S, c + e * 3.0, DECK, 15.9, 0.12, 0.01, 10.8, M.paintYellow);
-      const decalMap = makeFloorDecalTexture(THREE, `0${i + 1}`, "#e8b417");
+      const decalMap = makeFloorDecalTexture(THREE, `0${i + 1}`, "#d9dce0");
       const decal = new THREE.Mesh(
         new THREE.PlaneGeometry(1.8, 0.9),
         new THREE.MeshStandardMaterial({ map: decalMap, transparent: true, opacity: decalMap ? 1 : 0, roughness: 0.7, depthWrite: false })
