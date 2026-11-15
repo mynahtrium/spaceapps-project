@@ -47,7 +47,7 @@ import { gamepad } from "../shared/gamepad.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
-import { loadDevSettings, saveDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
+import { cycleRayTracingMode, loadDevSettings, saveDevSettings, subscribeDevSettings } from "../shared/dev-settings.js";
 import { MARS_GEODESY } from "../physics/MarsConstants.js";
 import { ellipsoidMetersPerDeg } from "../physics/MarsGravityField.js";
 import { metabolicPowerW, oxygenLitresPerMin, skyViewFactor } from "../physics/MetabolicPlssModel.js";
@@ -95,10 +95,13 @@ import { initNpcDialogueUi } from "./npc-dialogue-ui.js";
 import { GaleCorridor, buildCorridorCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
 import {
   RT_HEIGHT_GLSL,
+  RT_INTERNAL_RESOLUTION_SCALE,
   RT_LENS_PARS_GLSL,
+  applyRayTracerTierUniforms,
   buildHeightfieldRtData,
   buildHeightfieldRtTexture,
   createRayTracerUniforms,
+  getRayTracingPreset,
   patchObjectRayTracer,
 } from "./ray-tracer.js";
 
@@ -451,6 +454,9 @@ export async function initHud3D(
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
   let devCfg = loadDevSettings();
+  if (devCfg.rayTracing || (devCfg.rayTracingMode && devCfg.rayTracingMode !== "off")) {
+    devCfg = saveDevSettings({ rayTracing: false, rayTracingMode: "off" });
+  }
   const isTrLang = () => {
     try {
       return localStorage.getItem("mm-lang") === "tr";
@@ -821,11 +827,11 @@ export async function initHud3D(
     return habitatStation.group.visible ? habitatStation.sampleElevWithHabitat(x, z, rawY) : rawY;
   }
 
-  const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 192);
+  const rtHeightInfo = buildHeightfieldRtTexture(THREE, sampleElevSceneY, worldW, worldH, 96);
   const rtUniforms = createRayTracerUniforms(THREE, worldW, worldH, sunDir, rtHeightInfo);
   patchObjectRayTracer(THREE, habitatStation.group, rtUniforms, { reflectScale: 0.72 });
   function refreshRtHeightfield() {
-    const packed = buildHeightfieldRtData(sampleElevSceneY, worldW, worldH, 192);
+    const packed = buildHeightfieldRtData(sampleElevSceneY, worldW, worldH, 96);
     if (rtHeightInfo?.texture?.image?.data) {
       rtHeightInfo.texture.image.data.set(packed.data);
       rtHeightInfo.texture.needsUpdate = true;
@@ -1279,26 +1285,28 @@ export async function initHud3D(
       )
       .replace(
         "#include <lights_fragment_begin>",
-        "float mmMaskVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\nfloat mmSunVis = mmMaskVis;\nif (uRtEnabled > 0.5) {\n  float rtShJ = rtIgn(gl_FragCoord.xy + fract(uRtTime) * 53.0);\n  float rtSh = rtTraceShadow(vRtWorldPos + vec3(0.0, 0.14, 0.0), uRtSunDir, 260.0, rtShJ);\n  mmSunVis = mix(rtSh, min(rtSh, mmMaskVis), 0.35);\n}\n" +
+        "float mmMaskVis = sunMaskOn > 0.5 ? texture2D(sunMask, (vMmWorldXZ - sunMaskOrigin) / sunMaskPeriod).r : 1.0;\nfloat mmSunVis = mmMaskVis;\nfloat rtCamDist = length(vViewPosition);\nfloat rtMaxD = max(110.0, uRtMaxDist);\nif (uRtEnabled > 0.5 && rtCamDist < rtMaxD) {\n  float rtShJ = rtIgn(gl_FragCoord.xy + fract(uRtTime) * 53.0);\n  float rtSh = rtTraceShadow(vRtWorldPos + vec3(0.0, 0.14, 0.0), uRtSunDir, rtMaxD, rtShJ);\n  float rtShVis = mix(rtSh, min(rtSh, mmMaskVis), 0.35);\n  float rtFade = (uRtQuality >= 3.5) ? 1.0 : (1.0 - smoothstep(rtMaxD * 0.72, rtMaxD, rtCamDist));\n  mmSunVis = mix(mmMaskVis, rtShVis, rtFade);\n}\n" +
           sunChunk
       )
       .replace(
         "#include <lights_fragment_end>",
         `#include <lights_fragment_end>
-        if (uRtEnabled > 0.5) {
+        float rtGiMaxD = (uRtQuality >= 3.5) ? rtMaxD : rtMaxD * 0.78;
+        if (uRtEnabled > 0.5 && rtCamDist < rtGiMaxD) {
+          float rtGiFade = (uRtQuality >= 3.5) ? 1.0 : (1.0 - smoothstep(rtGiMaxD * 0.68, rtGiMaxD, rtCamDist));
           float rtJGi = rtIgn(gl_FragCoord.xy + fract(uRtTime * 1.37) * 79.0);
           vec3 rtWN = normalize((vec4(geometryNormal, 0.0) * viewMatrix).xyz);
           vec3 rtWV = normalize((vec4(geometryViewDir, 0.0) * viewMatrix).xyz);
           float rtSkyVis;
           vec3 rtBounce;
           rtTraceGI(vRtWorldPos + rtWN * 0.08, rtWN, uRtSunDir, rtJGi, rtSkyVis, rtBounce);
-          reflectedLight.indirectDiffuse *= rtSkyVis;
-          reflectedLight.indirectDiffuse += diffuseColor.rgb * rtBounce;
+          reflectedLight.indirectDiffuse *= mix(1.0, rtSkyVis, rtGiFade);
+          reflectedLight.indirectDiffuse += diffuseColor.rgb * rtBounce * rtGiFade;
           float rtFresnel = pow(1.0 - clamp(dot(rtWN, rtWV), 0.0, 1.0), 5.0);
           if (rtFresnel > 0.025) {
             vec3 rtReflDir = reflect(-rtWV, rtWN);
             vec3 rtSkySpec = rtMarsSky(rtReflDir, uRtSunDir);
-            reflectedLight.indirectSpecular += rtSkySpec * rtFresnel * 0.18 * rtSkyVis;
+            reflectedLight.indirectSpecular += rtSkySpec * rtFresnel * 0.18 * rtSkyVis * rtGiFade;
           }
         }`
       )
@@ -2117,6 +2125,8 @@ export async function initHud3D(
   let rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
   let rtSamples = 2;
   let rtHasDepth = false;
+  let lastRtW = 1;
+  let lastRtH = 1;
   const lensMat = new THREE.ShaderMaterial({
     vertexShader: LENS_VERT,
     fragmentShader: LENS_FRAG,
@@ -2127,6 +2137,11 @@ export async function initHud3D(
       tDiffuse: { value: rt.texture },
       tDepth: { value: dummyDepthTex },
       uRtEnabled: rtUniforms.uRtEnabled,
+      uRtQuality: rtUniforms.uRtQuality,
+      uRtResScale: rtUniforms.uRtResScale,
+      uRtMaxBounces: rtUniforms.uRtMaxBounces,
+      uRtAoSamples: rtUniforms.uRtAoSamples,
+      uRtSsrSteps: rtUniforms.uRtSsrSteps,
       uRtProj: { value: new THREE.Matrix4() },
       uRtInvProj: { value: new THREE.Matrix4() },
       uResolution: { value: new THREE.Vector2(1, 1) },
@@ -3492,6 +3507,16 @@ export async function initHud3D(
   let arrival = null; // { t0, reduced } while the orbit arrival drop plays
   let nextPovStop = null;
 
+  let optRtPill = document.getElementById("hud-opt-rt");
+  if (!optRtPill && optZoomPill?.parentElement && typeof document !== "undefined") {
+    optRtPill = document.createElement("span");
+    optRtPill.id = "hud-opt-rt";
+    optRtPill.className = "dim";
+    optRtPill.style.cursor = "pointer";
+    optRtPill.title = "Cycle Ray Tracing Quality Tier (R)";
+    optZoomPill.parentElement.appendChild(optRtPill);
+  }
+
   function syncOpticsOverlayUi() {
     const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
     const goldOn = goldVisor > 0.5;
@@ -3519,6 +3544,19 @@ export async function initHud3D(
       optZoomPill.textContent = `MAG: ${optZoom}×`;
       optZoomPill.classList.toggle("active", optZoom > 1);
     }
+    if (optRtPill) {
+      const rtPreset = getRayTracingPreset(devCfg);
+      optRtPill.textContent = rtPreset.hudPill;
+      optRtPill.classList.toggle("active", rtPreset.enabled > 0);
+    }
+  }
+
+  function cycleRayTracingTier() {
+    const nextRt = cycleRayTracingMode(devCfg);
+    const nextCfg = saveDevSettings(nextRt);
+    applyDevSettings(nextCfg);
+    const preset = getRayTracingPreset(nextCfg);
+    showWrapNotice(`RAY TRACING: ${isTrLang() ? preset.hudLabelTr : preset.hudLabelEn}`);
   }
 
   function toggleGoldVisor() {
@@ -3547,6 +3585,10 @@ export async function initHud3D(
   btnLamp?.addEventListener("click", (ev) => {
     ev.stopPropagation();
     toggleHelmetLamp();
+  });
+  optRtPill?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    cycleRayTracingTier();
   });
   syncOpticsOverlayUi();
 
@@ -3615,13 +3657,7 @@ export async function initHud3D(
       return;
     }
     if (k === "r" && !e.repeat) {
-      const nextCfg = saveDevSettings({ rayTracing: !devCfg.rayTracing });
-      applyDevSettings(nextCfg);
-      showWrapNotice(
-        isTrLang()
-          ? `RAY TRACING: ${nextCfg.rayTracing ? "AÇIK (GPU YOĞUN)" : "KAPALI"}`
-          : `RAY TRACING: ${nextCfg.rayTracing ? "ON (HEAVY GPU)" : "OFF"}`
-      );
+      cycleRayTracingTier();
       return;
     }
 
@@ -3912,9 +3948,22 @@ export async function initHud3D(
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
-    const pr = renderer.getPixelRatio() * renderScale;
-    rt.setSize(Math.max(1, Math.floor(w * pr)), Math.max(1, Math.floor(h * pr)));
-    lensMat.uniforms.uResolution.value.set(w * pr, h * pr);
+    const rtPreset = getRayTracingPreset(devCfg);
+    const wantRt = rtPreset.enabled > 0;
+    const basePr = wantRt
+      ? rtPreset.tier >= 4
+        ? renderer.getPixelRatio()
+        : Math.min(1.0, renderer.getPixelRatio())
+      : renderer.getPixelRatio();
+    const pr = basePr * (wantRt ? rtPreset.resolutionScale : renderScale);
+    const nextW = Math.max(1, Math.floor(w * pr));
+    const nextH = Math.max(1, Math.floor(h * pr));
+    if (nextW !== lastRtW || nextH !== lastRtH) {
+      lastRtW = nextW;
+      lastRtH = nextH;
+      rt.setSize(nextW, nextH);
+    }
+    lensMat.uniforms.uResolution.value.set(nextW, nextH);
     const activeScale = devCfg.frameEffect ? Math.max(0.2, Math.min(1.5, devCfg.frameStrength ?? 0.2)) : 0;
     syncVisorSafeInsets(w, h, activeScale);
   };
@@ -3973,17 +4022,20 @@ export async function initHud3D(
     }
 
     const wantSuper = Boolean(cfg.superGraphics);
-    const wantRt = Boolean(cfg.rayTracing);
-    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper ? 2.0 : 1.25);
+    const rtPreset = applyRayTracerTierUniforms(rtUniforms, cfg);
+    const wantRt = rtPreset.enabled > 0;
+    const targetPr = Math.min(window.devicePixelRatio || 1, wantSuper || rtPreset.tier >= 4 ? 2.0 : 1.25);
     renderer.setPixelRatio(targetPr);
-    renderScale = wantSuper ? 1.25 : 1.0;
+    renderScale = wantRt ? rtPreset.resolutionScale : wantSuper ? 1.25 : 1.0;
 
     // WebGL2 MSAA render targets cannot attach a DepthTexture, so when Ray Tracing is active
-    // we switch to samples: 0 + DepthTexture (paired with FXAA + SSR/RTAO in LENS_FRAG).
+    // we switch to samples: 0 + DepthTexture (paired with FXAA + CAS + SSR/RTAO in LENS_FRAG).
     const wantSamples = wantRt ? 0 : wantSuper ? 4 : 2;
     if (rtSamples !== wantSamples || rtHasDepth !== wantRt) {
       rtSamples = wantSamples;
       rtHasDepth = wantRt;
+      lastRtW = 0;
+      lastRtH = 0;
       rt.depthTexture?.dispose?.();
       rt.dispose();
       if (wantRt) {
@@ -4000,7 +4052,7 @@ export async function initHud3D(
       }
       lensMat.uniforms.tDiffuse.value = rt.texture;
     }
-    rtUniforms.uRtEnabled.value = wantRt ? 1 : 0;
+    syncOpticsOverlayUi();
 
     const wantShadowPx = wantSuper ? 4096 : SHADOW_MAP_PX;
     const wantShadowHalf = wantSuper ? 30 : SHADOW_HALF_M;
@@ -4091,7 +4143,7 @@ export async function initHud3D(
   // Adaptive resolution: the 3D scene renders into rt, so its size can drop when frames are slow
   // and come back when there is headroom. Disabled when Experimental Super Graphics is active.
   function adaptResolution(frameMs, now) {
-    if (devCfg.superGraphics) return;
+    if (devCfg.rayTracing || devCfg.superGraphics) return;
     frameAvg += (frameMs - frameAvg) * 0.05;
     if (now - lastScaleChange < 1200) return;
     let next = renderScale;
