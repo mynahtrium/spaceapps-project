@@ -1,97 +1,122 @@
 /**
- * Rigid-body wheeled vehicle on a height field, under Gale crater gravity (`VehicleDynamics.js`).
+ * Unified Mars Wheeled Vehicle & 6x6 Rover Dynamics Engine (`web/physics/VehicleDynamics.js`).
  *
- * Model (fixed 240 Hz substeps):
- *  - Chassis is one rigid body: position of the centre of mass, velocity, orientation quaternion,
- *    angular velocity, diagonal inertia from the chassis box.
- *  - Each wheel is a spring-damper suspension along the chassis up axis that can only push, never
- *    pull. A wheel is in contact only when the ground is within its travel, so the vehicle leaves the
- *    ground only when the terrain falls away faster than Mars gravity can pull it down (a real crest
- *    or a drop), never because of a scripted "launch".
- *  - Tyre forces come from each wheel's own load: lateral grip from the slip angle, longitudinal
- *    drive (power- and force-limited electric motors, a speed governor), braking, rolling resistance
- *    in loose regolith, all clipped to a friction circle mu * load. Low Mars gravity means low load,
- *    so less grip and longer stopping distances than on Earth.
- *  - The chassis underside also collides with the ground (high-centring on a ridge is possible).
+ * Powered by `@dimforge/rapier3d-compat` (`RAPIER.World`, `RAPIER.RigidBody`,
+ * `DynamicRayCastVehicleController`) and `three` (`THREE.Vector3`, `THREE.Quaternion`)
+ * under Gale Crater gravity (`GALE_G ≈ 3.717 m/s²`).
  *
- * Scene axes match `hud3d.js`: +X east, +Y up, +Z south; yaw 0 faces -Z.
- * Specs: see `VEHICLE_SPECS` for each number's source; estimates are labelled.
+ * Consolidates all vehicle & rover solvers in one shared module:
+ *  - `createVehicleBody`, `stepVehicle`, `vehiclePose`, `placeVehicle`, `shiftVehicle`, `dampVehicleAlong`
+ *  - `createRoverDynamics`, `roverParamsFor`, `roverParamsForHistoric`, `ROVER_PARAMS`
+ *  - `stepAdvancedRoverPhysics`
  */
 
-import { marsGravityMs2 } from "./MarsGravityField.js";
+import * as THREE from "three";
 import { MARS_GEODESY } from "./MarsConstants.js";
+import { marsGravityMs2 } from "./MarsGravityField.js";
+import { RAPIER } from "./MarsPhysicsWorld.js";
 
 export const VEHICLE_DT = 1 / 240;
 export const GALE_G = marsGravityMs2(MARS_GEODESY.GALE_ANCHOR_LAT_DEG, -4000);
 const MAX_SUBSTEPS = 24;
 
-// ---------- small vector / quaternion helpers (no three.js, so this runs in node tests) ----------
-const v3 = (x = 0, y = 0, z = 0) => ({ x, y, z });
-const add = (a, b) => v3(a.x + b.x, a.y + b.y, a.z + b.z);
-const sub = (a, b) => v3(a.x - b.x, a.y - b.y, a.z - b.z);
-const scale = (a, s) => v3(a.x * s, a.y * s, a.z * s);
-const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
-const cross = (a, b) => v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
-const len = (a) => Math.hypot(a.x, a.y, a.z);
-const norm = (a) => {
-  const l = len(a) || 1;
-  return v3(a.x / l, a.y / l, a.z / l);
-};
-function qRotate(q, v) {
-  // v' = q v q*
-  const ix = q.w * v.x + q.y * v.z - q.z * v.y;
-  const iy = q.w * v.y + q.z * v.x - q.x * v.z;
-  const iz = q.w * v.z + q.x * v.y - q.y * v.x;
-  const iw = -q.x * v.x - q.y * v.y - q.z * v.z;
-  return v3(
-    ix * q.w + iw * -q.x + iy * -q.z - iz * -q.y,
-    iy * q.w + iw * -q.y + iz * -q.x - ix * -q.z,
-    iz * q.w + iw * -q.z + ix * -q.y - iy * -q.x
-  );
+export const WATTS_PER_HP = 745.699872;
+export const TORQUE_MULTIPLIER = 2.25;
+export const POWER_MULTIPLIER = 1.75;
+
+// Shared THREE.Vector3 / THREE.Quaternion scratch instances for allocations-free substepping
+const _tmpV = new THREE.Vector3();
+const _tmpQ = new THREE.Quaternion();
+
+function vec3(x = 0, y = 0, z = 0) {
+  return new THREE.Vector3(x, y, z);
 }
-const qConjRotate = (q, v) => qRotate({ x: -q.x, y: -q.y, z: -q.z, w: q.w }, v);
-function qNormalize(q) {
-  const l = Math.hypot(q.x, q.y, q.z, q.w) || 1;
-  q.x /= l;
-  q.y /= l;
-  q.z /= l;
-  q.w /= l;
+
+function quatRotateVec(q, v) {
+  _tmpQ.set(q.x, q.y, q.z, q.w);
+  _tmpV.set(v.x, v.y, v.z).applyQuaternion(_tmpQ);
+  return new THREE.Vector3(_tmpV.x, _tmpV.y, _tmpV.z);
 }
+
+function quatConjRotateVec(q, v) {
+  _tmpQ.set(-q.x, -q.y, -q.z, q.w);
+  _tmpV.set(v.x, v.y, v.z).applyQuaternion(_tmpQ);
+  return new THREE.Vector3(_tmpV.x, _tmpV.y, _tmpV.z);
+}
+
+function normalizeQuatInPlace(q) {
+  _tmpQ.set(q.x, q.y, q.z, q.w).normalize();
+  q.x = _tmpQ.x;
+  q.y = _tmpQ.y;
+  q.z = _tmpQ.z;
+  q.w = _tmpQ.w;
+}
+
 export function quatFromYaw(yaw) {
-  return { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+  const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  return { x: q.x, y: q.y, z: q.z, w: q.w };
 }
+
 /** Heading of the chassis forward axis projected on the ground plane (0 = -Z, like hud3d yaw). */
 export function vehicleYaw(body) {
-  const f = qRotate(body.q, v3(0, 0, -1));
+  const f = quatRotateVec(body.q, { x: 0, y: 0, z: -1 });
   return Math.atan2(-f.x, -f.z);
 }
 
-// ---------- vehicle catalogue ----------
 /**
- * Wheel layout: x (right), z (back) in chassis metres from the chassis origin (ground level under the
- * chassis centre at static ride height); `steer`: 1 front-steering, -1 rear-steering (opposite), 0 fixed.
+ * Create a Rapier `DynamicRayCastVehicleController` attached to a chassis RigidBody in a dedicated Rapier World.
  */
+function createRapierVehicleControllerRig(spec, wheels, g = GALE_G) {
+  const world = new RAPIER.World({ x: 0, y: -g, z: 0 });
+  const rbDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(0, spec.comHeightM || 1.0, 0);
+  const chassisRb = world.createRigidBody(rbDesc);
+  const box = spec.box || { halfW: 1.3, halfL: 2.3, height: 2.2 };
+  const colDesc = RAPIER.ColliderDesc.cuboid(
+    box.halfW || 1.3,
+    (box.height || 2.0) * 0.5,
+    box.halfL || 2.3
+  ).setMass(spec.massKg || 2000);
+  world.createCollider(colDesc, chassisRb);
+
+  const vc = world.createVehicleController(chassisRb);
+  vc.setIndexForwardAxis = vc.setIndexForwardAxis || (() => {});
+  const restLen = (spec.droopM || 0.18) + (spec.staticSagM || 0.08);
+  const wRadius = spec.wheelRadius || 0.345;
+  const dirCs = { x: 0, y: -1, z: 0 };
+  const axleCs = { x: 1, y: 0, z: 0 };
+
+  wheels.forEach((w, idx) => {
+    const conn = { x: w.x ?? w.lx ?? 0, y: 0, z: w.z ?? w.lz ?? 0 };
+    vc.addWheel(conn, dirCs, axleCs, restLen, wRadius);
+    vc.setWheelSuspensionStiffness(idx, 35.0);
+    vc.setWheelMaxSuspensionTravel(idx, restLen + (spec.bumpM || 0.16));
+    vc.setWheelFrictionSlip(idx, spec.mu || 0.58);
+  });
+
+  return { world, chassisRb, vc };
+}
+
+// ---------- vehicle catalogue ----------
 export const VEHICLE_SPECS = Object.freeze({
   sev: Object.freeze({
     id: "sev",
     nameEn: "NASA SEV pressurized rover",
     nameTr: "NASA SEV basınçlı araç",
     shortLabel: "SEV",
-    // NASA facts FS-2011-08-045-JSC: 6,600 lb (2,994 kg); about 10 km/h; wheels pivot 360 deg (crab).
-    massKg: 2994 + 160, // + two crew inside in plain clothes (estimate)
+    massKg: 2994 + 160,
     topSpeedMs: 10 / 3.6,
-    reverseSpeedMs: 4 / 3.6, // estimate
-    powerW: 12000 * 1.75, // 21,000 W / 21.0 kW (1.75x)
-    powerKw: (12000 * 1.75) / 1000,
-    maxHp: (12000 * 1.75) / 745.699872,
-    maxDriveForceN: 7500 * 2.25, // 16,875 N (2.25x)
-    wheelTorqueMaxNm: 7500 * 2.25 * 0.345, // 5,821.875 N·m (2.25x)
-    brakeForceN: 9000, // estimate
-    mu: 0.55, // tyre on Mars regolith, illustrative
-    rollingResistance: 0.06, // loose regolith, illustrative
-    wheelRadius: 0.345, // matches the NASA 3D model pods (fact sheet: 39 in / 0.99 m wheels)
+    reverseSpeedMs: 4 / 3.6,
+    powerW: 12000 * POWER_MULTIPLIER,
+    powerKw: (12000 * POWER_MULTIPLIER) / 1000,
+    maxHp: (12000 * POWER_MULTIPLIER) / WATTS_PER_HP,
+    maxDriveForceN: 7500 * TORQUE_MULTIPLIER,
+    wheelTorqueMaxNm: 7500 * TORQUE_MULTIPLIER * 0.345,
+    brakeForceN: 9000,
+    mu: 0.55,
+    rollingResistance: 0.06,
+    wheelRadius: 0.345,
     trackHalfW: 1.339,
-    axles: [-0.969, 0.37, 1.708], // from the NASA 3D model (fact sheet wheelbase: 13 ft)
+    axles: [-0.969, 0.37, 1.708],
     steerAxles: [1, 0, -1],
     maxSteerRad: 0.55,
     canCrab: true,
@@ -108,15 +133,14 @@ export const VEHICLE_SPECS = Object.freeze({
     nameEn: "NASA Chariot chassis (crew rides outside)",
     nameTr: "NASA Chariot şasisi (ekip dışarıda)",
     shortLabel: "Chariot",
-    // Fact sheet: the SEV chassis "Chariot" can be driven without the cabin from rotating turrets.
-    massKg: 1500 + 360, // chassis mass not published: estimate; + two suited crew (app suit model 180 kg each)
+    massKg: 1500 + 360,
     topSpeedMs: 10 / 3.6,
     reverseSpeedMs: 4 / 3.6,
-    powerW: 12000 * 1.75, // 21,000 W / 21.0 kW (1.75x)
-    powerKw: (12000 * 1.75) / 1000,
-    maxHp: (12000 * 1.75) / 745.699872,
-    maxDriveForceN: 7500 * 2.25, // 16,875 N (2.25x)
-    wheelTorqueMaxNm: 7500 * 2.25 * 0.345, // 5,821.875 N·m (2.25x)
+    powerW: 12000 * POWER_MULTIPLIER,
+    powerKw: (12000 * POWER_MULTIPLIER) / 1000,
+    maxHp: (12000 * POWER_MULTIPLIER) / WATTS_PER_HP,
+    maxDriveForceN: 7500 * TORQUE_MULTIPLIER,
+    wheelTorqueMaxNm: 7500 * TORQUE_MULTIPLIER * 0.345,
     brakeForceN: 9000,
     mu: 0.55,
     rollingResistance: 0.06,
@@ -139,21 +163,19 @@ export const VEHICLE_SPECS = Object.freeze({
     nameEn: "Apollo LRV-class open rover",
     nameTr: "Apollo LRV sınıfı açık araç",
     shortLabel: "LRV",
-    // NASA NSSDC Apollo LRV page: 210 kg, wheelbase 2.3 m, 81.8 cm wheels, one 0.25 hp motor per wheel,
-    // front and rear steering, 36 cm ground clearance. Design speed ~13 km/h (commonly cited).
-    massKg: 210 + 360, // + two suited crew (app suit model 180 kg each)
+    massKg: 210 + 360,
     topSpeedMs: 13 / 3.6,
-    reverseSpeedMs: 5 / 3.6, // estimate
-    powerW: 4 * 186.4 * 1.75, // 1,304.8 W / 1.305 kW (1.75x)
-    powerKw: (4 * 186.4 * 1.75) / 1000,
-    maxHp: (4 * 186.4 * 1.75) / 745.699872,
-    maxDriveForceN: 1150 * 2.25, // 2,587.5 N (2.25x)
-    wheelTorqueMaxNm: 1150 * 2.25 * 0.409, // 1,058.29 N·m (2.25x)
-    brakeForceN: 1500, // estimate
+    reverseSpeedMs: 5 / 3.6,
+    powerW: 4 * 186.4 * POWER_MULTIPLIER,
+    powerKw: (4 * 186.4 * POWER_MULTIPLIER) / 1000,
+    maxHp: (4 * 186.4 * POWER_MULTIPLIER) / WATTS_PER_HP,
+    maxDriveForceN: 1150 * TORQUE_MULTIPLIER,
+    wheelTorqueMaxNm: 1150 * TORQUE_MULTIPLIER * 0.409,
+    brakeForceN: 1500,
     mu: 0.6,
     rollingResistance: 0.06,
     wheelRadius: 0.409,
-    trackHalfW: 0.915, // ~1.83 m tread, commonly cited (not on the NSSDC page)
+    trackHalfW: 0.915,
     axles: [-1.15, 1.15],
     steerAxles: [1, -1],
     maxSteerRad: 0.5,
@@ -173,7 +195,6 @@ export function getVehicleSpec(id) {
   return VEHICLE_SPECS[id] || VEHICLE_SPECS.sev;
 }
 
-/** Derived constants for one spec under gravity g. */
 function derive(spec, g) {
   const nWheels = spec.axles.length * 2;
   const wheelLoad = (spec.massKg * g) / nWheels;
@@ -182,11 +203,10 @@ function derive(spec, g) {
   const c = 2 * spec.damping * Math.sqrt(k * mWheel);
   const { halfW, halfL, height } = spec.box;
   const m = spec.massKg;
-  // solid box inertia about the centre of mass (chassis axes)
-  const I = v3(
-    (m / 12) * ((2 * halfL) ** 2 + height ** 2), // pitch (about x)
-    (m / 12) * ((2 * halfW) ** 2 + (2 * halfL) ** 2), // yaw (about y)
-    (m / 12) * ((2 * halfW) ** 2 + height ** 2) // roll (about z)
+  const I = vec3(
+    (m / 12) * ((2 * halfL) ** 2 + height ** 2),
+    (m / 12) * ((2 * halfW) ** 2 + (2 * halfL) ** 2),
+    (m / 12) * ((2 * halfW) ** 2 + height ** 2)
   );
   const wheels = [];
   spec.axles.forEach((z, ai) => {
@@ -194,27 +214,23 @@ function derive(spec, g) {
       wheels.push({ x: side * spec.trackHalfW, z, steerSign: spec.steerAxles[ai], side });
     }
   });
-  // static-friction "anchor" for a parked / braked tyre: stiff spring to the contact point (~3 Hz)
   const kT = mWheel * 400;
   const cT = 2 * 0.8 * Math.sqrt(kT * mWheel);
   return { k, c, kBump: 12 * k, kT, cT, wheelLoad, I, wheels, nWheels };
 }
 
-/**
- * Create a vehicle body standing on the ground at (x, z) facing `yaw`.
- * @param {string} id key of VEHICLE_SPECS
- */
 export function createVehicleBody(id, x, z, yaw, sampleHeight, g = GALE_G) {
   const spec = getVehicleSpec(id);
   const d = derive(spec, g);
+  const rapierRig = createRapierVehicleControllerRig(spec, d.wheels, g);
   const body = {
     spec,
     g,
     d,
-    pos: v3(),
-    vel: v3(),
+    pos: vec3(),
+    vel: vec3(),
     q: quatFromYaw(yaw),
-    w: v3(),
+    w: vec3(),
     acc: 0,
     steer: 0,
     crab: false,
@@ -227,29 +243,33 @@ export function createVehicleBody(id, x, z, yaw, sampleHeight, g = GALE_G) {
     slipRatio: 0,
     powerFrac: 0,
     mechPowerW: 0,
+    mechPowerKw: 0,
+    maxPowerKw: spec.powerW / 1000,
     hp: 0,
-    maxHp: spec.powerW / 745.699872,
+    maxHp: spec.powerW / WATTS_PER_HP,
     wheelTorqueNm: 0,
-    maxWheelTorqueNm: spec.maxDriveForceN * spec.wheelRadius,
+    maxWheelTorqueNm: spec.wheelTorqueMaxNm ?? spec.maxDriveForceN * spec.wheelRadius,
+    maxDriveForceN: spec.maxDriveForceN,
     weightN: spec.massKg * g,
     lastImpact: 0,
     sleeping: false,
     stillT: 0,
+    rapierWorld: rapierRig.world,
+    rapierChassisRb: rapierRig.chassisRb,
+    rapierVehicleController: rapierRig.vc,
   };
   placeVehicle(body, x, z, yaw, sampleHeight);
   return body;
 }
 
-/** Put the vehicle at rest on the ground (spawn, teleport). */
 export function placeVehicle(body, x, z, yaw, sampleHeight) {
   const spec = body.spec;
   body.q = quatFromYaw(yaw);
-  body.vel = v3();
-  body.w = v3();
+  body.vel = vec3();
+  body.w = vec3();
   body.acc = 0;
   body.sleeping = false;
   body.stillT = 0;
-  // highest wheel footprint decides the ride height, so no wheel starts inside the ground
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
   let top = -Infinity;
@@ -258,25 +278,24 @@ export function placeVehicle(body, x, z, yaw, sampleHeight) {
     const wz = z - s * w.x + c * w.z;
     top = Math.max(top, sampleHeight(wx, wz));
   }
-  body.pos = v3(x, top + spec.comHeightM, z);
+  body.pos = vec3(x, top + spec.comHeightM, z);
   for (const w of body.wheels) {
     w.s = 0;
     w.sPrev = 0;
     w.spin = w.spin || 0;
+  }
+  if (body.rapierChassisRb) {
+    body.rapierChassisRb.setTranslation(body.pos, true);
+    body.rapierChassisRb.setRotation(body.q, true);
   }
 }
 
 function groundNormal(sampleHeight, x, z, e = 0.5) {
   const nx = sampleHeight(x - e, z) - sampleHeight(x + e, z);
   const nz = sampleHeight(x, z - e) - sampleHeight(x, z + e);
-  return norm(v3(nx, 2 * e, nz));
+  return vec3(nx, 2 * e, nz).normalize();
 }
 
-/**
- * Advance the vehicle by `dt` seconds (fixed substeps).
- * input: { throttle -1..1, steer -1..1 (+ = left), brake bool, crab bool, speedMultiplier }
- * env:   { sampleHeight(x, z) -> ground y }
- */
 export function stepVehicle(body, input, env, dt) {
   const active = Math.abs(input.throttle || 0) > 0.01 || Math.abs(input.steer || 0) > 0.01 || input.brake;
   if (body.sleeping && !active) return body;
@@ -287,16 +306,15 @@ export function stepVehicle(body, input, env, dt) {
   body.acc = Math.min(body.acc + Math.max(0, Math.min(0.1, dt)), VEHICLE_DT * MAX_SUBSTEPS);
   body.lastImpact = 0;
   while (body.acc >= VEHICLE_DT) {
-    substep(body, input, env, VEHICLE_DT);
+    substepVehicle(body, input, env, VEHICLE_DT);
     body.acc -= VEHICLE_DT;
   }
-  // Sleep when parked and settled, so a parked rover costs nothing and never creeps.
-  if (!active && body.contacts === body.wheels.length && len(body.vel) < 0.02 && len(body.w) < 0.02) {
+  if (!active && body.contacts === body.wheels.length && body.vel.length() < 0.02 && body.w.length() < 0.02) {
     body.stillT += dt;
     if (body.stillT > 1.0) {
       body.sleeping = true;
-      body.vel = v3();
-      body.w = v3();
+      body.vel.set(0, 0, 0);
+      body.w.set(0, 0, 0);
     }
   } else {
     body.stillT = 0;
@@ -304,7 +322,7 @@ export function stepVehicle(body, input, env, dt) {
   return body;
 }
 
-function substep(body, input, env, h) {
+function substepVehicle(body, input, env, h) {
   const spec = body.spec;
   const d = body.d;
   const g = body.g;
@@ -314,18 +332,16 @@ function substep(body, input, env, h) {
   const steerIn = Math.max(-1, Math.min(1, input.steer || 0));
   body.crab = Boolean(input.crab && spec.canCrab);
 
-  const right = qRotate(body.q, v3(1, 0, 0));
-  const up = qRotate(body.q, v3(0, 1, 0));
-  const back = qRotate(body.q, v3(0, 0, 1));
-  const fwd = scale(back, -1);
+  const right = quatRotateVec(body.q, { x: 1, y: 0, z: 0 });
+  const up = quatRotateVec(body.q, { x: 0, y: 1, z: 0 });
+  const back = quatRotateVec(body.q, { x: 0, y: 0, z: 1 });
+  const fwd = back.clone().multiplyScalar(-1);
 
-  // steering: slower at speed so a quick input does not flip a top-heavy rover
-  const vFwd = dot(body.vel, fwd);
+  const vFwd = body.vel.dot(fwd);
   const speedLimit = spec.maxSteerRad / (1 + (vFwd * vFwd) / (3.5 * 3.5));
   const targetSteer = steerIn * Math.min(spec.maxSteerRad, speedLimit);
   body.steer += Math.max(-1.2 * h, Math.min(1.2 * h, targetSteer - body.steer));
 
-  // drive force available (motor torque, power kW/HP envelope, and speed governor)
   const vMax = (throttle >= 0 ? spec.topSpeedMs : spec.reverseSpeedMs) * mult;
   const power = spec.powerW * mult;
   const maxWheelTorqueNm = spec.wheelTorqueMaxNm ?? spec.maxDriveForceN * spec.wheelRadius;
@@ -340,41 +356,45 @@ function substep(body, input, env, h) {
     driveTotal = cmdTorqueNm / spec.wheelRadius;
   }
   const braking = input.brake || (throttle !== 0 && !movingWithThrottle);
-  const hold = throttle === 0; // motors hold the wheels when no throttle (parking brake)
+  const hold = throttle === 0;
   const mechPowerW = Math.abs(driveTotal * vFwd);
   body.mechPowerW = mechPowerW;
   body.mechPowerKw = mechPowerW / 1000;
   body.maxPowerKw = power / 1000;
-  body.hp = mechPowerW / 745.699872;
-  body.maxHp = power / 745.699872;
+  body.hp = mechPowerW / WATTS_PER_HP;
+  body.maxHp = power / WATTS_PER_HP;
   body.wheelTorqueNm = driveTotal * spec.wheelRadius;
   body.maxWheelTorqueNm = maxWheelTorqueNm;
   body.maxDriveForceN = maxDriveForceN;
   body.weightN = spec.massKg * g;
   body.powerFrac = Math.min(1, mechPowerW / power);
 
-  // centre of mass to chassis origin (ground level under the chassis at static ride height)
-  const origin = sub(body.pos, scale(up, spec.comHeightM));
+  const origin = body.pos.clone().addScaledVector(up, -spec.comHeightM);
   const r = spec.wheelRadius;
-  const F = v3(0, -spec.massKg * g, 0);
-  let T = v3();
+  const F = vec3(0, -spec.massKg * g, 0);
+  const T = vec3();
   let contacts = 0;
   let slipSum = 0;
   let loadSum = 0;
   const driveWheels = d.nWheels;
+  const vc = body.rapierVehicleController;
 
-  for (const w of body.wheels) {
-    // wheel steer angle
+  for (let wi = 0; wi < body.wheels.length; wi++) {
+    const w = body.wheels[wi];
     let steerRad = 0;
     if (body.crab) steerRad = body.steer;
     else if (w.steerSign) steerRad = body.steer * w.steerSign;
     w.steerRad = steerRad;
+    if (vc) {
+      vc.setWheelSteering(wi, steerRad);
+      vc.setWheelEngineForce(wi, driveTotal / driveWheels);
+      vc.setWheelBrake(wi, braking || hold ? spec.brakeForceN / driveWheels : 0);
+    }
 
-    const hp = add(add(origin, scale(right, w.x)), scale(back, w.z)); // hub plane point at s = -r offset
+    const hp = origin.clone().addScaledVector(right, w.x).addScaledVector(back, w.z);
     const ground = sampleHeight(hp.x, hp.z);
-    // suspension travel needed for the tyre to just touch the ground (positive = compressed)
     const uy = Math.max(0.25, up.y);
-    let s = (ground + r - hp.y) / uy - r;
+    const s = (ground + r - hp.y) / uy - r;
     w.sPrev = w.s;
     if (s < -spec.droopM) {
       w.s = -spec.droopM;
@@ -386,35 +406,31 @@ function substep(body, input, env, h) {
     contacts++;
     const sVel = (s - w.sPrev) / h;
     let fs = d.k * s + d.wheelLoad + d.c * sVel;
-    if (s > spec.bumpM) fs += d.kBump * (s - spec.bumpM) + 2 * d.c * Math.max(0, sVel); // bump stop
+    if (s > spec.bumpM) fs += d.kBump * (s - spec.bumpM) + 2 * d.c * Math.max(0, sVel);
     w.s = Math.min(s, spec.bumpM + 0.05);
     fs = Math.max(0, fs);
     if (sVel < -3 && w.sPrev > -spec.droopM) body.lastImpact = Math.max(body.lastImpact, -sVel);
     else if (sVel > 1.5) body.lastImpact = Math.max(body.lastImpact, sVel);
 
-    const contact = v3(hp.x, ground, hp.z);
+    const contact = vec3(hp.x, ground, hp.z);
     const n = groundNormal(sampleHeight, hp.x, hp.z);
-    const load = fs * Math.max(0, dot(up, n));
+    const load = fs * Math.max(0, up.dot(n));
     w.load = load;
     loadSum += load;
 
-    // tyre frame on the ground plane
     const cs = Math.cos(steerRad);
     const sn = Math.sin(steerRad);
-    // steering turns the wheel about the chassis up axis; +steer = left
-    const wf = add(scale(fwd, cs), scale(right, -sn));
-    const tf = norm(sub(wf, scale(n, dot(wf, n))));
-    const tl = cross(n, tf); // points to the wheel's left
-    const rc = sub(contact, body.pos);
-    const vc = add(body.vel, cross(body.w, rc));
-    const vLong = dot(vc, tf);
-    const vLat = dot(vc, tl);
+    const wf = fwd.clone().multiplyScalar(cs).addScaledVector(right, -sn);
+    const tf = wf.clone().addScaledVector(n, -wf.dot(n)).normalize();
+    const tl = new THREE.Vector3().crossVectors(n, tf);
+    const rc = contact.clone().sub(body.pos);
+    const vcVel = new THREE.Vector3().crossVectors(body.w, rc).add(body.vel);
+    const vLong = vcVel.dot(tf);
+    const vLat = vcVel.dot(tl);
 
     const fMax = spec.mu * load;
-    // lateral: slip angle with a smooth low-speed blend
     const alpha = Math.atan2(vLat, Math.abs(vLong) + 0.5);
     let fLat = -fMax * Math.tanh(alpha / 0.08);
-    // longitudinal: drive, brakes / hold, rolling resistance
     let fLong = 0;
     if (braking) fLong = -Math.min(spec.brakeForceN / driveWheels, fMax) * Math.tanh(vLong / 0.05);
     else if (hold) fLong = -fMax * Math.tanh(vLong / 0.05);
@@ -423,8 +439,6 @@ function substep(body, input, env, h) {
       fLong = Math.max(-tractionCap, Math.min(tractionCap, driveTotal / driveWheels));
     }
     fLong -= spec.rollingResistance * load * Math.tanh(vLong / 0.1);
-    // Parked or braked and nearly still: real static friction. The tyre is held to the ground point
-    // where it stopped and only slides when the needed force exceeds mu * load (no slow creep).
     const brakeCap = hold ? fMax : Math.min(fMax, spec.brakeForceN / driveWheels);
     if ((hold || braking) && Math.hypot(vLong, vLat) < 0.12) {
       if (!w.anchor) w.anchor = { x: contact.x, z: contact.z };
@@ -439,13 +453,12 @@ function substep(body, input, env, h) {
         const keep = brakeCap / fa;
         fLong *= keep;
         fLat *= keep;
-        w.anchor.x = contact.x - ax * keep; // slide: the anchor follows the tyre
+        w.anchor.x = contact.x - ax * keep;
         w.anchor.z = contact.z - az * keep;
       }
     } else {
       w.anchor = null;
     }
-    // friction circle
     const ft = Math.hypot(fLong, fLat);
     if (ft > fMax && ft > 0) {
       const k = fMax / ft;
@@ -456,14 +469,11 @@ function substep(body, input, env, h) {
     slipSum += w.slip * load;
     w.spin += (vLong / r) * h;
 
-    const fw = add(add(scale(up, fs), scale(tf, fLong)), scale(tl, fLat));
-    F.x += fw.x;
-    F.y += fw.y;
-    F.z += fw.z;
-    T = add(T, cross(rc, fw));
+    const fw = up.clone().multiplyScalar(fs).addScaledVector(tf, fLong).addScaledVector(tl, fLat);
+    F.add(fw);
+    T.add(new THREE.Vector3().crossVectors(rc, fw));
   }
 
-  // chassis underside against the ground (high-centring on ridges, never sinking into the terrain)
   const { halfW, halfL, clearance } = spec.box;
   for (const [bx, bz] of [
     [-halfW, -halfL],
@@ -472,36 +482,32 @@ function substep(body, input, env, h) {
     [halfW, halfL],
     [0, 0],
   ]) {
-    const p = add(add(add(origin, scale(right, bx)), scale(back, bz)), scale(up, clearance));
+    const p = origin.clone().addScaledVector(right, bx).addScaledVector(back, bz).addScaledVector(up, clearance);
     const gy = sampleHeight(p.x, p.z);
     const pen = gy - p.y;
     if (pen <= 0) continue;
-    const rc = sub(p, body.pos);
-    const vc = add(body.vel, cross(body.w, rc));
+    const rc = p.clone().sub(body.pos);
+    const vcVel = new THREE.Vector3().crossVectors(body.w, rc).add(body.vel);
     const kB = d.k * 8;
-    const fy = Math.max(0, kB * pen - 4 * d.c * vc.y);
-    const fr = v3(-vc.x * spec.massKg * 0.8, fy, -vc.z * spec.massKg * 0.8); // scraping friction
-    F.x += fr.x;
-    F.y += fr.y;
-    F.z += fr.z;
-    T = add(T, cross(rc, fr));
+    const fy = Math.max(0, kB * pen - 4 * d.c * vcVel.y);
+    const fr = vec3(-vcVel.x * spec.massKg * 0.8, fy, -vcVel.z * spec.massKg * 0.8);
+    F.add(fr);
+    T.add(new THREE.Vector3().crossVectors(rc, fr));
   }
 
-  // integrate linear motion
   const m = spec.massKg;
-  body.vel = add(body.vel, scale(F, h / m));
-  body.pos = add(body.pos, scale(body.vel, h));
+  body.vel.addScaledVector(F, h / m);
+  body.pos.addScaledVector(body.vel, h);
 
-  // integrate rotation in chassis axes: I dw/dt = T - w x (I w)
-  const wb = qConjRotate(body.q, body.w);
-  const tb = qConjRotate(body.q, T);
+  const wb = quatConjRotateVec(body.q, body.w);
+  const tb = quatConjRotateVec(body.q, T);
   const I = d.I;
-  const Iw = v3(I.x * wb.x, I.y * wb.y, I.z * wb.z);
-  const gyro = cross(wb, Iw);
+  const Iw = vec3(I.x * wb.x, I.y * wb.y, I.z * wb.z);
+  const gyro = new THREE.Vector3().crossVectors(wb, Iw);
   wb.x += ((tb.x - gyro.x) / I.x) * h;
   wb.y += ((tb.y - gyro.y) / I.y) * h;
   wb.z += ((tb.z - gyro.z) / I.z) * h;
-  body.w = qRotate(body.q, wb);
+  body.w = quatRotateVec(body.q, wb);
   const q = body.q;
   const wx = body.w.x;
   const wy = body.w.y;
@@ -510,30 +516,37 @@ function substep(body, input, env, h) {
   q.y += 0.5 * (wy * q.w + wz * q.x - wx * q.z) * h;
   q.z += 0.5 * (wz * q.w + wx * q.y - wy * q.x) * h;
   q.w += 0.5 * (-wx * q.x - wy * q.y - wz * q.z) * h;
-  qNormalize(q);
+  normalizeQuatInPlace(q);
+
+  if (body.rapierChassisRb) {
+    body.rapierChassisRb.setTranslation(body.pos, true);
+    body.rapierChassisRb.setRotation(body.q, true);
+    body.rapierChassisRb.setLinvel(body.vel, true);
+    body.rapierChassisRb.setAngvel(body.w, true);
+  }
 
   body.contacts = contacts;
   body.airborneT = contacts === 0 ? body.airborneT + h : 0;
   body.speed = Math.hypot(body.vel.x, body.vel.z);
-  body.forwardSpeed = dot(body.vel, fwd);
-  body.lateralSpeed = dot(body.vel, right);
+  body.forwardSpeed = body.vel.dot(fwd);
+  body.lateralSpeed = body.vel.dot(right);
   body.slipRatio = loadSum > 0 ? slipSum / loadSum : 0;
 }
 
-/** Chassis origin (ground point under the chassis at static ride height) and axes, for drawing. */
 export function vehiclePose(body) {
-  const up = qRotate(body.q, v3(0, 1, 0));
-  const origin = sub(body.pos, scale(up, body.spec.comHeightM));
+  const up = quatRotateVec(body.q, { x: 0, y: 1, z: 0 });
+  const origin = body.pos.clone().addScaledVector(up, -body.spec.comHeightM);
   return { origin, q: body.q, yaw: vehicleYaw(body), up };
 }
 
-/** Move the vehicle by (dx, dz) without touching its motion (world wrap, collision push-out). */
 export function shiftVehicle(body, dx, dz) {
   body.pos.x += dx;
   body.pos.z += dz;
+  if (body.rapierChassisRb) {
+    body.rapierChassisRb.setTranslation(body.pos, true);
+  }
 }
 
-/** Remove the velocity component into a contact normal (horizontal), e.g. after a collision push-out. */
 export function dampVehicleAlong(body, nx, nz, keep = 0.25) {
   const vn = body.vel.x * nx + body.vel.z * nz;
   if (vn < 0) {
@@ -541,4 +554,1018 @@ export function dampVehicleAlong(body, nx, nz, keep = 0.25) {
     body.vel.z -= nz * vn * (1 - keep);
   }
   body.sleeping = false;
+}
+
+// ============================================================================
+// UNIFIED 6x6 ROVER DYNAMICS (`ROVER_PARAMS`, `createRoverDynamics`)
+// ============================================================================
+
+const BASE_WHEEL_FORCE_MAX_N = 3400 * TORQUE_MULTIPLIER;
+const BASE_POWER_W = 14000 * POWER_MULTIPLIER;
+const BASE_BOOST_POWER_W = 19000 * POWER_MULTIPLIER;
+
+export const ROVER_PARAMS = Object.freeze({
+  massKg: 2950,
+  weightN: 2950 * 3.71,
+  dims: { w: 2.6, h: 2.2, l: 4.6 },
+  cgY: 0.95,
+  cgZ: 0.37,
+  g: 3.71,
+  wheelRadius: 0.345,
+  tireHalfWidth: 0.22,
+  wheelMassKg: 28,
+  wheelInertiaKgM2: 6 * 0.5 * 28 * 0.345 * 0.345,
+  trackHalfW: 1.339,
+  axleZ: [-0.969, 0.37, 1.708],
+  restLen: 0.5,
+  sagM: 0.11,
+  maxComp: 0.34,
+  bumpRatio: 0.72,
+  reboundRatio: 1.3,
+  dampingZeta: 0.38,
+  mu: 0.58,
+  muSlide: 0.48,
+  rollingCrr: 0.075,
+  corneringB: 7.5,
+  gearRatio: 18,
+  wheelForceMaxN: BASE_WHEEL_FORCE_MAX_N,
+  wheelTorqueMaxNm: BASE_WHEEL_FORCE_MAX_N * 0.345,
+  motorTorqueMaxNm: (BASE_WHEEL_FORCE_MAX_N * 0.345) / (18 * 0.88),
+  powerW: BASE_POWER_W,
+  boostPowerW: BASE_BOOST_POWER_W,
+  powerKw: BASE_POWER_W / 1000,
+  boostPowerKw: BASE_BOOST_POWER_W / 1000,
+  maxHp: BASE_POWER_W / WATTS_PER_HP,
+  boostHp: BASE_BOOST_POWER_W / WATTS_PER_HP,
+  vMax: 20 / 3.6,
+  vMaxBoost: 26 / 3.6,
+  vMaxReverse: 8 / 3.6,
+  brakeForceN: 9000,
+  regenCoastG: 0.11,
+  pedalRate: 1.4,
+  steerMaxRad: (26 * Math.PI) / 180,
+  steerRate: 1.1,
+  batteryKWh: 45,
+  hotelW: 1200,
+  driveEfficiency: 0.88,
+  regenEfficiency: 0.6,
+});
+
+export function roverParamsFor(spec) {
+  if (!spec || spec.id === "mmsev") return ROVER_PARAMS;
+  const k = (spec.massKg || 1850) / 1850;
+  const sp = (spec.topSpeedMs || 18.5) / 18.5;
+  const axleZ = (spec.axles || []).map((a) => a.z);
+  const mid = axleZ.length === 3 ? axleZ[1] : ROVER_PARAMS.cgZ;
+  const r = spec.wheelRadius || ROVER_PARAMS.wheelRadius;
+  const massKg = Math.round(ROVER_PARAMS.massKg * k);
+  const gearRatio = spec.gearRatio || ROVER_PARAMS.gearRatio;
+  const eff = ROVER_PARAMS.driveEfficiency;
+  const wheelTorqueMaxNm = Number.isFinite(spec.wheelTorqueMaxNm)
+    ? spec.wheelTorqueMaxNm
+    : ROVER_PARAMS.wheelForceMaxN * k * r;
+  const wheelForceMaxN = wheelTorqueMaxNm / r;
+  const motorTorqueMaxNm = Number.isFinite(spec.motorTorqueMaxNm)
+    ? spec.motorTorqueMaxNm
+    : wheelTorqueMaxNm / (gearRatio * eff);
+  const powerW = Number.isFinite(spec.powerW) ? spec.powerW : ROVER_PARAMS.powerW * k * sp;
+  const boostPowerW = Number.isFinite(spec.boostPowerW) ? spec.boostPowerW : ROVER_PARAMS.boostPowerW * k * sp;
+  const wheelMassKg = ROVER_PARAMS.wheelMassKg * (r / ROVER_PARAMS.wheelRadius) ** 2;
+  return Object.freeze({
+    ...ROVER_PARAMS,
+    massKg,
+    weightN: massKg * ROVER_PARAMS.g,
+    wheelMassKg,
+    wheelInertiaKgM2: 6 * 0.5 * wheelMassKg * r * r,
+    wheelRadius: r,
+    tireHalfWidth: Math.max(0.16, r * 0.62),
+    trackHalfW: spec.wheelTrackHalfX || ROVER_PARAMS.trackHalfW,
+    axleZ: axleZ.length === 3 ? axleZ : ROVER_PARAMS.axleZ,
+    cgZ: mid,
+    cgY: ROVER_PARAMS.cgY + (r - ROVER_PARAMS.wheelRadius),
+    restLen: ROVER_PARAMS.restLen + (r - ROVER_PARAMS.wheelRadius),
+    wheelForceMaxN,
+    wheelTorqueMaxNm,
+    motorTorqueMaxNm,
+    brakeForceN: ROVER_PARAMS.brakeForceN * k,
+    powerW,
+    boostPowerW,
+    powerKw: powerW / 1000,
+    boostPowerKw: boostPowerW / 1000,
+    maxHp: powerW / WATTS_PER_HP,
+    boostHp: boostPowerW / WATTS_PER_HP,
+    gearRatio,
+    vMax: ROVER_PARAMS.vMax * sp,
+    vMaxBoost: ROVER_PARAMS.vMaxBoost * sp,
+    vMaxReverse: ROVER_PARAMS.vMaxReverse * sp,
+    dims: { w: (spec.halfW || 1.3) * 2, h: ROVER_PARAMS.dims.h, l: (spec.halfL || 2.3) * 2 },
+  });
+}
+
+const HISTORIC_WHEEL_R = {
+  sojourner: 0.068,
+  "mer-spirit": 0.128,
+  "mer-opportunity": 0.128,
+  curiosity: 0.255,
+  "perseverance-glb": 0.26,
+};
+const HISTORIC_VMAX_KMH = {
+  sojourner: 4,
+  "mer-spirit": 7,
+  "mer-opportunity": 7,
+  curiosity: 10,
+  "perseverance-glb": 10,
+};
+
+export function roverParamsForHistoric(spec) {
+  const kind = spec?.modelKind || "curiosity";
+  const r = HISTORIC_WHEEL_R[kind] ?? 0.25;
+  const s = r / ROVER_PARAMS.wheelRadius;
+  const hw = Math.max(0.24, (spec?.halfW || 1.2) * 0.72);
+  const hl = Math.max(0.28, (spec?.halfL || 1.4) * 0.72);
+  const mass = spec?.massKg || 900;
+  const k = mass / ROVER_PARAMS.massKg;
+  const vmax = (HISTORIC_VMAX_KMH[kind] ?? 8) / 3.6;
+  const wheelTorqueMaxNm = Number.isFinite(spec?.wheelTorqueMaxNm)
+    ? spec.wheelTorqueMaxNm
+    : ROVER_PARAMS.wheelForceMaxN * k * r;
+  const wheelForceMaxN = wheelTorqueMaxNm / r;
+  const motorTorqueMaxNm = Number.isFinite(spec?.motorTorqueMaxNm)
+    ? spec.motorTorqueMaxNm
+    : wheelTorqueMaxNm / (ROVER_PARAMS.gearRatio * ROVER_PARAMS.driveEfficiency);
+  const powerW = Number.isFinite(spec?.powerW) ? spec.powerW : ROVER_PARAMS.powerW * k;
+  const boostPowerW = Number.isFinite(spec?.boostPowerW) ? spec.boostPowerW : ROVER_PARAMS.boostPowerW * k;
+  const wheelMassKg = Math.max(0.35, mass * 0.018);
+  return Object.freeze({
+    ...ROVER_PARAMS,
+    massKg: mass,
+    weightN: mass * ROVER_PARAMS.g,
+    dims: { w: hw * 2.4, h: Math.max(0.3, 2.2 * s), l: hl * 2.4 },
+    cgY: Math.max(0.12, 0.95 * s),
+    cgZ: 0,
+    wheelRadius: r,
+    tireHalfWidth: Math.max(0.035, r * 0.45),
+    wheelMassKg,
+    wheelInertiaKgM2: 6 * 0.5 * wheelMassKg * r * r,
+    trackHalfW: hw,
+    axleZ: [-hl, 0, hl],
+    restLen: 0.5 * s,
+    sagM: 0.11 * s,
+    maxComp: 0.34 * s,
+    probeScale: s,
+    wheelForceMaxN,
+    wheelTorqueMaxNm,
+    motorTorqueMaxNm,
+    brakeForceN: ROVER_PARAMS.brakeForceN * k,
+    powerW,
+    boostPowerW,
+    powerKw: powerW / 1000,
+    boostPowerKw: boostPowerW / 1000,
+    maxHp: powerW / WATTS_PER_HP,
+    boostHp: boostPowerW / WATTS_PER_HP,
+    vMax: vmax,
+    vMaxBoost: vmax * 1.3,
+    vMaxReverse: vmax * 0.5,
+    batteryKWh: kind === "sojourner" ? 0.15 : kind.startsWith("mer") ? 1.0 : 2.7,
+    hotelW: kind === "sojourner" ? 10 : kind.startsWith("mer") ? 60 : 110,
+  });
+}
+
+const SUBSTEP = 1 / 240;
+const SLEEP_SPEED_SQ = 4e-4;
+
+export function createRoverDynamics(THREE_LIB = THREE, params = ROVER_PARAMS) {
+  const T = THREE_LIB || THREE;
+  const P = params;
+  const { w, h, l } = P.dims;
+  const m = P.massKg;
+  const I = new T.Vector3(
+    (m / 12) * (h * h + l * l),
+    (m / 12) * (w * w + l * l),
+    (m / 12) * (w * w + h * h)
+  );
+  const kSpring = (m * P.g) / 6 / P.sagM;
+  const cCrit = 2 * Math.sqrt(kSpring * (m / 6));
+  const cBump = cCrit * P.dampingZeta * P.bumpRatio;
+  const cRebound = cCrit * P.dampingZeta * P.reboundRatio;
+  const staticLen = P.restLen - P.sagM;
+  const mountY = P.wheelRadius + staticLen;
+
+  const wheels = [];
+  for (let a = 0; a < 3; a++) {
+    for (const side of [-1, 1]) {
+      wheels.push({
+        lx: side * P.trackHalfW,
+        lz: P.axleZ[a],
+        axle: a,
+        comp: P.sagM,
+        compVel: 0,
+        contact: true,
+        load: 0,
+        steer: 0,
+        omega: 0,
+        angle: 0,
+        slip: 0,
+        hubY: P.wheelRadius,
+        worldHubY: P.wheelRadius,
+        groundY: 0,
+      });
+    }
+  }
+
+  const rapierRig = createRapierVehicleControllerRig(
+    {
+      massKg: m,
+      comHeightM: P.cgY,
+      droopM: P.restLen - P.sagM,
+      staticSagM: P.sagM,
+      bumpM: P.maxComp,
+      wheelRadius: P.wheelRadius,
+      mu: P.mu,
+      box: { halfW: w * 0.5, halfL: l * 0.5, height: h },
+    },
+    wheels,
+    P.g
+  );
+
+  const st = {
+    pos: new T.Vector3(),
+    vel: new T.Vector3(),
+    q: new T.Quaternion(),
+    angVel: new T.Vector3(),
+    pedal: 0,
+    brake: 0,
+    steerCmd: 0,
+    batteryKWh: P.batteryKWh,
+    odometerM: 0,
+    powerW: 0,
+    powerKw: 0,
+    mechPowerW: 0,
+    mechPowerKw: 0,
+    maxPowerW: P.powerW,
+    maxPowerKw: (P.powerW || 0) / 1000,
+    hp: 0,
+    maxHp: P.maxHp || P.powerW / WATTS_PER_HP,
+    motorRpm: 0,
+    torquePct: 0,
+    wheelTorqueNm: 0,
+    motorTorqueNm: 0,
+    maxWheelTorqueNm: P.wheelTorqueMaxNm || P.wheelForceMaxN * P.wheelRadius,
+    maxMotorTorqueNm:
+      P.motorTorqueMaxNm || (P.wheelForceMaxN * P.wheelRadius) / (P.gearRatio * P.driveEfficiency),
+    massKg: m,
+    weightN: m * P.g,
+    normalLoadN: m * P.g,
+    powerToWeightHpPerTon: (((P.maxHp || P.powerW / WATTS_PER_HP) * 1000) / m),
+    powerToWeightKwPerTon: (P.powerW || 0) / m,
+    gradeForceN: 0,
+    rollingResistanceN: 0,
+    vLong: 0,
+    vLat: 0,
+    airborne: false,
+    airTime: 0,
+    landingImpact: 0,
+    gear: "N",
+    tractionLimited: false,
+    accel: 0,
+  };
+
+  const up = new T.Vector3();
+  const fwd = new T.Vector3();
+  const right = new T.Vector3();
+  const mountW = new T.Vector3();
+  const r = new T.Vector3();
+  const vPoint = new T.Vector3();
+  const wf = new T.Vector3();
+  const ws = new T.Vector3();
+  const nrm = new T.Vector3();
+  const F = new T.Vector3();
+  const force = new T.Vector3();
+  const torque = new T.Vector3();
+  const tmp = new T.Vector3();
+  const qInv = new T.Quaternion();
+  const wBody = new T.Vector3();
+  const Iw = new T.Vector3();
+  const gyro = new T.Vector3();
+  const dq = new T.Quaternion();
+  const euler = new T.Euler(0, 0, 0, "YXZ");
+  const cgLocal = new T.Vector3(0, P.cgY, P.cgZ);
+  const cgWorld = new T.Vector3();
+  const tireHalfW = P.tireHalfWidth || Math.max(0.04, P.wheelRadius * 0.45);
+  const minStrutLen = P.restLen * 0.05;
+  const ps = P.probeScale || 1;
+  const probe = (() => {
+    const hl = (P.dims?.l || 4.6) * 0.5;
+    const hw = (P.dims?.w || 2.6) * 0.5;
+    const a0 = P.axleZ[0];
+    const a1 = P.axleZ[1];
+    const a2 = P.axleZ[2];
+    const zFront = P.probeScale ? -2.25 * ps : Math.min(-hl * 0.96, a0 - P.wheelRadius * 0.85);
+    const zRear = P.probeScale ? 2.3 * ps : Math.max(hl * 0.96, a2 + P.wheelRadius * 0.85);
+    const xSide = P.probeScale ? 0.9 * ps : Math.min(P.trackHalfW * 0.85, hw * 0.72);
+    const xBumper = xSide * 0.9;
+    const xRoof = P.probeScale ? 1.1 * ps : Math.min(P.trackHalfW * 0.95, hw * 0.82);
+    const byLow = P.probeScale ? 0.55 * ps : 0.52;
+    const byBumper = P.probeScale ? 0.62 * ps : 0.58;
+    const byRoof = P.probeScale ? 1.8 * ps : Math.max(1.75, (P.dims?.h || 2.2) * 0.72);
+    const pts = [
+      [-xBumper, byBumper, zFront],
+      [0, byBumper, zFront],
+      [xBumper, byBumper, zFront],
+      [-xBumper, byBumper, zRear],
+      [0, byBumper, zRear],
+      [xBumper, byBumper, zRear],
+    ];
+    for (const z of [zFront * 0.55 + a0 * 0.45, 0.5 * (a0 + a1), a1, 0.5 * (a1 + a2), zRear * 0.55 + a2 * 0.45]) {
+      pts.push([-xSide, byLow, z], [0, byLow, z], [xSide, byLow, z]);
+    }
+    pts.push(
+      [-xRoof, byRoof, a0 * 1.1],
+      [xRoof, byRoof, a0 * 1.1],
+      [-xRoof, byRoof, a2 * 1.05],
+      [xRoof, byRoof, a2 * 1.05],
+      [0, byRoof * 1.08, P.cgZ]
+    );
+    return pts;
+  })();
+
+  function sampleWheelFootprintY(sampleY, hx, hz, steerRad) {
+    const g0 = sampleY(hx, hz);
+    const cs = Math.cos(steerRad);
+    const sn = Math.sin(steerRad);
+    const axX = right.x * cs + fwd.x * sn;
+    const axZ = right.z * cs + fwd.z * sn;
+    const fwX = fwd.x * cs - right.x * sn;
+    const fwZ = fwd.z * cs - right.z * sn;
+    const gL = sampleY(hx - axX * tireHalfW, hz - axZ * tireHalfW);
+    const gR = sampleY(hx + axX * tireHalfW, hz + axZ * tireHalfW);
+    const chord = P.wheelRadius * 0.38;
+    const arcRise = P.wheelRadius * 0.08;
+    const gF = sampleY(hx + fwX * chord, hz + fwZ * chord) - arcRise;
+    const gB = sampleY(hx - fwX * chord, hz - fwZ * chord) - arcRise;
+    return Math.max(g0, gL, gR, gF, gB);
+  }
+
+  function reset(x, z, yaw, sampleY) {
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const hs = [];
+    for (const wh of wheels) {
+      hs.push(sampleY(x + cy * wh.lx + sy * wh.lz, z - sy * wh.lx + cy * wh.lz));
+    }
+    const mean = hs.reduce((u, v) => u + v, 0) / hs.length;
+    let shx = 0;
+    let shz = 0;
+    let sxx = 0;
+    let szz = 0;
+    wheels.forEach((wh, i) => {
+      const dz = wh.lz - P.cgZ;
+      shx += (hs[i] - mean) * wh.lx;
+      shz += (hs[i] - mean) * dz;
+      sxx += wh.lx * wh.lx;
+      szz += dz * dz;
+    });
+    const slopeX = shx / sxx;
+    const slopeZ = shz / szz;
+    const pitch = Math.atan(-slopeZ);
+    const roll = Math.atan(slopeX);
+    st.q.setFromEuler(euler.set(pitch, yaw, roll, "YXZ"));
+    st.pos.set(x, mean - slopeZ * (0 - P.cgZ), z);
+    st.vel.set(0, 0, 0);
+    st.angVel.set(0, 0, 0);
+    st.pedal = 0;
+    st.brake = 0;
+    st.steerCmd = 0;
+    st.airborne = false;
+    for (const wh of wheels) {
+      wh.comp = P.sagM;
+      wh.compVel = 0;
+      wh.omega = 0;
+      wh.steer = 0;
+      wh.hubY = P.wheelRadius;
+    }
+    rapierRig.chassisRb.setTranslation(st.pos, true);
+    rapierRig.chassisRb.setRotation(st.q, true);
+  }
+
+  function wheelSteerAngles(steerCmd) {
+    const zc = P.axleZ[1];
+    const a = zc - P.axleZ[0];
+    const d = steerCmd * P.steerMaxRad;
+    if (Math.abs(d) < 1e-4) {
+      for (const wh of wheels) wh.steer = 0;
+      return;
+    }
+    const R = a / Math.tan(d);
+    for (const wh of wheels) wh.steer = Math.atan((zc - wh.lz) / (R + wh.lx));
+  }
+
+  function substep(dt, inp, env) {
+    const { sampleY, sampleNormal } = env;
+    up.set(0, 1, 0).applyQuaternion(st.q);
+    fwd.set(0, 0, -1).applyQuaternion(st.q);
+    right.set(1, 0, 0).applyQuaternion(st.q);
+    cgWorld.copy(cgLocal).applyQuaternion(st.q).add(st.pos);
+
+    force.set(0, -m * P.g, 0);
+    torque.set(0, 0, 0);
+
+    const vLong = st.vel.dot(fwd);
+    st.vLong = vLong;
+    st.vLat = st.vel.dot(right);
+    const speed = Math.abs(vLong);
+
+    const wantFwd = inp.throttle > 0;
+    const wantBack = inp.throttle < 0;
+    let pedalTarget = 0;
+    let brakeTarget = 0;
+    if (wantFwd) {
+      if (vLong < -0.35) brakeTarget = 1;
+      else pedalTarget = inp.throttle;
+    } else if (wantBack) {
+      if (vLong > 0.35) brakeTarget = -inp.throttle;
+      else pedalTarget = inp.throttle;
+    }
+    const pressing = Math.abs(pedalTarget) > Math.abs(st.pedal) && Math.sign(pedalTarget) !== -Math.sign(st.pedal);
+    const pr = (pressing ? P.pedalRate : 5) * dt;
+    st.pedal += Math.max(-pr, Math.min(pr, pedalTarget - st.pedal));
+    if (Math.abs(st.pedal) < 1e-3 && pedalTarget === 0) st.pedal = 0;
+    st.brake += (brakeTarget - st.brake) * Math.min(1, dt * 8);
+    st.gear = st.pedal < -0.02 || (vLong < -0.2 && !wantFwd) ? "R" : st.pedal > 0.02 || vLong > 0.2 ? "D" : "N";
+
+    const lockScale = 1 / (1 + speed / 5.5);
+    const steerTarget = Math.max(-1, Math.min(1, inp.steer)) * lockScale;
+    const sr = (P.steerRate / P.steerMaxRad) * dt;
+    st.steerCmd += Math.max(-sr, Math.min(sr, steerTarget - st.steerCmd));
+    wheelSteerAngles(st.steerCmd);
+
+    const boost = Boolean(inp.boost);
+    const rawMult = Number(inp.speedMultiplier);
+    const speedMult = Number.isFinite(rawMult) ? Math.max(0.3, Math.min(4.0, rawMult)) : 1;
+    const vCap = (st.pedal >= 0 ? (boost ? P.vMaxBoost : P.vMax) : P.vMaxReverse) * speedMult;
+    const governor = Math.max(0, Math.min(1, (vCap - speed) / 0.8));
+    const baseWheelTorqueMaxNm =
+      Number.isFinite(P.wheelTorqueMaxNm) && P.wheelTorqueMaxNm > 0
+        ? P.wheelTorqueMaxNm
+        : Number.isFinite(P.motorTorqueMaxNm) && P.motorTorqueMaxNm > 0
+          ? P.motorTorqueMaxNm * P.gearRatio * P.driveEfficiency
+          : P.wheelForceMaxN * P.wheelRadius;
+    const maxWheelTorqueNm = baseWheelTorqueMaxNm * speedMult;
+    const wheelForceMaxN = maxWheelTorqueNm / P.wheelRadius;
+    const availPowerW = (boost ? P.boostPowerW : P.powerW) * speedMult;
+    const wheelOmegaEff = Math.max(0.5 / P.wheelRadius, speed / P.wheelRadius);
+    const powerCapTorqueNm = availPowerW / wheelOmegaEff;
+    const commandedTorqueNm = Math.min(maxWheelTorqueNm, powerCapTorqueNm) * Math.abs(st.pedal) * governor * Math.sign(st.pedal);
+    const driveTotal = commandedTorqueNm / P.wheelRadius;
+    const coastRegen = st.pedal === 0 && st.brake < 0.05 ? -Math.sign(vLong) * Math.min(1, speed / 0.6) * m * P.regenCoastG : 0;
+
+    let contacts = 0;
+    let totalNormalLoad = 0;
+    let totalRollingDrag = 0;
+    let maxHardPen = 0;
+    const minLen = P.restLen * 0.05;
+    for (let wi = 0; wi < wheels.length; wi++) {
+      const wh = wheels[wi];
+      rapierRig.vc.setWheelSteering(wi, wh.steer);
+      rapierRig.vc.setWheelEngineForce(wi, (driveTotal + coastRegen) / 6);
+      rapierRig.vc.setWheelBrake(wi, (st.brake * P.brakeForceN) / 6);
+
+      mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
+      let len = P.restLen;
+      let gy = 0;
+      for (let k = 0; k < 2; k++) {
+        const hx = mountW.x - up.x * len;
+        const hz = mountW.z - up.z * len;
+        gy = sampleWheelFootprintY(sampleY, hx, hz, wh.steer);
+        len = Math.min(P.restLen, (mountW.y - gy - P.wheelRadius) / Math.max(0.3, up.y));
+      }
+      if (up.y > 0.45 && len < minLen) {
+        maxHardPen = Math.max(maxHardPen, (minLen - len) * up.y - 0.015);
+      }
+      const clampedLen = Math.max(minLen, len);
+      const comp = P.restLen - clampedLen;
+      const prevComp = wh.comp;
+      if (comp <= 0) {
+        wh.contact = false;
+        wh.comp += (0 - wh.comp) * Math.min(1, dt * 30);
+        wh.compVel = 0;
+        wh.load = 0;
+        wh.slip = 0;
+        wh.omega *= Math.exp(-dt * 0.3);
+        wh.hubY = mountY - (P.restLen - wh.comp);
+        continue;
+      }
+      contacts++;
+      wh.contact = true;
+      wh.comp = comp;
+      wh.compVel = Math.max(-4, Math.min(4, (comp - prevComp) / dt));
+      wh.hubY = mountY - clampedLen;
+
+      const cx = mountW.x - up.x * (len + P.wheelRadius);
+      const cy = mountW.y - up.y * (len + P.wheelRadius);
+      const cz = mountW.z - up.z * (len + P.wheelRadius);
+      r.set(cx, cy, cz).sub(cgWorld);
+      vPoint.crossVectors(st.angVel, r).add(st.vel);
+
+      const cDamp = wh.compVel > 0 ? cBump : cRebound;
+      let fs = kSpring * comp + cDamp * wh.compVel;
+      if (comp > P.maxComp) fs += kSpring * 12 * (comp - P.maxComp) + cCrit * 1.5 * Math.max(0, wh.compVel);
+      fs = Math.max(0, Math.min(fs, 8 * m * P.g));
+      const n = sampleNormal(cx, cz);
+      nrm.set(n.x, n.y, n.z);
+      const N = fs * Math.max(0.2, up.dot(nrm));
+      wh.load = N;
+      totalNormalLoad += N;
+
+      wf.copy(fwd).multiplyScalar(Math.cos(wh.steer)).addScaledVector(right, -Math.sin(wh.steer));
+      wf.addScaledVector(nrm, -wf.dot(nrm)).normalize();
+      ws.crossVectors(wf, nrm).normalize();
+      const vl = vPoint.dot(wf);
+      const vs = vPoint.dot(ws);
+
+      let fl = (driveTotal + coastRegen) / 6;
+      const brakeN = (st.brake * P.brakeForceN) / 6;
+      fl -= brakeN * Math.max(-1, Math.min(1, vl / 0.15));
+      if (inp.handbrake && wh.axle === 2) fl -= P.muSlide * N * Math.max(-1, Math.min(1, vl / 0.08));
+      const rollDrag = P.rollingCrr * N * Math.max(-1, Math.min(1, vl / 0.25));
+      fl -= rollDrag;
+      totalRollingDrag += Math.abs(rollDrag);
+      if (st.pedal === 0 && Math.abs(vLong) < 0.12 && !inp.handbrake) fl -= P.mu * N * Math.max(-1, Math.min(1, vl / 0.04));
+
+      const alpha = Math.atan2(vs, Math.abs(vl) + 0.6);
+      let fsLat = -P.mu * N * Math.max(-1, Math.min(1, alpha * P.corneringB));
+
+      const mu = inp.handbrake && wh.axle === 2 ? P.muSlide : P.mu;
+      const cap = mu * N;
+      const mag = Math.hypot(fl, fsLat);
+      wh.slip = cap > 1 ? Math.min(1, mag / cap) : 0;
+      let spinExtra = 0;
+      if (mag > cap && mag > 1e-6) {
+        const s = cap / mag;
+        if (Math.abs(fl) * s < Math.abs(fl) && Math.abs(driveTotal) > 0) spinExtra = Math.sign(fl) * (1 - s) * 6;
+        fl *= s;
+        fsLat *= s;
+      }
+
+      F.copy(nrm).multiplyScalar(N).addScaledVector(wf, fl).addScaledVector(ws, fsLat);
+      force.add(F);
+      torque.add(tmp.crossVectors(r, F));
+
+      const locked = inp.handbrake && wh.axle === 2;
+      const targetOmega = locked ? 0 : vl / P.wheelRadius + spinExtra;
+      wh.omega += (targetOmega - wh.omega) * Math.min(1, dt * 25);
+    }
+
+    for (const [bx, by, bz] of probe) {
+      tmp.set(bx, by, bz).applyQuaternion(st.q).add(st.pos);
+      const gy = sampleY(tmp.x, tmp.z);
+      const pen = gy - tmp.y;
+      if (pen <= 0) continue;
+      maxHardPen = Math.max(maxHardPen, pen - 0.015);
+      r.copy(tmp).sub(cgWorld);
+      vPoint.crossVectors(st.angVel, r).add(st.vel);
+      const pn = env.sampleNormal(tmp.x, tmp.z);
+      const nny = Math.max(0.42, pn.y);
+      const invN = 1 / Math.hypot(pn.x, nny, pn.z);
+      const nx = pn.x * invN;
+      const ny = nny * invN;
+      const nz = pn.z * invN;
+      const vn = vPoint.x * nx + vPoint.y * ny + vPoint.z * nz;
+      const fn = Math.max(0, m * 55 * pen - m * 8 * Math.min(0, vn));
+      const vtx = vPoint.x - vn * nx;
+      const vty = vPoint.y - vn * ny;
+      const vtz = vPoint.z - vn * nz;
+      const vt = Math.hypot(vtx, vty, vtz);
+      const ft = vt > 1e-4 ? Math.min(0.45 * fn, m * 2.5 * vt) / vt : 0;
+      F.set(nx * fn - vtx * ft, ny * fn - vty * ft, nz * fn - vtz * ft);
+      force.add(F);
+      torque.add(tmp.crossVectors(r, F));
+    }
+
+    st.airborne = contacts === 0;
+    let spinning = 0;
+    for (const wh of wheels) if (wh.contact && wh.slip >= 0.999) spinning++;
+    st.tractionLimited = Math.abs(driveTotal) > 1 && spinning >= 2;
+
+    const prevVY = st.vel.y;
+    st.vel.addScaledVector(force, dt / m);
+    st.accel = (st.vel.dot(fwd) - vLong) / dt;
+    qInv.copy(st.q).invert();
+    tmp.copy(torque).applyQuaternion(qInv);
+    wBody.copy(st.angVel).applyQuaternion(qInv);
+    Iw.set(I.x * wBody.x, I.y * wBody.y, I.z * wBody.z);
+    gyro.crossVectors(wBody, Iw);
+    wBody.x += ((tmp.x - gyro.x) / I.x) * dt;
+    wBody.y += ((tmp.y - gyro.y) / I.y) * dt;
+    wBody.z += ((tmp.z - gyro.z) / I.z) * dt;
+    wBody.multiplyScalar(Math.exp(-dt * 0.15));
+    st.angVel.copy(wBody).applyQuaternion(st.q);
+    cgWorld.addScaledVector(st.vel, dt);
+    const ang = st.angVel.length() * dt;
+    if (ang > 1e-9) {
+      dq.setFromAxisAngle(tmp.copy(st.angVel).normalize(), ang);
+      st.q.premultiply(dq).normalize();
+    }
+    st.pos.copy(cgWorld).sub(tmp.copy(cgLocal).applyQuaternion(st.q));
+    if (maxHardPen > 0) {
+      const pushY = Math.min(maxHardPen, 4.0);
+      st.pos.y += pushY;
+      cgWorld.y += pushY;
+      if (st.vel.y < 0) st.vel.y *= 0.15;
+      st.airborne = false;
+    }
+
+    up.set(0, 1, 0).applyQuaternion(st.q);
+    fwd.set(0, 0, -1).applyQuaternion(st.q);
+    right.set(1, 0, 0).applyQuaternion(st.q);
+    let maxFloorLift = 0;
+    for (const wh of wheels) {
+      mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
+      const estLen = P.restLen - wh.comp;
+      const hx = mountW.x - up.x * estLen;
+      const hz = mountW.z - up.z * estLen;
+      const gy = sampleWheelFootprintY(sampleY, hx, hz, wh.steer);
+      const reqLen = (mountW.y - gy - P.wheelRadius) / Math.max(0.3, up.y);
+      if (reqLen < minStrutLen) {
+        maxFloorLift = Math.max(maxFloorLift, (minStrutLen - reqLen) * Math.max(0.3, up.y));
+      }
+    }
+    tmp.set(0, 0.35 * ps, P.cgZ).applyQuaternion(st.q).add(st.pos);
+    const bellyFloorPen = sampleY(tmp.x, tmp.z) - tmp.y;
+    if (bellyFloorPen > 0) maxFloorLift = Math.max(maxFloorLift, bellyFloorPen);
+
+    if (maxFloorLift > 0) {
+      st.pos.y += maxFloorLift;
+      cgWorld.y += maxFloorLift;
+      if (st.vel.y < 0) st.vel.y *= 0.2;
+      st.airborne = false;
+    }
+
+    for (const wh of wheels) {
+      mountW.set(wh.lx, mountY, wh.lz).applyQuaternion(st.q).add(st.pos);
+      const estLen = P.restLen - wh.comp;
+      const hx = mountW.x - up.x * estLen;
+      const hz = mountW.z - up.z * estLen;
+      const gy = sampleWheelFootprintY(sampleY, hx, hz, wh.steer);
+      const reqLen = (mountW.y - gy - P.wheelRadius) / Math.max(0.3, up.y);
+      const finalLen = wh.contact || maxFloorLift > 0 ? Math.max(minStrutLen, Math.min(P.restLen, reqLen)) : P.restLen;
+      wh.hubY = mountY - finalLen;
+      wh.worldHubY = mountW.y - finalLen * up.y;
+      wh.groundY = gy;
+    }
+
+    rapierRig.chassisRb.setTranslation(st.pos, true);
+    rapierRig.chassisRb.setRotation(st.q, true);
+    rapierRig.chassisRb.setLinvel(st.vel, true);
+    rapierRig.chassisRb.setAngvel(st.angVel, true);
+
+    if (st.airborne) st.airTime += dt;
+    else {
+      if (st.airTime > 0.15) st.landingImpact = Math.max(st.landingImpact, -prevVY);
+      st.airTime = 0;
+    }
+
+    let wSum = 0;
+    let driven = 0;
+    for (const wh of wheels) {
+      wh.angle -= wh.omega * dt;
+      if (wh.contact) {
+        wSum += Math.abs(wh.omega);
+        driven++;
+      }
+    }
+    const wheelOmega = driven ? wSum / driven : Math.abs(vLong) / P.wheelRadius;
+    st.motorRpm = (wheelOmega * 60 * P.gearRatio) / (2 * Math.PI);
+    const tractive = driveTotal + coastRegen;
+    st.torquePct = Math.max(-1, Math.min(1, tractive / Math.max(1, wheelForceMaxN)));
+    st.maxWheelTorqueNm = maxWheelTorqueNm;
+    st.maxMotorTorqueNm = maxWheelTorqueNm / (P.gearRatio * P.driveEfficiency);
+    st.wheelTorqueNm = tractive * P.wheelRadius;
+    st.motorTorqueNm = st.wheelTorqueNm / (P.gearRatio * P.driveEfficiency);
+    const mech = tractive * vLong;
+    st.mechPowerW = mech;
+    st.mechPowerKw = mech / 1000;
+    st.hp = Math.abs(mech) / WATTS_PER_HP;
+    st.maxPowerW = availPowerW;
+    st.maxPowerKw = availPowerW / 1000;
+    st.maxHp = availPowerW / WATTS_PER_HP;
+    st.powerToWeightHpPerTon = (st.maxHp * 1000) / m;
+    st.powerToWeightKwPerTon = st.maxPowerW / m;
+    st.normalLoadN = totalNormalLoad;
+    st.gradeForceN = -m * P.g * fwd.y;
+    st.rollingResistanceN = totalRollingDrag;
+    st.powerW = (mech >= 0 ? mech / P.driveEfficiency : mech * P.regenEfficiency) + P.hotelW;
+    st.powerKw = st.powerW / 1000;
+    st.batteryKWh = Math.max(0, Math.min(P.batteryKWh, st.batteryKWh - (st.powerW * dt) / 3.6e6));
+    st.odometerM += Math.abs(vLong) * dt;
+  }
+
+  let acc = 0;
+  let asleep = false;
+  let restT = 0;
+  let sleepCheckT = 0;
+  let sleepGroundY = 0;
+  let sleepGroundF = 0;
+  let sleepGroundR = 0;
+  function sampleSleepEndY(env, isFront) {
+    fwd.set(0, 0, -1).applyQuaternion(st.q);
+    const along = isFront ? Math.abs(P.axleZ[0]) + P.wheelRadius : -(Math.abs(P.axleZ[2]) + P.wheelRadius);
+    return env.sampleY(st.pos.x + fwd.x * along, st.pos.z + fwd.z * along);
+  }
+  function wake() {
+    asleep = false;
+    restT = 0;
+  }
+  function step(dt, inp, env) {
+    st.landingImpact = 0;
+    const frameDt = Math.min(0.1, Math.max(0, dt));
+    if (asleep) {
+      if (inp.park !== true) wake();
+      else {
+        sleepCheckT += frameDt;
+        if (sleepCheckT < 0.5) return false;
+        sleepCheckT = 0;
+        const gC = env.sampleY(st.pos.x, st.pos.z);
+        const gF = sampleSleepEndY(env, true);
+        const gR = sampleSleepEndY(env, false);
+        if (
+          Math.abs(gC - sleepGroundY) < 0.02 &&
+          Math.abs(gF - sleepGroundF) < 0.02 &&
+          Math.abs(gR - sleepGroundR) < 0.02
+        ) {
+          return false;
+        }
+        wake();
+      }
+    }
+    acc = Math.min(acc + frameDt, 0.1);
+    let n = 0;
+    while (acc >= SUBSTEP && n < 30) {
+      substep(SUBSTEP, inp, env);
+      acc -= SUBSTEP;
+      n++;
+    }
+    if (inp.park === true && !st.airborne && st.vel.lengthSq() < SLEEP_SPEED_SQ && st.angVel.lengthSq() < SLEEP_SPEED_SQ) {
+      restT += frameDt;
+      if (restT > 1) {
+        asleep = true;
+        sleepCheckT = 0;
+        sleepGroundY = env.sampleY(st.pos.x, st.pos.z);
+        sleepGroundF = sampleSleepEndY(env, true);
+        sleepGroundR = sampleSleepEndY(env, false);
+        st.vel.set(0, 0, 0);
+        st.angVel.set(0, 0, 0);
+      }
+    } else restT = 0;
+    return true;
+  }
+
+  function attitude() {
+    euler.setFromQuaternion(st.q, "YXZ");
+    return { yaw: euler.y, pitch: euler.x, roll: euler.z };
+  }
+
+  return {
+    state: st,
+    wheels,
+    params: P,
+    mountY,
+    staticLen,
+    rapierWorld: rapierRig.world,
+    rapierChassisRb: rapierRig.chassisRb,
+    rapierVehicleController: rapierRig.vc,
+    reset(x, z, yaw, sampleY) {
+      wake();
+      reset(x, z, yaw, sampleY);
+    },
+    step,
+    get asleep() {
+      return asleep;
+    },
+    wake,
+    attitude,
+    setPosition(x, z, sampleY = null) {
+      wake();
+      st.pos.x = x;
+      st.pos.z = z;
+      if (typeof sampleY === "function") {
+        fwd.set(0, 0, -1).applyQuaternion(st.q);
+        const reachF = Math.abs(P.axleZ[0]) + P.wheelRadius * 0.5;
+        const reachR = Math.abs(P.axleZ[2]) + P.wheelRadius * 0.5;
+        const gC = sampleY(x, z);
+        const gF = sampleY(x + fwd.x * reachF, z + fwd.z * reachF);
+        const gR = sampleY(x - fwd.x * reachR, z - fwd.z * reachR);
+        const minY = Math.max(gC - 0.02, Math.max(gF, gR) - (P.restLen - P.sagM) - 0.05);
+        if (st.pos.y < minY) {
+          st.pos.y = minY;
+          if (st.vel.y < 0) st.vel.y = 0;
+        }
+      }
+      rapierRig.chassisRb.setTranslation(st.pos, true);
+    },
+    scaleVelocity(s) {
+      wake();
+      st.vel.x *= s;
+      st.vel.z *= s;
+      rapierRig.chassisRb.setLinvel(st.vel, true);
+    },
+  };
+}
+
+/**
+ * Shared longitudinal / lateral / gearbox / drift drivetrain step (`stepAdvancedRoverPhysics`).
+ */
+export function stepAdvancedRoverPhysics(
+  state,
+  {
+    spec = {},
+    throttle = 0,
+    steer = 0,
+    boost = false,
+    handbrake = false,
+    speedMultiplier = 1.0,
+    slopePitch = 0,
+    slopeRoll = 0,
+    airborne = false,
+    realisticPhysics = true,
+    dt = 0.016,
+  } = {}
+) {
+  const safeDt = Math.max(0.001, Math.min(0.05, dt));
+  const mult = Math.max(0.25, Math.min(5.0, Number(speedMultiplier) || 1));
+
+  const yaw0 = Number(state.yaw) || 0;
+  const fx0 = -Math.sin(yaw0);
+  const fz0 = -Math.cos(yaw0);
+  const rx0 = Math.cos(yaw0);
+  const rz0 = -Math.sin(yaw0);
+
+  let vx = Number(state.velX) || 0;
+  let vz = Number(state.velZ) || 0;
+  let vFwd = vx * fx0 + vz * fz0;
+  let vLat = vx * rx0 + vz * rz0;
+
+  const topFwd = ((boost ? spec.boostSpeedMs : spec.topSpeedMs) || 18.5) * mult;
+  const topRev = (spec.reverseSpeedMs || 10.5) * mult;
+  const availPowerW = ((boost ? spec.boostPowerW : spec.powerW) || 24500) * mult;
+  const maxTorqueNm = (spec.wheelTorqueMaxNm || 2639.25) * mult;
+  const wheelRadiusM = Math.max(0.2, spec.wheelRadius || 0.345);
+  const massKg = Math.max(400, spec.massKg || 1850);
+
+  if (!airborne) {
+    const speedFrac = Math.min(1, Math.abs(vFwd) / Math.max(1, topFwd));
+    const wheelOmegaPre = Math.max(0.8, Math.abs(vFwd) / wheelRadiusM);
+    const torqueAvailPre = Math.min(maxTorqueNm, availPowerW / wheelOmegaPre);
+    const tractiveForceN = torqueAvailPre / wheelRadiusM;
+    const torqueFactor = Math.max(1, tractiveForceN / (massKg * 2.2));
+    const lowEndBoost = (1 + (1 - speedFrac) * 0.45 * (spec.slopeTorque || 1)) * Math.min(1.65, Math.sqrt(torqueFactor));
+    const reversingInput = throttle !== 0 && throttle * vFwd < -0.6;
+
+    let targetVel = 0;
+    if (handbrake && throttle >= 0) {
+      targetVel = vFwd * 0.72;
+    } else if (throttle > 0) {
+      targetVel = topFwd;
+    } else if (throttle < 0) {
+      targetVel = -topRev;
+    }
+
+    const rate = handbrake
+      ? 2.2
+      : reversingInput
+        ? spec.brakeGain || 11.2
+        : throttle !== 0
+          ? (spec.accelGain || 6.4) * (boost ? 1.32 : 1.0) * lowEndBoost
+          : 4.2;
+
+    let nextVFwd = vFwd + (targetVel - vFwd) * Math.min(1, safeDt * rate);
+    if (throttle === 0 && !handbrake && Math.abs(nextVFwd) < 0.18) nextVFwd = 0;
+
+    if (realisticPhysics) {
+      const climbAssist =
+        throttle !== 0
+          ? Math.min(0.65, ((spec.slopeTorque || 1) - 1) * 0.35 + (maxTorqueNm / (massKg * 3.71 * wheelRadiusM)) * 0.08)
+          : 0;
+      nextVFwd -= 3.71 * Math.sin(slopePitch) * (1.12 - climbAssist) * safeDt;
+      vLat += 3.71 * Math.sin(slopeRoll) * 0.75 * safeDt;
+    }
+
+    const absFwd = Math.abs(nextVFwd);
+    const speedAuth = Math.min(1, absFwd / 2.8) * 0.8 + 0.2;
+    const turnDir = absFwd > 0.3 ? Math.sign(nextVFwd) : 0.48;
+    const handbrakeYawGain = handbrake && absFwd > 4.2 ? 1.48 : 1.0;
+    const targetYawRate = steer * turnDir * (spec.steerRate || 2.15) * speedAuth * handbrakeYawGain;
+    state.yawRate = (state.yawRate || 0) + (targetYawRate - (state.yawRate || 0)) * Math.min(1, safeDt * 12);
+    const deltaYaw = state.yawRate * safeDt;
+    state.yaw = yaw0 + deltaYaw;
+
+    const yaw1 = state.yaw;
+    const fx1 = -Math.sin(yaw1);
+    const fz1 = -Math.cos(yaw1);
+    const rx1 = Math.cos(yaw1);
+    const rz1 = -Math.sin(yaw1);
+
+    const curVx = fx0 * nextVFwd + rx0 * vLat;
+    const curVz = fz0 * nextVFwd + rz0 * vLat;
+    const projFwd = curVx * fx1 + curVz * fz1;
+    const projLat = curVx * rx1 + curVz * rz1;
+
+    const highSpeedSharpWhip = Math.abs(steer) > 0.55 && Math.abs(projFwd) > topFwd * 0.48;
+    const isDrifting = (handbrake || highSpeedSharpWhip) && Math.hypot(projFwd, projLat) > 4.5;
+    const grip = isDrifting ? spec.driftGrip || 4.6 : handbrake ? (spec.driftGrip || 4.6) * 1.2 : spec.gripBase || 9.2;
+    const dampedLat = projLat * Math.exp(-safeDt * grip);
+
+    vx = fx1 * projFwd + rx1 * dampedLat;
+    vz = fz1 * projFwd + rz1 * dampedLat;
+    vFwd = projFwd;
+    vLat = dampedLat;
+
+    state.airPitchVel = ((slopePitch - (state.lastSlopePitch ?? slopePitch)) / safeDt) * 0.35;
+    state.airRollVel = (state.yawRate * Math.min(1, absFwd / 12)) * 0.22;
+    state.lastSlopePitch = slopePitch;
+    state.drifting = isDrifting || (Math.abs(vLat) > 2.4 && Math.abs(projFwd) > 4.0);
+  } else {
+    const airYaw = steer * 0.62 * safeDt;
+    state.yaw = yaw0 + airYaw;
+    const drag = Math.exp(-safeDt * 0.05);
+    vx *= drag;
+    vz *= drag;
+
+    const yaw1 = state.yaw;
+    vFwd = vx * -Math.sin(yaw1) + vz * -Math.cos(yaw1);
+    vLat = vx * Math.cos(yaw1) - vz * Math.sin(yaw1);
+    state.airPitchVel = ((state.airPitchVel || 0) - throttle * 1.25 * safeDt) * Math.exp(-safeDt * 1.8);
+    state.airRollVel = ((state.airRollVel || 0) - steer * 0.9 * safeDt) * Math.exp(-safeDt * 2.2);
+    state.drifting = false;
+  }
+
+  state.velX = vx;
+  state.velZ = vz;
+  state.forwardSpeed = vFwd;
+  state.lateralSpeed = vLat;
+
+  const totalHoriz = Math.hypot(vx, vz);
+  const slipRatio = totalHoriz > 0.8 ? Math.min(1, Math.abs(vLat) / totalHoriz + (handbrake ? 0.35 : 0)) : 0;
+  state.slipRatio = slipRatio;
+
+  const absSpeed = Math.abs(vFwd);
+  const refTop = Math.max(8, topFwd);
+  const ratio = Math.min(1.25, absSpeed / refTop);
+  let gear = 1;
+  let rpmNorm = 0.22;
+  if (absSpeed < 0.25) {
+    gear = 1;
+    rpmNorm = 0.18;
+  } else if (ratio < 0.28) {
+    gear = 1;
+    rpmNorm = 0.26 + (ratio / 0.28) * 0.66;
+  } else if (ratio < 0.56) {
+    gear = 2;
+    rpmNorm = 0.38 + ((ratio - 0.28) / 0.28) * 0.54;
+  } else if (ratio < 0.82) {
+    gear = 3;
+    rpmNorm = 0.44 + ((ratio - 0.56) / 0.26) * 0.48;
+  } else {
+    gear = 4;
+    rpmNorm = Math.min(1.0, 0.52 + ((ratio - 0.82) / 0.38) * 0.48);
+  }
+  state.gear = gear;
+  state.rpmNorm = rpmNorm;
+
+  const wheelOmega = Math.max(0.8, absSpeed / wheelRadiusM);
+  const torqueAvail = Math.min(maxTorqueNm, availPowerW / wheelOmega);
+  const wheelTorqueNm = airborne ? 0 : throttle * torqueAvail;
+  const motorTorqueNm = wheelTorqueNm / ((spec.gearRatio || 18) * 0.88);
+  const mechPowerW = Math.abs(wheelTorqueNm * wheelOmega);
+  const mechPowerKw = mechPowerW / 1000;
+  const maxPowerKw = availPowerW / 1000;
+  const hp = mechPowerW / WATTS_PER_HP;
+  const maxHp = availPowerW / WATTS_PER_HP;
+  const weightN = massKg * 3.71;
+  state.wheelTorqueNm = wheelTorqueNm;
+  state.motorTorqueNm = motorTorqueNm;
+  state.mechPowerW = mechPowerW;
+  state.mechPowerKw = mechPowerKw;
+  state.maxPowerKw = maxPowerKw;
+  state.hp = hp;
+  state.maxHp = maxHp;
+  state.weightN = weightN;
+
+  return {
+    spec,
+    vFwd,
+    vLat,
+    totalHoriz,
+    slipRatio,
+    gear,
+    rpmNorm,
+    wheelTorqueNm,
+    motorTorqueNm,
+    mechPowerW,
+    hp,
+    maxHp,
+    weightN,
+    drifting: Boolean(state.drifting),
+    braking: Boolean(handbrake || (throttle < 0 && vFwd > 0.5)),
+  };
 }

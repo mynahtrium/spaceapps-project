@@ -5,11 +5,44 @@
  * (main-thread fallback), and automated `node --test` unit tests.
  */
 
+import MartiniPkg from "../../node_modules/@mapbox/martini/index.js";
 import {
   clampLatDeg,
   lonLatElevToLocalRTC,
   marsDistanceM,
 } from "./Geodesy.js";
+
+const Martini = MartiniPkg?.default || MartiniPkg;
+const martiniCache = new Map();
+
+function getMartini(gridSize) {
+  let instance = martiniCache.get(gridSize);
+  if (!instance) {
+    instance = new Martini(gridSize);
+    martiniCache.set(gridSize, instance);
+  }
+  return instance;
+}
+
+function isPowerOfTwo(n) {
+  return Number.isInteger(n) && n >= 2 && (n & (n - 1)) === 0;
+}
+
+/**
+ * Generate an adaptive Right-Triangulated Irregular Network (RTIN) mesh using `@mapbox/martini`
+ * for any `(2^k + 1) x (2^k + 1)` height grid.
+ *
+ * @param {Float32Array} terrainGrid `(gridSize * gridSize)` elevation grid
+ * @param {number} gridSize `2^k + 1` (e.g. 17, 33, 65, 129, 257)
+ * @param {number} [maxError=0] Maximum vertical error in meters (`-1` forces full subdivision)
+ * @returns {{ vertices: Uint16Array, triangles: Uint32Array, errors: Float32Array }}
+ */
+export function buildAdaptiveRtinMesh(terrainGrid, gridSize, maxError = 0) {
+  const martini = getMartini(gridSize);
+  const tile = martini.createTile(terrainGrid);
+  const { vertices, triangles } = tile.getMesh(maxError);
+  return { vertices, triangles, errors: tile.errors };
+}
 
 /**
  * Build a skirted grid mesh + 1-pixel border-clamped tangent-space analytical normal map
@@ -49,6 +82,7 @@ export function buildMarsTerrainTilePayload({
   normalTexSize = 128,
   exaggeration = 1.0,
   skirtDepthM = 120,
+  maxError = -1,
 }) {
   const { west, south, east, north } = bounds;
   const cols = segments + 1;
@@ -131,29 +165,55 @@ export function buildMarsTerrainTilePayload({
     }
   }
 
-  // Interior triangles (CCW looking from +Y Up onto X-East, Z-South plane)
+  // Interior triangles generated via @mapbox/martini RTIN hierarchy
   // Row r=0 is South (+Z), row r+1 is North (-Z).
-  // v00=(c,r) [SW], v10=(c+1,r) [SE], v01=(c,r+1) [NW], v11=(c+1,r+1) [NE].
-  // cross(v10 - v00, v01 - v00) = cross(+X, -Z) = +Y (Up!). So (v00, v10, v01) and (v10, v11, v01) face UP.
-  const interiorTris = segments * segments * 2;
   const skirtTris = segments * 4 * 2;
-  const indices = new Uint32Array((interiorTris + skirtTris) * 3);
+  let indices;
   let ptr = 0;
 
-  for (let r = 0; r < segments; r++) {
-    for (let c = 0; c < segments; c++) {
-      const v00 = r * cols + c;
-      const v10 = v00 + 1;
-      const v01 = v00 + cols;
-      const v11 = v01 + 1;
+  if (isPowerOfTwo(segments)) {
+    const rtinElev = new Float32Array(cols * rows);
+    for (let r = 0; r < rows; r++) {
+      const er = r + 1;
+      for (let c = 0; c < cols; c++) {
+        rtinElev[r * cols + c] = extElev[er * extCols + (c + 1)];
+      }
+    }
+    const rtin = buildAdaptiveRtinMesh(rtinElev, cols, maxError);
+    const rtinVerts = rtin.vertices;
+    const rtinTris = rtin.triangles;
+    const interiorTris = rtinTris.length / 3;
+    indices = new Uint32Array((interiorTris + skirtTris) * 3);
+    for (let i = 0; i < rtinTris.length; i += 3) {
+      const a = rtinTris[i];
+      const b = rtinTris[i + 1];
+      const c = rtinTris[i + 2];
+      const vA = rtinVerts[2 * a + 1] * cols + rtinVerts[2 * a];
+      const vB = rtinVerts[2 * b + 1] * cols + rtinVerts[2 * b];
+      const vC = rtinVerts[2 * c + 1] * cols + rtinVerts[2 * c];
+      // Flip (vB, vC) because r increases South->North (-Z) in Three.js frame
+      indices[ptr++] = vA;
+      indices[ptr++] = vC;
+      indices[ptr++] = vB;
+    }
+  } else {
+    const interiorTris = segments * segments * 2;
+    indices = new Uint32Array((interiorTris + skirtTris) * 3);
+    for (let r = 0; r < segments; r++) {
+      for (let c = 0; c < segments; c++) {
+        const v00 = r * cols + c;
+        const v10 = v00 + 1;
+        const v01 = v00 + cols;
+        const v11 = v01 + 1;
 
-      indices[ptr++] = v00;
-      indices[ptr++] = v10;
-      indices[ptr++] = v01;
+        indices[ptr++] = v00;
+        indices[ptr++] = v10;
+        indices[ptr++] = v01;
 
-      indices[ptr++] = v10;
-      indices[ptr++] = v11;
-      indices[ptr++] = v01;
+        indices[ptr++] = v10;
+        indices[ptr++] = v11;
+        indices[ptr++] = v01;
+      }
     }
   }
 

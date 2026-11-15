@@ -3,18 +3,24 @@
  *
  * - Surface: NASA/USGS Viking MDIM 2.1 colour mosaic (or MGS MOLA colour-shaded relief), 4096×2048,
  *   bundled in web/assets/mars-globe/ so the view works offline / in demo-safe mode.
+ * - Geodesy & Picking: NASA-AMMOS `3d-tiles-renderer` (`Ellipsoid`, `GlobeControls`) + Three.js `OrbitControls`.
+ * - Labels: `three/addons/renderers/CSS2DRenderer.js` (`CSS2DRenderer`, `CSS2DObject`).
+ * - Transitions & Descent: `@tweenjs/tween.js` (`Tween`, `Easing`, `Group`).
  * - Day/night: real subsolar point from the Mars24 algorithm for the current (or time-warped) date.
  * - Phobos & Deimos: real positions from a JPL Horizons-fitted series (MarsEphemeris.js). Moon *sizes*
  *   are exaggerated ×8 so they are visible; their orbits are to scale.
  * - Stars: real bright-star catalogue placed through the IAU Mars rotation; Sun and Earth directions are real.
  * - Click the surface to pick a landing site; "Land here" plays a stepped zoom-in, then hands off to the
  *   Bodycam through `onLand(lon, lat, { sunMode })`.
- *
- * Scene frame: unit = Mars mean radius. Body-fixed (X 0°E, Y 90°E, Z north) maps to three.js as
- * (x, y, z) = (X, Z, -Y), which is exactly how THREE.SphereGeometry lays out an equirectangular texture.
  */
 
 import * as THREE from "three";
+import { Ellipsoid } from "../../node_modules/3d-tiles-renderer/src/three/renderer/math/Ellipsoid.js";
+import { GlobeControls } from "../../node_modules/3d-tiles-renderer/src/three/renderer/controls/GlobeControls.js";
+import { OrbitControls } from "../../node_modules/three/examples/jsm/controls/OrbitControls.js";
+import { CSS2DObject, CSS2DRenderer } from "../../node_modules/three/examples/jsm/renderers/CSS2DRenderer.js";
+import { Easing, Group as TweenGroup, Tween } from "../../node_modules/@tweenjs/tween.js/dist/tween.esm.js";
+import { MARS_RADIUS_EQ_M, MARS_RADIUS_POLAR_M } from "../map/Geodesy.js";
 import {
   BRIGHT_STARS,
   MARS_MEAN_RADIUS_KM,
@@ -49,6 +55,18 @@ const MAX_DIST = 24;
 const HOME_DIST = 3.4;
 const R_KM = MARS_MEAN_RADIUS_KM;
 
+/**
+ * NASA-AMMOS 3DTilesRendererJS Mars ellipsoid definitions:
+ * - `MARS_ELLIPSOID`: Physical Mars IAU 2015 ellipsoid in metres.
+ * - `MARS_UNIT_ELLIPSOID`: Scene-normalized unit sphere matching the rendered globe mesh.
+ */
+export const MARS_ELLIPSOID = new Ellipsoid(
+  MARS_RADIUS_EQ_M,
+  MARS_RADIUS_EQ_M,
+  MARS_RADIUS_POLAR_M
+);
+export const MARS_UNIT_ELLIPSOID = new Ellipsoid(1, 1, 1);
+
 // Registered Gale HiRISE corridor bounds (matches data/demo/corridor/manifest.json)
 const GALE_CORRIDOR_BOUNDS = {
   west: 137.37117705900792,
@@ -62,20 +80,27 @@ const GLOBE_LAYERS = [
   { id: "mola", label: "MOLA relief", url: "./assets/mars-globe/mars-mola-shade-4k.jpg" },
 ];
 
-/** Body-fixed [X, Y, Z] -> three.js vector. */
+const _ecefTmp = new THREE.Vector3();
+const _ecefHit = new THREE.Vector3();
+const _ecefRay = new THREE.Ray();
+const _cartoTmp = { lat: 0, lon: 0, height: 0 };
+
+/** Body-fixed [X, Y, Z] -> three.js vector (x = X, y = Z, z = -Y). */
 function bfToVec3(v, out = new THREE.Vector3()) {
   return out.set(v[0], v[2], -v[1]);
 }
 
+/** Convert (lonDeg, latDeg, radiusUnits) to scene Vector3 via 3d-tiles-renderer Ellipsoid. */
 function lonLatToVec3(lonDeg, latDeg, r = 1, out = new THREE.Vector3()) {
-  const la = latDeg * DEG;
-  const lo = lonDeg * DEG;
-  return out.set(r * Math.cos(la) * Math.cos(lo), r * Math.sin(la), -r * Math.cos(la) * Math.sin(lo));
+  MARS_UNIT_ELLIPSOID.getCartographicToPosition(latDeg * DEG, lonDeg * DEG, r - 1, _ecefTmp);
+  return out.set(_ecefTmp.x, _ecefTmp.z, -_ecefTmp.y);
 }
 
+/** Convert scene Vector3 to { lon, lat } in degrees via 3d-tiles-renderer Ellipsoid. */
 function vec3ToLonLat(v) {
-  const r = v.length() || 1;
-  return { lon: Math.atan2(-v.z, v.x) / DEG, lat: Math.asin(Math.max(-1, Math.min(1, v.y / r))) / DEG };
+  _ecefTmp.set(v.x, -v.z, v.y);
+  MARS_UNIT_ELLIPSOID.getPositionToCartographic(_ecefTmp, _cartoTmp);
+  return { lon: _cartoTmp.lon / DEG, lat: _cartoTmp.lat / DEG };
 }
 
 const wrap180 = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
@@ -138,8 +163,6 @@ const GLOBE_FRAG = /* glsl */ `
       vec3 galeCol = texture2D(uGaleTex, gu).rgb * vec3(1.06, 0.86, 0.72);
       albedo = mix(albedo, galeCol, gw * 0.92);
     }
-    // Close to the ground, add fine procedural grain so the 5 km texels don't read as flat blur
-    // (decorative texture only, not mapped geology).
     if (uDetail > 0.001) {
       vec2 q = vUv * vec2(4096.0, 2048.0);
       float g = noise(q * 3.0) * 0.5 + noise(q * 11.0) * 0.3 + noise(q * 37.0) * 0.2;
@@ -149,12 +172,10 @@ const GLOBE_FRAG = /* glsl */ `
     float day = smoothstep(-0.05, 0.08, ndl);
     float lambert = pow(max(ndl, 0.0), 0.8);
     vec3 lit = albedo * (0.05 + 1.1 * lambert);
-    // warm band along the terminator (dusty twilight)
     float band = smoothstep(-0.09, 0.0, ndl) * (1.0 - smoothstep(0.0, 0.14, ndl));
     lit += vec3(0.42, 0.17, 0.06) * band * 0.22;
     vec3 night = albedo * 0.012 + vec3(0.002, 0.0025, 0.004);
     vec3 col = mix(night, lit, day);
-    // thin dusty atmosphere on the sunlit limb
     vec3 v = normalize(cameraPosition - vWorld);
     float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
     col += vec3(0.85, 0.5, 0.32) * fres * 0.38 * smoothstep(-0.25, 0.35, ndl);
@@ -246,17 +267,38 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   const descentAltEl = viewEl.querySelector("#orbit-descent-alt");
   const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
 
-  // ---------- renderer ----------
+  // ---------- WebGL & CSS2D renderers ----------
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // capped for low-end GPUs
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   wrap.appendChild(renderer.domElement);
 
+  const labelRenderer = new CSS2DRenderer({ element: labelsEl || undefined });
+  if (labelsEl) {
+    labelRenderer.domElement.style.position = "absolute";
+    labelRenderer.domElement.style.inset = "0";
+    labelRenderer.domElement.style.pointerEvents = "none";
+  }
+
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.0005, 2000);
+
+  // Configure 3d-tiles-renderer GlobeControls + Three.js OrbitControls with Mars ellipsoid
+  const globeControls = new GlobeControls(scene, camera, renderer.domElement, null);
+  globeControls.setEllipsoid?.(MARS_UNIT_ELLIPSOID);
+  globeControls.enabled = false; // Driven via synchronized spherical camera state for nadir Gale alignment
+  const orbitControls = new OrbitControls(camera, renderer.domElement);
+  orbitControls.enablePan = false;
+  orbitControls.enableDamping = true;
+  orbitControls.dampingFactor = 0.12;
+  orbitControls.minDistance = MIN_DIST;
+  orbitControls.maxDistance = MAX_DIST;
+  orbitControls.enabled = false;
+
+  const tweenGroup = new TweenGroup();
 
   const sunDir = new THREE.Vector3(1, 0, 0);
   const sunLight = new THREE.DirectionalLight(0xfff1e0, 2.6);
@@ -516,7 +558,6 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   scene.add(skyGroup);
   const SKY_R = 900;
   const realStars = BRIGHT_STARS.map(([ra, dec, mag]) => ({ ...marsEquatorialRad(ra, dec), mag }));
-  // Decorative faint background field (seeded, not a catalogue) so the sky is not empty between real stars.
   const FAINT = 1400;
   const starPos = new Float32Array((realStars.length + FAINT) * 3);
   const starCol = new Float32Array((realStars.length + FAINT) * 3);
@@ -589,7 +630,6 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   });
 
   function updateMoonRing(m, date) {
-    // Orbit drawn in the inertial frame, rotated into the globe frame at the current instant (a closed ellipse).
     const arr = m.ring.geometry.attributes.position.array;
     const tmp = new THREE.Vector3();
     for (let i = 0; i <= 256; i++) {
@@ -604,22 +644,28 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     m.ring.geometry.computeBoundingSphere();
   }
 
-  // ---------- labels ----------
-  const labelEls = new Map();
-  function label(id, html, cls = "") {
-    let el = labelEls.get(id);
-    if (!el) {
-      el = document.createElement("div");
+  // ---------- CSS2DRenderer labels ----------
+  const labelGroup = new THREE.Group();
+  scene.add(labelGroup);
+  const labelObjects = new Map();
+  function upsertCss2DLabel(id, html, cls = "") {
+    let entry = labelObjects.get(id);
+    if (!entry) {
+      const el = document.createElement("div");
       el.className = `orbit-label ${cls}`;
-      labelsEl.appendChild(el);
-      labelEls.set(id, el);
+      const obj = new CSS2DObject(el);
+      obj.center?.set?.(0, 0.5);
+      labelGroup.add(obj);
+      entry = { el, obj };
+      labelObjects.set(id, entry);
     }
-    if (el.dataset.html !== html) {
-      el.innerHTML = html;
-      el.dataset.html = html;
+    if (entry.el.dataset.html !== html) {
+      entry.el.innerHTML = html;
+      entry.el.dataset.html = html;
     }
-    return el;
+    return entry;
   }
+
   const sites = MARS_HISTORIC_ROVERS.map((r) => ({
     id: `rover-${r.id}`,
     lon: r.lon,
@@ -681,8 +727,6 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   }
 
   // ---------- orbiters ----------
-  // Altitudes and inclinations are the nominal science orbits; the plane orientation and the
-  // position along each track are illustrative (no live ephemeris), and the labels say so.
   const orbiterTex = makeGlowTexture("rgba(255,255,255,1)", "rgba(255,255,255,0.3)");
   const orbiters = MARS_ORBITERS.map((def) => {
     const marker = new THREE.Sprite(
@@ -727,6 +771,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     camera.near = Math.max(0.00001, alt * 0.25);
     camera.far = 2000;
     camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
   }
 
   const pointers = new Map();
@@ -777,7 +822,6 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       return;
     }
     const h = canvas.clientHeight || 600;
-    // degrees per pixel: proportional to visible arc so the ground tracks the cursor at any zoom
     const k = ((cam.dist - 1) * 0.9 + 0.002) * (camera.fov / h) * 1.25;
     const lonScale = 1 / Math.max(0.15, Math.cos(cam.lat * DEG));
     cam.vLon = -dx * k * lonScale;
@@ -811,34 +855,31 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   canvas.addEventListener("dblclick", (e) => {
     const hit = pickSurface(e.clientX, e.clientY);
     if (!hit || descent) return;
-    cam.tLon = cam.lon + wrap180(hit.lon - cam.lon);
-    cam.tLat = hit.lat;
-    cam.tDist = clampDist(1 + (cam.tDist - 1) * 0.45);
+    flyTo(hit.lon, hit.lat, clampDist(1 + (cam.tDist - 1) * 0.45));
   });
   function clampDist(d) {
     return Math.max(MIN_DIST, Math.min(MAX_DIST, d));
   }
 
-  // ---------- picking ----------
+  // ---------- picking via 3d-tiles-renderer Ellipsoid.intersectRay ----------
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  const unitSphere = new THREE.Sphere(new THREE.Vector3(), 1);
   function pickSurface(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
-    const p = raycaster.ray.intersectSphere(unitSphere, tmpV);
-    return p ? vec3ToLonLat(p) : null;
+    const o = raycaster.ray.origin;
+    const d = raycaster.ray.direction;
+    _ecefRay.origin.set(o.x, -o.z, o.y);
+    _ecefRay.direction.set(d.x, -d.z, d.y).normalize();
+    const hit = MARS_UNIT_ELLIPSOID.intersectRay(_ecefRay, _ecefHit);
+    if (!hit) return null;
+    MARS_UNIT_ELLIPSOID.getPositionToCartographic(_ecefHit, _cartoTmp);
+    return { lon: _cartoTmp.lon / DEG, lat: _cartoTmp.lat / DEG };
   }
-  function projectToScreen(v) {
-    tmpV2.copy(v).project(camera);
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    return { x: (tmpV2.x * 0.5 + 0.5) * w, y: (-tmpV2.y * 0.5 + 0.5) * h, front: tmpV2.z < 1 };
-  }
+
   function surfaceVisible(v) {
-    // A surface point is visible when it faces the camera.
     return tmpV2.copy(camera.position).sub(v).dot(v) > 0;
   }
 
@@ -846,13 +887,18 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   let simDate = new Date();
   function siteNear(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
     let best = null;
     let bestD = cam.dist < 1.008 ? 8 : 13;
     for (const s of sites) {
-      const v = lonLatToVec3(s.lon, s.lat, 1, new THREE.Vector3());
+      const v = lonLatToVec3(s.lon, s.lat, 1, tmpV);
       if (!surfaceVisible(v)) continue;
-      const sp = projectToScreen(v);
-      const d = Math.hypot(sp.x + rect.left - clientX, sp.y + rect.top - clientY);
+      tmpV2.copy(v).project(camera);
+      if (tmpV2.z >= 1) continue;
+      const sx = (tmpV2.x * 0.5 + 0.5) * w;
+      const sy = (-tmpV2.y * 0.5 + 0.5) * h;
+      const d = Math.hypot(sx + rect.left - clientX, sy + rect.top - clientY);
       if (d < bestD) {
         bestD = d;
         best = s;
@@ -949,15 +995,50 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     onPick(cx, cy);
   }
 
+  function panBy(dlon, dlat) {
+    if (descent) return;
+    const arcScale = (cam.dist - 1) * 0.9 + 0.004;
+    const lonScale = 1 / Math.max(0.15, Math.cos(cam.lat * DEG));
+    cam.vLon = 0;
+    cam.vLat = 0;
+    cam.tLon += (Number(dlon) || 0) * arcScale * lonScale;
+    cam.tLat = Math.max(-89, Math.min(89, cam.tLat + (Number(dlat) || 0) * arcScale));
+  }
+
+  function zoomBy(factor) {
+    if (descent) return;
+    const f = Number(factor) > 0 ? Number(factor) : 1;
+    cam.tDist = clampDist(1 + (cam.tDist - 1) * f);
+  }
+
+  function moveCrosshair(dx, dy) {
+    if (descent) return;
+    padAimActive = true;
+    aimU = Math.max(0.08, Math.min(0.92, aimU + (Number(dx) || 0)));
+    aimV = Math.max(0.08, Math.min(0.92, aimV + (Number(dy) || 0)));
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      const cx = rect.left + aimU * rect.width;
+      const cy = rect.top + aimV * rect.height;
+      lastHover = { x: cx, y: cy };
+      onPickGamepad(cx, cy);
+    }
+  }
+
+  function confirmCrosshair() {
+    if (descent) return;
+    if (pick && !confirmEl.hidden) {
+      confirmGoBtn?.click();
+    } else {
+      padAimActive = true;
+      pickAtCrosshair();
+    }
+  }
+
   gamepad.onPress(({ button, actions }) => {
     if (!active || descent || isOrbitUiBlocked()) return;
     if (button === CONFIRM_BUTTON || actions.includes("confirm")) {
-      if (pick && !confirmEl.hidden) {
-        confirmGoBtn?.click();
-      } else {
-        padAimActive = true;
-        pickAtCrosshair();
-      }
+      confirmCrosshair();
       return;
     }
     if (actions.includes("pin")) {
@@ -980,9 +1061,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   homeBtn?.addEventListener("click", () => {
     const p = getPlayerLonLat?.();
     if (!p) return;
-    cam.tLon = cam.lon + wrap180(p.lon - cam.lon);
-    cam.tLat = p.lat;
-    cam.tDist = Math.min(cam.tDist, 1.6);
+    flyTo(p.lon, p.lat, Math.min(cam.tDist, 1.6));
   });
 
   // ---------- time ----------
@@ -993,120 +1072,152 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     simBase = simDate.getTime();
     simBaseReal = Date.now();
     warp = w;
-    if (w === 1) simBase = Date.now(); // "Live" snaps back to now
+    if (w === 1) simBase = Date.now();
     warpBtns.forEach((b) => b.classList.toggle("active", Number(b.dataset.warp) === w));
   }
   warpBtns.forEach((b) => b.addEventListener("click", () => setWarp(Number(b.dataset.warp) || 1)));
 
-  // ---------- descent (stepped, GTA-style "switch" zoom) ----------
+  // ---------- descent powered by @tweenjs/tween.js ----------
   let descent = null;
   let descentTimerId = 0;
   const STEPS_KM = [2000, 400, 60, 8];
   function startDescent(lon, lat, landOpts) {
     clearTimeout(descentTimerId);
+    tweenGroup.removeAll();
     if (reducedMotion()) {
       descentEl.classList.add("on", "flash");
       descentTimerId = setTimeout(() => finishDescent(lon, lat, landOpts), 450);
       descent = { reduced: true };
       return;
     }
+    const startDist = Math.max(cam.dist, 1 + STEPS_KM[0] / R_KM + 0.05);
+    const targetLon = cam.lon + wrap180(lon - cam.lon);
     descent = {
       lon,
       lat,
       landOpts,
-      t0: performance.now(),
-      from: { lon: cam.lon, lat: cam.lat, dist: cam.dist },
       stepIdx: -1,
+      shake: 0,
     };
     cam.vLon = cam.vLat = 0;
     descentEl.classList.add("on");
     descentEl.classList.remove("flash", "whoosh");
+
+    const alignState = { lon: cam.lon, lat: cam.lat, dist: cam.dist };
+    const alignTween = new Tween(alignState, tweenGroup)
+      .to({ lon: targetLon, lat, dist: startDist }, 900)
+      .easing(Easing.Cubic.InOut)
+      .onUpdate(() => {
+        if (!descent) return;
+        cam.lon = cam.tLon = alignState.lon;
+        cam.lat = cam.tLat = alignState.lat;
+        cam.dist = cam.tDist = alignState.dist;
+        if (descentAltEl) {
+          descentAltEl.textContent = `ALT ${Math.round((cam.dist - 1) * R_KM).toLocaleString()} km`;
+        }
+      });
+
+    let prevTween = alignTween;
+    for (let idx = 0; idx < STEPS_KM.length; idx++) {
+      const fromKm = idx === 0 ? (startDist - 1) * R_KM : STEPS_KM[idx - 1];
+      const toKm = STEPS_KM[idx];
+      const stepState = { u: 0 };
+      const punchTween = new Tween(stepState, tweenGroup)
+        .to({ u: 1 }, 360)
+        .easing(Easing.Exponential.Out)
+        .onStart(() => {
+          if (!descent) return;
+          descent.stepIdx = idx;
+          if (idx === 2) loadDetailPatch(lon, lat);
+          descentEl.classList.add("whoosh");
+        })
+        .onUpdate(() => {
+          if (!descent) return;
+          const km = Math.exp(Math.log(fromKm) + (Math.log(toKm) - Math.log(fromKm)) * stepState.u);
+          cam.lon = cam.tLon = lon;
+          cam.lat = cam.tLat = lat;
+          cam.dist = cam.tDist = 1 + km / R_KM;
+          descent.shake = (1 - stepState.u) * 0.6;
+          if (descentAltEl) {
+            descentAltEl.textContent = `ALT ${Math.round((cam.dist - 1) * R_KM).toLocaleString()} km`;
+          }
+        });
+
+      const holdState = { t: 0 };
+      const holdTween = new Tween(holdState, tweenGroup)
+        .to({ t: 0.34 }, 340)
+        .onStart(() => {
+          if (!descent) return;
+          cam.dist = cam.tDist = 1 + toKm / R_KM;
+          descentEl.classList.remove("whoosh");
+        })
+        .onUpdate(() => {
+          if (!descent) return;
+          descent.shake = Math.max(0, 0.25 - holdState.t * 1.2);
+          if (descentAltEl) {
+            descentAltEl.textContent = `ALT ${Math.round((cam.dist - 1) * R_KM).toLocaleString()} km`;
+          }
+        });
+
+      prevTween.chain(punchTween);
+      punchTween.chain(holdTween);
+      prevTween = holdTween;
+    }
+
+    prevTween.onComplete(() => {
+      if (!descent) return;
+      cam.dist = cam.tDist = 1 + STEPS_KM[STEPS_KM.length - 1] / R_KM;
+      descent.shake = 0;
+      if (!descentEl.classList.contains("flash")) {
+        descentEl.classList.add("flash");
+        descent.done = true;
+        descentTimerId = setTimeout(() => finishDescent(lon, lat, landOpts), 320);
+      }
+    });
+
+    alignTween.start(performance.now());
   }
+
   function finishDescent(lon, lat, landOpts) {
     descentTimerId = 0;
     descent = null;
+    tweenGroup.removeAll();
     if (!active) {
       descentEl.classList.remove("on", "flash", "whoosh");
       if (descentAltEl) descentAltEl.textContent = "";
       return;
     }
     onLand?.(lon, lat, landOpts);
-    // Reset the overlay a moment later (the view is hidden by then).
     setTimeout(() => {
       descentEl.classList.remove("on", "flash", "whoosh");
       if (descentAltEl) descentAltEl.textContent = "";
     }, 120);
   }
-  const easeInOut = (x) => {
-    const c = Math.max(0, Math.min(1, x));
-    return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
-  };
-  const easeExpo = (x) => {
-    const c = Math.max(0, Math.min(1, x));
-    return c === 1 ? 1 : 1 - Math.pow(2, -10 * c);
-  };
-  function updateDescent(now) {
-    if (!descent || descent.reduced) return;
-    const t = (now - descent.t0) / 1000;
-    const ALIGN = 0.9;
-    const STEP = 0.36;
-    const HOLD = 0.34;
-    const startDist = Math.max(descent.from.dist, 1 + STEPS_KM[0] / R_KM + 0.05);
-    let shake = 0;
-    if (t < ALIGN) {
-      // swing over the target, pulling out a little first if we are already close
-      const k = easeInOut(t / ALIGN);
-      cam.lon = descent.from.lon + wrap180(descent.lon - descent.from.lon) * k;
-      cam.lat = descent.from.lat + (descent.lat - descent.from.lat) * k;
-      cam.dist = descent.from.dist + (startDist - descent.from.dist) * k;
-      if (descentAltEl) descentAltEl.textContent = `ALT ${Math.round((cam.dist - 1) * R_KM).toLocaleString()} km`;
-    } else {
-      const tt = t - ALIGN;
-      const idx = Math.floor(tt / (STEP + HOLD));
-      const local = tt - idx * (STEP + HOLD);
-      cam.lon = descent.lon;
-      cam.lat = descent.lat;
-      if (idx >= STEPS_KM.length) {
-        cam.dist = 1 + STEPS_KM[STEPS_KM.length - 1] / R_KM;
-        if (!descentEl.classList.contains("flash")) {
-          descentEl.classList.add("flash");
-          const { lon, lat, landOpts } = descent;
-          descent.done = true;
-          descentTimerId = setTimeout(() => finishDescent(lon, lat, landOpts), 320);
-        }
-        return;
-      }
-      const fromKm = idx === 0 ? (startDist - 1) * R_KM : STEPS_KM[idx - 1];
-      const toKm = STEPS_KM[idx];
-      if (local < STEP) {
-        const k = easeExpo(local / STEP);
-        // interpolate altitude in log space so each punch feels the same
-        const km = Math.exp(Math.log(fromKm) + (Math.log(toKm) - Math.log(fromKm)) * k);
-        cam.dist = 1 + km / R_KM;
-        descentEl.classList.add("whoosh");
-        shake = (1 - k) * 0.6;
-      } else {
-        cam.dist = 1 + toKm / R_KM;
-        descentEl.classList.remove("whoosh");
-        shake = Math.max(0, 0.25 - (local - STEP) * 1.2);
-      }
-      if (descentAltEl) descentAltEl.textContent = `ALT ${Math.round((cam.dist - 1) * R_KM).toLocaleString()} km`;
-      if (descent.stepIdx !== idx) {
-        descent.stepIdx = idx;
-        if (idx === 2) loadDetailPatch(descent.lon, descent.lat);
-      }
+
+  function flyTo(lon, lat, dist = 1.6) {
+    const targetLon = cam.lon + wrap180(lon - cam.lon);
+    const targetLat = Math.max(-89, Math.min(89, lat));
+    const targetDist = clampDist(dist);
+    cam.tLon = targetLon;
+    cam.tLat = targetLat;
+    cam.tDist = targetDist;
+    if (reducedMotion()) {
+      cam.lon = targetLon;
+      cam.lat = targetLat;
+      cam.dist = targetDist;
+      return;
     }
-    cam.tLon = cam.lon;
-    cam.tLat = cam.lat;
-    cam.tDist = cam.dist;
-    descent.shake = shake;
+    new Tween(cam, tweenGroup)
+      .to({ tLon: targetLon, tLat: targetLat, tDist: targetDist }, 550)
+      .easing(Easing.Cubic.Out)
+      .start(performance.now());
   }
 
   // ---------- optional high-res patch for the last descent steps (network only) ----------
   let patchKey = null;
   function loadDetailPatch(lon, lat) {
     if (demoSafe) return; // demo-safe: bundled globe only, zero network
-    const z = 7; // Viking MDIM 2.1 at ~330 m/px
+    const z = 7;
     const cols = 2 ** (z + 1);
     const rows = 2 ** z;
     const col0 = Math.floor(((lon + 180) / 360) * cols) - 1;
@@ -1122,12 +1233,11 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     let ok = 0;
     const done = () => {
       if (--pending > 0 || patchKey !== key) return;
-      if (ok < n * n) return; // only use a complete patch
+      if (ok < n * n) return;
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
       globeUniforms.uPatch.value?.dispose?.();
       globeUniforms.uPatch.value = tex;
-      // uv: u = (lon+180)/360, v = 1 - (90-lat)/180 (row 0 at the top)
       const u0 = col0 / cols;
       const u1 = (col0 + n) / cols;
       const v1 = 1 - row0 / rows;
@@ -1170,31 +1280,21 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     simDate = new Date(simBase + (Date.now() - simBaseReal) * warp);
     const uiBlocked = isOrbitUiBlocked();
 
-    updateDescent(now);
+    tweenGroup.update(now);
     if (!descent) {
       if (!uiBlocked) {
-        // Left stick: move / rotate the 3D globe
         const mv = gamepad.move();
         if (Math.hypot(mv.x, mv.y) > 0.01) {
           padAimActive = true;
-          const arcScale = (cam.dist - 1) * 0.9 + 0.004;
-          const lonScale = 1 / Math.max(0.15, Math.cos(cam.lat * DEG));
-          const panDegPerSec = 58 * arcScale;
-          cam.vLon = 0;
-          cam.vLat = 0;
-          cam.tLon += mv.x * panDegPerSec * lonScale * dt;
-          cam.tLat = Math.max(-89, Math.min(89, cam.tLat + mv.y * panDegPerSec * dt));
+          panBy(mv.x * 58 * dt, mv.y * 58 * dt);
         }
-        // RT / LT: zoom in / out on the 3D globe
         const zoomIn = gamepad.analog("throttle");
         const zoomOut = gamepad.analog("brake");
         const zoomNet = zoomIn - zoomOut;
         if (Math.abs(zoomNet) > 0.02) {
-          const factor = Math.exp(-zoomNet * 1.65 * dt);
-          cam.tDist = clampDist(1 + (cam.tDist - 1) * factor);
+          zoomBy(Math.exp(-zoomNet * 1.65 * dt));
         }
       }
-      // inertia after a flick, then ease toward targets
       if (pointers.size === 0 && (cam.vLon || cam.vLat)) {
         cam.tLon += cam.vLon;
         cam.tLat = Math.max(-89, Math.min(89, cam.tLat + cam.vLat));
@@ -1209,19 +1309,9 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     }
     placeCamera();
     if (!descent && !uiBlocked) {
-      // Right stick: aim cursor and mark location on the 3D globe
       const rs = gamepad.rightStick();
       if (Math.hypot(rs.x, rs.y) > 0.01) {
-        padAimActive = true;
-        aimU = Math.max(0.08, Math.min(0.92, aimU + rs.x * 0.65 * dt));
-        aimV = Math.max(0.08, Math.min(0.92, aimV + rs.y * 0.65 * dt));
-        const rect = canvas.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          const cx = rect.left + aimU * rect.width;
-          const cy = rect.top + aimV * rect.height;
-          lastHover = { x: cx, y: cy };
-          onPickGamepad(cx, cy);
-        }
+        moveCrosshair(rs.x * 0.65 * dt, rs.y * 0.65 * dt);
       }
     }
     if (padAimActive && !descent) {
@@ -1254,7 +1344,6 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       pos[i * 3 + 1] = tmpV.y;
       pos[i * 3 + 2] = tmpV.z;
     });
-    // decorative field rotates with the real sky (inertial -> body-fixed)
     for (let i = 0; i < faintDirs.length; i++) {
       bfToVec3(marsInertialToBodyFixed(faintDirs[i], simDate), tmpV).multiplyScalar(SKY_R);
       const k3 = (realStars.length + i) * 3;
@@ -1268,14 +1357,14 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     for (const m of moons) {
       const inertial = marsMoonInertial(m.name, simDate);
       bfToVec3(marsInertialToBodyFixed(inertial, simDate), m.mesh.position).multiplyScalar(1 / R_KM);
-      m.mesh.lookAt(0, 0, 0); // tidally locked: long axis toward Mars
+      m.mesh.lookAt(0, 0, 0);
       if (now - m.ringStamp > (warp > 1 ? 120 : 2000)) {
         updateMoonRing(m, simDate);
         m.ringStamp = now;
       }
     }
 
-    // orbiters (illustrative position along a real-altitude, real-inclination track)
+    // orbiters
     for (const o of orbiters) {
       const inertial = orbiterPositionKm(o, simDate.getTime() / 1000);
       bfToVec3(marsInertialToBodyFixed(inertial, simDate), o.marker.position).multiplyScalar(1 / R_KM);
@@ -1285,8 +1374,9 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       }
     }
 
-    renderer.render(scene, camera);
     updateLabels(sub);
+    renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
 
     if (now - infoStamp > 250) {
       infoStamp = now;
@@ -1298,27 +1388,17 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     }
   }
 
-  const labelPosCache = new Map();
   const labelScratch = new THREE.Vector3();
   const labelUsed = new Set();
   function updateLabels(sub) {
     labelUsed.clear();
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
     const put = (id, v, html, cls, surface) => {
-      if (surface ? !surfaceVisible(v) : occludedByGlobe(v)) return;
-      const sp = projectToScreen(v);
-      if (!sp.front || sp.x < -40 || sp.y < -20 || sp.x > w + 40 || sp.y > h + 20) return;
-      const el = label(id, html, cls);
-      const tx = Math.round((sp.x - 4) * 10) * 0.1;
-      const ty = Math.round((sp.y - 6) * 10) * 0.1;
-      const prev = labelPosCache.get(id);
-      if (!prev || prev.tx !== tx || prev.ty !== ty) {
-        labelPosCache.set(id, { tx, ty });
-        el.style.transform = `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px)`;
-      }
-      if (el.style.display !== "") el.style.display = "";
-      labelUsed.add(id);
+      const vis = surface ? surfaceVisible(v) : !occludedByGlobe(v);
+      const entry = upsertCss2DLabel(id, html, cls);
+      entry.obj.position.copy(v);
+      entry.obj.visible = vis;
+      entry.el.style.display = vis ? "" : "none";
+      if (vis) labelUsed.add(id);
     };
     if (!descent || descent.stepIdx < 1) {
       for (const s of sites) put(s.id, lonLatToVec3(s.lon, s.lat, 1, labelScratch), s.getHtml ? s.getHtml() : s.html, "", true);
@@ -1342,28 +1422,29 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       }
       put("sun", labelScratch.copy(sunSprite.position).add(skyGroup.position), "Sun", "moon", false);
       put("earth", labelScratch.copy(earthSprite.position).add(skyGroup.position), "Earth", "moon", false);
-      // subsolar marker
       put("subsolar", lonLatToVec3(sub.lonEastDeg, sub.latDeg, 1, labelScratch), "☀ noon", "", true);
     }
     if (pick && !confirmEl.hidden) put("pick", lonLatToVec3(pick.lon, pick.lat, 1, labelScratch), `<span class="dot"></span>`, "pick", true);
-    for (const [id, el] of labelEls) {
-      if (!labelUsed.has(id) && el.style.display !== "none") el.style.display = "none";
+    for (const [id, entry] of labelObjects) {
+      if (!labelUsed.has(id)) {
+        entry.obj.visible = false;
+        if (entry.el.style.display !== "none") entry.el.style.display = "none";
+      }
     }
   }
 
   function occludedByGlobe(v) {
-    // segment camera -> v intersects the unit sphere before reaching v?
     const o = camera.position;
     const d = tmpV2.copy(v).sub(o);
     const len = d.length();
     if (len < 1e-6) return false;
     d.divideScalar(len);
-    const b = o.dot(d);
-    const c = o.lengthSq() - 1;
-    const disc = b * b - c;
-    if (disc < 0) return false;
-    const t = -b - Math.sqrt(disc);
-    return t > 0 && t < len;
+    _ecefRay.origin.set(o.x, -o.z, o.y);
+    _ecefRay.direction.set(d.x, -d.z, d.y).normalize();
+    const hit = MARS_UNIT_ELLIPSOID.intersectRay(_ecefRay, _ecefHit);
+    if (!hit) return false;
+    const distToHit = _ecefRay.origin.distanceTo(_ecefHit);
+    return distToHit > 0 && distToHit < len;
   }
 
   function updateInfo(sub) {
@@ -1418,6 +1499,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
+    labelRenderer.setSize(w, h);
   }
   window.addEventListener("resize", () => active && onResize());
 
@@ -1451,17 +1533,18 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       clearTimeout(descentTimerId);
       descentTimerId = 0;
       descent = null;
+      tweenGroup.removeAll();
       descentEl.classList.remove("on", "flash", "whoosh");
       if (descentAltEl) descentAltEl.textContent = "";
       cancelAnimationFrame(raf);
       confirmEl.hidden = true;
     },
     onResize,
-    flyTo(lon, lat, dist = 1.6) {
-      cam.tLon = cam.lon + wrap180(lon - cam.lon);
-      cam.tLat = lat;
-      cam.tDist = clampDist(dist);
-    },
+    flyTo,
+    panBy,
+    zoomBy,
+    moveCrosshair,
+    confirmCrosshair,
     isActive: () => active,
   };
 }

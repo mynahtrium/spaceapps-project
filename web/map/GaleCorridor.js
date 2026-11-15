@@ -16,6 +16,8 @@
  * Demo-safe: every file is local (`data/demo/corridor/`), no network beyond the static server.
  */
 
+import { buildAdaptiveRtinMesh } from "./TerrainMeshBuilder.js";
+
 /** Mirror-wrap a coordinate with period 2 (0..1 forward, 1..2 backward). */
 export function mirrorWrap(t) {
   const m = ((t % 2) + 2) % 2;
@@ -560,22 +562,38 @@ export function buildCorridorSubCellGeometry(
     }
   });
 
-  const quads = seg * seg;
-  const idx = new Uint32Array(quads * 6 + ring.length * 12);
+  let idx;
   let w = 0;
-  for (let q = 0; q < seg; q++) {
-    for (let p = 0; p < seg; p++) {
-      const i0 = q * nv + p;
-      const i1 = i0 + 1;
-      const i2 = i0 + nv;
-      const i3 = i2 + 1;
-      // counter-clockwise seen from above (+Y), same as THREE.PlaneGeometry rotated flat
-      idx[w++] = i0;
-      idx[w++] = i2;
-      idx[w++] = i1;
-      idx[w++] = i2;
-      idx[w++] = i3;
-      idx[w++] = i1;
+  if (seg >= 2 && (seg & (seg - 1)) === 0) {
+    const rtin = buildAdaptiveRtinMesh(H, nv, -1);
+    const rtinVerts = rtin.vertices;
+    const rtinTris = rtin.triangles;
+    idx = new Uint32Array(rtinTris.length + ring.length * 12);
+    for (let i = 0; i < rtinTris.length; i += 3) {
+      const a0 = rtinTris[i];
+      const b0 = rtinTris[i + 1];
+      const c0 = rtinTris[i + 2];
+      idx[w++] = rtinVerts[2 * a0 + 1] * nv + rtinVerts[2 * a0];
+      idx[w++] = rtinVerts[2 * b0 + 1] * nv + rtinVerts[2 * b0];
+      idx[w++] = rtinVerts[2 * c0 + 1] * nv + rtinVerts[2 * c0];
+    }
+  } else {
+    const quads = seg * seg;
+    idx = new Uint32Array(quads * 6 + ring.length * 12);
+    for (let q = 0; q < seg; q++) {
+      for (let p = 0; p < seg; p++) {
+        const i0 = q * nv + p;
+        const i1 = i0 + 1;
+        const i2 = i0 + nv;
+        const i3 = i2 + 1;
+        // counter-clockwise seen from above (+Y), same as THREE.PlaneGeometry rotated flat
+        idx[w++] = i0;
+        idx[w++] = i2;
+        idx[w++] = i1;
+        idx[w++] = i2;
+        idx[w++] = i3;
+        idx[w++] = i1;
+      }
     }
   }
   for (let k = 0; k < ring.length; k++) {

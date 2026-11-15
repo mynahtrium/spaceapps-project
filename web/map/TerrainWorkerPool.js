@@ -1,196 +1,165 @@
 /**
- * Priority-Scheduled WebWorker Pool for Mars Terrain Meshing & Normal Synthesis.
+ * Mars Terrain WebWorker Pool powered by `comlink` with Automatic Main-Thread Fallback.
  *
- * - Supports `AbortSignal` cancellation for panned-away / out-of-frustum tiles.
- * - Transfers Float32/Uint32/Uint8 buffers zero-copy between workers and main thread.
- * - Falls back automatically to direct async `TerrainMeshBuilder` execution when
- *   WebWorkers are unavailable (Node.js tests or restricted sandboxes).
+ * - Spawns `Math.min(4, navigator.hardwareConcurrency || 2)` module WebWorkers wrapped with `Comlink.wrap`.
+ * - Broadcasts the loaded HiRISE DEM grid once to all workers (`initDem`) so tile
+ *   requests only send lightweight bounds + RTC origin metadata.
+ * - Falls back transparently to main-thread execution in Node.js unit tests or if
+ *   module WebWorkers fail to initialize.
  */
 
+import * as Comlink from "../../node_modules/comlink/dist/esm/comlink.mjs";
 import { makeLocalTangentOrigin } from "./Geodesy.js";
 import { buildMarsTerrainTilePayload } from "./TerrainMeshBuilder.js";
 
-function makeAbortError(msg = "Terrain job aborted") {
-  const err = new Error(msg);
+function makeAbortError() {
+  const err = new Error("Terrain tile build aborted");
   err.name = "AbortError";
   return err;
 }
 
 export class TerrainWorkerPool {
   /**
-   * @param {object} [opts]
-   * @param {number} [opts.poolSize]
-   * @param {string} [opts.workerUrl]
-   * @param {boolean} [opts.forceMainThread=false]
+   * @param {object} [options]
+   * @param {number} [options.maxWorkers=4]
+   * @param {number} [options.workerCount]
+   * @param {string|URL} [options.workerUrl]
+   * @param {boolean} [options.forceMainThread=false]
+   * @param {boolean} [options.forceFallback=false]
    */
-  constructor(opts = {}) {
-    const hw = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 2 : 2;
-    this.poolSize = Math.max(1, Math.min(4, opts.poolSize ?? Math.min(3, hw)));
-    this.workerUrl = opts.workerUrl || new URL("./terrain.worker.js", import.meta.url).href;
-    this.forceMainThread = Boolean(opts.forceMainThread) || typeof Worker === "undefined";
+  constructor({
+    maxWorkers = 4,
+    workerCount = null,
+    workerUrl = null,
+    forceMainThread = false,
+    forceFallback = false,
+  } = {}) {
+    const hw =
+      typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
+        ? navigator.hardwareConcurrency
+        : 2;
+    this.workerCount = Math.max(1, Math.min(workerCount || maxWorkers, hw));
+    this.workerUrl = workerUrl || new URL("./terrain.worker.js", import.meta.url);
+    this.forceFallback = Boolean(forceMainThread || forceFallback) || typeof Worker === "undefined";
 
-    /** @type {Array<{ worker: Worker, busyJobId: string|null, ready: boolean }>} */
-    this._workers = [];
-    /** @type {Array<object>} */
-    this._queue = [];
-    /** @type {Map<string, object>} */
-    this._pending = new Map();
-
-    this._demSampler = null;
-    this._rtcOrigin = null;
-    this._nextId = 1;
+    /** @type {Array<{ worker: Worker, api: any, busy: boolean }>} */
+    this.workers = [];
+    /** @type {Array<{ run: (slot: any) => void, reject: (err: Error) => void, priority: number, signal?: AbortSignal }>} */
+    this.queue = [];
+    this.demSampler = null;
+    this.rtcOrigin = null;
+    this.rtcOriginSpec = null;
     this._disposed = false;
+
+    if (!this.forceFallback) {
+      this._spawnWorkers();
+    }
+  }
+
+  _spawnWorkers() {
+    for (let i = 0; i < this.workerCount; i++) {
+      try {
+        const w = new Worker(this.workerUrl, { type: "module" });
+        const api = Comlink.wrap(w);
+        const slot = { worker: w, api, busy: false };
+        this.workers.push(slot);
+      } catch (_err) {
+        this.forceFallback = true;
+        this._terminateWorkers();
+        break;
+      }
+    }
+  }
+
+  _terminateWorkers() {
+    for (const slot of this.workers) {
+      try {
+        slot.api?.[Comlink.releaseProxy]?.();
+        slot.worker.terminate();
+      } catch (_e) {
+        // ignore termination errors
+      }
+    }
+    this.workers.length = 0;
   }
 
   /**
-   * Share the decoded Mars DEM grid and RTC tangent origin with all workers (and fallback).
+   * Initialize or update the shared DEM grid across all workers and the main-thread fallback.
+   *
    * @param {import('./MarsDemSampler.js').MarsDemSampler} demSampler
-   * @param {{ lonDeg: number, latDeg: number, elevM: number }} rtcAnchor
+   * @param {{ lonDeg: number, latDeg: number, elevM: number }} [rtcOriginSpec]
    */
-  async initDem(demSampler, rtcAnchor) {
-    this._demSampler = demSampler;
-    this._rtcOrigin = makeLocalTangentOrigin(
-      rtcAnchor.lonDeg,
-      rtcAnchor.latDeg,
-      rtcAnchor.elevM
-    );
+  async initDem(demSampler, rtcOriginSpec = null) {
+    this.demSampler = demSampler;
+    this.rtcOriginSpec = rtcOriginSpec;
+    if (rtcOriginSpec && Number.isFinite(rtcOriginSpec.lonDeg) && Number.isFinite(rtcOriginSpec.latDeg)) {
+      this.rtcOrigin = makeLocalTangentOrigin(
+        rtcOriginSpec.lonDeg,
+        rtcOriginSpec.latDeg,
+        rtcOriginSpec.elevM ?? 0
+      );
+    }
 
-    if (this.forceMainThread) return;
-
-    try {
-      await this._ensureWorkers();
-    } catch (err) {
-      console.warn("[TerrainWorkerPool] Module Worker unavailable; using main-thread fallback:", err);
-      this.forceMainThread = true;
+    if (this.forceFallback || this.workers.length === 0) {
       return;
     }
 
-    const initPromises = this._workers.map(
-      (slot) =>
-        new Promise((resolve, reject) => {
-          const jobId = `init_${this._nextId++}`;
-          const elevCopy = new Float32Array(demSampler.elevations);
-          const rawCopy = demSampler.rawElevations
-            ? new Float32Array(demSampler.rawElevations)
-            : null;
-          const transferables = [elevCopy.buffer];
-          if (rawCopy) transferables.push(rawCopy.buffer);
+    const serialized = typeof demSampler?.serialize === "function" ? demSampler.serialize() : null;
+    if (!serialized) return;
 
-          const onMsg = (e) => {
-            if (!e.data || e.data.jobId !== jobId) return;
-            slot.worker.removeEventListener("message", onMsg);
-            if (e.data.type === "INIT_OK") {
-              slot.ready = true;
-              resolve();
-            } else {
-              reject(new Error(e.data.error || "Worker init failed"));
-            }
-          };
-          slot.worker.addEventListener("message", onMsg);
-          slot.worker.postMessage(
-            {
-              type: "INIT_DEM",
-              jobId,
-              bounds: demSampler.bounds,
-              ncols: demSampler.ncols,
-              nrows: demSampler.nrows,
-              cellSizeM: demSampler.cellSizeM,
-              minElevM: demSampler.minElevM,
-              maxElevM: demSampler.maxElevM,
-              rtcAnchor,
-              elevationsBuffer: elevCopy.buffer,
-              rawElevationsBuffer: rawCopy ? rawCopy.buffer : null,
-            },
-            transferables
+    await Promise.all(
+      this.workers.map(async (slot) => {
+        const heightsCopy = new Float32Array(serialized.heights);
+        try {
+          await slot.api.initDem(
+            Comlink.transfer(
+              {
+                metadata: serialized.metadata,
+                heights: heightsCopy,
+                rtcOriginSpec,
+              },
+              [heightsCopy.buffer]
+            )
           );
-        })
-    );
-
-    try {
-      await Promise.all(initPromises);
-    } catch (err) {
-      console.warn("[TerrainWorkerPool] Worker INIT_DEM failed; falling back to main thread:", err);
-      this.disposeWorkersOnly();
-      this.forceMainThread = true;
-    }
-  }
-
-  async _ensureWorkers() {
-    if (this._workers.length > 0) return;
-    for (let i = 0; i < this.poolSize; i++) {
-      const worker = new Worker(this.workerUrl, { type: "module" });
-      const slot = { worker, busyJobId: null, ready: false };
-      worker.addEventListener("message", (e) => this._handleWorkerMessage(slot, e.data));
-      worker.addEventListener("error", (err) => {
-        console.warn("[TerrainWorkerPool] Worker error:", err?.message || err);
-        if (slot.busyJobId && this._pending.has(slot.busyJobId)) {
-          const job = this._pending.get(slot.busyJobId);
-          this._pending.delete(slot.busyJobId);
-          job.reject(new Error("Worker crashed"));
+        } catch (_err) {
+          this.forceFallback = true;
         }
-        slot.busyJobId = null;
-        this._pump();
-      });
-      this._workers.push(slot);
-    }
-  }
-
-  _handleWorkerMessage(slot, msg) {
-    if (!msg || !msg.jobId || msg.type === "INIT_OK") return;
-    const job = this._pending.get(msg.jobId);
-    slot.busyJobId = null;
-
-    if (job) {
-      this._pending.delete(msg.jobId);
-      if (job.cleanupSignal) job.cleanupSignal();
-
-      if (msg.type === "TILE_BUILT") {
-        job.resolve(msg.payload);
-      } else if (msg.type === "JOB_ABORTED") {
-        job.reject(makeAbortError());
-      } else {
-        job.reject(new Error(msg.error || "Worker tile error"));
-      }
-    }
-    this._pump();
+      })
+    );
   }
 
   /**
-   * Build a terrain tile mesh + analytical normal map off-main-thread.
-   * Lower `priority` runs first (e.g. camera distance in meters).
+   * Build a terrain tile mesh + analytical normal map off the main thread via Comlink RPC.
    */
-  buildTile(params, { priority = 1000, signal = null } = {}) {
+  buildTile(params, { priority = 0, signal } = {}) {
     if (this._disposed) {
-      return Promise.reject(new Error("TerrainWorkerPool disposed"));
-    }
-    if (!this._demSampler || !this._rtcOrigin) {
-      return Promise.reject(new Error("DEM not initialized"));
+      return Promise.reject(new Error("TerrainWorkerPool is disposed"));
     }
     if (signal?.aborted) {
       return Promise.reject(makeAbortError());
     }
 
-    if (this.forceMainThread) {
+    if (this.forceFallback || this.workers.length === 0) {
       return new Promise((resolve, reject) => {
         const onAbort = () => reject(makeAbortError());
-        if (signal) signal.addEventListener("abort", onAbort, { once: true });
-        Promise.resolve().then(() => {
-          if (signal) signal.removeEventListener("abort", onAbort);
-          if (signal?.aborted) {
+        if (signal) {
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+        queueMicrotask(() => {
+          if (signal) {
+            signal.removeEventListener("abort", onAbort);
+          }
+          if (signal?.aborted || this._disposed) {
             reject(makeAbortError());
             return;
           }
           try {
             const payload = buildMarsTerrainTilePayload({
-              demSampler: this._demSampler,
-              bounds: params.bounds,
-              rtcOrigin: this._rtcOrigin,
-              segments: params.segments,
-              normalTexSize: params.normalTexSize,
-              exaggeration: params.exaggeration,
-              skirtDepthM: params.skirtDepthM,
+              demSampler: params.demSampler || this.demSampler,
+              rtcOrigin: params.rtcOrigin || this.rtcOrigin,
+              ...params,
             });
-            resolve(payload);
+            resolve({ tileKey: params.tileKey, ...payload });
           } catch (err) {
             reject(err);
           }
@@ -199,87 +168,100 @@ export class TerrainWorkerPool {
     }
 
     return new Promise((resolve, reject) => {
-      const jobId = `tile_${this._nextId++}`;
-      const job = {
-        jobId,
-        params,
+      const task = {
         priority,
         signal,
-        resolve,
         reject,
-        slot: null,
-        cleanupSignal: null,
+        run: async (slot) => {
+          if (signal?.aborted) {
+            slot.busy = false;
+            this._pump();
+            reject(makeAbortError());
+            return;
+          }
+          let aborted = false;
+          const onAbort = () => {
+            aborted = true;
+            reject(makeAbortError());
+          };
+          if (signal) {
+            signal.addEventListener("abort", onAbort, { once: true });
+          }
+          try {
+            const payload = await slot.api.buildTile(params);
+            if (!aborted) resolve(payload);
+          } catch (err) {
+            if (!aborted) {
+              try {
+                const fallbackPayload = buildMarsTerrainTilePayload({
+                  demSampler: params.demSampler || this.demSampler,
+                  rtcOrigin: params.rtcOrigin || this.rtcOrigin,
+                  ...params,
+                });
+                resolve({ tileKey: params.tileKey, ...fallbackPayload });
+              } catch (fallbackErr) {
+                reject(fallbackErr || err);
+              }
+            }
+          } finally {
+            if (signal) {
+              signal.removeEventListener("abort", onAbort);
+            }
+            slot.busy = false;
+            this._pump();
+          }
+        },
       };
 
       if (signal) {
-        const onAbort = () => {
-          // Remove from queue or signal active worker
-          const qIdx = this._queue.indexOf(job);
-          if (qIdx >= 0) this._queue.splice(qIdx, 1);
-          this._pending.delete(jobId);
-          if (job.slot) {
-            job.slot.worker.postMessage({ type: "ABORT_JOB", jobId });
-            job.slot.busyJobId = null;
+        const onQueuedAbort = () => {
+          const qIdx = this.queue.indexOf(task);
+          if (qIdx !== -1) {
+            this.queue.splice(qIdx, 1);
+            reject(makeAbortError());
           }
-          reject(makeAbortError());
-          this._pump();
         };
-        signal.addEventListener("abort", onAbort, { once: true });
-        job.cleanupSignal = () => signal.removeEventListener("abort", onAbort);
+        signal.addEventListener("abort", onQueuedAbort, { once: true });
       }
 
-      this._queue.push(job);
-      this._queue.sort((a, b) => a.priority - b.priority);
+      this.queue.push(task);
+      this.queue.sort((a, b) => a.priority - b.priority);
       this._pump();
     });
   }
 
   _pump() {
-    if (this._disposed || this.forceMainThread) return;
-    while (this._queue.length > 0) {
-      const freeSlot = this._workers.find((w) => w.ready && !w.busyJobId);
-      if (!freeSlot) break;
-      const job = this._queue.shift();
-      if (!job || job.signal?.aborted) continue;
-      freeSlot.busyJobId = job.jobId;
-      job.slot = freeSlot;
-      this._pending.set(job.jobId, job);
-      freeSlot.worker.postMessage({
-        type: "BUILD_TILE",
-        jobId: job.jobId,
-        tileKey: job.params.tileKey,
-        bounds: job.params.bounds,
-        segments: job.params.segments,
-        normalTexSize: job.params.normalTexSize,
-        exaggeration: job.params.exaggeration,
-        skirtDepthM: job.params.skirtDepthM,
-      });
+    while (this.queue.length > 0) {
+      const idleSlot = this.workers.find((s) => !s.busy);
+      if (!idleSlot) break;
+
+      const task = this.queue.shift();
+      if (!task) break;
+      if (task.signal?.aborted) {
+        task.reject(makeAbortError());
+        continue;
+      }
+
+      idleSlot.busy = true;
+      task.run(idleSlot);
     }
   }
 
-  disposeWorkersOnly() {
-    for (const slot of this._workers) {
-      try {
-        slot.worker.terminate();
-      } catch {
-        // ignore
-      }
-    }
-    this._workers = [];
+  stats() {
+    return {
+      workerCount: this.workers.length,
+      busyWorkers: this.workers.filter((w) => w.busy).length,
+      queuedJobs: this.queue.length,
+      usingFallback: this.forceFallback || this.workers.length === 0,
+    };
   }
 
   dispose() {
     this._disposed = true;
-    while (this._queue.length > 0) {
-      const job = this._queue.shift();
-      if (job.cleanupSignal) job.cleanupSignal();
-      job.reject(makeAbortError("Pool disposed"));
+    while (this.queue.length > 0) {
+      const task = this.queue.shift();
+      task?.reject(makeAbortError());
     }
-    for (const job of this._pending.values()) {
-      if (job.cleanupSignal) job.cleanupSignal();
-      job.reject(makeAbortError("Pool disposed"));
-    }
-    this._pending.clear();
-    this.disposeWorkersOnly();
+    this._terminateWorkers();
   }
 }

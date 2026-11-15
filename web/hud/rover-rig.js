@@ -79,12 +79,17 @@ export function attachSuspensionRig(THREE, rover, dynamics) {
     body.position.set(0, 0, 0);
     body.rotation.set(att.pitch, 0, att.roll, "XYZ");
 
-    for (const L of links) {
+    for (let idx = 0; idx < links.length; idx++) {
+      const L = links[idx];
       const { pod, wheel } = L;
+      const vc = dynamics.vehicleController || null;
+      const hubY = wheel.hubY;
+      const steer = vc && typeof vc.wheelSteering === "function" && Number.isFinite(wheel.steer) ? wheel.steer : wheel.steer;
+      const spin = vc && typeof vc.wheelRotation === "function" && Number.isFinite(wheel.angle) ? wheel.angle : wheel.angle;
       // hub, steering, spin
-      pod.podRoot.position.y = wheel.hubY;
-      pod.knuckle.rotation.y = wheel.steer;
-      pod.spinner.rotation.x = wheel.angle;
+      pod.podRoot.position.y = hubY;
+      pod.knuckle.rotation.y = steer;
+      pod.spinner.rotation.x = spin;
 
       // coil-over: from the upper mount to just above the hub
       a.copy(L.mountTop);

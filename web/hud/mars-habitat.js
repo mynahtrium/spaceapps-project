@@ -26,6 +26,7 @@
  */
 
 import { getHistoricRoverById } from "../shared/mars-rovers.js";
+import { castSegmentBoxRapier, resolveObbCollisionRapier } from "../physics/MarsPhysicsWorld.js";
 import { mergeStaticMeshes } from "./merge-static.js";
 import {
   createShelfAtlas,
@@ -2124,53 +2125,31 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
       if (c.dyn && !c.dyn.solid) continue;
       if (relY > c.maxY - 0.1) continue; // standing above it
       if (c.minY > relY + 1.6) continue; // overhead
-      const cx = Math.max(c.minX, Math.min(c.maxX, outX));
-      const cz = Math.max(c.minZ, Math.min(c.maxZ, outZ));
-      const dx = outX - cx;
-      const dz = outZ - cz;
-      const dSq = dx * dx + dz * dz;
-      if (dSq >= entityRadius * entityRadius) continue;
 
+      const cx = (c.minX + c.maxX) * 0.5;
+      const cz = (c.minZ + c.maxZ) * 0.5;
+      const halfW = (c.maxX - c.minX) * 0.5;
+      const halfL = (c.maxZ - c.minZ) * 0.5;
+      const res = resolveObbCollisionRapier(
+        cx,
+        cz,
+        0,
+        null,
+        outX,
+        outZ,
+        entityRadius,
+        null,
+        halfW,
+        halfL
+      );
+      if (!res.hit) continue;
       anyHit = true;
-      if (dSq > 1e-8) {
-        const d = Math.sqrt(dSq);
-        const pen = entityRadius - d;
-        const nx = dx / d;
-        const nz = dz / d;
-        outX = cx + nx * entityRadius;
-        outZ = cz + nz * entityRadius;
-        if (pen > maxPen) {
-          maxPen = pen;
-          outNx = nx;
-          outNz = nz;
-        }
-      } else {
-        const pL = outX - c.minX;
-        const pR = c.maxX - outX;
-        const pT = outZ - c.minZ;
-        const pB = c.maxZ - outZ;
-        const m = Math.min(pL, pR, pT, pB);
-        let nx = 0;
-        let nz = 0;
-        if (m === pL) {
-          nx = -1;
-          outX = c.minX - entityRadius;
-        } else if (m === pR) {
-          nx = 1;
-          outX = c.maxX + entityRadius;
-        } else if (m === pT) {
-          nz = -1;
-          outZ = c.minZ - entityRadius;
-        } else {
-          nz = 1;
-          outZ = c.maxZ + entityRadius;
-        }
-        const pen = m + entityRadius;
-        if (pen > maxPen) {
-          maxPen = pen;
-          outNx = nx;
-          outNz = nz;
-        }
+      outX = res.x;
+      outZ = res.z;
+      if (res.pen > maxPen) {
+        maxPen = res.pen;
+        outNx = res.nx;
+        outNz = res.nz;
       }
     }
 
@@ -2179,35 +2158,34 @@ export function createMarsHabitatStation(THREE, { originX = 0, originZ = 0, rawS
 
   /**
    * Fraction t in [0, 1] of the segment a -> b (world space) that is free of station walls, roofs
-   * and closed doors. Used to pull a 3rd-person camera in front of walls. Boxes that already
-   * contain `a` are ignored so standing next to a wall does not collapse the camera.
+   * and closed doors. Uses Rapier3D `Collider.castRay` (`castSegmentBoxRapier`).
    */
   function clipCameraSegment(ax, ay, az, bx2, by, bz, pad = 0.18) {
-    const o = [ax - baseX, ay - baseY, az - baseZ];
-    const dvec = [bx2 - ax, by - ay, bz - az];
+    const ox = ax - baseX;
+    const oy = ay - baseY;
+    const oz = az - baseZ;
+    const dx = bx2 - ax;
+    const dy = by - ay;
+    const dz = bz - az;
     let best = 1;
     for (const c of colliders) {
       if (!c.cam) continue;
       if (c.dyn && !c.dyn.solid) continue;
-      const mn = [c.minX - pad, c.minY - pad, c.minZ - pad];
-      const mx = [c.maxX + pad, c.maxY + pad, c.maxZ + pad];
-      if (o[0] > mn[0] && o[0] < mx[0] && o[1] > mn[1] && o[1] < mx[1] && o[2] > mn[2] && o[2] < mx[2]) continue;
-      let t0 = 0;
-      let t1 = best;
-      let ok = true;
-      for (let k = 0; k < 3 && ok; k++) {
-        if (Math.abs(dvec[k]) < 1e-9) {
-          if (o[k] < mn[k] || o[k] > mx[k]) ok = false;
-        } else {
-          let ta = (mn[k] - o[k]) / dvec[k];
-          let tb = (mx[k] - o[k]) / dvec[k];
-          if (ta > tb) [ta, tb] = [tb, ta];
-          t0 = Math.max(t0, ta);
-          t1 = Math.min(t1, tb);
-          if (t0 > t1) ok = false;
-        }
-      }
-      if (ok && t0 < best) best = t0;
+      const t = castSegmentBoxRapier(
+        ox,
+        oy,
+        oz,
+        dx,
+        dy,
+        dz,
+        c.minX - pad,
+        c.maxX + pad,
+        c.minY - pad,
+        c.maxY + pad,
+        c.minZ - pad,
+        c.maxZ + pad
+      );
+      if (t != null && t < best) best = t;
     }
     return Math.max(0, Math.min(1, best));
   }

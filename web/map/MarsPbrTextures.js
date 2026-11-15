@@ -1,243 +1,239 @@
 /**
- * Procedural 100%-Offline Martian PBR Surface Texture Synthesizer (`MarsPbrTextures`).
+ * Procedural + KTX2 Offline-Safe Martian Regolith & Bedrock PBR Texture Sets.
  *
- * Generates seamless tileable RGBA diffuse albedo + tangent normal + roughness maps
- * directly in memory using periodic fBm + periodic Voronoi rock fractures (zero external files,
- * zero API keys, zero copyright risk):
- * - Material 1 (Regolith & Sand): Aeolian wind ripples, dark mafic basalt grains, ochre dust,
- *   scattered mineral pebbles, ripple-crest highlight normals.
- * - Material 2 (Gale Mudstone & Fractured Bedrock): Cellular Voronoi mudstone slabs,
- *   dark crevice ambient occlusion, layered bedding strata, pale sulfate veins, blocky normals.
+ * Uses `simplex-noise` (`createNoise4D` mapped onto a 4D torus for seamless periodic tiling)
+ * and `three/addons/loaders/KTX2Loader.js` for pre-baked `.ktx2` GPU texture sets when a
+ * WebGLRenderer is supplied, with automatic headless Node-test fallback to `DataTexture`s:
+ *   1. `dustAlbedo`  — Fine ferric regolith dust + ripple micro-albedo + roughness in alpha
+ *   2. `dustNormal`  — Wind-carved aeolian ripple tangent-space normal map
+ *   3. `rockAlbedo`  — Fractured Murray / Stimson mudstone-sandstone strata + roughness in alpha
+ *   4. `rockNormal`  — Sharp polygonal fracture & cross-bedding tangent-space normal map
+ *
+ * Works identically in browser WebGL and headless Node.js unit tests (no DOM canvas needed).
  */
 
-function hash2(x, y, seed = 0) {
-  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041)) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
+import { createNoise4D } from "../../node_modules/simplex-noise/dist/esm/simplex-noise.js";
+import { KTX2Loader } from "../../node_modules/three/examples/jsm/loaders/KTX2Loader.js";
 
-function periodicValueNoise(u, v, freq, seed = 0) {
-  const x = u * freq;
-  const y = v * freq;
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = x - ix;
-  const fy = y - iy;
-  const sx = fx * fx * (3 - 2 * fx);
-  const sy = fy * fy * (3 - 2 * fy);
-  const wx0 = ((ix % freq) + freq) % freq;
-  const wy0 = ((iy % freq) + freq) % freq;
-  const wx1 = (wx0 + 1) % freq;
-  const wy1 = (wy0 + 1) % freq;
+const TAU = Math.PI * 2;
 
-  const a = hash2(wx0, wy0, seed);
-  const b = hash2(wx1, wy0, seed);
-  const c = hash2(wx0, wy1, seed);
-  const d = hash2(wx1, wy1, seed);
-  const top = a + (b - a) * sx;
-  const bot = c + (d - c) * sx;
-  return top + (bot - top) * sy;
-}
-
-function periodicFbm(u, v, baseFreq, octaves = 4, seed = 0) {
-  let sum = 0;
-  let amp = 0.5;
-  let norm = 0;
-  let freq = baseFreq;
-  for (let o = 0; o < octaves; o++) {
-    sum += amp * periodicValueNoise(u, v, freq, seed + o * 17);
-    norm += amp;
-    amp *= 0.5;
-    freq *= 2;
-  }
-  return sum / norm;
+function createSeededPrng(seed = 1) {
+  let s = (seed >>> 0) || 1;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 /**
- * Tileable periodic Voronoi F2 - F1 distance (gives sharp rock polygon boundaries & slab cracks).
+ * Sample 4D Simplex noise on a 2D torus `[0, 1) x [0, 1)` so textures wrap seamlessly with RepeatWrapping.
  */
-function periodicVoronoiEdge(u, v, cells, seed = 0) {
-  const x = u * cells;
-  const y = v * cells;
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  let d1Sq = 99;
-  let d2Sq = 99;
-  let cellGx = 0;
-  let cellGy = 0;
-
-  for (let dy = -1; dy <= 1; dy++) {
-    const gy = (((iy + dy) % cells) + cells) % cells;
-    for (let dx = -1; dx <= 1; dx++) {
-      const gx = (((ix + dx) % cells) + cells) % cells;
-      const ox = hash2(gx, gy, seed);
-      const oy = hash2(gx, gy, seed + 137);
-      const vx = ix + dx + 0.15 + ox * 0.7 - x;
-      const vy = iy + dy + 0.15 + oy * 0.7 - y;
-      const distSq = vx * vx + vy * vy;
-      if (distSq < d1Sq) {
-        d2Sq = d1Sq;
-        d1Sq = distSq;
-        cellGx = gx;
-        cellGy = gy;
-      } else if (distSq < d2Sq) {
-        d2Sq = distSq;
-      }
+function createSeamlessTorusFbm(seed = 1) {
+  const noise4D = createNoise4D(createSeededPrng(seed));
+  const samplePeriodic = (u, v, freq) => {
+    const r = freq / TAU;
+    const ax = u * TAU;
+    const ay = v * TAU;
+    return (
+      noise4D(
+        Math.cos(ax) * r,
+        Math.sin(ax) * r,
+        Math.cos(ay) * r,
+        Math.sin(ay) * r
+      ) *
+        0.5 +
+      0.5
+    );
+  };
+  const fbm = (u, v, baseFreq, octaves = 4) => {
+    let sum = 0;
+    let amp = 0.5;
+    let norm = 0;
+    let freq = baseFreq;
+    for (let i = 0; i < octaves; i++) {
+      sum += amp * samplePeriodic(u, v, freq);
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
     }
-  }
-  const d1 = Math.sqrt(d1Sq);
-  const d2 = Math.sqrt(d2Sq);
-  return { edge: d2 - d1, d1, cellId: hash2(cellGx, cellGy, seed + 99) };
+    return sum / norm;
+  };
+  return { samplePeriodic, fbm };
 }
 
-function buildNormalFromHeight(heights, size, strength, roughnessFn) {
-  const rgba = new Uint8Array(size * size * 4);
+function buildNormalTextureFromHeightField(THREE, heightField, size, strength = 4.5) {
+  const data = new Uint8Array(size * size * 4);
+  const step = 1 / size;
   for (let y = 0; y < size; y++) {
     const ym = (y - 1 + size) % size;
     const yp = (y + 1) % size;
     for (let x = 0; x < size; x++) {
       const xm = (x - 1 + size) % size;
       const xp = (x + 1) % size;
-      const hL = heights[y * size + xm];
-      const hR = heights[y * size + xp];
-      const hD = heights[ym * size + x];
-      const hU = heights[yp * size + x];
-      const dx = (hR - hL) * strength;
-      const dy = (hU - hD) * strength;
-      const inv = 1 / Math.hypot(-dx, -dy, 1);
+
+      const hL = heightField[y * size + xm];
+      const hR = heightField[y * size + xp];
+      const hD = heightField[ym * size + x];
+      const hU = heightField[yp * size + x];
+
+      const dx = (hR - hL) * strength * 0.5 / step;
+      const dy = (hU - hD) * strength * 0.5 / step;
+      const nx = -dx * 0.015;
+      const ny = -dy * 0.015;
+      const nz = 1.0;
+      const inv = 1 / Math.hypot(nx, ny, nz);
+
       const idx = (y * size + x) * 4;
-      rgba[idx] = Math.round(((-dx * inv) * 0.5 + 0.5) * 255);
-      rgba[idx + 1] = Math.round(((-dy * inv) * 0.5 + 0.5) * 255);
-      rgba[idx + 2] = Math.round(((1 * inv) * 0.5 + 0.5) * 255);
-      rgba[idx + 3] = Math.max(30, Math.min(250, Math.round(roughnessFn(heights[y * size + x]))));
+      data[idx] = Math.max(0, Math.min(255, Math.round((nx * inv * 0.5 + 0.5) * 255)));
+      data[idx + 1] = Math.max(0, Math.min(255, Math.round((ny * inv * 0.5 + 0.5) * 255)));
+      data[idx + 2] = Math.max(0, Math.min(255, Math.round((nz * inv * 0.5 + 0.5) * 255)));
+      data[idx + 3] = 255;
     }
   }
-  return rgba;
-}
-
-function makeRepeatDataTex(THREE, rgba, size, srgb = false) {
-  const tex = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
-  if (srgb && THREE.SRGBColorSpace) {
-    tex.colorSpace = THREE.SRGBColorSpace;
-  }
-  tex.anisotropy = 8;
   tex.needsUpdate = true;
   return tex;
 }
 
 /**
- * Create full Martian PBR texture sets (Albedo + Normal/Roughness) for dust ripples & fractured mudstone.
+ * Create a configured `KTX2Loader` instance for pre-baked Martian `.ktx2` textures when running in a browser with WebGL.
+ */
+export function createMartianKtx2Loader(renderer = null, transcoderPath = "./vendor/addons/libs/basis/") {
+  const loader = new KTX2Loader();
+  loader.setTranscoderPath(transcoderPath);
+  if (renderer && typeof renderer.capabilities !== "undefined") {
+    try {
+      loader.detectSupport(renderer);
+    } catch (_err) {
+      // Headless / mock renderer fallback
+    }
+  }
+  return loader;
+}
+
+/**
+ * Synthesize high-contrast Martian regolith dust and fractured mudstone/bedrock PBR textures
+ * using `simplex-noise` (with optional `KTX2Loader` upgrade when `.ktx2` assets are supplied).
+ *
  * @param {typeof import('three')} THREE
  * @param {number} [size=256]
+ * @param {{ renderer?: any, ktx2Urls?: Record<string, string> }} [options]
  */
-export function createMartianPbrTextureSets(THREE, size = 256) {
-  const dustH = new Float32Array(size * size);
-  const dustAlbedo = new Uint8Array(size * size * 4);
+export function createMartianPbrTextureSets(THREE, size = 256, options = {}) {
+  const dustAlbedoData = new Uint8Array(size * size * 4);
+  const dustHeight = new Float32Array(size * size);
 
-  const rockH = new Float32Array(size * size);
-  const rockAlbedo = new Uint8Array(size * size * 4);
+  const rockAlbedoData = new Uint8Array(size * size * 4);
+  const rockHeight = new Float32Array(size * size);
+
+  const dustMacroNoise = createSeamlessTorusFbm(11);
+  const dustMicroNoise = createSeamlessTorusFbm(29);
+  const dustPebbleNoise = createSeamlessTorusFbm(73);
+  const rockStrataNoise = createSeamlessTorusFbm(41);
+  const rockGrainNoise = createSeamlessTorusFbm(97);
+  const rockCrackNoiseA = createSeamlessTorusFbm(131);
+  const rockCrackNoiseB = createSeamlessTorusFbm(193);
 
   for (let y = 0; y < size; y++) {
     const v = y / size;
     for (let x = 0; x < size; x++) {
       const u = x / size;
-      const i = y * size + x;
-      const p = i * 4;
+      const pIdx = y * size + x;
+      const rgbaIdx = pIdx * 4;
 
-      // --- 1. Aeolian Wind-Rippled Martian Regolith + Pebbles ---
-      const macroDust = periodicFbm(u, v, 4, 4, 11);
-      const warp = periodicFbm(u, v, 8, 3, 27) * 0.16;
-      const phase = ((u * 14 + v * 3 + warp * 10) % 1 + 1) % 1;
-      // Asymmetric wind ripple crest (steep lee face, gentle stoss slope)
-      const ripple = phase < 0.72 ? phase / 0.72 : (1 - phase) / 0.28;
-      const pebbleNoise = periodicValueNoise(u, v, 64, 41);
-      const fineGrit = periodicValueNoise(u, v, 128, 73);
-      const pebbleBump = pebbleNoise > 0.76 ? (pebbleNoise - 0.76) * 2.8 : 0;
+      // --- 1. Aeolian Regolith Dust & Wind Ripples ---
+      const warp = dustMacroNoise.fbm(u, v, 4, 3) * 0.18;
+      const ripplePhase = (u * 10 + v * 3 + warp) * TAU;
+      const ripple = Math.pow(0.5 + 0.5 * Math.sin(ripplePhase), 1.6);
+      const microGrain = dustMicroNoise.fbm(u, v, 16, 4);
+      const pebbles = Math.max(0, dustPebbleNoise.samplePeriodic(u, v, 32) - 0.72) * 3.5;
 
-      const dHeight = ripple * 0.48 + macroDust * 0.34 + pebbleBump * 0.42 + fineGrit * 0.14;
-      dustH[i] = dHeight;
+      const dH = ripple * 0.55 + microGrain * 0.3 + pebbles * 0.25;
+      dustHeight[pIdx] = dH;
 
-      // Color: bright dusty ripple crests, dark basaltic sand troughs, pale clasts & dark mafic gravel
-      const troughDark = Math.pow(1 - ripple, 1.4) * 0.32;
-      let rD = 182 - troughDark * 78 + (macroDust - 0.5) * 48;
-      let gD = 109 - troughDark * 52 + (macroDust - 0.5) * 28;
-      let bD = 72 - troughDark * 34 + (macroDust - 0.5) * 18;
-      if (pebbleNoise > 0.78) {
-        // Pale sulfate clast pebble vs dark basalt cobble
-        const brightClast = fineGrit > 0.52;
-        if (brightClast) {
-          rD += 38;
-          gD += 34;
-          bD += 26;
-        } else {
-          rD *= 0.62;
-          gD *= 0.60;
-          bD *= 0.62;
-        }
-      } else {
-        rD += (fineGrit - 0.5) * 22;
-        gD += (fineGrit - 0.5) * 16;
-        bD += (fineGrit - 0.5) * 12;
-      }
+      // High-contrast ochre / ferric oxide dust palette (70..225 range so detail pops)
+      const dustShade = Math.max(0, Math.min(1, 0.15 + dH * 0.85 + (microGrain - 0.5) * 0.45));
+      dustAlbedoData[rgbaIdx] = Math.round(70 + dustShade * 155);
+      dustAlbedoData[rgbaIdx + 1] = Math.round(45 + dustShade * 105);
+      dustAlbedoData[rgbaIdx + 2] = Math.round(28 + dustShade * 72);
+      // Alpha encodes roughness (0.72 .. 0.96)
+      dustAlbedoData[rgbaIdx + 3] = Math.round((0.94 - pebbles * 0.18) * 255);
 
-      dustAlbedo[p] = Math.max(15, Math.min(248, Math.round(rD)));
-      dustAlbedo[p + 1] = Math.max(12, Math.min(235, Math.round(gD)));
-      dustAlbedo[p + 2] = Math.max(10, Math.min(220, Math.round(bD)));
-      dustAlbedo[p + 3] = 255;
+      // --- 2. Fractured Mudstone / Cross-Bedded Sandstone Bedrock ---
+      const crackA = Math.abs(rockCrackNoiseA.samplePeriodic(u, v, 8) - 0.5) * 2;
+      const crackB = Math.abs(rockCrackNoiseB.samplePeriodic(u + 0.37, v + 0.61, 16) - 0.5) * 2;
+      const fractureMask = Math.min(1, Math.pow(Math.min(crackA, crackB), 0.45) * 1.35);
+      const strata = 0.5 + 0.5 * Math.sin((v * 14 + rockStrataNoise.fbm(u, v, 6, 3) * 0.45) * TAU);
+      const rockGrain = rockGrainNoise.fbm(u, v, 24, 3);
 
-      // --- 2. Fractured Layered Gale Mudstone + Mineral Veins ---
-      const warpU = u + (periodicFbm(u, v, 6, 3, 5) - 0.5) * 0.05;
-      const warpV = v + (periodicFbm(u, v, 6, 3, 9) - 0.5) * 0.05;
-      const slabs = periodicVoronoiEdge(warpU, warpV, 8, 101);
-      const subCracks = periodicVoronoiEdge(warpU, warpV, 18, 203);
+      const rH = fractureMask * (0.55 + strata * 0.3 + rockGrain * 0.25);
+      rockHeight[pIdx] = rH;
 
-      const crack = Math.min(1, slabs.edge / 0.085);
-      const subCrack = Math.min(1, subCracks.edge / 0.055);
-      const bedding = Math.sin((v * 16 + periodicFbm(u, v, 8, 3, 33) * 4.2) * Math.PI * 2) * 0.5 + 0.5;
-      const pit = periodicValueNoise(u, v, 64, 88);
-      const pitGrit = periodicValueNoise(u, v, 128, 117);
-
-      const rHeight =
-        crack * 0.55 +
-        subCrack * 0.22 +
-        bedding * 0.22 +
-        (slabs.cellId - 0.5) * 0.14 +
-        pit * 0.16 +
-        pitGrit * 0.08;
-      rockH[i] = rHeight;
-
-      // Slab tint + pale gypsum/sulfate vein seams along fractures + deep dark crevice AO
-      const veinMask = slabs.edge > 0.018 && slabs.edge < 0.042 && slabs.cellId > 0.58 ? 1 : 0;
-      const ao = 0.25 + 0.75 * Math.min(crack, 0.35 + 0.65 * subCrack);
-      const bedTint = bedding * 36 + (slabs.cellId - 0.5) * 30;
-      let rR = (132 + bedTint + (pit - 0.5) * 28) * ao;
-      let gR = (84 + bedTint * 0.68 + (pit - 0.5) * 20) * ao;
-      let bR = (63 + bedTint * 0.5 + (pit - 0.5) * 16) * ao;
-      if (veinMask) {
-        rR = rR * 0.35 + 214 * 0.65;
-        gR = gR * 0.35 + 195 * 0.65;
-        bR = bR * 0.35 + 168 * 0.65;
-      }
-
-      rockAlbedo[p] = Math.max(12, Math.min(248, Math.round(rR)));
-      rockAlbedo[p + 1] = Math.max(10, Math.min(238, Math.round(gR)));
-      rockAlbedo[p + 2] = Math.max(8, Math.min(228, Math.round(bR)));
-      rockAlbedo[p + 3] = 255;
+      // High-contrast basaltic / sulfate-veined mudstone palette
+      const vein = fractureMask < 0.22 ? (0.22 - fractureMask) * 5.0 : 0; // bright calcium-sulfate veins in cracks
+      const rockShade = Math.max(0, Math.min(1, rH * 0.9 + vein * 0.75));
+      rockAlbedoData[rgbaIdx] = Math.round(48 + rockShade * 172);
+      rockAlbedoData[rgbaIdx + 1] = Math.round(38 + rockShade * 148);
+      rockAlbedoData[rgbaIdx + 2] = Math.round(32 + rockShade * 128);
+      // Alpha encodes roughness (0.55 .. 0.88)
+      rockAlbedoData[rgbaIdx + 3] = Math.round((0.58 + (1 - rockShade) * 0.28) * 255);
     }
   }
 
-  const dustNormalRgba = buildNormalFromHeight(dustH, size, 4.2, (h) => 220 - h * 40);
-  const rockNormalRgba = buildNormalFromHeight(rockH, size, 5.4, (h) => 195 - h * 65);
-
-  return {
-    dustAlbedoTex: makeRepeatDataTex(THREE, dustAlbedo, size, false),
-    dustNormalTex: makeRepeatDataTex(THREE, dustNormalRgba, size, false),
-    rockAlbedoTex: makeRepeatDataTex(THREE, rockAlbedo, size, false),
-    rockNormalTex: makeRepeatDataTex(THREE, rockNormalRgba, size, false),
+  const makeAlbedoTex = (bytes) => {
+    const tex = new THREE.DataTexture(bytes, size, size, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    return tex;
   };
+
+  const dustAlbedoTex = makeAlbedoTex(dustAlbedoData);
+  const dustNormalTex = buildNormalTextureFromHeightField(THREE, dustHeight, size, 5.5);
+  const rockAlbedoTex = makeAlbedoTex(rockAlbedoData);
+  const rockNormalTex = buildNormalTextureFromHeightField(THREE, rockHeight, size, 8.0);
+
+  const sets = {
+    dustAlbedoTex,
+    dustNormalTex,
+    rockAlbedoTex,
+    rockNormalTex,
+    dustAlbedo: dustAlbedoTex,
+    dustNormal: dustNormalTex,
+    rockAlbedo: rockAlbedoTex,
+    rockNormal: rockNormalTex,
+  };
+
+  if (options?.ktx2Urls && options?.renderer) {
+    const ktx2Loader = createMartianKtx2Loader(options.renderer);
+    for (const key of ["dustAlbedo", "dustNormal", "rockAlbedo", "rockNormal"]) {
+      const url = options.ktx2Urls[key];
+      if (url) {
+        ktx2Loader.load(
+          url,
+          (ktxTex) => {
+            ktxTex.wrapS = THREE.RepeatWrapping;
+            ktxTex.wrapT = THREE.RepeatWrapping;
+            sets[key] = ktxTex;
+          },
+          undefined,
+          () => {
+            // Keep procedural simplex-noise fallback texture on load failure
+          }
+        );
+      }
+    }
+  }
+
+  return sets;
 }

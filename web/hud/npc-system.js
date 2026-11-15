@@ -13,6 +13,7 @@
  *     Pink Zone corridor screen NPCs (NOT spawned yet).
  */
 
+import * as SkeletonUtils from "../../node_modules/three/examples/jsm/utils/SkeletonUtils.js";
 import { MARS_STATION_NPCS, CORRIDOR_SCREEN_NPC_SPECS } from "./npc-knowledge.js";
 import { mergeStaticMeshes } from "./merge-static.js";
 
@@ -163,11 +164,29 @@ function buildProceduralSuitStandIn(THREE, accentHex = "#38bdf8") {
   markNoMerge(head, false);
   mergeStaticMeshes(THREE, head, { castShadow: true, receiveShadow: true });
 
+  chest.name = "npc_chest";
+  head.name = "npc_head";
+  let mixer = null;
+  if (typeof THREE.AnimationMixer === "function" && typeof THREE.AnimationClip === "function" && typeof THREE.VectorKeyframeTrack === "function") {
+    mixer = new THREE.AnimationMixer(root);
+    const bobTrack = new THREE.VectorKeyframeTrack(
+      "npc_chest.position",
+      [0, 2.16, 4.33],
+      [0, 1.18, 0, 0, 1.192, 0, 0, 1.18, 0]
+    );
+    const clip = new THREE.AnimationClip("npc-standin-idle", 4.33, [bobTrack]);
+    mixer.clipAction(clip).play();
+  }
+
   return {
     group: root,
     bones: { head, chest, spine: chest },
+    mixer,
+    clone: () => SkeletonUtils.clone(root),
     isStandIn: true,
-    update() {},
+    update(dt = 0.016) {
+      if (mixer) mixer.update(dt);
+    },
   };
 }
 

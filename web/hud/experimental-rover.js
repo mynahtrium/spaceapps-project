@@ -14,6 +14,8 @@
  */
 
 import { mergeRigidParts, mergeStaticMeshes } from "./merge-static.js";
+import { resolveObbCollisionRapier, stepBallisticVertPhysics } from "../physics/MarsPhysicsWorld.js";
+import { stepAdvancedRoverPhysics as stepUnifiedAdvancedRoverPhysics } from "../physics/VehicleDynamics.js";
 
 export const MARS_GRAVITY_MS2 = 3.71;
 export const ROVER_FLIGHT_G = 9.4;
@@ -181,252 +183,43 @@ export function stepAdvancedRoverPhysics(
   } = {}
 ) {
   const spec = getDrivableVehicleSpec(vehicleType);
-  const safeDt = Math.max(0.001, Math.min(0.05, dt));
-  const mult = Math.max(0.25, Math.min(5.0, Number(speedMultiplier) || 1));
-
-  const yaw0 = Number(state.yaw) || 0;
-  const fx0 = -Math.sin(yaw0);
-  const fz0 = -Math.cos(yaw0);
-  const rx0 = Math.cos(yaw0);
-  const rz0 = -Math.sin(yaw0);
-
-  let vx = Number(state.velX) || 0;
-  let vz = Number(state.velZ) || 0;
-  let vFwd = vx * fx0 + vz * fz0;
-  let vLat = vx * rx0 + vz * rz0;
-
-  const topFwd = (boost ? spec.boostSpeedMs : spec.topSpeedMs) * mult;
-  const topRev = spec.reverseSpeedMs * mult;
-  const availPowerW = ((boost ? spec.boostPowerW : spec.powerW) || 24500) * mult;
-  const maxTorqueNm = (spec.wheelTorqueMaxNm || 2639.25) * mult;
-  const wheelRadiusM = Math.max(0.2, spec.wheelRadius || 0.345);
-  const massKg = Math.max(400, spec.massKg || 1850);
-
-  if (!airborne) {
-    // 1. Electric motor torque curve (wheel torque & kW power cap integrated into longitudinal dynamics)
-    const speedFrac = Math.min(1, Math.abs(vFwd) / Math.max(1, topFwd));
-    const wheelOmegaPre = Math.max(0.8, Math.abs(vFwd) / wheelRadiusM);
-    const torqueAvailPre = Math.min(maxTorqueNm, availPowerW / wheelOmegaPre);
-    const tractiveForceN = torqueAvailPre / wheelRadiusM;
-    const torqueFactor = Math.max(1, tractiveForceN / (massKg * 2.2));
-    const lowEndBoost = (1 + (1 - speedFrac) * 0.45 * (spec.slopeTorque || 1)) * Math.min(1.65, Math.sqrt(torqueFactor));
-    const reversingInput = throttle !== 0 && throttle * vFwd < -0.6;
-
-    let targetVel = 0;
-    if (handbrake && throttle >= 0) {
-      targetVel = vFwd * 0.72; // Hold/bleed momentum during handbrake slide
-    } else if (throttle > 0) {
-      targetVel = topFwd;
-    } else if (throttle < 0) {
-      targetVel = -topRev;
-    }
-
-    const rate = handbrake
-      ? 2.2
-      : reversingInput
-        ? spec.brakeGain
-        : throttle !== 0
-          ? spec.accelGain * (boost ? 1.32 : 1.0) * lowEndBoost
-          : 4.2;
-
-    let nextVFwd = vFwd + (targetVel - vFwd) * Math.min(1, safeDt * rate);
-    if (throttle === 0 && !handbrake && Math.abs(nextVFwd) < 0.18) nextVFwd = 0;
-
-    if (realisticPhysics) {
-      // Slope longitudinal gravity load + lateral side-camber slide, countered by wheel torque reserve
-      const climbAssist =
-        throttle !== 0
-          ? Math.min(0.65, (spec.slopeTorque - 1) * 0.35 + (maxTorqueNm / (massKg * MARS_GRAVITY_MS2 * wheelRadiusM)) * 0.08)
-          : 0;
-      nextVFwd -= MARS_GRAVITY_MS2 * Math.sin(slopePitch) * (1.12 - climbAssist) * safeDt;
-      vLat += MARS_GRAVITY_MS2 * Math.sin(slopeRoll) * 0.75 * safeDt;
-    }
-
-    // 2. Steering yaw authority + drifting oversteer yaw kick
-    const absFwd = Math.abs(nextVFwd);
-    const speedAuth = Math.min(1, absFwd / 2.8) * 0.8 + 0.2;
-    const turnDir = absFwd > 0.3 ? Math.sign(nextVFwd) : 0.48;
-    const handbrakeYawGain = handbrake && absFwd > 4.2 ? 1.48 : 1.0;
-    const targetYawRate = steer * turnDir * spec.steerRate * speedAuth * handbrakeYawGain;
-    state.yawRate = (state.yawRate || 0) + (targetYawRate - (state.yawRate || 0)) * Math.min(1, safeDt * 12);
-    const deltaYaw = state.yawRate * safeDt;
-    state.yaw = yaw0 + deltaYaw;
-
-    // 3. Reproject velocity onto new chassis heading & apply Martian tire cornering grip vs handbrake drift
-    const yaw1 = state.yaw;
-    const fx1 = -Math.sin(yaw1);
-    const fz1 = -Math.cos(yaw1);
-    const rx1 = Math.cos(yaw1);
-    const rz1 = -Math.sin(yaw1);
-
-    const curVx = fx0 * nextVFwd + rx0 * vLat;
-    const curVz = fz0 * nextVFwd + rz0 * vLat;
-    const projFwd = curVx * fx1 + curVz * fz1;
-    const projLat = curVx * rx1 + curVz * rz1;
-
-    const highSpeedSharpWhip = Math.abs(steer) > 0.55 && Math.abs(projFwd) > topFwd * 0.48;
-    const isDrifting = (handbrake || highSpeedSharpWhip) && Math.hypot(projFwd, projLat) > 4.5;
-    const grip = isDrifting ? spec.driftGrip : handbrake ? spec.driftGrip * 1.2 : spec.gripBase;
-    const dampedLat = projLat * Math.exp(-safeDt * grip);
-
-    vx = fx1 * projFwd + rx1 * dampedLat;
-    vz = fz1 * projFwd + rz1 * dampedLat;
-    vFwd = projFwd;
-    vLat = dampedLat;
-
-    // Preserve angular pitch/roll momentum gently when launching off ground later
-    state.airPitchVel = ((slopePitch - (state.lastSlopePitch ?? slopePitch)) / safeDt) * 0.35;
-    state.airRollVel = (state.yawRate * Math.min(1, absFwd / 12)) * 0.22;
-    state.lastSlopePitch = slopePitch;
-    state.drifting = isDrifting || (Math.abs(vLat) > 2.4 && Math.abs(projFwd) > 4.0);
-  } else {
-    // Mid-air attitude trim (reaction wheel torque: A/D yaw + slight W/S pitch level + ballistic aero drag)
-    const airYaw = steer * 0.62 * safeDt;
-    state.yaw = yaw0 + airYaw;
-    const drag = Math.exp(-safeDt * 0.05);
-    vx *= drag;
-    vz *= drag;
-
-    const yaw1 = state.yaw;
-    vFwd = vx * -Math.sin(yaw1) + vz * -Math.cos(yaw1);
-    vLat = vx * Math.cos(yaw1) - vz * Math.sin(yaw1);
-    state.airPitchVel = ((state.airPitchVel || 0) - throttle * 1.25 * safeDt) * Math.exp(-safeDt * 1.8);
-    state.airRollVel = ((state.airRollVel || 0) - steer * 0.9 * safeDt) * Math.exp(-safeDt * 2.2);
-    state.drifting = false;
-  }
-
-  state.velX = vx;
-  state.velZ = vz;
-  state.forwardSpeed = vFwd;
-  state.lateralSpeed = vLat;
-
-  const totalHoriz = Math.hypot(vx, vz);
-  const slipRatio = totalHoriz > 0.8 ? Math.min(1, Math.abs(vLat) / totalHoriz + (handbrake ? 0.35 : 0)) : 0;
-  state.slipRatio = slipRatio;
-
-  const { gear, rpmNorm } = computeVehicleGearTelemetry(Math.abs(vFwd), topFwd);
-  state.gear = gear;
-  state.rpmNorm = rpmNorm;
-
-  const speedAbs = Math.abs(vFwd);
-  const wheelOmega = Math.max(0.8, speedAbs / wheelRadiusM);
-  const torqueAvail = Math.min(maxTorqueNm, availPowerW / wheelOmega);
-  const wheelTorqueNm = airborne ? 0 : throttle * torqueAvail;
-  const motorTorqueNm = wheelTorqueNm / ((spec.gearRatio || 18) * 0.88);
-  const mechPowerW = Math.abs(wheelTorqueNm * wheelOmega);
-  const mechPowerKw = mechPowerW / 1000;
-  const maxPowerKw = availPowerW / 1000;
-  const hp = mechPowerW / 745.699872;
-  const maxHp = availPowerW / 745.699872;
-  const weightN = massKg * MARS_GRAVITY_MS2;
-  state.wheelTorqueNm = wheelTorqueNm;
-  state.motorTorqueNm = motorTorqueNm;
-  state.mechPowerW = mechPowerW;
-  state.mechPowerKw = mechPowerKw;
-  state.maxPowerKw = maxPowerKw;
-  state.hp = hp;
-  state.maxHp = maxHp;
-  state.weightN = weightN;
-
-  return {
+  return stepUnifiedAdvancedRoverPhysics(state, {
     spec,
-    vFwd,
-    vLat,
-    totalHoriz,
-    slipRatio,
-    gear,
-    rpmNorm,
-    wheelTorqueNm,
-    motorTorqueNm,
-    mechPowerW,
-    hp,
-    maxHp,
-    weightN,
-    drifting: Boolean(state.drifting),
-    braking: Boolean(handbrake || (throttle < 0 && vFwd > 0.5)),
-  };
+    throttle,
+    steer,
+    boost,
+    handbrake,
+    speedMultiplier,
+    slopePitch,
+    slopeRoll,
+    airborne,
+    realisticPhysics,
+    dt,
+  });
 }
 
 /**
  * Pure vertical ballistic & crest-launch stepper for Mars chassis vehicle flight.
- * Absorbs normal terrain ripples on bogie travel and launches cleanly on real fast crests
- * or abrupt maneuvers, returning crisply under Martian gravity (`ROVER_FLIGHT_G`).
+ * Delegates to the shared `stepBallisticVertPhysics` solver in `MarsPhysicsWorld.js`.
  */
 export function stepRoverBallisticPhysics(
   state,
-  { groundY, slopeClimbVy = 0, bumpImpulseVy = 0, horizSpeed = 0, jumpBias = 1.0, dt = 0.016, marsG = ROVER_FLIGHT_G }
+  { groundY, slopeClimbVy = 0, bumpImpulseVy = 0, horizSpeed = 0, jumpBias = 1.0, dt = 0.016, marsG = ROVER_FLIGHT_G } = {}
 ) {
-  const s = state;
-  const safeDt = Math.max(0.001, Math.min(0.05, dt));
-  if (s.posY == null || !Number.isFinite(s.posY) || Math.abs(groundY - (s.prevGroundY ?? groundY)) > 6.0) {
-    s.posY = groundY;
-    s.velY = 0;
-    s.prevGroundY = groundY;
-    s.airborne = false;
-    s.airTime = 0;
-    s.peakLaunchVy = 0;
-    s.landingCooldown = 0;
-    return { launched: false, landed: false, impactSpeed: 0 };
-  }
-
-  const groundRiseRate = Math.max(-8, Math.min(10, (groundY - s.prevGroundY) / safeDt));
-  s.prevGroundY = groundY;
-  s.landingCooldown = Math.max(0, (s.landingCooldown || 0) - safeDt);
-
-  if (!s.airborne) {
-    if (s.landingCooldown > 0) {
-      s.posY = groundY;
-      s.velY = 0;
-      s.peakLaunchVy = 0;
-      s.airTime = 0;
-      return { launched: false, landed: false, impactSpeed: 0 };
-    }
-    const rawClimb = Math.max(groundRiseRate * 0.48 + slopeClimbVy * 0.45, slopeClimbVy * 0.78) + bumpImpulseVy;
-    const maxLaunchVy = 2.4 * Math.min(1.1, Math.max(0.75, jumpBias));
-    const effectiveClimb = Math.max(-4, Math.min(maxLaunchVy, (rawClimb - 0.55) * jumpBias));
-    s.peakLaunchVy = Math.max((s.peakLaunchVy || 0) * Math.exp(-safeDt * 8.5), effectiveClimb);
-
-    const ballisticY = s.posY + s.peakLaunchVy * safeDt - 0.5 * marsG * safeDt * safeDt;
-    const clearance = ballisticY - groundY;
-    const launchSpeedThresh = 14.5 / Math.max(0.75, jumpBias);
-    const shouldLaunch =
-      (clearance > 0.14 && s.peakLaunchVy > 1.95 && horizSpeed > launchSpeedThresh) || bumpImpulseVy > 3.4;
-
-    if (shouldLaunch) {
-      s.airborne = true;
-      s.velY = Math.min(maxLaunchVy, Math.max(s.peakLaunchVy, bumpImpulseVy > 3.4 ? bumpImpulseVy * jumpBias : 1.9));
-      s.posY = Math.max(s.posY, groundY) + s.velY * safeDt;
-      s.airTime = 0;
-      s.peakLaunchVy = 0;
-      return { launched: true, landed: false, impactSpeed: 0 };
-    }
-
-    s.posY = groundY;
-    s.velY = Math.min(0, effectiveClimb);
-    s.airTime = 0;
-    return { launched: false, landed: false, impactSpeed: 0 };
-  }
-
-  s.airTime += safeDt;
-  s.velY -= marsG * safeDt;
-  s.posY += s.velY * safeDt;
-
-  if (s.posY <= groundY) {
-    const impactSpeed = Math.max(0, -s.velY);
-    s.posY = groundY;
-    s.velY = 0;
-    s.airborne = false;
-    s.airTime = 0;
-    s.peakLaunchVy = 0;
-    s.landingCooldown = 0.24;
-    return { launched: false, landed: true, impactSpeed };
-  }
-
-  return { launched: false, landed: false, impactSpeed: 0 };
+  return stepBallisticVertPhysics(state, {
+    groundY,
+    slopeClimbVy,
+    bumpImpulseVy,
+    horizSpeed,
+    jumpBias,
+    dt,
+    marsG,
+  });
 }
 
 /**
  * Exact Oriented Rounded-Box (OBB) collision push-out in world XZ + vertical roof tolerance.
+ * Delegates to the Rapier3D cuboid `projectPoint` solver in `MarsPhysicsWorld.js`.
  */
 export function resolveRoverObbCollision(
   roverX,
@@ -441,73 +234,19 @@ export function resolveRoverObbCollision(
   halfL = ROVER_OBB_HALF_L,
   roofHeight = ROVER_OBB_HEIGHT_M
 ) {
-  if (entityY != null && Number.isFinite(entityY) && Number.isFinite(roverY)) {
-    if (entityY > roverY + roofHeight + 0.25) {
-      return { hit: false, x: entityX, z: entityZ, nx: 0, nz: 0, pen: 0 };
-    }
-  }
-
-  const cosY = Math.cos(roverYaw);
-  const sinY = Math.sin(roverYaw);
-  const dx = entityX - roverX;
-  const dz = entityZ - roverZ;
-  const lx = dx * cosY - dz * sinY;
-  const lz = dx * sinY + dz * cosY;
-
-  const clampedX = Math.max(-halfW, Math.min(halfW, lx));
-  const clampedZ = Math.max(-halfL, Math.min(halfL, lz));
-  const ux = lx - clampedX;
-  const uz = lz - clampedZ;
-  const distSq = ux * ux + uz * uz;
-
-  if (distSq >= entityRadius * entityRadius) {
-    return { hit: false, x: entityX, z: entityZ, nx: 0, nz: 0, pen: 0 };
-  }
-
-  let outLx = lx;
-  let outLz = lz;
-  let normLx = 0;
-  let normLz = 0;
-  let pen = 0;
-  if (distSq > 1e-8) {
-    const dist = Math.sqrt(distSq);
-    pen = entityRadius - dist;
-    normLx = ux / dist;
-    normLz = uz / dist;
-    outLx = clampedX + normLx * entityRadius;
-    outLz = clampedZ + normLz * entityRadius;
-  } else {
-    const penLeft = halfW + lx;
-    const penRight = halfW - lx;
-    const penFront = halfL + lz;
-    const penBack = halfL - lz;
-    const minFace = Math.min(penLeft, penRight, penFront, penBack);
-    pen = minFace + entityRadius;
-    if (minFace === penLeft) {
-      normLx = -1;
-      outLx = -halfW - entityRadius;
-    } else if (minFace === penRight) {
-      normLx = 1;
-      outLx = halfW + entityRadius;
-    } else if (minFace === penFront) {
-      normLz = -1;
-      outLz = -halfL - entityRadius;
-    } else {
-      normLz = 1;
-      outLz = halfL + entityRadius;
-    }
-  }
-
-  const nx = normLx * cosY + normLz * sinY;
-  const nz = -normLx * sinY + normLz * cosY;
-  return {
-    hit: true,
-    x: roverX + outLx * cosY + outLz * sinY,
-    z: roverZ - outLx * sinY + outLz * cosY,
-    nx,
-    nz,
-    pen,
-  };
+  return resolveObbCollisionRapier(
+    roverX,
+    roverZ,
+    roverYaw,
+    roverY,
+    entityX,
+    entityZ,
+    entityRadius,
+    entityY,
+    halfW,
+    halfL,
+    roofHeight
+  );
 }
 
 function makeSolarTexture(THREE) {

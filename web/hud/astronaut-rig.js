@@ -12,6 +12,8 @@
  */
 
 import * as THREE from "three";
+import * as SkeletonUtils from "../../node_modules/three/examples/jsm/utils/SkeletonUtils.js";
+import { CCDIKSolver } from "../../node_modules/three/examples/jsm/animation/CCDIKSolver.js";
 import { FROUDE_LOPE_MS, HIP_NEUTRAL_RAD, KNEE_NEUTRAL_RAD } from "../physics/SuitBiomechanics.js";
 
 const smooth = (a, b, x) => {
@@ -674,10 +676,20 @@ export function createAstronaut(rig, { hideHead = false, handRoll = null, handCu
     foot.position.set(0, J.ankleY - J.kneeY, 0);
   }
 
+  const ikTargetL = new THREE.Bone();
+  ikTargetL.name = "ikTargetL";
+  ikTargetL.position.set(J.legL, J.ankleY, 0);
+  const ikTargetR = new THREE.Bone();
+  ikTargetR.name = "ikTargetR";
+  ikTargetR.position.set(J.legR, J.ankleY, 0);
+  root.add(ikTargetL, ikTargetR);
+  bones.push(ikTargetL, ikTargetR);
+
   root.updateMatrixWorld(true); // bind pose must be current before the inverses are taken
   const skeleton = new THREE.Skeleton(bones);
   const group = new THREE.Group();
   group.add(root);
+  let primarySkinnedMesh = null;
   for (const p of parts) {
     const mesh = new THREE.SkinnedMesh(p.geometry, p.material);
     mesh.bind(skeleton, new THREE.Matrix4());
@@ -685,8 +697,44 @@ export function createAstronaut(rig, { hideHead = false, handRoll = null, handCu
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     group.add(mesh);
+    if (!primarySkinnedMesh) primarySkinnedMesh = mesh;
   }
   if (hideHead) head.scale.setScalar(1e-4);
+
+  // Initialize CCDIKSolver for two-bone leg chains (thigh -> shin -> foot -> ikTarget)
+  const ikSolver = primarySkinnedMesh
+    ? new CCDIKSolver(primarySkinnedMesh, [
+        {
+          target: bones.indexOf(ikTargetL),
+          effector: B.footL,
+          links: [
+            { index: B.shinL, rotationMin: new THREE.Vector3(-1.35, 0, 0), rotationMax: new THREE.Vector3(0, 0, 0) },
+            { index: B.thighL, rotationMin: new THREE.Vector3(-0.85, -0.25, -0.35), rotationMax: new THREE.Vector3(0.95, 0.25, 0.35) },
+          ],
+          iteration: 2,
+        },
+        {
+          target: bones.indexOf(ikTargetR),
+          effector: B.footR,
+          links: [
+            { index: B.shinR, rotationMin: new THREE.Vector3(-1.35, 0, 0), rotationMax: new THREE.Vector3(0, 0, 0) },
+            { index: B.thighR, rotationMin: new THREE.Vector3(-0.85, -0.25, -0.35), rotationMax: new THREE.Vector3(0.95, 0.25, 0.35) },
+          ],
+          iteration: 2,
+        },
+      ])
+    : null;
+
+  // Initialize THREE.AnimationMixer with procedural idle breathing clip
+  const mixer = new THREE.AnimationMixer(group);
+  const idleTrack = new THREE.NumberKeyframeTrack(
+    ".bones[chest].rotation[x]",
+    [0, 2.0, 4.0],
+    [0, 0.012, 0]
+  );
+  const idleClip = new THREE.AnimationClip("suit-idle", 4.0, [idleTrack]);
+  const idleAction = mixer.clipAction(idleClip);
+  idleAction.play();
 
   const basePelvisY = J.hipY;
   // Rest pose for the arms: natural clearance beside the pressurized suit with palms facing
@@ -1153,6 +1201,8 @@ export function createAstronaut(rig, { hideHead = false, handRoll = null, handCu
       wristFollowR
     );
     head.rotation.y = a * 0.02 * Math.sin(phase) + sway * 0.015;
+    ikTargetL.position.set(J.legL, J.ankleY + (hasFootDyL ? sFootDyL * sDyWeightL : 0), 0);
+    ikTargetR.position.set(J.legR, J.ankleY + (hasFootDyR ? sFootDyR * sDyWeightR : 0), 0);
 
     group.updateWorldMatrix(true, true);
     alignAnkle(footL, shinL, hasNormL ? sNormL : null, sL);
@@ -1167,7 +1217,10 @@ export function createAstronaut(rig, { hideHead = false, handRoll = null, handCu
 
   return {
     group,
-    bones: { root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR, handL, handR },
+    bones: { root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR, handL, handR, ikTargetL, ikTargetR },
+    mixer,
+    ikSolver,
+    clone: () => SkeletonUtils.clone(group),
     update,
     /** Show the helmet for a 3rd-person camera; hide it for the helmet (1st-person) camera. */
     setHeadVisible(v) {

@@ -10,10 +10,24 @@
  * - Vertical frame: MOLA Mars areoid (meters; DTEEC_019698 elevations -3850.6..-3369.3 m)
  */
 
+import * as GeodesicPkg from "../../node_modules/geographiclib-geodesic/geographiclib-geodesic.min.js";
+
 export const MARS_RADIUS_MEAN_M = 3389500;
 export const MARS_RADIUS_EQ_M = 3396190;
 export const MARS_RADIUS_POLAR_M = 3376200;
+export const MARS_FLATTENING = (MARS_RADIUS_EQ_M - MARS_RADIUS_POLAR_M) / MARS_RADIUS_EQ_M;
 export const WEB_MERCATOR_MAX_LAT_DEG = 85.05112877980659;
+
+const GeodesicCtor =
+  GeodesicPkg?.Geodesic?.Geodesic ||
+  GeodesicPkg?.default?.Geodesic?.Geodesic ||
+  globalThis.geodesic?.Geodesic?.Geodesic;
+
+/** Pre-configured IAU 2015 Mars oblate ellipsoid geodesic solver (`a = 3396190 m, b = 3376200 m`). */
+export const MARS_ELLIPSOID_GEODESIC = new GeodesicCtor(MARS_RADIUS_EQ_M, MARS_FLATTENING);
+
+/** Pre-configured spherical Mars geodesic solver (`R = 3389500 m, f = 0`). */
+export const MARS_SPHERE_GEODESIC = new GeodesicCtor(MARS_RADIUS_MEAN_M, 0);
 
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
@@ -82,7 +96,9 @@ export function areoidOffsetM(_latDeg, _lonDeg) {
 }
 
 /**
- * Great-circle Haversine distance in meters on Mars (mean radius 3,389.5 km by default).
+ * Geodesic distance in meters on Mars using `geographiclib-geodesic`.
+ * Uses the spherical Mars geodesic (`radiusM`, default 3,389.5 km) when `radiusM` is passed,
+ * or the oblate Mars ellipsoid when `radiusM === MARS_RADIUS_EQ_M`.
  * @param {number[]|{lon?:number,lng?:number,lat:number}} a
  * @param {number[]|{lon?:number,lng?:number,lat:number}} b
  * @param {number} [radiusM=MARS_RADIUS_MEAN_M]
@@ -91,33 +107,59 @@ export function areoidOffsetM(_latDeg, _lonDeg) {
 export function marsDistanceM(a, b, radiusM = MARS_RADIUS_MEAN_M) {
   const [lon1, lat1] = toLngLat(a);
   const [lon2, lat2] = toLngLat(b);
-  const dLat = (lat2 - lat1) * DEG2RAD;
-  const dLon = wrapLongitudeDeltaDeg(lon2 - lon1) * DEG2RAD;
-  const phi1 = lat1 * DEG2RAD;
-  const phi2 = lat2 * DEG2RAD;
-  const sinLat = Math.sin(dLat / 2);
-  const sinLon = Math.sin(dLon / 2);
-  const h = sinLat * sinLat + Math.cos(phi1) * Math.cos(phi2) * sinLon * sinLon;
-  return 2 * radiusM * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+  const solver =
+    radiusM === MARS_RADIUS_MEAN_M
+      ? MARS_SPHERE_GEODESIC
+      : radiusM === MARS_RADIUS_EQ_M
+        ? MARS_ELLIPSOID_GEODESIC
+        : new GeodesicCtor(radiusM, 0);
+  const inv = solver.Inverse(lat1, lon1, lat2, lon2);
+  return inv.s12;
 }
 
 /**
- * Initial forward azimuth bearing in degrees clockwise from Mars true North [0, 360).
+ * Oblate Mars ellipsoid (`a = 3396190 m, b = 3376200 m`) geodesic distance in meters.
  * @param {number[]|{lon?:number,lng?:number,lat:number}} a
  * @param {number[]|{lon?:number,lng?:number,lat:number}} b
  * @returns {number}
  */
-export function marsBearingDeg(a, b) {
+export function marsEllipsoidDistanceM(a, b) {
   const [lon1, lat1] = toLngLat(a);
   const [lon2, lat2] = toLngLat(b);
-  const phi1 = lat1 * DEG2RAD;
-  const phi2 = lat2 * DEG2RAD;
-  const dLon = wrapLongitudeDeltaDeg(lon2 - lon1) * DEG2RAD;
-  const y = Math.sin(dLon) * Math.cos(phi2);
-  const x =
-    Math.cos(phi1) * Math.sin(phi2) -
-    Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
-  return ((Math.atan2(y, x) * RAD2DEG) + 360) % 360;
+  return MARS_ELLIPSOID_GEODESIC.Inverse(lat1, lon1, lat2, lon2).s12;
+}
+
+/**
+ * Initial forward azimuth bearing in degrees clockwise from Mars true North [0, 360),
+ * computed with `geographiclib-geodesic` on the Mars ellipsoid.
+ * @param {number[]|{lon?:number,lng?:number,lat:number}} a
+ * @param {number[]|{lon?:number,lng?:number,lat:number}} b
+ * @param {{ellipsoid?: boolean}} [options]
+ * @returns {number}
+ */
+export function marsBearingDeg(a, b, { ellipsoid = true } = {}) {
+  const [lon1, lat1] = toLngLat(a);
+  const [lon2, lat2] = toLngLat(b);
+  const solver = ellipsoid ? MARS_ELLIPSOID_GEODESIC : MARS_SPHERE_GEODESIC;
+  const inv = solver.Inverse(lat1, lon1, lat2, lon2);
+  return ((inv.azi1 % 360) + 360) % 360;
+}
+
+/**
+ * Direct geodesic step from `origin` along `azimuthDeg` for `distanceM` meters on the Mars ellipsoid.
+ * @param {number[]|{lon?:number,lng?:number,lat:number}} origin
+ * @param {number} azimuthDeg
+ * @param {number} distanceM
+ * @returns {{lon: number, lat: number, finalAzimuthDeg: number}}
+ */
+export function marsDirectGeodesic(origin, azimuthDeg, distanceM) {
+  const [lon1, lat1] = toLngLat(origin);
+  const dir = MARS_ELLIPSOID_GEODESIC.Direct(lat1, lon1, azimuthDeg, distanceM);
+  return {
+    lon: normalizeLonDeg(dir.lon2),
+    lat: clampLatDeg(dir.lat2),
+    finalAzimuthDeg: ((dir.azi2 % 360) + 360) % 360,
+  };
 }
 
 /**
