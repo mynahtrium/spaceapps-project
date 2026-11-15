@@ -3636,7 +3636,7 @@ export async function initHud3D(
       }
       return;
     }
-    if ((k === "m" || k === "o") && !e.repeat) {
+    if (k === "o" && !e.repeat) {
       e.preventDefault();
       releasePointerLock();
       onOpenOrbit?.();
@@ -5124,6 +5124,17 @@ export async function initHud3D(
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
     sun.castShadow = sunUpNow > 0.01;
+    window.MartianWeather?.update?.({
+      THREE,
+      scene,
+      camera,
+      sun,
+      hemiLight,
+      player: { x: px, y: player.y, z: pz },
+      groundY,
+      dt,
+      sampleElevY: sampleElevSceneY,
+    });
     // The sun moves ~0.25°/min: refresh the direction every 30 s, re-bake terrain shadows every ~10 min.
     if (now - sunStateStampMs > 30000) {
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });

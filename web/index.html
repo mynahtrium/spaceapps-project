@@ -174,12 +174,12 @@
             <div id="hud-comms-toast" class="comms-toast"></div>
             <div class="should-line hud-sub" id="hud-should-line">—</div>
             <div class="hud-hint" style="text-align:left;margin-top:4px;">
-              WASD MOVE · SHIFT BOOST · SPACE JUMP · E INTERACT · V 3RD PERSON · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · R RAY TRACING · M ORBIT · ESC MENU
+              WASD MOVE · SHIFT BOOST · SPACE JUMP · E INTERACT · V 3RD PERSON · F FLASHLIGHT · G GOLD VISOR · Z ZOOM · R RAY TRACING · O ORBIT · M WEATHER · ESC MENU
             </div>
           </div>
 
           <div class="hud-controls">
-            <button id="hud-orbit-btn" class="btn">Orbit (M)</button>
+            <button id="hud-orbit-btn" class="btn">Orbit (O)</button>
             <button id="hud-sun-btn" class="btn">Sun: day</button>
             <button id="hud-gold-btn" class="btn">Gold (G)</button>
             <button id="hud-lamp-btn" class="btn">Flashlight (F)</button>
@@ -328,6 +328,7 @@
 
   <script src="./vendor/maplibre-gl.js"></script>
   <script src="./shared/audioEngine.js"></script>
+  <script type="module" src="./environment/marsWeather.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
