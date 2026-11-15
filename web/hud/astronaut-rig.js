@@ -35,6 +35,8 @@ const BONES = [
   "armR",
   "foreL",
   "foreR",
+  "handL",
+  "handR",
 ];
 const B = Object.fromEntries(BONES.map((n, i) => [n, i]));
 
@@ -156,7 +158,11 @@ export async function loadSuitRig(loader, url, heightM) {
     const dE = 0.42 * dMax;
     const elbow = avg((q) => Math.abs(q[3] - dE) < 0.03 * H, sh.clone().add(new THREE.Vector3(0, -0.3 * H, 0)));
     const hand = avg((q) => q[3] > 0.9 * dMax, elbow.clone().add(new THREE.Vector3(0, -0.35 * H, 0)));
-    J.arm[side] = { shoulder: sh, elbow, hand, dE };
+    // wrist: the glove starts about 0.13 H before the fingertip cluster, along the forearm axis
+    const axis = hand.clone().sub(elbow).normalize();
+    const wristProj = hand.clone().sub(elbow).dot(axis) - 0.13 * H;
+    const wrist = elbow.clone().addScaledVector(axis, wristProj);
+    J.arm[side] = { shoulder: sh, elbow, hand, dE, axis, wristProj, wrist };
   }
 
   // Skin weights & clean anatomical NASA White/Orange color-zone masks from vertex position.
@@ -318,6 +324,25 @@ function cylindrifyLegs(parts, H) {
 }
 
 function weightsFor(x, y, z, J, H) {
+  const list = weightsForBody(x, y, z, J, H);
+  // glove: whatever the forearm bone holds beyond the wrist goes to the hand bone (smooth over ~5 cm)
+  const side = x < 0 ? "L" : "R";
+  const a = J.arm?.[side];
+  if (!a) return list;
+  const fore = B[`fore${side}`];
+  const hand = B[`hand${side}`];
+  const i = list.findIndex((e) => e[0] === fore);
+  if (i < 0) return list;
+  const proj = (x - a.elbow.x) * a.axis.x + (y - a.elbow.y) * a.axis.y + (z - a.elbow.z) * a.axis.z;
+  const t = smooth(a.wristProj - 0.03 * H, a.wristProj + 0.025 * H, proj);
+  if (t <= 0.001) return list;
+  const w = list[i][1];
+  list[i] = [fore, w * (1 - t)];
+  list.push([hand, w * t]);
+  return normalise(list.filter((e) => e[1] > 1e-3));
+}
+
+function weightsForBody(x, y, z, J, H) {
   const out = [];
   const add = (b, w) => {
     if (w > 1e-3) out.push([b, w]);
@@ -428,15 +453,16 @@ function normalise(list) {
 }
 
 /** One rigged astronaut in the scene. */
-export function createAstronaut(rig, { hideHead = false } = {}) {
+export function createAstronaut(rig, { hideHead = false, handRoll = null, handCurl = null } = {}) {
   const { parts, J } = rig;
   const bones = BONES.map((name) => {
     const b = new THREE.Bone();
     b.name = name;
     return b;
   });
-  const [root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR] =
-    bones;
+  const [
+    root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR, handL, handR,
+  ] = bones;
   root.add(pelvis);
   pelvis.position.set(0, J.hipY, 0);
   pelvis.add(spine);
@@ -452,6 +478,10 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   armR.add(foreR);
   foreL.position.copy(J.arm.L.elbow).sub(J.arm.L.shoulder);
   foreR.position.copy(J.arm.R.elbow).sub(J.arm.R.shoulder);
+  foreL.add(handL);
+  foreR.add(handR);
+  handL.position.copy(J.arm.L.wrist).sub(J.arm.L.elbow);
+  handR.position.copy(J.arm.R.wrist).sub(J.arm.R.elbow);
   for (const [thigh, shin, foot, x] of [
     [thighL, shinL, footL, J.legL],
     [thighR, shinR, footR, J.legR],
@@ -540,6 +570,30 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
   }
   poseArm(armL, foreL, "L", 0, 0);
   poseArm(armR, foreR, "R", 0, 0);
+
+  // Hands: the NASA mesh holds the glove palm-forward with spread fingers. A relaxed arm has the
+  // palm turned in towards the thigh and the hand slightly curled, so the glove rolls about the
+  // forearm axis (pronation) and bends a little at the wrist.
+  const ROLL = handRoll ?? 1.35;
+  const CURL = handCurl ?? 0.22;
+  const qRoll = new THREE.Quaternion();
+  const qCurl = new THREE.Quaternion();
+  const handRest = {};
+  for (const [side, sign] of [
+    ["L", -1],
+    ["R", 1],
+  ]) {
+    const axis = J.arm[side].axis; // forearm axis in the bind pose (forearm bone frame = world axes)
+    const across = new THREE.Vector3(0, 1, 0).cross(axis).normalize(); // hinge of the wrist
+    qRoll.setFromAxisAngle(axis, sign * ROLL);
+    qCurl.setFromAxisAngle(across, CURL);
+    handRest[side] = new THREE.Quaternion().copy(qRoll).multiply(qCurl);
+  }
+  handL.quaternion.copy(handRest.L);
+  handR.quaternion.copy(handRest.R);
+  // gloves read small against the bulky sleeves: a touch larger, about the wrist
+  handL.scale.setScalar(1.16);
+  handR.scale.setScalar(1.16);
   let phase = 0;
   let idlePhase = 0;
   let airPhase = 0;
@@ -670,6 +724,22 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
    * @param pose optional { crouch, lean, brake, footDyL, footDyR, normalL, normalR, onStrike }
    */
   function update(dt, moved, speed, airborne, dir, pose) {
+    if (pose?.reset) {
+      sSpeed = 0;
+      amount = 0;
+      dirF = 0;
+      dirS = 0;
+      sFootDyL = 0;
+      sFootDyR = 0;
+      sDyWeightL = 0;
+      sDyWeightR = 0;
+      hasFootDyL = false;
+      hasFootDyR = false;
+      hasNormL = false;
+      hasNormR = false;
+      prevStanceL = 0;
+      prevStanceR = 0;
+    }
     const safeDt = Math.min(0.05, Math.max(0, dt || 0.016));
     const damp = (rate) => 1 - Math.exp(-rate * safeDt);
     const rawSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
@@ -834,7 +904,7 @@ export function createAstronaut(rig, { hideHead = false } = {}) {
 
   return {
     group,
-    bones: { root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR },
+    bones: { root, pelvis, spine, chest, head, thighL, shinL, footL, thighR, shinR, footR, armL, armR, foreL, foreR, handL, handR },
     update,
     /** Show the helmet for a 3rd-person camera; hide it for the helmet (1st-person) camera. */
     setHeadVisible(v) {

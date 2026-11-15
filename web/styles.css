@@ -2606,6 +2606,8 @@ body.landing-active .visor-overlay,
 body.landing-active .hud-reticle,
 body.landing-active .rover-dash {
   visibility: hidden;
+}
+
 /* Interactive Astronaut NPC Dialogue HUD Overlay */
 .npc-dialogue-backdrop {
   position: fixed;

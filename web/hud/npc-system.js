@@ -154,52 +154,119 @@ function buildProceduralSuitStandIn(THREE, accentHex = "#38bdf8") {
   };
 }
 
+function wrapSpeechLines(ctx, text, maxWidth, maxLines = 2) {
+  const words = String(text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines = [];
+  let line = "";
+  for (let i = 0; i < words.length; i++) {
+    const candidate = line ? `${line} ${words[i]}` : words[i];
+    if (ctx.measureText(candidate).width <= maxWidth || !line) {
+      line = candidate;
+    } else {
+      lines.push(line);
+      line = words[i];
+      if (lines.length >= maxLines - 1) {
+        const remaining = words.slice(i).join(" ");
+        let trimmed = remaining;
+        while (trimmed.length > 3 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
+          trimmed = trimmed.slice(0, -1).trimEnd();
+        }
+        lines.push(trimmed.length < remaining.length ? `${trimmed}…` : trimmed);
+        line = "";
+        break;
+      }
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, maxLines);
+}
+
 function buildNpcNameplateSprite(THREE, spec) {
   let tex = null;
+  let canvas = null;
+  let ctx = null;
+  let currentLang = "en";
+  let currentSpeech = "";
+
   if (typeof document !== "undefined") {
     try {
-      const canvas = document.createElement("canvas");
-      canvas.width = 512;
-      canvas.height = 112;
-      const ctx = canvas.getContext("2d");
+      canvas = document.createElement("canvas");
+      canvas.width = 560;
+      canvas.height = 176;
+      ctx = canvas.getContext("2d");
       if (ctx) {
-        const accent = spec.accentHex || "#38bdf8";
-        // Outer rounded dark NASA glass pill
-        ctx.fillStyle = "rgba(6, 13, 24, 0.88)";
-        ctx.beginPath();
-        ctx.roundRect?.(10, 12, 492, 88, 16);
-        if (!ctx.roundRect) ctx.rect(10, 12, 492, 88);
-        ctx.fill();
-
-        ctx.strokeStyle = accent;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-
-        // Top accent strip + status dot
-        ctx.fillStyle = accent;
-        ctx.beginPath();
-        ctx.arc(38, 44, 8, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Primary Name - Specialty Line
-        ctx.fillStyle = "#f8fafc";
-        ctx.font = "700 24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText(String(spec.tagText || spec.name).slice(0, 34), 56, 44);
-
-        // Prompt Line
-        ctx.fillStyle = accent;
-        ctx.font = "600 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-        ctx.fillText(`[E] TALK · ${String(spec.vehicleName?.en || spec.vehicleId).slice(0, 34)}`, 30, 78);
-
         tex = new THREE.CanvasTexture(canvas);
         if ("colorSpace" in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
       }
     } catch {
       tex = null;
+      canvas = null;
+      ctx = null;
     }
   }
+
+  function redraw({ lang = currentLang, speechText = currentSpeech } = {}) {
+    currentLang = lang === "tr" ? "tr" : "en";
+    if (typeof speechText === "string") currentSpeech = speechText;
+    if (!ctx || !canvas || !tex) return;
+
+    const isTr = currentLang === "tr";
+    const accent = spec.accentHex || "#38bdf8";
+    const defaultGreeting = isTr ? spec.greeting?.tr || spec.greeting?.en || "" : spec.greeting?.en || "";
+    const shownSpeech = (currentSpeech || defaultGreeting).trim();
+    const roleLabel = isTr ? spec.role?.tr || spec.role?.en : spec.role?.en;
+    const headerTitle = isTr ? `${spec.shortName || spec.name} · ${roleLabel || ""}` : spec.tagText || spec.name;
+    const vehicleLabel = isTr ? spec.vehicleName?.tr || spec.vehicleName?.en || spec.vehicleId : spec.vehicleName?.en || spec.vehicleId;
+    const promptLine = isTr ? `[E] KONUŞ · TIKLA · ${vehicleLabel}` : `[E] TALK · CLICK · ${vehicleLabel}`;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Outer rounded dark NASA glass pill + speech box
+    ctx.fillStyle = "rgba(6, 13, 24, 0.90)";
+    ctx.beginPath();
+    ctx.roundRect?.(10, 10, 540, 156, 18);
+    if (!ctx.roundRect) ctx.rect(10, 10, 540, 156);
+    ctx.fill();
+
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Top accent status dot + Name / Specialty
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.arc(36, 40, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = "700 22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(headerTitle).slice(0, 38), 54, 40);
+
+    // Subtle divider between header and speech bubble text
+    ctx.fillStyle = "rgba(148, 163, 184, 0.22)";
+    ctx.fillRect(26, 62, 508, 1.5);
+
+    // Overhead character speech / dialogue text
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "500 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+    const quoteText = shownSpeech ? `"${shownSpeech}"` : "";
+    const lines = wrapSpeechLines(ctx, quoteText, 504, 2);
+    lines.forEach((line, i) => {
+      ctx.fillText(line, 28, 86 + i * 24);
+    });
+
+    // Prompt Line
+    ctx.fillStyle = accent;
+    ctx.font = "700 17px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.fillText(promptLine.slice(0, 44), 28, 142);
+
+    tex.needsUpdate = true;
+  }
+
+  redraw({ lang: "en", speechText: "" });
 
   const mat = new THREE.SpriteMaterial({
     map: tex,
@@ -210,10 +277,10 @@ function buildNpcNameplateSprite(THREE, spec) {
   });
   const sprite = new THREE.Sprite(mat);
   sprite.name = `npc-tag-${spec.id}`;
-  sprite.scale.set(2.35, 0.52, 1);
-  sprite.position.set(0, 2.24, 0);
+  sprite.scale.set(2.8, 0.88, 1);
+  sprite.position.set(0, 2.38, 0);
   sprite.userData.npcId = spec.id;
-  return { sprite, tex, mat };
+  return { sprite, tex, mat, redraw };
 }
 
 function tagNpcHierarchy(obj, npcId) {
@@ -453,7 +520,30 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
   const viewProj = new THREE.Matrix4();
   const cullSphere = new THREE.Sphere(new THREE.Vector3(), 3.5);
 
-  function update(dt, playerPos, clockT = 0, { activeNpcId = null, terrainSampler = null, camera = null } = {}) {
+  let activeLang = "en";
+
+  function setLanguage(lang) {
+    const nextLang = lang === "tr" ? "tr" : "en";
+    if (nextLang === activeLang) return;
+    activeLang = nextLang;
+    for (const entry of npcs.values()) {
+      entry.speechText = "";
+      entry.nameplate?.redraw?.({ lang: activeLang, speechText: "" });
+    }
+  }
+
+  function setNpcSpeech(npcId, speechText, lang = activeLang) {
+    const entry = npcs.get(npcId);
+    if (!entry) return false;
+    const nextLang = lang === "tr" ? "tr" : "en";
+    activeLang = nextLang;
+    entry.speechText = String(speechText || "").trim();
+    entry.nameplate?.redraw?.({ lang: nextLang, speechText: entry.speechText });
+    return true;
+  }
+
+  function update(dt, playerPos, clockT = 0, { activeNpcId = null, terrainSampler = null, lang = null, camera = null } = {}) {
+    if (lang) setLanguage(lang);
     const safeDt = Math.max(0.001, Math.min(0.1, Number(dt) || 0.016));
     const sampler = terrainSampler || sampleElevY;
     if (camera) {
@@ -521,7 +611,7 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
 
       // Subtle floating tag bob
       if (entry.nameplate?.sprite) {
-        entry.nameplate.sprite.position.y = 2.24 + Math.sin(t * 1.8) * 0.025;
+        entry.nameplate.sprite.position.y = 2.38 + Math.sin(t * 1.8) * 0.025;
       }
     }
   }
@@ -613,6 +703,8 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
       return null;
     },
     setSuitRig,
+    setLanguage,
+    setNpcSpeech,
     anchorDrivableVehicleNpc,
     syncHistoricRoverNpcs,
     spawnCorridorScreenNPCs,

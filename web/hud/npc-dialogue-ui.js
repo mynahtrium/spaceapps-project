@@ -9,7 +9,7 @@
 
 import { getNpcSpecById, queryNpcWithHook } from "./npc-knowledge.js";
 
-export function initNpcDialogueUi({ onOpen = null, onClose = null, getLang = null } = {}) {
+export function initNpcDialogueUi({ onOpen = null, onClose = null, getLang = null, onReply = null } = {}) {
   const modalEl = document.getElementById("npc-dialogue-modal");
   const panelEl = modalEl?.querySelector(".npc-dialogue-panel");
   const dotEl = document.getElementById("npc-dlg-dot");
@@ -87,6 +87,7 @@ export function initNpcDialogueUi({ onOpen = null, onClose = null, getLang = nul
           aText,
           "NASA Mission Archives & Project Baseline"
         );
+        onReply?.(activeSpec, aText, activeLang);
       });
       presetsEl.appendChild(btn);
     }
@@ -174,6 +175,7 @@ export function initNpcDialogueUi({ onOpen = null, onClose = null, getLang = nul
       res.answer,
       res.sourceNote || "NASA Mars Archives"
     );
+    onReply?.(specSnapshot, res.answer, lang);
   }
 
   closeBtn?.addEventListener("click", (e) => {

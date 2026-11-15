@@ -459,6 +459,15 @@ export async function initHud3D(
   let surfaceG = 3.717;
   const wrap = document.getElementById("hud-canvas-wrap");
   const loadingVeil = document.getElementById("hud-loading");
+  // The veil names the step it is on, so a stuck load shows where; slow steps give up after a while
+  // (the suit falls back to the next model, then to a stand-in) instead of hanging forever.
+  // It writes into the stage line only: the veil also holds the animation and a note.
+  const loadStage = (t) => {
+    const el = document.getElementById("hud-loading-stage");
+    if (el) el.textContent = t;
+  };
+  const withTimeout = (promise, ms, label) =>
+    Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms / 1000} s`)), ms))]);
   let devCfg = loadDevSettings();
   if (devCfg.rayTracing || (devCfg.rayTracingMode && devCfg.rayTracingMode !== "off")) {
     devCfg = saveDevSettings({ rayTracing: false, rayTracingMode: "off" });
@@ -506,7 +515,12 @@ export async function initHud3D(
 
   // Streamed HiRISE corridor (habitat -> Glen Torridon, real 1 m DTM in chunks). When it is missing,
   // the world falls back to the single height-preview tile.
-  const corridor = assets.corridorBaseUrl ? await GaleCorridor.load(assets.corridorBaseUrl) : null;
+  const corridor = assets.corridorBaseUrl
+    ? await withTimeout(GaleCorridor.load(assets.corridorBaseUrl), 40000, "corridor terrain").catch((err) => {
+        console.warn("[corridor] gave up:", err?.message || err);
+        return null; // the single height tile is used instead
+      })
+    : null;
 
   const bounds = corridor?.bounds ||
     costMap?.bounds || {
@@ -593,6 +607,7 @@ export async function initHud3D(
       const [lon, lat] = f.geometry.coordinates;
       jobs.push(corridor.warmup(lonToX(lon), latToZ(lat), 60, 8000));
     }
+    loadStage(isTrLang() ? "Durakların zemini yükleniyor" : "Loading the ground at the stops");
     await Promise.all(jobs);
   }
 
@@ -811,7 +826,7 @@ export async function initHud3D(
     imgW = corridor.overview.nx;
     imgH = corridor.overview.nz;
   } else try {
-    const hImg = await loadImage(assets.heightPreviewUrl);
+    const hImg = await withTimeout(loadImage(assets.heightPreviewUrl), 30000, "height map");
     imgW = hImg.width;
     imgH = hImg.height;
     const c = document.createElement("canvas");
@@ -1507,6 +1522,7 @@ export async function initHud3D(
   let covDirty = true;
   let covA0 = Number.NaN;
   let covB0 = Number.NaN;
+  let onCorridorMeshShown = null;
   if (corridor) {
     corridor.onChunkLoaded(() => {
       chunkPlanT = 0; // new data: queue the cells that were waiting for it
@@ -1642,6 +1658,7 @@ export async function initHud3D(
         existing.mesh.geometry.dispose();
         existing.mesh.geometry = g;
         existing.seg = w.seg;
+        if (existing.ready) onCorridorMeshShown?.(existing);
         continue;
       }
       const { ci, cj } = corridor.dataChunkForCell(w.a, w.b);
@@ -1659,6 +1676,7 @@ export async function initHud3D(
         c.ready = true;
         c.mesh.visible = true;
         covDirty = true;
+        onCorridorMeshShown?.(c);
       };
       if (e.loaded || e.failed) show();
       else e.waiters.push(show);
@@ -1715,6 +1733,8 @@ export async function initHud3D(
     await corridor.warmup(px, pz, 450, 6000);
     planCorridorChunks(px, pz);
     buildQueuedChunks(250);
+    const { a, b } = corridor.sceneCellOf(px, pz);
+    updateCoverage(a, b);
     chunkPlanT = 0;
   }
 
@@ -1755,6 +1775,24 @@ export async function initHud3D(
   const fieldKits = createFieldKits(THREE, stops, lonToX, latToZ, sampleElevSceneY);
   scene.add(fieldKits);
   const footsteps = createFootsteps(THREE, scene);
+
+  /** Height of the terrain mesh currently drawn on screen (detail chunk once visible, else overview). */
+  function sampleRenderedSurfaceY(x, z) {
+    let rawY;
+    if (corridor && isGaleSite()) {
+      const cell = corridor.sceneCellOf(x, z);
+      const cm = chunkMeshes.get(`${cell.a},${cell.b}`);
+      if (cm && cm.ready && cm.mesh.visible) {
+        const d = corridor.sampleDetail(x, z);
+        rawY = d !== null ? d - elevMin : sampleBaseSceneY(x, z);
+      } else {
+        rawY = sampleBaseSceneY(x, z);
+      }
+    } else {
+      rawY = sampleBaseSceneY(x, z);
+    }
+    return habitatStation.group.visible ? habitatStation.sampleElevWithHabitat(x, z, rawY) : rawY;
+  }
 
   // ---------- route ----------
   let activeRoute = route;
@@ -1843,7 +1881,10 @@ export async function initHud3D(
   {
     for (const m of SUIT_MODELS) {
       try {
-        const rig = await loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M);
+        loadStage(isTrLang() ? "NASA giysi modeli yükleniyor" : "Loading the NASA suit model");
+        const suitT0 = performance.now();
+        const rig = await withTimeout(loadSuitRig(sharedGltfLoader, m.url, ASTRONAUT_HEIGHT_M), 25000, m.url);
+        console.info(`suit model ready in ${Math.round(performance.now() - suitT0)} ms (${m.url})`);
         suitRig = rig;
         if (rig.bootBounds) footsteps.setSuitProfile(rig.bootBounds);
         self = createAstronaut(rig, { hideHead: true });
@@ -2575,7 +2616,18 @@ export async function initHud3D(
   }
   let partnerS = PARTNER_AHEAD_M;
   let justTeleportedOrWrapped = false;
+  let teleportSeq = 0;
   let lastMoveYaw = null;
+
+  onCorridorMeshShown = (chunk) => {
+    if (!corridor || !isGaleSite() || !player.init) return;
+    const cell = corridor.sceneCellOf(phys.x, phys.z);
+    if (cell.a === chunk.a && cell.b === chunk.b && phys.grounded) {
+      phys.y = sampleElevSceneY(phys.x, phys.z);
+      syncPlayerFromPhys();
+    }
+    footsteps.reprojectAll(sampleRenderedSurfaceY, sampleNormal);
+  };
   let drivingRover = false;
   // hardware-site visit state (see "hardware sites + habitat <-> site transit" below)
   const hardwareGroup = new THREE.Group();
@@ -2760,6 +2812,9 @@ export async function initHud3D(
     },
     onClose: () => {
       keys.clear();
+    },
+    onReply: (spec, text, lang) => {
+      if (spec?.id) npcManager.setNpcSpeech?.(spec.id, text, lang);
     },
     getLang: () => (isTrLang() ? "tr" : "en"),
   });
@@ -3086,13 +3141,21 @@ export async function initHud3D(
   }
 
   function teleportToLocal(tx, tz, { keepYaw = false } = {}) {
+    const prevX = phys.x;
+    const prevZ = phys.z;
     const wx = wrapSceneCoord(tx, worldW * 2).val;
     const wz = wrapSceneCoord(tz, worldH * 2).val;
     const lon = xToLon(wx);
     const lat = zToLat(wz);
 
+    teleportSeq++;
+    const seq = teleportSeq;
     const nearestGeomS = closestAlongM(routeCoords, cumDist, lon, lat);
     alongM = geomTotalDist > 0 ? (nearestGeomS / geomTotalDist) * totalDist : 0;
+
+    if (Math.hypot(wx - prevX, wz - prevZ) > 12) {
+      footsteps.clear();
+    }
 
     snapPhys(wx, wz);
 
@@ -3104,6 +3167,21 @@ export async function initHud3D(
     }
     pitch = Math.max(-0.55, Math.min(0.25, keepYaw ? pitch : -0.06));
     followEndless({ x: player.x, y: player.y, z: player.z });
+
+    if (corridor && isGaleSite()) {
+      const cell = corridor.sceneCellOf(wx, wz);
+      const cm = chunkMeshes.get(`${cell.a},${cell.b}`);
+      if (corridor.sampleDetail(wx, wz) === null || !cm || !cm.ready) {
+        warmCorridorAt(wx, wz).then(() => {
+          if (seq !== teleportSeq || !isGaleSite()) return;
+          if (phys.grounded && Math.hypot(phys.x - wx, phys.z - wz) < 8) {
+            phys.y = sampleElevSceneY(phys.x, phys.z);
+            syncPlayerFromPhys();
+          }
+          footsteps.reprojectAll(sampleRenderedSurfaceY, sampleNormal);
+        });
+      }
+    }
   }
 
   onTeleport(({ lon, lat }) => {
@@ -3345,6 +3423,7 @@ export async function initHud3D(
   function switchSite(spec) {
     if (!spec || spec.id === activeSiteId) return false;
     clearHardwareSite();
+    footsteps.clear();
     activeSiteRover = spec;
     activeSiteId = spec.id;
     historicRovers.setFocusId(spec.isCustomSite ? spec.nearRoverId : spec.id);
@@ -4552,6 +4631,7 @@ export async function initHud3D(
     crouch: 0,
     lean: 0,
     brake: 0,
+    reset: false,
     footDyL: 0,
     footDyR: 0,
     normalL: null,
@@ -5100,23 +5180,25 @@ export async function initHud3D(
     }
     const feet = footSample(px, pz, yaw, player.y);
     strikes.length = 0;
+    if (snappedThisFrame) groundSpeedSm = 0;
     groundSpeedSm += (groundSpeed - groundSpeedSm) * Math.min(1, dt * 9);
     if (groundSpeedSm < 0.03 && step === 0) groundSpeedSm = 0;
     gaitOpts.crouch = phys.crouch;
     gaitOpts.lean = lean;
     gaitOpts.brake = brake;
+    gaitOpts.reset = snappedThisFrame;
     gaitOpts.footDyL = feet.footDyL;
     gaitOpts.footDyR = feet.footDyR;
     gaitOpts.normalL = feet.normalL;
     gaitOpts.normalR = feet.normalR;
     self.update(dt, step, groundSpeedSm, !player.grounded, gaitDir, gaitOpts);
     self.group.updateMatrixWorld(true);
-    if (!drivingRover) {
+    if (!drivingRover && !snappedThisFrame) {
       for (const side of strikes) {
         const bone = side === "L" ? self.bones.footL : self.bones.footR;
         if (!bone) continue;
         bone.getWorldPosition(footPos);
-        const gy = sampleElevSceneY(footPos.x, footPos.z);
+        const gy = sampleRenderedSurfaceY(footPos.x, footPos.z);
         const n = sampleNormal(footPos.x, footPos.z);
         footsteps.play(side, phys.faciesId);
         footsteps.stamp(footPos.x, gy, footPos.z, n, lastMoveYaw ?? yaw, phys.faciesId, side);
@@ -5370,6 +5452,7 @@ export async function initHud3D(
         activeNpcId: npcDialogueUi.getActiveNpc()?.id || null,
         terrainSampler: sampleElevSceneY,
         camera,
+        lang: isTrLang() ? "tr" : "en",
       });
     }
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
@@ -5382,9 +5465,11 @@ export async function initHud3D(
       refreshSun({ rebake: now - lastSunBakeMs > 600000 });
     }
 
-    // the HUD text & rover reticle inspection only need ~10 updates a second
-    hudTimer += dt;
-    if (hudTimer > 0.1) {
+    // the HUD text & rover reticle inspection only need ~10 updates a second (skipped during landing cinematic)
+    if (!landing.active) {
+      hudTimer += dt;
+    }
+    if (!landing.active && hudTimer > 0.1) {
       hudTimer = 0;
       const metW = metabolicPowerW({
         eta: phys.eta,
@@ -5431,10 +5516,11 @@ export async function initHud3D(
         const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
         const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
         const hitNpc = pickTargetNpc(aimX, aimY);
-        const nearNpc =
+        const nearNpcHit =
           !hitNpc && !drivingRover && npcManager.npcGroup.visible
-            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)?.npc || null
+            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
             : null;
+        const nearNpc = nearNpcHit?.npc || null;
         const activeTargetNpc = hitNpc || nearNpc;
         const hitSpec = activeTargetNpc ? null : pickHistoricRover(aimX, aimY);
         if (activeTargetNpc !== hoveredNpcEntry || hitSpec !== hoveredRoverSpec) {
@@ -5468,8 +5554,12 @@ export async function initHud3D(
       }
     }
     curvAnchor.value.set(camera.position.x, camera.position.z);
-    followEndless(camera.position);
-    updateCorridorChunks(camera.position.x, camera.position.z, dt);
+    if (landing.active) {
+      followEndless(freePos);
+    } else {
+      followEndless(camera.position);
+      updateCorridorChunks(camera.position.x, camera.position.z, dt);
+    }
 
     goldSlide += (goldVisor - goldSlide) * Math.min(1, dt * 6.0);
     if (Math.abs(goldVisor - goldSlide) < 0.002) goldSlide = goldVisor;
@@ -5516,13 +5606,12 @@ export async function initHud3D(
     perfDraws = renderer.info.render.calls;
     perfTris = renderer.info.render.triangles;
   }
-  // Stream in the 1 m terrain where the EVA starts before the first frame (veil still up).
+  // Stream in the 1 m terrain where the EVA starts and precompile the lander before the first frame (veil still up).
   await setLoadStage("Streaming 1 m terrain", "1 m arazi yükleniyor");
   if (routeCoords.length > 1) await warmCorridorAt(lonToX(routeCoords[0][0]), latToZ(routeCoords[0][1]));
   else await warmCorridorAt(freePos.x, freePos.z);
   await setLoadStage("Loading suit and rover models", "Giysi ve araç modelleri yükleniyor");
   if (!(await waitForLoads(45000))) console.warn("some assets were still loading after 45 s; starting without them");
-  await setLoadStage("Compiling shaders", "Gölgelendiriciler derleniyor");
   // ---------- no mid-game shader recompiles ----------
   // three.js builds every lit shader for the exact number of lights in view. Showing or hiding a
   // group that holds a light (the station, a rover's headlights, the lander's engine glow) changed
@@ -5533,29 +5622,16 @@ export async function initHud3D(
   for (const r of drivableRovers) stabilizeLights(r.group);
   stabilizeLights(landing.lander);
   syncStableLights();
-  // compile every material once now (the loading screen is still up), the hidden lander included,
-  // so nothing compiles in the middle of the landing cut-scene. Synchronous on purpose: three r170's
-  // compileAsync throws when a material changes while it waits.
-  {
-    const L = landing.lander;
-    const wasVisible = L.visible;
-    L.visible = true;
-    try {
-      const t0 = performance.now();
-      renderer.compile(scene, camera);
-      console.info(`shaders compiled in ${Math.round(performance.now() - t0)} ms`);
-    } catch (err) {
-      console.warn("shader warm-up failed", err);
-    }
-    // one real frame behind the loading screen: uploads the textures and buffers the view needs
-    try {
-      renderer.setRenderTarget(rt);
-      renderer.render(scene, camera);
-      renderer.setRenderTarget(null);
-    } catch (err) {
-      console.warn("first-frame warm-up failed", err);
-    }
-    L.visible = wasVisible;
+  // Pre-build only the lander's shaders so the landing cut-scene does not hitch. (A whole-scene
+  // renderer.compile() here blocked weak or integrated GPUs for minutes before the loading screen
+  // lifted: the "stuck on loading" other players saw. Light counts no longer change at run time, see
+  // the light rig above, so nothing else needs pre-compiling.)
+  try {
+    const t0 = performance.now();
+    landing.warmup?.(renderer, camera);
+    console.info(`lander shaders compiled in ${Math.round(performance.now() - t0)} ms`);
+  } catch (err) {
+    console.warn("lander shader warm-up failed", err);
   }
 
   requestAnimationFrame(animate);
