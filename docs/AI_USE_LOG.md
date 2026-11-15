@@ -1165,3 +1165,15 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: with Super Graphics on, the game still stuttered. It rendered 2x pixel ratio x 1.25 supersampling (about 6x the pixels), 4x MSAA on a half-float target, a 4096 px soft shadow map, and adaptive resolution was switched off. Now: pixel ratio up to 1.5, no extra supersampling, 2x MSAA, 2048 px soft shadows (about 3 cm texels), rocks and micro-detail unchanged, and the adaptive resolution stays on (floor 60 %) so it holds the screen's refresh rate. Ray tracing is a separate toggle and stays heavy (per-pixel height-field marching); the adaptive resolution also applies to it.
 - Commit: this commit
 - Next step: Cagan checks F3 with Super Graphics on; if the render scale sits at 60 % and fps is still low, turn off Ray Tracing or Realistic Textures, or use Balanced quality.
+
+### 2026-11-15 Europe/Istanbul — EDL-01 rocket landing cinematic at the start of the EVA
+
+- Human: Cagan
+- Agent tool + model: Claude Code (Claude Opus 5.5)
+- Role: backend implementer (edits in web/ at Cagan's request)
+- Task id: EDL-01
+- Files changed: `web/hud/landing-sequence.js` (new), `web/hud/hud3d.js`, `web/app.js`, `web/styles.css`, `docs/AI_USE_LOG.md`
+- Why: Cagan asked for a landing animation with no characters: arrive on Mars by rocket and start from there. Begin EVA (and a landing picked in the Orbit view) now plays an about 19 s entry-descent-landing cinematic: the lander falls from 720 m at 95 m/s, ignites at 300 m and brakes at a constant ~15.5 m/s² to a 9 m hover, deploys its legs and settles at about 1.3 m/s in blasted regolith (mars-fx dust), with a ground-lit engine glow. Shots: aerial chase while falling (haze thinned at altitude), long ground shot of the burn, low close shot of touchdown, then a glide to the visor beside the lander. Letterbox bars and a caption; any key, click or controller button skips. The walker is hidden while it plays, the helmet HUD is hidden, input is locked. The lander stays at the pad (about 22 m ahead-right of you) as a solid landmark. It is a generic illustrative lander, not a real vehicle design. `hudApi.seekLanding(t)` jumps within the sequence for checking shots.
+- Tests: `node --test web/tests/*.test.mjs` passes. Checked shots A, B and the end state in the browser.
+- Commit: this commit
+- Next step: Cagan watches it at full frame rate; timing constants are at the top of `landing-sequence.js`.

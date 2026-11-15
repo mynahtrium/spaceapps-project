@@ -2344,3 +2344,79 @@ body.in-hud .arrival-flash {
   white-space: pre;
   pointer-events: none;
 }
+
+/* ---------- rocket landing cinematic (web/hud/landing-sequence.js) ---------- */
+.landing-cine {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  display: none;
+  font-family: var(--mono);
+}
+.landing-cine.on {
+  display: block;
+}
+.lc-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 11vh;
+  background: #000;
+  transition: transform 0.9s ease;
+}
+.lc-top {
+  top: 0;
+}
+.lc-bot {
+  bottom: 0;
+}
+.landing-cine.ending .lc-top {
+  transform: translateY(-100%);
+}
+.landing-cine.ending .lc-bot {
+  transform: translateY(100%);
+}
+.lc-caption {
+  position: absolute;
+  left: 5vw;
+  bottom: calc(11vh + 18px);
+  color: var(--cyan-bright);
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+  transition: opacity 0.8s ease;
+}
+.landing-cine.ending .lc-caption,
+.landing-cine.ending .lc-skip {
+  opacity: 0;
+}
+.lc-title {
+  font-size: 13px;
+  letter-spacing: 0.32em;
+}
+.lc-sub {
+  margin-top: 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+}
+.lc-skip {
+  position: absolute;
+  right: 5vw;
+  bottom: calc(11vh + 18px);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  color: var(--faint);
+  transition: opacity 0.8s ease;
+}
+.lc-fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+}
+/* the helmet HUD and the crosshair stay hidden while the lander comes down */
+body.landing-active .visor-overlay,
+body.landing-active .hud-reticle,
+body.landing-active .rover-dash {
+  visibility: hidden;
+}

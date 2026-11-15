@@ -42,6 +42,7 @@ import { createRockField } from "./MarsRockField.js";
 import { createGaleVista } from "./GaleVista.js";
 import { createDustDevil } from "./DustDevil.js";
 import { createWindDust } from "./wind-dust.js";
+import { createLandingSequence } from "./landing-sequence.js";
 import { gamepad } from "../shared/gamepad.js";
 import { createFieldKits } from "./FieldKits.js";
 import { lerpAngleRad } from "../shared/multiplayer.js";
@@ -1487,6 +1488,8 @@ export async function initHud3D(
   reScatterHistoricRovers(0, 0);
 
   const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
+  // rocket landing cinematic at the start of an EVA (landing-sequence.js); the lander stays as a landmark
+  const landing = createLandingSequence(THREE, scene, { marsFx, sampleY: sampleElevSceneY });
 
   // ---------- contact shadows under the boots ----------
   // The sun shadow map gives the long cast shadow; this adds the dark, soft patch right under each
@@ -2145,6 +2148,7 @@ export async function initHud3D(
     lastMouseClient.valid = true;
     const locked = isPointerLocked();
     if (!locked && !dragging) return;
+    if (landing.active) return;
     if (isMapOpen() || !isHudActive()) {
       dragging = false;
       if (locked) releasePointerLock();
@@ -2735,6 +2739,13 @@ export async function initHud3D(
 
   window.addEventListener("keydown", (e) => {
     if (!hudView.classList.contains("active")) return;
+    if (landing.active) {
+      if (e.key !== "F3") {
+        e.preventDefault();
+        if (!e.repeat) landing.skip();
+      }
+      return;
+    }
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
     const modalOpen = document.getElementById("modal-backdrop")?.classList.contains("open");
@@ -2902,6 +2913,7 @@ export async function initHud3D(
     !document.getElementById("start-screen")?.classList.contains("hidden") ||
     hasOpenModalOverlay();
   gamepad.onPress(({ actions }) => {
+    if (landing.active) return landing.skip();
     if (!isHudActive() || padBlocked() || drivingRover) return;
     for (const a of actions) {
       if (a === "jump") {
@@ -3612,6 +3624,7 @@ export async function initHud3D(
 
       freePos.set(phys.x, phys.y, phys.z);
       if (partner && partner.group.visible) pushApart(partner.group.position);
+      if (landing.lander.visible && !landing.active) pushApart(landing.lander.position, 3.4);
       if (devCfg.experimentalRover && rover.group.visible) {
         const col = rover.resolveCollision(
           freePos.x,
@@ -3896,6 +3909,12 @@ export async function initHud3D(
       }
     }
 
+    // Rocket landing cinematic: no characters on screen, the camera belongs to the sequence
+    if (landing.active) {
+      if (self?.group) self.group.visible = false;
+      landing.update(dt, camera, clockT);
+    }
+
     // Smoothly animate live multiplayer crewmates
     const lerpAlpha = Math.min(1, dt * 12);
     for (const remote of remoteAvatars.values()) {
@@ -4148,6 +4167,22 @@ export async function initHud3D(
     /** Teleport to a lon/lat anywhere on Mars (HiRISE at Gale, procedural relief elsewhere). */
     teleportTo: (lon, lat) => visitLocation(lon, lat, { keepYaw: true }),
     visitLocation,
+    /**
+     * Rocket landing cinematic, then the EVA starts beside the lander. `site` is the caption.
+     * The lander touches down ~22 m ahead and to the right of where you will stand.
+     */
+    playLanding: ({ site = null } = {}) => {
+      keys.clear();
+      dragging = false;
+      // freePos is where the walker really is (player.x can still be the previous spot this frame)
+      const yaw = autoYaw + userYaw;
+      const a = yaw + 0.55;
+      const padX = freePos.x - Math.sin(a) * 22;
+      const padZ = freePos.z - Math.cos(a) * 22;
+      landing.start({ x: freePos.x, z: freePos.z, yaw, padX, padZ, site: site || undefined });
+    },
+    isLandingActive: () => landing.active,
+    seekLanding: (t) => landing.seek(t),
     /** Camera drop from ~240 m to the visor after an Orbit-view descent. */
     playArrivalDrop: () => {
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
