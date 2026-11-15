@@ -338,6 +338,14 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
     }
   }
 
+  function matchesVehicleId(specVehicleId, queryVehicleId) {
+    if (specVehicleId === queryVehicleId) return true;
+    return (
+      (specVehicleId === "mars_robo_concept" && queryVehicleId === "nasa_concept") ||
+      (specVehicleId === "nasa_concept" && queryVehicleId === "mars_robo_concept")
+    );
+  }
+
   /**
    * Locks NPC 1 (`mmsev`) or NPC 2 (`mars_robo_concept`) in front of its assigned drivable vehicle's
    * INITIAL parking spot in the Green Zone bay. Subsequent vehicle movement NEVER drags this NPC.
@@ -350,7 +358,7 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
     { sideOffsetM = 0.0, standoffM = null, resetAnchor = false, faceYaw = null } = {}
   ) {
     for (const entry of npcs.values()) {
-      if (entry.spec.vehicleId !== vehicleId) continue;
+      if (!matchesVehicleId(entry.spec.vehicleId, vehicleId)) continue;
       if (entry.anchorInitialized && !resetAnchor) return entry;
 
       const dist = Number.isFinite(standoffM) ? standoffM : entry.spec.standoffDistM || 3.6;
@@ -380,7 +388,7 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
    * Positions NPCs 3–7 neatly in front of their assigned historic NASA rovers in the bay / surface.
    * Never touches drivable vehicle anchors (NPC 1 & NPC 2).
    */
-  function syncHistoricRoverNpcs(historicEntries, { bayCenter = null } = {}) {
+  function syncHistoricRoverNpcs(historicEntries, { bayCenter = null, sideOffsetM = 0 } = {}) {
     if (!historicEntries) return;
     const list = Array.isArray(historicEntries)
       ? historicEntries
@@ -395,11 +403,15 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
       if (!rId || !pos) continue;
 
       for (const npc of npcs.values()) {
-        if (npc.lockedStaticAnchor || npc.spec.vehicleId !== rId) continue;
+        if (npc.lockedStaticAnchor || !matchesVehicleId(npc.spec.vehicleId, rId)) continue;
 
-        let dirX = -Math.sin(rYaw);
-        let dirZ = -Math.cos(rYaw);
+        const dist = npc.spec.standoffDistM || 2.6;
+        let sx;
+        let sz;
+        let faceOutYaw;
         if (bayCenter && Number.isFinite(bayCenter.x) && Number.isFinite(bayCenter.z)) {
+          let dirX = -Math.sin(rYaw);
+          let dirZ = -Math.cos(rYaw);
           const toCx = bayCenter.x - pos.x;
           const toCz = bayCenter.z - pos.z;
           const len = Math.hypot(toCx, toCz);
@@ -407,12 +419,16 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
             dirX = toCx / len;
             dirZ = toCz / len;
           }
+          sx = pos.x + dirX * dist;
+          sz = pos.z + dirZ * dist;
+          faceOutYaw = Math.atan2(-dirX, -dirZ);
+        } else {
+          const spot = computeSpotInFrontOfVehicle(pos.x, pos.z, rYaw, dist, sideOffsetM);
+          sx = spot.x;
+          sz = spot.z;
+          faceOutYaw = spot.yaw;
         }
-        const dist = npc.spec.standoffDistM || 2.6;
-        const sx = pos.x + dirX * dist;
-        const sz = pos.z + dirZ * dist;
         const sy = sampleElevY ? sampleElevY(sx, sz) : pos.y || 0;
-        const faceOutYaw = Math.atan2(-dirX, -dirZ);
 
         npc.anchorX = sx;
         npc.anchorZ = sz;
@@ -575,7 +591,7 @@ export function createNpcManager(THREE, scene, { suitRig = null, createAstronaut
     getNpc: (id) => npcs.get(id) || null,
     getNpcByVehicleId: (vid) => {
       for (const entry of npcs.values()) {
-        if (entry.spec.vehicleId === vid) return entry;
+        if (matchesVehicleId(entry.spec.vehicleId, vid)) return entry;
       }
       return null;
     },

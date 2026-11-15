@@ -671,7 +671,8 @@ export function getNpcSpecById(npcId) {
 }
 
 export function getNpcByVehicleId(vehicleId) {
-  return MARS_STATION_NPCS.find((n) => n.vehicleId === vehicleId) || null;
+  const canonical = vehicleId === "nasa_concept" ? "mars_robo_concept" : vehicleId;
+  return MARS_STATION_NPCS.find((n) => n.vehicleId === canonical) || null;
 }
 
 function normalizeQueryText(str) {

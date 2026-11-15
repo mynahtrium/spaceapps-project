@@ -81,6 +81,8 @@ import {
   scatterHistoricRoverCoords,
 } from "../shared/mars-rovers.js";
 import { createHistoricRoverManager } from "./historic-rovers.js";
+import { createNpcManager } from "./npc-system.js";
+import { initNpcDialogueUi } from "./npc-dialogue-ui.js";
 import { GaleCorridor, buildCorridorCellGeometry, chunkSlopeRgba } from "../map/GaleCorridor.js";
 import {
   RT_HEIGHT_GLSL,
@@ -1774,27 +1776,45 @@ export async function initHud3D(
   const historicRovers = createHistoricRoverManager(THREE, sharedGltfLoader, scene, {
     onModelLoaded: (grp) => patchObjectRayTracer(THREE, grp, rtUniforms, { reflectScale: 1.12 }),
   });
+  const npcManager = createNpcManager(THREE, scene, {
+    suitRig,
+    createAstronautFn: createAstronaut,
+    sampleElevY: sampleElevSceneY,
+  });
+  patchObjectRayTracer(THREE, npcManager.npcGroup, rtUniforms, { reflectScale: 0.95 });
+  npcManager.npcGroup.visible = habitatStation.group.visible;
+
   let stationedAtHabitat = true;
-  function stationDrivableRoversAtHabitat() {
+  function stationDrivableRoversAtHabitat({ resetNpcAnchors = false } = {}) {
     const bays = habitatStation.getBayPlacements();
     for (const dp of bays.drivablePlacements) {
       const target = dp.vehicleType === "nasa_concept" ? roverConcept : roverMmsev;
       target.group.visible = habitatStation.group.visible;
-      target.group.position.set(dp.x, sampleElevSceneY(dp.x, dp.z), dp.z);
-      target.group.rotation.y = dp.yaw;
-      target.bodyRoot.position.set(0, 0, 0);
-      target.bodyRoot.rotation.set(0, 0, 0);
+      target.placeAt(dp.x, dp.z, dp.yaw, sampleElevSceneY);
       target.update(0.016, { sampleElevY: sampleElevSceneY, speed: 0, steer: 0, driving: false, physicsEnabled: false });
+
+      // Static Anchor Rule: NPC 1 (MMSEV) & NPC 2 (NASA Concept) stay fixed at initial bay spots
+      // even when the player enters and drives either rover away.
+      const isConcept = dp.vehicleType === "nasa_concept";
+      npcManager.anchorDrivableVehicleNpc(dp.vehicleType, dp.x, dp.z, dp.yaw, {
+        standoffM: isConcept ? 4.4 : 3.9,
+        sideOffsetM: isConcept ? -1.15 : 1.15,
+        resetAnchor: resetNpcAnchors,
+      });
     }
   }
-  function stationRoversAtHabitat({ includeDrivable = true } = {}) {
+  function stationRoversAtHabitat({ includeDrivable = true, resetNpcAnchors = false } = {}) {
     stationedAtHabitat = true;
     const bays = habitatStation.getBayPlacements();
     historicRovers.spawnAllScattered(bays.historicPlacements, {
       sampleElevY: sampleElevSceneY,
       focusId: activeSiteId,
     });
-    if (includeDrivable) stationDrivableRoversAtHabitat();
+    if (includeDrivable) stationDrivableRoversAtHabitat({ resetNpcAnchors });
+    npcManager.syncHistoricRoverNpcs(historicRovers, { sideOffsetM: 1.05 });
+
+    // Pink Zone (Corridor) Info Screen NPCs are disabled until corridor info screens are built:
+    // npcManager.spawnCorridorScreenNPCs({ scene, suitRig, sampleElevY: sampleElevSceneY });
     return bays.historicPlacements;
   }
   function reScatterHistoricRovers(originX = 0, originZ = 0) {
@@ -1812,9 +1832,10 @@ export async function initHud3D(
       sampleElevY: sampleElevSceneY,
       focusId: activeSiteId,
     });
+    npcManager.syncHistoricRoverNpcs(historicRovers, { bayCenter: { x: originX, z: originZ } });
     return placements;
   }
-  stationRoversAtHabitat({ includeDrivable: true });
+  stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
 
   const marsFx = createMarsFxSystem(scene, sampleElevSceneY);
 
@@ -2365,25 +2386,41 @@ export async function initHud3D(
   const isHudActive = () => Boolean(hudView?.classList.contains("active"));
   const isPointerLocked = () => document.pointerLockElement === renderer.domElement;
   const hasOpenModalOverlay = () =>
-    Boolean(document.querySelector(".modal-backdrop.open, #crew-drawer.open, #esc-menu.open"));
+    Boolean(
+      document.querySelector(
+        ".modal-backdrop.open, #npc-dialogue-modal.open, #crew-drawer.open, #esc-menu.open"
+      )
+    );
 
   const raycaster = new THREE.Raycaster();
   const rayNdc = new THREE.Vector2();
   const lastMouseClient = { x: 0, y: 0, valid: false };
   let hoveredRoverSpec = null;
+  let hoveredNpcEntry = null;
 
-  function pickHistoricRover(clientX = null, clientY = null) {
-    const groups = historicRovers.getInteractiveGroups();
-    if (!groups || groups.length === 0) return null;
+  function setRaycasterFromView(clientX = null, clientY = null) {
     if (isPointerLocked() || clientX == null || clientY == null) {
       rayNdc.set(0, 0);
     } else {
       const rect = renderer.domElement.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return null;
+      if (rect.width <= 0 || rect.height <= 0) return false;
       rayNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       rayNdc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
     }
     raycaster.setFromCamera(rayNdc, camera);
+    return true;
+  }
+
+  function pickTargetNpc(clientX = null, clientY = null) {
+    if (!npcManager.npcGroup.visible) return null;
+    if (!setRaycasterFromView(clientX, clientY)) return null;
+    return npcManager.pickNpc(raycaster, 38);
+  }
+
+  function pickHistoricRover(clientX = null, clientY = null) {
+    const groups = historicRovers.getInteractiveGroups();
+    if (!groups || groups.length === 0) return null;
+    if (!setRaycasterFromView(clientX, clientY)) return null;
     const hits = raycaster.intersectObjects(groups, true);
     if (hits.length > 0 && hits[0].distance <= 115) {
       let obj = hits[0].object;
@@ -2392,6 +2429,20 @@ export async function initHud3D(
       return rId ? getHistoricRoverById(rId) : null;
     }
     return null;
+  }
+
+  function findNearestDrivableEntry(x, z, maxDistM = 5.8) {
+    let best = null;
+    let bestDist = maxDistM;
+    for (const drvR of drivableRovers) {
+      if (!drvR.group.visible) continue;
+      const dist = Math.hypot(x - drvR.group.position.x, z - drvR.group.position.z);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        best = drvR;
+      }
+    }
+    return best ? { rover: best, dist: bestDist } : null;
   }
 
   let manualUnlockPending = false;
@@ -2405,6 +2456,27 @@ export async function initHud3D(
         document.exitPointerLock?.();
       } catch {}
     }
+  }
+
+  const npcDialogueUi = initNpcDialogueUi({
+    onOpen: () => {
+      keys.clear();
+      dragging = false;
+      releasePointerLock();
+      roverTargetEl?.classList.remove("visible");
+    },
+    onClose: () => {
+      keys.clear();
+    },
+    getLang: () => (isTrLang() ? "tr" : "en"),
+  });
+
+  function openNpcDialogueSafe(npcOrSpec) {
+    if (!npcOrSpec) return;
+    keys.clear();
+    dragging = false;
+    releasePointerLock();
+    npcDialogueUi.openForNpc(npcOrSpec);
   }
 
   function openRoverInfoSafe(spec, opts = {}) {
@@ -2431,7 +2503,15 @@ export async function initHud3D(
     if (isMapOpen() || !isHudActive() || hasOpenModalOverlay()) return;
     if (fleetPanelEl?.classList.contains("open")) fleetPanelEl.classList.remove("open");
     if (e.button === 0) {
-      const directHit = pickHistoricRover(isPointerLocked() ? null : e.clientX, isPointerLocked() ? null : e.clientY);
+      const cx = isPointerLocked() ? null : e.clientX;
+      const cy = isPointerLocked() ? null : e.clientY;
+      const hitNpc = pickTargetNpc(cx, cy);
+      if (hitNpc) {
+        e.preventDefault?.();
+        openNpcDialogueSafe(hitNpc);
+        return;
+      }
+      const directHit = pickHistoricRover(cx, cy);
       if (directHit) {
         e.preventDefault?.();
         openRoverInfoSafe(directHit);
@@ -2680,7 +2760,7 @@ export async function initHud3D(
         userYaw = ep.yaw;
         partnerPos.set(ep.x, 0, ep.z);
         snapPhys(ep.x, ep.z);
-        stationRoversAtHabitat({ includeDrivable: true });
+        stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
       } else {
         userYaw = routeHeading(alongM);
         partnerPos.set(p.x, 0, p.z);
@@ -2763,7 +2843,7 @@ export async function initHud3D(
         syncDrivingCameraVisualState(false);
         if (self?.group) self.group.visible = suitRig != null;
       }
-      stationRoversAtHabitat({ includeDrivable: true });
+      stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
       const ep = habitatStation.getBayPlacements().entryPoint;
       teleportToLocal(ep.x, ep.z, { keepYaw: true });
       autoYaw = 0;
@@ -2990,6 +3070,7 @@ export async function initHud3D(
       invalidateCorridorChunks(); // detail meshes carry the habitat pad; rebuild them
     }
     for (const r of drivableRovers) r.group.visible = showRovers;
+    npcManager.npcGroup.visible = showRovers;
     galeStopsGroup.visible = gale;
     fieldKits.visible = Boolean(devCfg.superGraphics) && gale;
     galeVista.visible = Boolean(devCfg.superGraphics) && gale;
@@ -3025,7 +3106,7 @@ export async function initHud3D(
       }
     }
     // At Gale and NASA rover sites, station the 5-Bay Habitat Garage & 7 vehicles on the terrain.
-    if (showRovers) stationRoversAtHabitat({ includeDrivable: true });
+    if (showRovers) stationRoversAtHabitat({ includeDrivable: true, resetNpcAnchors: true });
     else historicRovers.clearAll();
     if (fleetBtnEl) fleetBtnEl.textContent = showRovers ? `Rovers: ${spec.name} (7)` : "Rovers (7)";
 
@@ -3210,7 +3291,7 @@ export async function initHud3D(
     const crewOpen = document.getElementById("crew-drawer")?.classList.contains("open");
     const escMenuOpen = document.getElementById("esc-menu")?.classList.contains("open");
     const menuOpen = !document.getElementById("start-screen")?.classList.contains("hidden");
-    if (modalOpen || crewOpen || escMenuOpen || menuOpen) return;
+    if (modalOpen || crewOpen || escMenuOpen || menuOpen || npcDialogueUi.isOpen()) return;
 
     const k = e.key.toLowerCase();
     if (k === "5" && !e.repeat) {
@@ -3306,27 +3387,33 @@ export async function initHud3D(
         return;
       }
 
-      const targetRover =
-        hoveredRoverSpec ||
-        pickHistoricRover(
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null,
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
-        );
+      const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
+      const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
+      const targetNpc = pickTargetNpc(aimX, aimY);
+      if (targetNpc) {
+        openNpcDialogueSafe(targetNpc);
+        return;
+      }
+
+      const targetRover = hoveredRoverSpec || pickHistoricRover(aimX, aimY);
       if (targetRover) {
         openRoverInfoSafe(targetRover, { toggleKey: "e" });
         return;
       }
 
-      let nearestDrivable = null;
-      let bestDrivableDist = 5.8;
-      for (const drvR of drivableRovers) {
-        if (!drvR.group.visible) continue;
-        const dist = Math.hypot(freePos.x - drvR.group.position.x, freePos.z - drvR.group.position.z);
-        if (dist <= bestDrivableDist) {
-          bestDrivableDist = dist;
-          nearestDrivable = drvR;
+      const drivableHit = findNearestDrivableEntry(freePos.x, freePos.z, 5.8);
+      const nearNpc = npcManager.npcGroup.visible
+        ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
+        : null;
+      if (nearNpc) {
+        const npcDist = Math.hypot(freePos.x - nearNpc.x, freePos.z - nearNpc.z);
+        if (!drivableHit || npcDist <= drivableHit.dist) {
+          openNpcDialogueSafe(nearNpc);
+          return;
         }
       }
+
+      const nearestDrivable = drivableHit?.rover || null;
       if (nearestDrivable) {
         activeDriveRover = nearestDrivable;
         const drvSpec = activeDriveRover.getActiveSpec();
@@ -3812,7 +3899,7 @@ export async function initHud3D(
       let steerJerk = 0;
 
       let dyn = null;
-      if (!isMapOpen()) {
+      if (!isMapOpen() && !hasOpenModalOverlay()) {
         const run = keys.has("shift");
         const handbrake = keys.has(" ");
         const throttle =
@@ -3968,6 +4055,25 @@ export async function initHud3D(
           roverDynState.velZ = roverVelZ;
         }
       }
+      if (npcManager.npcGroup.visible) {
+        for (const npcEntry of npcManager.getAllNpcs()) {
+          const hitNpcCol = activeDriveRover.resolveCollision(
+            npcEntry.x,
+            npcEntry.z,
+            0.52,
+            npcEntry.y
+          );
+          if (hitNpcCol.hit) {
+            activeDriveRover.group.position.x -= hitNpcCol.nx * hitNpcCol.pen;
+            activeDriveRover.group.position.z -= hitNpcCol.nz * hitNpcCol.pen;
+            roverVelX *= 0.25;
+            roverVelZ *= 0.25;
+            roverThrottleVel *= 0.25;
+            roverDynState.velX = roverVelX;
+            roverDynState.velZ = roverVelZ;
+          }
+        }
+      }
 
       applySeamlessWorldWrap(activeDriveRover.group.position.x, activeDriveRover.group.position.z);
 
@@ -4045,7 +4151,7 @@ export async function initHud3D(
         lateralSpeed: roverLateralSpeed,
         landingImpact: roverLandingImpact,
         braking: Boolean(dyn?.braking),
-        handbrake: Boolean(!isMapOpen() && keys.has(" ")),
+        handbrake: Boolean(!isMapOpen() && !hasOpenModalOverlay() && keys.has(" ")),
         drifting: Boolean(dyn?.drifting),
         airPitchOffset: roverDynState.airPitchOffset,
         airRollOffset: roverDynState.airRollOffset,
@@ -4114,7 +4220,7 @@ export async function initHud3D(
     } else if (freeRoam) {
       const wasGrounded = player.grounded;
       const prevVy = phys.vy;
-      if (!isMapOpen()) {
+      if (!isMapOpen() && !hasOpenModalOverlay()) {
         fwd.set(0, 0, -1).applyAxisAngle(UP, userYaw);
         right.set(1, 0, 0).applyAxisAngle(UP, userYaw);
         moveDir.set(0, 0, 0);
@@ -4275,6 +4381,18 @@ export async function initHud3D(
         if (vn < 0) {
           phys.vx -= histCol.nx * vn;
           phys.vz -= histCol.nz * vn;
+        }
+      }
+      if (npcManager.npcGroup.visible) {
+        const npcCol = npcManager.resolveCollision(freePos.x, freePos.z, PARTNER_COLLISION_R * 0.52);
+        if (npcCol.hit) {
+          freePos.x = npcCol.x;
+          freePos.z = npcCol.z;
+          const vn = phys.vx * npcCol.nx + phys.vz * npcCol.nz;
+          if (vn < 0) {
+            phys.vx -= npcCol.nx * vn;
+            phys.vz -= npcCol.nz * vn;
+          }
         }
       }
       if (freePos.x !== phys.x || freePos.z !== phys.z) {
@@ -4636,6 +4754,12 @@ export async function initHud3D(
     footsteps.update(dt, phys.g || surfaceG);
     rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
     historicRovers.update(dt, { sampleElevY: sampleElevSceneY, observerPos: camera.position, clockT });
+    if (npcManager.npcGroup.visible) {
+      npcManager.update(dt, { x: px, z: pz, y: player.y }, clockT, {
+        activeNpcId: npcDialogueUi.getActiveNpc()?.id || null,
+        terrainSampler: sampleElevSceneY,
+      });
+    }
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
     lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
     const sunUpNow = sunUp(sunState.elevationRad);
@@ -4685,16 +4809,29 @@ export async function initHud3D(
         if (readout) readout.textContent = hit ? `${optZoom}×  ${hit.toFixed(0)} m` : `${optZoom}×`;
       }
       if (!isMapOpen() && !hasOpenModalOverlay()) {
-        const hitSpec = pickHistoricRover(
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null,
-          isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null
-        );
-        if (hitSpec !== hoveredRoverSpec) {
+        const aimX = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.x : null;
+        const aimY = isPointerLocked() ? null : lastMouseClient.valid ? lastMouseClient.y : null;
+        const hitNpc = pickTargetNpc(aimX, aimY);
+        const nearNpc =
+          !hitNpc && !drivingRover && npcManager.npcGroup.visible
+            ? npcManager.getNearestInteractableNpc(freePos.x, freePos.z, 4.4, freePos, lookDir)
+            : null;
+        const activeTargetNpc = hitNpc || nearNpc;
+        const hitSpec = activeTargetNpc ? null : pickHistoricRover(aimX, aimY);
+        if (activeTargetNpc !== hoveredNpcEntry || hitSpec !== hoveredRoverSpec) {
+          hoveredNpcEntry = activeTargetNpc;
           hoveredRoverSpec = hitSpec;
-          reticleEl?.classList.toggle("target-rover", Boolean(hitSpec));
+          reticleEl?.classList.toggle("target-rover", Boolean(activeTargetNpc || hitSpec));
           if (roverTargetEl) {
-            if (hitSpec) {
-              const tr = isTrLang();
+            const tr = isTrLang();
+            if (activeTargetNpc) {
+              const s = activeTargetNpc.spec;
+              const roleText = tr ? s.roleTr || s.roleEn : s.roleEn;
+              roverTargetEl.textContent = `${s.name.toUpperCase()} (${roleText}) · ${
+                tr ? "KONUŞ [E] / TIKLA" : "TALK [E] / CLICK"
+              }`;
+              roverTargetEl.classList.add("visible");
+            } else if (hitSpec) {
               roverTargetEl.textContent = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
                 tr ? "ETKİLEŞİM [E] / TIKLA" : "INTERACT [E] / CLICK"
               }`;
@@ -4704,6 +4841,11 @@ export async function initHud3D(
             }
           }
         }
+      } else if (hoveredNpcEntry || hoveredRoverSpec) {
+        hoveredNpcEntry = null;
+        hoveredRoverSpec = null;
+        reticleEl?.classList.remove("target-rover");
+        roverTargetEl?.classList.remove("visible");
       }
     }
     curvAnchor.value.set(camera.position.x, camera.position.z);

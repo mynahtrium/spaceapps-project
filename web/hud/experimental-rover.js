@@ -84,12 +84,29 @@ export const DRIVABLE_VEHICLES = Object.freeze([
   },
 ]);
 
-export function getDrivableVehicleSpec(id = "mmsev") {
-  return DRIVABLE_VEHICLES.find((v) => v.id === id) || DRIVABLE_VEHICLES[0];
+function normalizeDrivableId(id = "mmsev") {
+  return id === "mars_robo_concept" ? "nasa_concept" : id;
 }
 
-export const GARAGE_DRIVABLE_VEHICLES = DRIVABLE_VEHICLES;
-export const getGarageVehicleSpec = getDrivableVehicleSpec;
+export function getDrivableVehicleSpec(id = "mmsev") {
+  const canonical = normalizeDrivableId(id);
+  return DRIVABLE_VEHICLES.find((v) => v.id === canonical) || DRIVABLE_VEHICLES[0];
+}
+
+export const GARAGE_DRIVABLE_VEHICLES = Object.freeze([
+  DRIVABLE_VEHICLES[0],
+  Object.freeze({
+    ...DRIVABLE_VEHICLES[1],
+    id: "mars_robo_concept",
+    nameEn: "NASA Mars Robo Concept",
+    nameTr: "NASA Mars Robo Konsepti",
+  }),
+]);
+
+export function getGarageVehicleSpec(id = "mmsev") {
+  if (id === "nasa_concept") return GARAGE_DRIVABLE_VEHICLES[1];
+  return GARAGE_DRIVABLE_VEHICLES.find((v) => v.id === id) || GARAGE_DRIVABLE_VEHICLES[0];
+}
 
 const MMSEV_POD_AXLES = DRIVABLE_VEHICLES[0].axles;
 const MMSEV_TRACK_HALF_W = DRIVABLE_VEHICLES[0].trackHalfW;
@@ -1282,7 +1299,8 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
   const bodyRoot = new THREE.Group();
   group.add(bodyRoot);
 
-  let activeVehicleType = initialVehicleType === "nasa_concept" ? "nasa_concept" : "mmsev";
+  const isConceptType = (typeId) => typeId === "nasa_concept" || typeId === "mars_robo_concept";
+  let activeVehicleType = isConceptType(initialVehicleType) ? initialVehicleType : "mmsev";
   let hasRealMmsevModel = false;
   let nasaModelRoot = null;
 
@@ -1360,7 +1378,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
   }
 
   function applyVehicleVisibility() {
-    const isConcept = activeVehicleType === "nasa_concept";
+    const isConcept = isConceptType(activeVehicleType);
     mmsevContainer.visible = !isConcept;
     mmsevFallback.procGroup.visible = !isConcept && !hasRealMmsevModel;
     conceptContainer.visible = isConcept;
@@ -1382,17 +1400,19 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
   }
 
   function setVehicleType(nextType) {
-    activeVehicleType = nextType === "nasa_concept" ? "nasa_concept" : "mmsev";
+    activeVehicleType = isConceptType(nextType) ? nextType : "mmsev";
     applyVehicleVisibility();
     return activeVehicleType;
   }
 
   function getActiveSpec() {
-    return getDrivableVehicleSpec(activeVehicleType);
+    return activeVehicleType === "mars_robo_concept"
+      ? getGarageVehicleSpec("mars_robo_concept")
+      : getDrivableVehicleSpec(activeVehicleType);
   }
 
   function getActiveRig() {
-    return activeVehicleType === "nasa_concept" ? conceptWheels : mmsevWheels;
+    return isConceptType(activeVehicleType) ? conceptWheels : mmsevWheels;
   }
 
   async function attachRealModel(gltfLoader, url = "./assets/nasa-3d/mmsev-rover.glb") {
@@ -1456,10 +1476,9 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
   let accelSquat = 0;
   let cornerRoll = 0;
 
-  function spawnBeside(x, z, yaw, sampleElevY) {
-    const pos = computeSpawnBesideOffset(x, z, yaw, 3.8, 2.8);
-    const y = sampleElevY(pos.x, pos.z);
-    group.position.set(pos.x, y, pos.z);
+  function placeAt(x, z, yaw = 0, sampleElevY = null) {
+    const y = typeof sampleElevY === "function" ? sampleElevY(x, z) : 0;
+    group.position.set(x, y, z);
     group.rotation.y = yaw;
     smoothGroundY = y;
     prevGroundY = y;
@@ -1472,6 +1491,11 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     bodyRoot.position.set(0, 0, 0);
     bodyRoot.rotation.set(0, 0, 0);
     return group.position;
+  }
+
+  function spawnBeside(x, z, yaw, sampleElevY) {
+    const pos = computeSpawnBesideOffset(x, z, yaw, 3.8, 2.8);
+    return placeAt(pos.x, pos.z, yaw, sampleElevY);
   }
 
   function resolveCollision(entityX, entityZ, entityRadius = 0.42, entityY = null) {
@@ -1707,6 +1731,7 @@ export function createExperimentalRover(THREE, initialVehicleType = "mmsev") {
     setVehicleType,
     getActiveSpec,
     attachRealModel,
+    placeAt,
     spawnBeside,
     resolveCollision,
     getWheelDustEmitPoint,
