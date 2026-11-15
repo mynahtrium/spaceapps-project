@@ -181,8 +181,15 @@ body {
 }
 
 .btn:focus-visible,
+.btn:focus,
 .txt-btn:focus-visible,
-.menu-item:focus-visible {
+.txt-btn:focus,
+.menu-item:focus-visible,
+.menu-item:focus,
+.esc-item:focus-visible,
+.esc-item:focus,
+.npc-preset-btn:focus-visible,
+.npc-preset-btn:focus {
   outline: 1px solid var(--cyan);
   outline-offset: 3px;
 }

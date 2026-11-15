@@ -32,6 +32,8 @@ import {
   subsolarPoint,
 } from "../hud/MarsEphemeris.js";
 import { MARS_HISTORIC_ROVERS } from "../shared/mars-rovers.js";
+import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "../shared/gamepad.js";
+import { ensurePadStyles } from "../shared/gamepad-ui.js";
 import {
   MARS_ORBITERS,
   MARS_SURFACE_HARDWARE,
@@ -732,8 +734,22 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   let pinchStart = null;
   let lastMove = 0;
   const canvas = renderer.domElement;
+
+  // ---------- gamepad crosshair & aiming ----------
+  ensurePadStyles();
+  const crosshairEl = document.createElement("div");
+  crosshairEl.className = "pad-crosshair";
+  crosshairEl.innerHTML = `<div class="ring"></div>`;
+  wrap.appendChild(crosshairEl);
+  let aimU = 0.5;
+  let aimV = 0.5;
+  let padAimActive = false;
+  let prevFrameNow = performance.now();
+
   canvas.addEventListener("pointerdown", (e) => {
     if (descent) return;
+    padAimActive = false;
+    crosshairEl.classList.remove("on");
     canvas.setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     dragMoved = 0;
@@ -744,6 +760,8 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     }
   });
   canvas.addEventListener("pointermove", (e) => {
+    padAimActive = false;
+    crosshairEl.classList.remove("on");
     const p = pointers.get(e.pointerId);
     lastHover = { x: e.clientX, y: e.clientY };
     if (!p || descent) return;
@@ -853,6 +871,13 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     pick = { lon: wrap180(hit.lon), lat: hit.lat, site };
     renderConfirm();
   }
+  function onPickGamepad(clientX, clientY) {
+    const site = siteNear(clientX, clientY);
+    const hit = site ? { lon: site.lon, lat: site.lat } : pickSurface(clientX, clientY);
+    if (!hit) return;
+    pick = { lon: wrap180(hit.lon), lat: hit.lat, site };
+    renderConfirm();
+  }
   function renderConfirm() {
     if (!pick) return;
     const tr = isTr();
@@ -885,8 +910,9 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
         ? `${tr ? "Görünen zamanda güneş" : "Sun at shown time"}: ${(elev / DEG).toFixed(0)}°<br/>`
         : "") +
       `${tr ? "Arazi" : "Terrain"}: ${terrain}`;
-    if (confirmGoBtn) confirmGoBtn.textContent = tr ? "Buraya in" : "Land here";
-    if (confirmCancelBtn) confirmCancelBtn.textContent = tr ? "İptal" : "Cancel";
+    const padHint = gamepad.connected;
+    if (confirmGoBtn) confirmGoBtn.textContent = tr ? (padHint ? "Buraya in [A]" : "Buraya in") : padHint ? "Land here [A]" : "Land here";
+    if (confirmCancelBtn) confirmCancelBtn.textContent = tr ? (padHint ? "İptal [B]" : "İptal") : padHint ? "Cancel [B]" : "Cancel";
     confirmEl.hidden = false;
   }
   confirmCancelBtn?.addEventListener("click", () => {
@@ -904,6 +930,52 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       stopId: pick.site?.stopId || null,
       globeSample: sampleGlobeSurface(pick.lon, pick.lat),
     });
+  });
+
+  function isOrbitUiBlocked() {
+    return Boolean(
+      document.querySelector(
+        "#modal-backdrop.open, #esc-menu.open, #pad-setup.open, #start-screen:not(.hidden)"
+      )
+    );
+  }
+
+  function pickAtCrosshair() {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const cx = rect.left + aimU * rect.width;
+    const cy = rect.top + aimV * rect.height;
+    lastHover = { x: cx, y: cy };
+    onPick(cx, cy);
+  }
+
+  gamepad.onPress(({ button, actions }) => {
+    if (!active || descent || isOrbitUiBlocked()) return;
+    if (button === CONFIRM_BUTTON || actions.includes("confirm")) {
+      if (pick && !confirmEl.hidden) {
+        confirmGoBtn?.click();
+      } else {
+        padAimActive = true;
+        pickAtCrosshair();
+      }
+      return;
+    }
+    if (actions.includes("pin")) {
+      padAimActive = true;
+      pickAtCrosshair();
+      return;
+    }
+    if (actions.includes("interact")) {
+      layerBtn?.click();
+      return;
+    }
+    if (button === BACK_BUTTON || actions.includes("back")) {
+      if (pick && !confirmEl.hidden) {
+        confirmCancelBtn?.click();
+      } else {
+        document.getElementById("btn-tab-hud")?.click();
+      }
+    }
   });
   homeBtn?.addEventListener("click", () => {
     const p = getPlayerLonLat?.();
@@ -1093,10 +1165,35 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
   function frame(now) {
     if (!active) return;
     raf = requestAnimationFrame(frame);
+    const dt = Math.min(0.1, Math.max(0.001, (now - prevFrameNow) / 1000));
+    prevFrameNow = now;
     simDate = new Date(simBase + (Date.now() - simBaseReal) * warp);
+    const uiBlocked = isOrbitUiBlocked();
 
     updateDescent(now);
     if (!descent) {
+      if (!uiBlocked) {
+        // Left stick: move / rotate the 3D globe
+        const mv = gamepad.move();
+        if (Math.hypot(mv.x, mv.y) > 0.01) {
+          padAimActive = true;
+          const arcScale = (cam.dist - 1) * 0.9 + 0.004;
+          const lonScale = 1 / Math.max(0.15, Math.cos(cam.lat * DEG));
+          const panDegPerSec = 58 * arcScale;
+          cam.vLon = 0;
+          cam.vLat = 0;
+          cam.tLon += mv.x * panDegPerSec * lonScale * dt;
+          cam.tLat = Math.max(-89, Math.min(89, cam.tLat + mv.y * panDegPerSec * dt));
+        }
+        // RT / LT: zoom in / out on the 3D globe
+        const zoomIn = gamepad.analog("throttle");
+        const zoomOut = gamepad.analog("brake");
+        const zoomNet = zoomIn - zoomOut;
+        if (Math.abs(zoomNet) > 0.02) {
+          const factor = Math.exp(-zoomNet * 1.65 * dt);
+          cam.tDist = clampDist(1 + (cam.tDist - 1) * factor);
+        }
+      }
       // inertia after a flick, then ease toward targets
       if (pointers.size === 0 && (cam.vLon || cam.vLat)) {
         cam.tLon += cam.vLon;
@@ -1111,6 +1208,29 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
       cam.dist = Math.exp(Math.log(cam.dist - 1) + (Math.log(cam.tDist - 1) - Math.log(cam.dist - 1)) * 0.16) + 1;
     }
     placeCamera();
+    if (!descent && !uiBlocked) {
+      // Right stick: aim cursor and mark location on the 3D globe
+      const rs = gamepad.rightStick();
+      if (Math.hypot(rs.x, rs.y) > 0.01) {
+        padAimActive = true;
+        aimU = Math.max(0.08, Math.min(0.92, aimU + rs.x * 0.65 * dt));
+        aimV = Math.max(0.08, Math.min(0.92, aimV + rs.y * 0.65 * dt));
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const cx = rect.left + aimU * rect.width;
+          const cy = rect.top + aimV * rect.height;
+          lastHover = { x: cx, y: cy };
+          onPickGamepad(cx, cy);
+        }
+      }
+    }
+    if (padAimActive && !descent) {
+      crosshairEl.classList.add("on");
+      crosshairEl.style.left = `${(aimU * 100).toFixed(2)}%`;
+      crosshairEl.style.top = `${(aimV * 100).toFixed(2)}%`;
+    } else {
+      crosshairEl.classList.remove("on");
+    }
     if (descent?.shake) {
       const s = descent.shake * (cam.dist - 1) * 0.02;
       camera.position.x += (Math.random() - 0.5) * s;
@@ -1274,7 +1394,11 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     const altKm = Math.round((cam.dist - 1) * R_KM).toLocaleString();
     if (!hit) {
       hoverEl.textContent = tr
-        ? `İRTİFA ${altKm} km · SÜRÜKLE: DÖNDÜR · TEKERLEK: YAKINLAŞ · YÜZEYE TIKLA: İNİŞ NOKTASI SEÇ`
+        ? gamepad.connected
+          ? `İRTİFA ${altKm} km · SOL ÇUBUK: HARİTA HAREKET · SAĞ ÇUBUK: KONUM İŞARETLE · RT/LT: YAKINLAŞ · A: ONAYLA`
+          : `İRTİFA ${altKm} km · SÜRÜKLE: DÖNDÜR · TEKERLEK: YAKINLAŞ · YÜZEYE TIKLA: İNİŞ NOKTASI SEÇ`
+        : gamepad.connected
+        ? `ALT ${altKm} km · L-STICK: MOVE MAP · R-STICK: MARK SITE · RT/LT: ZOOM · A: CONFIRM`
         : `ALT ${altKm} km · DRAG TO ROTATE · SCROLL / PINCH TO ZOOM · CLICK THE SURFACE TO PICK A LANDING SITE`;
       return;
     }
@@ -1301,6 +1425,8 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     /** Show the view; with `from` the camera starts close over that point and eases out (Bodycam -> orbit). */
     show({ from = null } = {}) {
       active = true;
+      prevFrameNow = performance.now();
+      if (gamepad.connected) padAimActive = true;
       onResize();
       descentEl.classList.remove("on", "flash", "whoosh");
       if (from && Number.isFinite(from.lon) && Number.isFinite(from.lat)) {
@@ -1321,6 +1447,7 @@ export function initOrbitView(viewEl, { demoSafe = false, onLand = null, getPlay
     },
     hide() {
       active = false;
+      crosshairEl.classList.remove("on");
       clearTimeout(descentTimerId);
       descentTimerId = 0;
       descent = null;

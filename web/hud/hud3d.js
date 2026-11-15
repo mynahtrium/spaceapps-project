@@ -2947,6 +2947,7 @@ export async function initHud3D(
   evaLamp.castShadow = false;
   scene.add(evaLamp, evaLamp.target);
   let evaLampOn = false;
+  let roverLampOverride = null; // null = automatic (dark), true / false = driver's choice
   let goldSlide = 0;
 
   const dummyDepthTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
@@ -3288,7 +3289,7 @@ export async function initHud3D(
   const hasOpenModalOverlay = () =>
     Boolean(
       document.querySelector(
-        ".modal-backdrop.open, #npc-dialogue-modal.open, #crew-drawer.open, #esc-menu.open"
+        ".modal-backdrop.open, #npc-dialogue-modal.open, #crew-drawer.open, #esc-menu.open, #hud-transit-panel.open, #hud-fleet-panel.open"
       )
     );
 
@@ -4662,17 +4663,19 @@ export async function initHud3D(
       btnGold.textContent = goldOn ? "Gold: ON (G)" : "Gold (G)";
       btnGold.classList.toggle("is-gold", goldOn);
     }
+    const lampShown = drivingRover ? roverHeadlightsActive() : evaLampOn;
     if (btnLamp) {
-      btnLamp.textContent = evaLampOn ? "Flashlight: ON (F)" : "Flashlight (F)";
-      btnLamp.classList.toggle("is-active", evaLampOn);
+      const lampName = drivingRover ? "Headlights" : "Flashlight";
+      btnLamp.textContent = lampShown ? `${lampName}: ON (F / R3)` : `${lampName} (F / R3)`;
+      btnLamp.classList.toggle("is-active", lampShown);
     }
     if (optGoldPill) {
       optGoldPill.textContent = goldOn ? "VISOR: GOLD" : "VISOR: CLR";
       optGoldPill.classList.toggle("gold", goldOn);
     }
     if (optLampPill) {
-      optLampPill.textContent = evaLampOn ? "LIGHT: ON" : "LIGHT: OFF";
-      optLampPill.classList.toggle("active", evaLampOn);
+      optLampPill.textContent = lampShown ? "LIGHT: ON" : "LIGHT: OFF";
+      optLampPill.classList.toggle("active", lampShown);
     }
     if (optZoomPill) {
       optZoomPill.textContent = `MAG: ${optZoom}×`;
@@ -4712,8 +4715,13 @@ export async function initHud3D(
     syncOpticsOverlayUi();
   }
 
+  // Rover headlights are automatic in the dark; F / R3 overrides them on or off while driving.
+  function roverHeadlightsActive() {
+    return roverLampOverride ?? (evaLampOn || sunState.elevationRad < 0.22);
+  }
   function toggleHelmetLamp() {
-    evaLampOn = !evaLampOn;
+    if (drivingRover) roverLampOverride = !roverHeadlightsActive();
+    else evaLampOn = !evaLampOn;
     syncOpticsOverlayUi();
   }
 
@@ -4909,7 +4917,7 @@ export async function initHud3D(
           activeDriveRover = preHistoricRover || roverConcept;
           preHistoricRover = null;
         }
-        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E / RB)" : "EXITED MARS ROVER (PRESS E / RB TO BOARD)");
+        showWrapNotice(tr ? "MARS ARACINDAN İNİLDİ (BİNMEK: E / Y)" : "EXITED MARS ROVER (PRESS E / Y TO BOARD)");
         return;
       }
 
@@ -4923,7 +4931,7 @@ export async function initHud3D(
         return;
       }
 
-      // standing next to a historic rover: E (or RB) drives it; from further away E still opens its card
+      // standing next to a historic rover: E (or Y) drives it; from further away E still opens its card
       const histEntry = nearestHistoricEntry(freePos.x, freePos.z);
       if (histEntry && !findNearestDrivableEntry(freePos.x, freePos.z, 5.8)) {
         preHistoricRover = activeDriveRover?.isHistoricAdapter ? preHistoricRover : activeDriveRover;
@@ -4942,8 +4950,8 @@ export async function initHud3D(
         if (self?.group) self.group.visible = false;
         showWrapNotice(
           tr
-            ? `${hs.shortLabel} · UZAKTAN SÜRÜŞ (GERÇEKTE ÇOK DAHA YAVAŞ) · W/S · A/D · E / RB İN`
-            : `${hs.shortLabel} · TELEOPERATED DRIVE (THE REAL ROVER IS FAR SLOWER) · W/S · A/D · E / RB EXIT`
+            ? `${hs.shortLabel} · UZAKTAN SÜRÜŞ (GERÇEKTE ÇOK DAHA YAVAŞ) · RT/LT · SOL ÇUBUK · E / Y İN`
+            : `${hs.shortLabel} · TELEOPERATED DRIVE (THE REAL ROVER IS FAR SLOWER) · RT/LT · L-STICK · E / Y EXIT`
         );
         return;
       }
@@ -4990,8 +4998,8 @@ export async function initHud3D(
         if (self?.group) self.group.visible = false;
         showWrapNotice(
           tr
-            ? `${drvSpec.shortLabel} · 3. ŞAHIS SÜRÜŞ · W/S GAZ · A/D DİREKSİYON · SPACE DRİFT · E İN`
-            : `${drvSpec.shortLabel} · 3RD-PERSON DRIVE · W/S DRIVE · A/D STEER · SPACE DRIFT · E EXIT`
+            ? `${drvSpec.shortLabel} · 3. ŞAHIS SÜRÜŞ · W/S VEYA RT/LT GAZ · SOL ÇUBUK DİREKSİYON · LB DRİFT · E / Y İN`
+            : `${drvSpec.shortLabel} · 3RD-PERSON DRIVE · W/S OR RT/LT DRIVE · L-STICK STEER · LB DRIFT · E / Y EXIT`
         );
         return;
       }
@@ -5042,13 +5050,27 @@ export async function initHud3D(
   const padBlocked = () => padBlockedGiven(hasOpenModalOverlay());
   gamepad.onPress(({ actions }) => {
     if (landing.active) return landing.skip();
-    if (isHudActive() && !padBlocked() && actions.includes("interact")) {
+    if (!isHudActive() || padBlocked()) return;
+    if (actions.includes("interact")) {
       // same as the E key: board / leave any vehicle (historic rovers too), talk to crew
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
       window.dispatchEvent(new KeyboardEvent("keyup", { key: "e", bubbles: true }));
       return;
     }
-    if (!isHudActive() || padBlocked() || drivingRover) return;
+    if (actions.includes("lamp")) {
+      toggleHelmetLamp();
+      return;
+    }
+    if (actions.includes("pin")) {
+      dropLocalPing("Landmark");
+    }
+    if (actions.includes("back") && optZoom > 1) {
+      optZoom = 1;
+      camera.fov = BASE_FOV;
+      camera.updateProjectionMatrix();
+      hudView?.classList.remove("zoom-active");
+    }
+    if (drivingRover) return;
     for (const a of actions) {
       if (a === "jump") {
         if (devCfg.realisticPhysics) {
@@ -5059,10 +5081,8 @@ export async function initHud3D(
           player.vy = JUMP_SPEED_MS;
           player.grounded = false;
         }
-      } else if (a === "pin") dropLocalPing("Landmark");
-      else if (a === "texture") document.getElementById("hud-tex")?.click();
+      } else if (a === "texture") document.getElementById("hud-tex")?.click();
       else if (a === "pov") document.getElementById("hud-pov-btn")?.click();
-      else if (a === "map") document.getElementById("hud-orbit-btn")?.click();
     }
   });
 
@@ -5684,20 +5704,20 @@ export async function initHud3D(
       {
         const sim = activeDriveRover.sim;
         const rig = activeDriveRover.rig;
-        // inputs: keyboard, or controller (RT / LT or left stick for the pedals, left stick to steer)
+        // inputs: keyboard, or Xbox controller (RT throttle, LT brake/reverse, left stick steer, LB handbrake, RB boost)
         const padOk = !padBusy;
         const st = padOk ? gamepad.move() : NO_STICK;
-        const rt = padOk ? gamepad.buttons[7] || 0 : 0;
-        const lt = padOk ? gamepad.buttons[6] || 0 : 0;
+        const rt = padOk ? gamepad.analog("throttle") : 0;
+        const lt = padOk ? gamepad.analog("brake") : 0;
         const keyThrottle =
           (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
         const keySteer =
           (keys.has("a") || keys.has("arrowleft") ? 1 : 0) - (keys.has("d") || keys.has("arrowright") ? 1 : 0);
         const mapBlocked = uiBlocked;
-        const throttle = mapBlocked ? 0 : keyThrottle || (rt - lt) || (Math.abs(st.y) > 0.2 ? st.y : 0);
+        const throttle = mapBlocked ? 0 : keyThrottle || (rt - lt);
         const steerIn = mapBlocked ? 0 : keySteer || -st.x;
         const handbrake = !mapBlocked && (keys.has(" ") || (padOk && gamepad.isDown("jump")));
-        const boost = !mapBlocked && (keys.has("shift") || (padOk && gamepad.isDown("pin")));
+        const boost = !mapBlocked && (keys.has("shift") || (padOk && gamepad.isDown("run")));
         prevRoverSteer = roverSteer;
         roverSteer += (steerIn - roverSteer) * Math.min(1, dt * 10.5);
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
@@ -6013,8 +6033,8 @@ export async function initHud3D(
         const nSpec = nearestR.getActiveSpec();
         showWrapNotice(
           isTrLang()
-            ? `${nSpec.nameTr.toUpperCase()} · BİNMEK İÇİN [E] TUŞUNA BAS`
-            : `${nSpec.nameEn.toUpperCase()} · PRESS [E] TO DRIVE`
+            ? `${nSpec.nameTr.toUpperCase()} · BİNMEK İÇİN [E / Y] TUŞUNA BAS`
+            : `${nSpec.nameEn.toUpperCase()} · PRESS [E / Y] TO DRIVE`
         );
       } else if (minDistR > 6.4) {
         nearRoverPrompted = false;
@@ -6592,12 +6612,12 @@ export async function initHud3D(
               const s = activeTargetNpc.spec;
               const roleText = (tr ? s.role?.tr || s.role?.en : s.role?.en) || s.tagText || "";
               roverTargetEl.textContent = `${s.name.toUpperCase()}${roleText ? ` (${roleText})` : ""} · ${
-                tr ? "KONUŞ [E] / TIKLA" : "TALK [E] / CLICK"
+                tr ? "KONUŞ [E / Y] / TIKLA" : "TALK [E / Y] / CLICK"
               }`;
               roverTargetEl.classList.add("visible");
             } else if (hitSpec) {
               roverTargetEl.textContent = `${hitSpec.name.toUpperCase()} (${hitSpec.mission}) · ${
-                tr ? "ETKİLEŞİM [E] / TIKLA" : "INTERACT [E] / CLICK"
+                tr ? "ETKİLEŞİM [E / Y] / TIKLA" : "INTERACT [E / Y] / CLICK"
               }`;
               roverTargetEl.classList.add("visible");
             } else {
@@ -6626,7 +6646,7 @@ export async function initHud3D(
     if (Math.abs(goldVisor - goldSlide) < 0.002) goldSlide = goldVisor;
 
     camera.getWorldDirection(lookDir);
-    if (drivingRover && activeDriveRover && (evaLampOn || sunState.elevationRad < 0.22)) {
+    if (drivingRover && activeDriveRover && roverHeadlightsActive()) {
       const autoBoost = sunState.elevationRad < 0.25 ? 1.45 : 1.0;
       evaLamp.intensity = 18.0 * autoBoost;
       const rp = activeDriveRover.group.position;

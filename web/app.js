@@ -285,6 +285,7 @@ async function boot() {
   const ready = new Promise((r) => (resolveReady = r));
   let syncEscMenuRef = () => {};
   let openSettingsModalRef = () => {};
+  let toggleEscMenuRef = () => {};
   let activePadSettingsApi = null;
   let currentSettingsTab = "general";
   const start = initStartScreen({
@@ -313,7 +314,10 @@ async function boot() {
 
   // move keyboard focus through the controls of an open panel (controller setup / settings modal)
   function moveFocus(rootEl, dir) {
-    const items = [...rootEl.querySelectorAll("button, input, select")].filter((e) => !e.disabled && e.offsetParent !== null);
+    if (!rootEl) return;
+    const items = [...rootEl.querySelectorAll("button, input:not([type='text']):not([type='search']), select")].filter(
+      (e) => !e.disabled && e.offsetParent !== null
+    );
     if (!items.length) return;
     const cur = items.indexOf(document.activeElement);
     const el = document.activeElement;
@@ -323,6 +327,14 @@ async function boot() {
       el.dispatchEvent(new Event("input", { bubbles: true }));
       return;
     }
+    if ((dir === "left" || dir === "right") && el?.tagName === "SELECT" && cur >= 0) {
+      const len = el.options.length;
+      if (len > 0) {
+        el.selectedIndex = (el.selectedIndex + (dir === "right" ? 1 : -1) + len) % len;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return;
+    }
     const next = cur < 0 ? 0 : (cur + (dir === "up" || dir === "left" ? -1 : 1) + items.length) % items.length;
     items[next].focus();
   }
@@ -330,6 +342,10 @@ async function boot() {
   gamepad.onNav(({ dir }) => {
     if (padSetup.isOpen) return moveFocus(document.getElementById("pad-setup"), dir);
     if (isOn("modal-backdrop", "open")) return moveFocus(document.getElementById("modal-backdrop"), dir);
+    if (isOn("npc-dialogue-modal", "open")) return moveFocus(document.getElementById("npc-dialogue-modal"), dir);
+    if (isOn("hud-transit-panel", "open")) return moveFocus(document.getElementById("hud-transit-panel"), dir);
+    if (isOn("crew-drawer", "open")) return moveFocus(document.getElementById("crew-drawer"), dir);
+    if (isOn("hud-fleet-panel", "open")) return moveFocus(document.getElementById("hud-fleet-panel"), dir);
     if (isOn("esc-menu", "open")) return moveFocus(document.getElementById("esc-menu"), dir);
     if (!isOn("start-screen", "hidden")) {
       if (dir === "up") pressKey("ArrowUp");
@@ -338,10 +354,28 @@ async function boot() {
   });
 
   gamepad.onPress(({ button, actions }) => {
+    const isConfirm = button === CONFIRM_BUTTON || actions.includes("confirm");
+    const isBack = button === BACK_BUTTON || actions.includes("back");
+
     if (padSetup.isOpen) {
-      if (button === BACK_BUTTON) padSetup.close();
-      else if (button === CONFIRM_BUTTON && document.getElementById("pad-setup").contains(document.activeElement)) {
+      if (isBack) padSetup.close();
+      else if (isConfirm && document.getElementById("pad-setup")?.contains(document.activeElement)) {
         document.activeElement.click();
+      }
+      return;
+    }
+    if (isOn("npc-dialogue-modal", "open")) {
+      const dlgEl = document.getElementById("npc-dialogue-modal");
+      if (isBack || actions.includes("menu")) {
+        document.getElementById("npc-dlg-close")?.click();
+      } else if (isConfirm) {
+        if (dlgEl?.contains(document.activeElement) && document.activeElement !== dlgEl) {
+          document.activeElement.click();
+        } else {
+          const firstPreset = dlgEl?.querySelector(".npc-preset-btn");
+          firstPreset?.focus();
+          firstPreset?.click();
+        }
       }
       return;
     }
@@ -354,23 +388,71 @@ async function boot() {
         tabBtns[nextIdx]?.click();
         return;
       }
-      if (button === BACK_BUTTON) {
+      if (isBack || actions.includes("menu")) {
         document.getElementById("modal-close")?.click();
-      } else if (button === CONFIRM_BUTTON && backdropEl.contains(document.activeElement)) {
+      } else if (isConfirm && backdropEl.contains(document.activeElement)) {
         document.activeElement.click();
       }
       return;
     }
-    if (!isOn("start-screen", "hidden")) {
-      if (button === CONFIRM_BUTTON) pressKey("Enter");
-      // B or Menu closes the Esc menu and returns to where you were (once the app has loaded)
-      else if ((button === BACK_BUTTON || actions.includes("menu")) && appReady()) start.hide();
+    if (isOn("hud-transit-panel", "open")) {
+      const tpEl = document.getElementById("hud-transit-panel");
+      if (isBack || actions.includes("menu")) {
+        document.getElementById("hud-transit-close")?.click();
+      } else if (isConfirm) {
+        if (tpEl?.contains(document.activeElement) && document.activeElement !== tpEl) {
+          document.activeElement.click();
+        } else {
+          tpEl?.querySelector("button")?.focus();
+        }
+      }
       return;
     }
-    if (actions.includes("menu")) return start.show();
+    if (isOn("crew-drawer", "open")) {
+      const cdEl = document.getElementById("crew-drawer");
+      if (isBack || actions.includes("menu")) {
+        document.getElementById("crew-close")?.click();
+      } else if (isConfirm && cdEl?.contains(document.activeElement)) {
+        document.activeElement.click();
+      }
+      return;
+    }
+    if (isOn("hud-fleet-panel", "open")) {
+      const flEl = document.getElementById("hud-fleet-panel");
+      if (isBack || actions.includes("menu")) {
+        document.getElementById("hud-fleet-close")?.click();
+      } else if (isConfirm) {
+        if (flEl?.contains(document.activeElement) && document.activeElement !== flEl) {
+          document.activeElement.click();
+        } else {
+          flEl?.querySelector("button")?.focus();
+        }
+      }
+      return;
+    }
+    if (isOn("esc-menu", "open")) {
+      const escEl = document.getElementById("esc-menu");
+      if (isBack || actions.includes("menu")) {
+        toggleEscMenuRef(false);
+      } else if (isConfirm) {
+        if (escEl?.contains(document.activeElement) && document.activeElement !== escEl) {
+          document.activeElement.click();
+        } else {
+          const firstBtn = escEl?.querySelector(".esc-item") || document.getElementById("esc-resume");
+          firstBtn?.focus();
+          firstBtn?.click();
+        }
+      }
+      return;
+    }
+    if (!isOn("start-screen", "hidden")) {
+      if (isConfirm) pressKey("Enter");
+      else if ((isBack || actions.includes("menu")) && appReady()) start.hide();
+      return;
+    }
+    if (actions.includes("menu")) return toggleEscMenuRef();
     if (actions.includes("setup")) return openSettingsModalRef("controls");
-    if (actions.includes("map")) return toggleMap(); // opens and closes the map
-    if (isOn("orbit-view", "active") && button === BACK_BUTTON) document.getElementById("btn-tab-hud")?.click();
+    if (actions.includes("map")) return toggleMap();
   });
 
   const data = await loadAllProjectData();
@@ -1020,20 +1102,20 @@ async function boot() {
           <div class="dev-sec-title">${tr ? "Oyun Kumandası (Gamepad) Ayarları" : "Gamepad Configuration"}</div>
           <div id="settings-pad-mount" class="settings-pad-mount"></div>
 
-          <div class="dev-sec-title" style="margin-top:8px;">${tr ? "Klavye & Fare Kısayolları" : "Keyboard & Mouse Shortcuts"}</div>
+          <div class="dev-sec-title" style="margin-top:8px;">${tr ? "Klavye & Xbox Kontrolcü Kısayolları" : "Keyboard & Xbox Controller Shortcuts"}</div>
           <div class="kbd-grid">
-            <div class="kbd-row"><span>${tr ? "Hareket / Sürüş" : "Move / Drive"}</span><kbd class="kbd-key">W A S D</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Koşu / Hızlanma" : "Sprint / Boost"}</span><kbd class="kbd-key">Shift</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Zıplama / El Freni" : "Jump / Handbrake"}</span><kbd class="kbd-key">Space</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Araca Bin / Astronotla Konuş" : "Board Rover / Talk to Crew"}</span><kbd class="kbd-key">E / RB</kbd></div>
-            <div class="kbd-row"><span>${tr ? "1. / 3. Şahıs Kamera" : "1st / 3rd Person Camera"}</span><kbd class="kbd-key">V</kbd></div>
-            <div class="kbd-row"><span>${tr ? "El Feneri" : "Suit Flashlight"}</span><kbd class="kbd-key">F</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Altın Güneş Vizörü" : "Gold Sun Visor"}</span><kbd class="kbd-key">G</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Optik Büyütme (Zoom)" : "Optical Zoom"}</span><kbd class="kbd-key">Z</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Ray Tracing Kademesi" : "Cycle Ray Tracing Tier"}</span><kbd class="kbd-key">R</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Yörünge Görünümü" : "Orbit View"}</span><kbd class="kbd-key">M / O</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Yol İşareti Bırak" : "Drop Waypoint Pin"}</span><kbd class="kbd-key">P</kbd></div>
-            <div class="kbd-row"><span>${tr ? "Performans İstatistikleri" : "Performance Stats"}</span><kbd class="kbd-key">F3</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Hareket / Kamera" : "Move / Camera"}</span><kbd class="kbd-key">WASD / LS · RS</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Gaz / Fren (Araç)" : "Throttle / Brake"}</span><kbd class="kbd-key">W S / RT · LT</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Hızlı Koşu" : "Fast Run / Boost"}</span><kbd class="kbd-key">Shift / RB</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Zıplama / El Freni" : "Jump / Handbrake"}</span><kbd class="kbd-key">Space / LB</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Etkileşim (Araçlar & İnsanlar)" : "Interact (Vehicles & Crew)"}</span><kbd class="kbd-key">E / Y</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Landmark Bırakma" : "Drop Landmark"}</span><kbd class="kbd-key">P / X</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Seç ve Onayla / Geri Git" : "Select & Confirm / Back"}</span><kbd class="kbd-key">Enter·A / Esc·B</kbd></div>
+            <div class="kbd-row"><span>${tr ? "3D Harita (Orbit)" : "3D Map (Orbit)"}</span><kbd class="kbd-key">M / 2▢ (View)</kbd></div>
+            <div class="kbd-row"><span>${tr ? "ESC Menü" : "ESC Menu"}</span><kbd class="kbd-key">Esc / ≡ (Menu)</kbd></div>
+            <div class="kbd-row"><span>${tr ? "1. / 3. Şahıs Kamera" : "1st / 3rd Person Camera"}</span><kbd class="kbd-key">V / RS</kbd></div>
+            <div class="kbd-row"><span>${tr ? "El Feneri / Vizör" : "Flashlight / Visor"}</span><kbd class="kbd-key">F · G / D-Pad</kbd></div>
+            <div class="kbd-row"><span>${tr ? "Optik Büyütme (Zoom)" : "Optical Zoom"}</span><kbd class="kbd-key">Z / D-Pad ▲</kbd></div>
           </div>
         </div>
 
@@ -1730,8 +1812,12 @@ async function boot() {
       } catch {}
     }
     escMenu.classList.toggle("open", next);
-    if (next) syncEscMenuUi();
+    if (next) {
+      syncEscMenuUi();
+      document.getElementById("esc-resume")?.focus();
+    }
   }
+  toggleEscMenuRef = toggleEscMenu;
 
   document.getElementById("btn-menu")?.addEventListener("click", () => toggleEscMenu(true));
   document.getElementById("esc-resume")?.addEventListener("click", () => toggleEscMenu(false));

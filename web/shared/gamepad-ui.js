@@ -9,15 +9,19 @@
 import { ACTIONS, BUTTON_NAMES, gamepad } from "./gamepad.js";
 
 const ACTION_LABELS_TR = {
-  jump: "Zıpla (Menülerde A onaylar)",
-  run: "Koş (Basılı tut)",
-  pin: "İşaret bırak (Pin)",
-  texture: "Zemin görünümünü değiştir",
-  map: "Yörünge haritasını aç / kapat",
-  menu: "Komut menüsü (ESC)",
-  pov: "Gezgin POV fotoğrafı",
-  setup: "Ayarlar / Kumanda kurulumu",
-  interact: "Araca bin / in, konuş (E)",
+  confirm: "Seç ve Onayla (A)",
+  back: "Geri Git (B)",
+  pin: "Landmark Bırakma (X)",
+  interact: "Etkileşim — araçlar ve insanlar (Y)",
+  jump: "Zıplama / El Freni (LB)",
+  run: "Hızlı Koşu / Boost (RB)",
+  brake: "Fren / Geri (LT)",
+  throttle: "Gaz (RT)",
+  map: "Harita (M) — 2 Kare (View)",
+  menu: "ESC Menü — 3 Çizgi (Menu)",
+  texture: "Zemin görünümünü değiştir (LS)",
+  lamp: "El feneri / Farlar (R3)",
+  pov: "Gezgin POV fotoğrafı (D-pad yukarı)",
 };
 
 // Silhouette drawn here (generic controller outline, no logos). viewBox 0 0 440 280.
@@ -93,7 +97,7 @@ const CSS = `
 `;
 
 let stylesInjected = false;
-function ensurePadStyles() {
+export function ensurePadStyles() {
   if (stylesInjected || typeof document === "undefined" || !document.head) return;
   stylesInjected = true;
   const style = document.createElement("style");
@@ -119,7 +123,7 @@ export function mountGamepadSettings(container, { tr = false, showCloseButton = 
   const card = el(`
     <div class="${showCloseButton ? "pad-card" : "pad-embed-card"}">
       <div class="pad-head">
-        <h3>${tr ? "OYUN KUMANDASI (GAMEPAD) KURULUMU" : "CONTROLLER / GAMEPAD SETUP"}</h3>
+        <h3>${tr ? "XBOX / XINPUT KUMANDA KURULUMU" : "XBOX / XINPUT CONTROLLER SETUP"}</h3>
         <div class="pad-status" id="pad-status">
           ${
             tr
@@ -133,8 +137,8 @@ export function mountGamepadSettings(container, { tr = false, showCloseButton = 
         <div class="pad-hint">
           ${
             tr
-              ? "SOL ÇUBUK YÜRÜR · SAĞ ÇUBUK BAKAR · BASILAN TUŞLAR ŞEMADA YANAR.<br/>MENÜLERDE: A SEÇER / ONAYLAR, B GERİ DÖNER (SABİT); D-PAD VEYA SOL ÇUBUK GEZİNİR.<br/>TUŞ DEĞİŞTİRMEK İÇİN: ATAMA SEÇİN, ARDINDAN KUMANDADAKİ TUŞA BASIN (ESC İPTAL EDER)."
-              : "LEFT STICK WALK · RIGHT STICK LOOK · BUTTONS LIGHT UP WHEN PRESSED.<br/>IN MENUS: A SELECTS / CONFIRMS, B GOES BACK (FIXED); D-PAD OR LEFT STICK MOVES.<br/>TO CHANGE A BUTTON: CHOOSE ASSIGN, THEN PRESS THE BUTTON ON THE CONTROLLER (ESC CANCELS)."
+              ? "SOL JOYSTICK: HAREKET & 3D HARİTA HAREKETİ · SAĞ JOYSTICK: KAMERA & 3D HARİTA KONUM İŞARETLEME.<br/>GAZ: RT · FREN: LT · HIZLI KOŞU: RB · ZIPLAMA: LB · ETKİLEŞİM: Y · LANDMARK: X · 2 KARE (VIEW): HARİTA (M) · 3 ÇİZGİ (MENU): ESC MENÜ.<br/>MENÜLERDE VE HARİTADA: A SEÇ VE ONAYLA, B GERİ GİT."
+              : "LEFT STICK: MOVE & 3D MAP PAN · RIGHT STICK: CAMERA & 3D MAP LOCATION MARKING.<br/>THROTTLE: RT · BRAKE: LT · FAST RUN: RB · JUMP: LB · INTERACT: Y · LANDMARK: X · VIEW (2▢): MAP (M) · MENU (≡): ESC MENU.<br/>IN MENUS & MAP: A SELECT & CONFIRM, B GO BACK."
           }
         </div>
       </div>

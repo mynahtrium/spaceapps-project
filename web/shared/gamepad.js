@@ -10,10 +10,10 @@
  * this browser only (localStorage), so each player keeps their own layout.
  */
 
-// v2: team layout (View = map, Menu = Esc menu, A confirm / B back in menus); v1 saves are not reused
-const STORAGE_KEY = "mm-gamepad-v2";
+// v3: Xbox / XInput layout (A confirm, B back, X landmark, Y interact, LB jump, RB run, LT brake, RT throttle, View map, Menu esc)
+const STORAGE_KEY = "mm-gamepad-v4";
 
-/** Fixed menu buttons (not rebindable): A selects / confirms, B goes back. */
+/** Fixed menu buttons: A selects / confirms, B goes back. */
 export const CONFIRM_BUTTON = 0;
 export const BACK_BUTTON = 1;
 
@@ -26,8 +26,8 @@ export const BUTTON_NAMES = [
   "RB",
   "LT",
   "RT",
-  "View",
-  "Menu",
+  "View (2▢)",
+  "Menu (≡)",
   "LS (press)",
   "RS (press)",
   "D-pad up",
@@ -37,17 +37,21 @@ export const BUTTON_NAMES = [
   "Guide",
 ];
 
-/** Rebindable in-game actions with their default buttons (A and B also confirm / go back in menus). */
+/** Rebindable in-game actions with their default Xbox / XInput buttons. */
 export const ACTIONS = [
-  { id: "jump", label: "Jump (A also confirms in menus)", button: 0 },
-  { id: "run", label: "Run (hold)", button: 7 },
-  { id: "pin", label: "Drop landmark", button: 2 },
-  { id: "texture", label: "Change theme (ground look)", button: 3 },
-  { id: "map", label: "Open / close map", button: 8 },
-  { id: "menu", label: "Esc menu", button: 9 },
-  { id: "pov", label: "Rover POV photo", button: 4 },
-  { id: "setup", label: "Controller setup", button: 11 },
-  { id: "interact", label: "Board / leave a vehicle, talk (E)", button: 5 },
+  { id: "confirm", label: "Select & Confirm (A)", button: 0 },
+  { id: "back", label: "Go Back (B)", button: 1 },
+  { id: "pin", label: "Drop Landmark (X)", button: 2 },
+  { id: "interact", label: "Interact — vehicles & crew (Y)", button: 3 },
+  { id: "jump", label: "Jump / Handbrake (LB)", button: 4 },
+  { id: "run", label: "Fast Run / Boost (RB)", button: 5 },
+  { id: "brake", label: "Brake / Reverse (LT)", button: 6 },
+  { id: "throttle", label: "Throttle / Gas (RT)", button: 7 },
+  { id: "map", label: "Map (M) — 2 Squares (View)", button: 8 },
+  { id: "menu", label: "ESC Menu — 3 Lines (Menu)", button: 9 },
+  { id: "texture", label: "Change surface layer (LS)", button: 10 },
+  { id: "lamp", label: "Flashlight / Headlights (R3)", button: 11 },
+  { id: "pov", label: "Rover POV photo (D-pad up)", button: 12 },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -93,6 +97,7 @@ class GamepadInput {
   constructor() {
     this.settings = loadSettings();
     this.pad = null;
+    this.activePadIndex = -1;
     this.buttons = new Array(17).fill(0);
     this.prev = new Array(17).fill(false);
     this.axes = [0, 0, 0, 0];
@@ -117,14 +122,43 @@ class GamepadInput {
     const rawPads = navigator.getGamepads ? navigator.getGamepads() : null;
     let pad = null;
     if (rawPads) {
+      let fallbackStandard = null;
+      let fallbackAny = null;
       for (let i = 0; i < rawPads.length; i++) {
         const p = rawPads[i];
         if (!p || !p.connected) continue;
-        if (p.mapping === "standard") {
+        if (!fallbackAny) fallbackAny = p;
+        const isXboxOrStandard = p.mapping === "standard" || /xbox|xinput/i.test(p.id || "");
+        if (isXboxOrStandard && !fallbackStandard) fallbackStandard = p;
+        let hasInput = false;
+        if (p.buttons) {
+          for (let b = 0; b < p.buttons.length; b++) {
+            const btn = p.buttons[b];
+            const val = btn ? (typeof btn === "object" ? (typeof btn.value === "number" ? btn.value : btn.pressed ? 1 : 0) : Number(btn) || 0) : 0;
+            if (val > 0.2) {
+              hasInput = true;
+              break;
+            }
+          }
+        }
+        if (!hasInput && p.axes) {
+          for (let a = 0; a < Math.min(4, p.axes.length); a++) {
+            if (Math.abs(p.axes[a] || 0) > 0.25) {
+              hasInput = true;
+              break;
+            }
+          }
+        }
+        if (hasInput) {
+          this.activePadIndex = i;
           pad = p;
           break;
         }
-        if (!pad) pad = p;
+      }
+      if (!pad) {
+        const lastActive = this.activePadIndex >= 0 ? rawPads[this.activePadIndex] : null;
+        if (lastActive && lastActive.connected) pad = lastActive;
+        else pad = fallbackStandard || fallbackAny;
       }
     }
     const id = pad ? pad.id : null;
@@ -144,7 +178,7 @@ class GamepadInput {
     }
     for (let i = 0; i < this.buttons.length; i++) {
       const b = pad.buttons[i];
-      this.buttons[i] = b ? (typeof b === "object" ? b.value || (b.pressed ? 1 : 0) : b) : 0;
+      this.buttons[i] = b ? (typeof b === "object" ? (typeof b.value === "number" ? b.value : b.pressed ? 1 : 0) : Number(b) || 0) : 0;
     }
     for (let i = 0; i < 4; i++) this.axes[i] = pad.axes[i] || 0;
     for (let i = 0; i < this.buttons.length; i++) {
@@ -206,11 +240,23 @@ class GamepadInput {
     return b != null && this.buttons[b] > 0.5;
   }
 
+  /** Analog 0..1 value for the button bound to actionId (for RT throttle / LT brake triggers). */
+  analog(actionId) {
+    const b = this.settings.bindings[actionId];
+    return b != null ? Math.max(0, Math.min(1, this.buttons[b] || 0)) : 0;
+  }
+
   /** Left stick (or right, if swapped): x right, y forward (+1 = push up). */
   move() {
     const [ax, ay] = this.settings.swapSticks ? [2, 3] : [0, 1];
     const v = radial(this.axes[ax], this.axes[ay], this.settings.deadzone);
     return { x: v.x, y: -v.y };
+  }
+
+  /** Right stick (or left, if swapped): screen-space cursor delta (x right, y down), without camera invertY. */
+  rightStick() {
+    const [ax, ay] = this.settings.swapSticks ? [0, 1] : [2, 3];
+    return radial(this.axes[ax], this.axes[ay], this.settings.deadzone);
   }
 
   /** Right stick (or left, if swapped): x right, y up, with sensitivity and invert applied. */
