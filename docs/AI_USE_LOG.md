@@ -1165,3 +1165,12 @@ Optional Git reminder: `git config commit.template .gitmessage` (see [docs/GITHU
 - Why: with Super Graphics on, the game still stuttered. It rendered 2x pixel ratio x 1.25 supersampling (about 6x the pixels), 4x MSAA on a half-float target, a 4096 px soft shadow map, and adaptive resolution was switched off. Now: pixel ratio up to 1.5, no extra supersampling, 2x MSAA, 2048 px soft shadows (about 3 cm texels), rocks and micro-detail unchanged, and the adaptive resolution stays on (floor 60 %) so it holds the screen's refresh rate. Ray tracing is a separate toggle and stays heavy (per-pixel height-field marching); the adaptive resolution also applies to it.
 - Commit: this commit
 - Next step: Cagan checks F3 with Super Graphics on; if the render scale sits at 60 % and fps is still low, turn off Ray Tracing or Realistic Textures, or use Balanced quality.
+
+### 2026-11-15 Europe/Istanbul — Final pull and branch consolidation into `main`
+
+- Human: Eymen
+- Agent tool + model: Gemini (Antigravity)
+- Task id: branch-consolidation
+- Files changed: `web/shared/dev-settings.js`, `web/styles.css`, `web/planner/map-gamepad.js`, `web/tests/fallback.test.mjs`, `docs/AI_USE.md`, `docs/AI_USE_LOG.md`, plus unified stash integration onto `origin/main` (`aacadf6`)
+- Why: Pulled latest `origin/main` (`aacadf6`, PERF-01 / LOAD-01 / PERF-02), merged `QUALITY_LEVELS` / `quality` seamlessly with the 3 HUD themes (`cyan`, `untitled`, `mono`) and `windDust` controls, restored `web/planner/map-gamepad.js` from `origin/demo1-controller` so nothing was lost, recorded merge commits (`-s ours`) unifying `origin/backend/science`, `origin/demo1-controller`, `origin/developermenu`, and `origin/frontend/planner-hud` into `main`, and removed local non-`main` branch pointers so only `main` remains locally.
+- Commit: consolidated commits on `main`

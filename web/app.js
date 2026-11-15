@@ -11,7 +11,37 @@ import { dispatchSetRoute, dispatchVisitRoverSite, marsDistanceM, onOpenRoverInf
 import { formatMarsLonLat, getHistoricRoverById } from "./shared/mars-rovers.js";
 import { initHud3D } from "./hud/hud3d.js";
 import { initOrbitView } from "./orbit/orbit-view.js";
-import { FULL_REALISM_PRESET, loadDevSettings, resetDevSettings, saveDevSettings } from "./shared/dev-settings.js";
+import {
+  FULL_REALISM_PRESET,
+  loadDevSettings,
+  resetDevSettings,
+  saveDevSettings,
+  subscribeDevSettings,
+} from "./shared/dev-settings.js";
+
+const HUD_THEMES = ["cyan", "untitled", "mono"];
+const THEME_LABELS = {
+  cyan: { en: "Ice-Cyan Glass", tr: "Buz Mavisi Cam" },
+  untitled: { en: "Untitled Blue", tr: "Mavi-Siyah" },
+  mono: { en: "Monochrome", tr: "Siyah-Beyaz" },
+};
+
+function getThemeLabel(themeId, tr) {
+  const id = HUD_THEMES.includes(themeId) ? themeId : "cyan";
+  return THEME_LABELS[id][tr ? "tr" : "en"];
+}
+
+function applyThemeToDom(cfg) {
+  if (typeof document !== "undefined" && document.body) {
+    document.body.dataset.theme = cfg?.hudTheme || "cyan";
+  }
+}
+
+function cycleHudTheme() {
+  const cur = loadDevSettings().hudTheme || "cyan";
+  const next = HUD_THEMES[(HUD_THEMES.indexOf(cur) + 1) % HUD_THEMES.length];
+  return saveDevSettings({ hudTheme: next });
+}
 import { initContextMenu } from "./shared/context-menu.js";
 import { BACK_BUTTON, CONFIRM_BUTTON, gamepad } from "./shared/gamepad.js";
 import { initGamepadSetup } from "./shared/gamepad-ui.js";
@@ -73,8 +103,8 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
       const key = el.dataset.i18n;
       if (t[key]) el.textContent = t[key];
     });
-    document.getElementById("lang-en").style.color = lang === "en" ? "#a5f3fc" : "";
-    document.getElementById("lang-tr").style.color = lang === "tr" ? "#a5f3fc" : "";
+    document.getElementById("lang-en").style.color = lang === "en" ? "var(--cyan-bright)" : "";
+    document.getElementById("lang-tr").style.color = lang === "tr" ? "var(--cyan-bright)" : "";
   }
 
   async function typeIntro() {
@@ -178,6 +208,11 @@ function initStartScreen({ onEva, onOrbit, onCredits, onDev, onLangChange }) {
 
 async function boot() {
   document.body.classList.add("in-hud");
+  applyThemeToDom(loadDevSettings());
+  subscribeDevSettings((cfg) => {
+    applyThemeToDom(cfg);
+    syncEscMenuRef();
+  });
   // Show the start screen at once; its actions wait until the data and views are ready.
   let resolveReady;
   const ready = new Promise((r) => (resolveReady = r));
@@ -364,7 +399,7 @@ async function boot() {
         </p>
         <div class="honesty-note">
           <strong>3D Asset:</strong> ${rover.modelSourceNote}.
-          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;">NASA Mission Page ↗</a>
+          <a href="${rover.nasaUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);">NASA Mission Page ↗</a>
         </div>
 
         <div class="rover-modal-actions">
@@ -439,6 +474,22 @@ async function boot() {
               ? "Değişiklikler anlık olarak 3D EVA görünümüne uygulanır ve tarayıcıda saklanır."
               : "Changes apply live to the 3D EVA view and persist locally in your browser."
           }
+        </div>
+
+        <div class="dev-row">
+          <div>
+            <div class="dev-label">${tr ? "HUD Görsel Teması" : "HUD Visual Theme"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Buz mavisi vizör camı, Untitled mavi-siyah veya sade siyah-beyaz arayüz arasında geçer."
+                : "Switches between Ice-Cyan glass, Untitled blue-on-black, and Monochrome UI."
+            }</div>
+          </div>
+          <span class="dev-presets">
+            <button class="btn dev-theme-btn" type="button" data-hud-theme="cyan">${getThemeLabel("cyan", tr)}</button>
+            <button class="btn dev-theme-btn" type="button" data-hud-theme="untitled">${getThemeLabel("untitled", tr)}</button>
+            <button class="btn dev-theme-btn" type="button" data-hud-theme="mono">${getThemeLabel("mono", tr)}</button>
+          </span>
         </div>
 
         <label class="dev-row">
@@ -582,6 +633,18 @@ async function boot() {
 
         <label class="dev-row">
           <div>
+            <div class="dev-label">${tr ? "Rüzgar Tozu & Vizör Kirlenmesi" : "Wind-Blown & Visor Glass Dust"}</div>
+            <div class="dev-sub">${
+              tr
+                ? "Rüzgarla uçuşan tanecikleri ve kask camında biriken Mars tozunu açar/kapatır."
+                : "Toggles wind-blown dust grains and gradual Martian dust buildup on the helmet visor glass."
+            }</div>
+          </div>
+          <input type="checkbox" id="dev-wind-dust" ${s.windDust ? "checked" : ""} />
+        </label>
+
+        <label class="dev-row">
+          <div>
             <div class="dev-label">${tr ? "Gerçekçi Mars Fizikleri (Momentum & Süspansiyon)" : "Realistic Mars Physics (Momentum, Slope Slide & Suspension)"}</div>
             <div class="dev-sub">${
               tr
@@ -662,6 +725,7 @@ async function boot() {
     const expRoverToggle = document.getElementById("dev-exp-rover");
     const realisticTexToggle = document.getElementById("dev-realistic-tex");
     const realisticDustToggle = document.getElementById("dev-realistic-dust");
+    const windDustToggle = document.getElementById("dev-wind-dust");
     const realisticPhysicsToggle = document.getElementById("dev-realistic-physics");
     const realisticWeatherToggle = document.getElementById("dev-realistic-weather");
     const fovRange = document.getElementById("dev-fov");
@@ -672,8 +736,12 @@ async function boot() {
     const cleanToggle = document.getElementById("dev-clean-hud");
     const fullRealismBtn = document.getElementById("dev-full-realism");
     const resetBtn = document.getElementById("dev-reset");
+    const themeBtns = [...modalBody.querySelectorAll(".dev-theme-btn")];
 
     const syncUi = (cfg) => {
+      for (const btn of themeBtns) {
+        btn.classList.toggle("active", btn.dataset.hudTheme === (cfg.hudTheme || "cyan"));
+      }
       if (frameToggle) frameToggle.checked = cfg.frameEffect;
       if (frameStrength) {
         frameStrength.value = String(cfg.frameStrength);
@@ -690,6 +758,7 @@ async function boot() {
       if (expRoverToggle) expRoverToggle.checked = cfg.experimentalRover;
       if (realisticTexToggle) realisticTexToggle.checked = cfg.realisticTextures;
       if (realisticDustToggle) realisticDustToggle.checked = cfg.realisticDust;
+      if (windDustToggle) windDustToggle.checked = cfg.windDust;
       if (realisticPhysicsToggle) realisticPhysicsToggle.checked = cfg.realisticPhysics;
       if (realisticWeatherToggle) realisticWeatherToggle.checked = cfg.realisticWeather;
       if (fovRange) fovRange.value = String(cfg.fov);
@@ -701,6 +770,9 @@ async function boot() {
     };
 
     syncUi(s);
+    for (const btn of themeBtns) {
+      btn.addEventListener("click", () => syncUi(saveDevSettings({ hudTheme: btn.dataset.hudTheme })));
+    }
     frameToggle?.addEventListener("change", () => syncUi(saveDevSettings({ frameEffect: frameToggle.checked })));
     frameStrength?.addEventListener("input", () => syncUi(saveDevSettings({ frameStrength: parseFloat(frameStrength.value) })));
     speedRange?.addEventListener("input", () => syncUi(saveDevSettings({ speedMultiplier: parseFloat(speedRange.value) })));
@@ -727,6 +799,7 @@ async function boot() {
     realisticDustToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticDust: realisticDustToggle.checked }))
     );
+    windDustToggle?.addEventListener("change", () => syncUi(saveDevSettings({ windDust: windDustToggle.checked })));
     realisticPhysicsToggle?.addEventListener("change", () =>
       syncUi(saveDevSettings({ realisticPhysics: realisticPhysicsToggle.checked }))
     );
@@ -792,7 +865,7 @@ async function boot() {
     const row = document.createElement("div");
     row.className = "crew-chat-line";
     const badge = document.createElement("strong");
-    badge.style.color = color || "#67e8f9";
+    badge.style.color = color || "var(--cyan)";
     badge.textContent = `[${callsign}] `;
     row.appendChild(badge);
     row.appendChild(document.createTextNode(text));
@@ -832,7 +905,7 @@ async function boot() {
         const left = document.createElement("span");
         const dot = document.createElement("span");
         dot.className = "crew-dot";
-        dot.style.background = peer.color || "#67e8f9";
+        dot.style.background = peer.color || "var(--cyan)";
         left.appendChild(dot);
         let distTxt = peer.role?.toUpperCase() || "EVA";
         if (lastSelfPose?.lon != null && peer.state?.lon != null) {
@@ -1041,6 +1114,8 @@ async function boot() {
     setText("esc-go-orbit", tr ? "Yörünge Görünümü (M)" : "Orbit View (M)");
     setText("esc-pin", tr ? "İşaret Bırak (P)" : "Drop Pin (P)");
     setText("esc-pov", tr ? "Gezgin POV Fotoğrafı" : "Rover POV");
+    const activeTheme = loadDevSettings().hudTheme || "cyan";
+    setText("esc-theme", `${tr ? "Tema" : "Theme"}: ${getThemeLabel(activeTheme, tr)}`);
     setText("esc-dev", tr ? "Geliştirici Ayarları" : "Developer Settings");
     setText("esc-sources", tr ? "Kaynaklar ve Dürüstlük" : "Sources & Honesty");
     setText("esc-title-btn", tr ? "Başlangıç Ekranı" : "Title Screen");
@@ -1069,8 +1144,8 @@ async function boot() {
     const lang = readLang();
     const lEn = document.getElementById("esc-lang-en");
     const lTr = document.getElementById("esc-lang-tr");
-    if (lEn) lEn.style.color = lang === "en" ? "#a5f3fc" : "";
-    if (lTr) lTr.style.color = lang === "tr" ? "#a5f3fc" : "";
+    if (lEn) lEn.style.color = lang === "en" ? "var(--cyan-bright)" : "";
+    if (lTr) lTr.style.color = lang === "tr" ? "var(--cyan-bright)" : "";
   }
   syncEscMenuRef = syncEscMenuUi;
 
@@ -1132,6 +1207,10 @@ async function boot() {
     toggleEscMenu(false);
     crewDrawer?.classList.add("open");
     renderCrewUi();
+  });
+  document.getElementById("esc-theme")?.addEventListener("click", () => {
+    cycleHudTheme();
+    syncEscMenuUi();
   });
   document.getElementById("esc-dev")?.addEventListener("click", openDevSettingsModal);
   document.getElementById("esc-sources")?.addEventListener("click", openCreditsModal);
@@ -1265,6 +1344,13 @@ async function boot() {
         { label: t("Command menu", "Komut menüsü"), hint: "Esc", action: () => toggleEscMenu(true) },
         { separator: true },
         { label: btnCrew?.textContent?.trim() || "Crew", action: () => btnCrew?.click() },
+        {
+          label: `${t("Theme", "Tema")}: ${getThemeLabel(loadDevSettings().hudTheme, readLang() === "tr")}`,
+          action: () => {
+            cycleHudTheme();
+            syncEscMenuUi();
+          },
+        },
         { label: t("Sources & honesty", "Kaynaklar ve dürüstlük"), action: openCreditsModal },
         { label: t("Developer settings", "Geliştirici ayarları"), action: openDevSettingsModal },
         { label: t("Title screen", "Başlangıç ekranı"), action: () => start.show() },

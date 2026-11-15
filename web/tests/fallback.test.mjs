@@ -9,6 +9,7 @@ import { MarsDemSampler, fillElevationVoids } from "../map/MarsDemSampler.js";
 import {
   DEFAULT_DEV_SETTINGS,
   FULL_REALISM_PRESET,
+  QUALITY_LEVELS,
   normalizeDevSettings,
 } from "../shared/dev-settings.js";
 import {
@@ -41,6 +42,7 @@ import {
   smoothHarshTerrainSpikes,
 } from "../hud/terrain-surface.js";
 import { createGaleVista } from "../hud/GaleVista.js";
+import { createRoverDynamics } from "../hud/rover-dynamics.js";
 import * as THREE from "../vendor/three.module.js";
 import { createMartianPbrTextureSets } from "../map/MarsPbrTextures.js";
 import { buildMarsTerrainTilePayload } from "../map/TerrainMeshBuilder.js";
@@ -374,13 +376,17 @@ test("MarsDemSampler smoothly tapers outside HiRISE bounds without extruded edge
 });
 
 test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanly", () => {
+  assert.deepEqual(QUALITY_LEVELS, ["performance", "balanced", "quality"]);
   const clean = normalizeDevSettings({
+    quality: "quality",
+    hudTheme: "mono",
     frameEffect: false,
     frameStrength: 9,
     speedMultiplier: 12,
     roverSpeedMultiplier: 9.5,
     ...FULL_REALISM_PRESET,
     realisticDust: false,
+    windDust: false,
     realisticPhysics: false,
     realisticWeather: false,
     dustTau: 10,
@@ -388,6 +394,8 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
     fov: 15,
     cleanHud: true,
   });
+  assert.equal(clean.quality, "quality");
+  assert.equal(clean.hudTheme, "mono");
   assert.equal(clean.frameEffect, false);
   assert.equal(clean.frameStrength, 1.5);
   assert.equal(clean.speedMultiplier, 8.0);
@@ -397,13 +405,20 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(clean.experimentalRover, true);
   assert.equal(clean.realisticTextures, true);
   assert.equal(clean.realisticDust, false);
+  assert.equal(clean.windDust, false);
   assert.equal(clean.realisticPhysics, false);
   assert.equal(clean.realisticWeather, false);
   assert.equal(clean.dustTau, 3);
   assert.equal(clean.dustDevil, true);
   assert.equal(clean.fov, 60);
   assert.equal(clean.cleanHud, true);
+  assert.equal(normalizeDevSettings({ quality: "balanced" }).quality, "balanced");
+  assert.equal(normalizeDevSettings({ quality: "invalid-quality" }).quality, "performance");
+  assert.equal(normalizeDevSettings({ hudTheme: "untitled" }).hudTheme, "untitled");
+  assert.equal(normalizeDevSettings({ hudTheme: "invalid-theme" }).hudTheme, "cyan");
   const defs = normalizeDevSettings();
+  assert.equal(defs.quality, "performance");
+  assert.equal(defs.hudTheme, "cyan");
   assert.equal(defs.frameStrength, 0.2);
   assert.equal(defs.speedMultiplier, DEFAULT_DEV_SETTINGS.speedMultiplier);
   assert.equal(defs.roverSpeedMultiplier, 1.0);
@@ -411,6 +426,7 @@ test("dev-settings normalizeDevSettings clamps bounds and preserves flags cleanl
   assert.equal(defs.experimentalRover, false);
   assert.equal(defs.realisticTextures, false);
   assert.equal(defs.realisticDust, true);
+  assert.equal(defs.windDust, true);
   assert.equal(defs.realisticPhysics, true);
   assert.equal(defs.realisticWeather, true);
   assert.equal(defs.dustTau, 0.5);
@@ -772,4 +788,41 @@ test("GaleVista builds smooth stratified Mount Sharp massif within camera far pl
   const padCenter = sampleProceduralSiteHeightM("perseverance", 0, 0);
   const padNear = sampleProceduralSiteHeightM("perseverance", 2.5, 1.5);
   assert.ok(Math.abs(padCenter - padNear) < 0.25, "Landing pad around rover (0,0) should remain gently graded");
+});
+
+test("BUG-10: data/demo JSON fixtures contain zero data/processed/ references", () => {
+  const demoDir = path.resolve(WEB_DIR, "../data/demo");
+  const walk = (dir) => {
+    const out = [];
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) out.push(...walk(full));
+      else if (ent.name.endsWith(".json")) out.push(full);
+    }
+    return out;
+  };
+  const jsonFiles = walk(demoDir);
+  assert.ok(jsonFiles.length >= 10, "Expected exported JSON fixtures in data/demo/");
+  for (const file of jsonFiles) {
+    const txt = fs.readFileSync(file, "utf8");
+    assert.equal(
+      /data\/processed\//.test(txt),
+      false,
+      `Demo JSON ${path.relative(demoDir, file)} must not reference data/processed/`
+    );
+  }
+});
+
+test("createRoverDynamics respects speedMultiplier from developer settings without changing default 1x physics", () => {
+  const flat = { sampleY: () => 0, sampleNormal: () => ({ x: 0, y: 1, z: 0 }) };
+  const sim1 = createRoverDynamics(THREE);
+  const sim2 = createRoverDynamics(THREE);
+  sim1.reset(0, 0, 0, flat.sampleY);
+  sim2.reset(0, 0, 0, flat.sampleY);
+  const dt = 1 / 60;
+  for (let i = 0; i < 600; i++) {
+    sim1.step(dt, { throttle: 1, steer: 0, boost: false, handbrake: false, speedMultiplier: 1 }, flat);
+    sim2.step(dt, { throttle: 1, steer: 0, boost: false, handbrake: false, speedMultiplier: 2 }, flat);
+  }
+  assert.ok(sim2.state.vLong > sim1.state.vLong * 1.4, `Expected 2x multiplier speed (${sim2.state.vLong.toFixed(2)}) > 1x (${sim1.state.vLong.toFixed(2)})`);
 });

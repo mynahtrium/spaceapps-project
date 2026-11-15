@@ -255,10 +255,13 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
 
     // motor demand for the whole vehicle
     const boost = Boolean(inp.boost);
-    const vCap = st.pedal >= 0 ? (boost ? P.vMaxBoost : P.vMax) : P.vMaxReverse;
+    const rawMult = Number(inp.speedMultiplier);
+    const speedMult = Number.isFinite(rawMult) ? Math.max(0.3, Math.min(4.0, rawMult)) : 1;
+    const vCap = (st.pedal >= 0 ? (boost ? P.vMaxBoost : P.vMax) : P.vMaxReverse) * speedMult;
     const governor = Math.max(0, Math.min(1, (vCap - speed) / 0.8));
-    const powerCap = (boost ? P.boostPowerW : P.powerW) / Math.max(0.5, speed);
-    let driveTotal = Math.min(P.wheelForceMaxN, powerCap) * Math.abs(st.pedal) * governor;
+    const wheelForceMaxN = P.wheelForceMaxN * speedMult;
+    const powerCap = ((boost ? P.boostPowerW : P.powerW) * speedMult) / Math.max(0.5, speed);
+    let driveTotal = Math.min(wheelForceMaxN, powerCap) * Math.abs(st.pedal) * governor;
     driveTotal *= Math.sign(st.pedal);
     const coastRegen = st.pedal === 0 && st.brake < 0.05 ? -Math.sign(vLong) * Math.min(1, speed / 0.6) * m * P.regenCoastG : 0;
 
@@ -417,7 +420,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
     const wheelOmega = driven ? wSum / driven : Math.abs(vLong) / P.wheelRadius;
     st.motorRpm = (wheelOmega * 60 * P.gearRatio) / (2 * Math.PI);
     const tractive = driveTotal + coastRegen;
-    st.torquePct = Math.max(-1, Math.min(1, tractive / P.wheelForceMaxN));
+    st.torquePct = Math.max(-1, Math.min(1, tractive / wheelForceMaxN));
     const mech = tractive * vLong;
     st.powerW = (mech >= 0 ? mech / P.driveEfficiency : mech * P.regenEfficiency) + P.hotelW;
     st.batteryKWh = Math.max(0, Math.min(P.batteryKWh, st.batteryKWh - (st.powerW * dt) / 3.6e6));
@@ -426,7 +429,7 @@ export function createRoverDynamics(THREE, params = ROVER_PARAMS) {
 
   /**
    * @param {number} dt frame time (s)
-   * @param {{throttle:number, steer:number, boost:boolean, handbrake:boolean}} inp steer > 0 = left
+   * @param {{throttle:number, steer:number, boost:boolean, handbrake:boolean, speedMultiplier?:number}} inp steer > 0 = left
    * @param {{sampleY:(x:number,z:number)=>number, sampleNormal:(x:number,z:number)=>{x:number,y:number,z:number}}} env
    */
   let acc = 0;

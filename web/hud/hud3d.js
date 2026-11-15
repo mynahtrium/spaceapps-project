@@ -3097,6 +3097,9 @@ export async function initHud3D(
 
   function applyDevSettings(cfg) {
     devCfg = cfg;
+    if (typeof document !== "undefined" && document.body) {
+      document.body.dataset.theme = cfg.hudTheme || "cyan";
+    }
     const visorOverlay = document.getElementById("visor-overlay") || document.querySelector(".visor-overlay");
     if (visorOverlay) {
       visorOverlay.classList.toggle("no-frame", !cfg.frameEffect);
@@ -3109,6 +3112,9 @@ export async function initHud3D(
     lensMat.uniforms.uGrain.value = (cfg.superGraphics ? 0.008 : 0.014) * Math.max(0.35, strength);
     lensMat.uniforms.uGold.value = goldVisor;
     lensMat.uniforms.uOptZoom.value = optZoom;
+    if (cfg.windDust === false || cfg.realisticDust === false) {
+      lensMat.uniforms.uDust.value = 0;
+    }
 
     if (camera.fov !== cfg.fov) {
       camera.fov = cfg.fov;
@@ -3386,10 +3392,20 @@ export async function initHud3D(
         steerJerk = dt > 0 ? Math.abs(roverSteer - prevRoverSteer) / dt : 0;
 
         const prevYaw = roverSim.attitude().yaw;
-        roverSim.step(dt, { throttle, steer: roverSteer, boost, handbrake }, {
-          sampleY: sampleElevSceneY,
-          sampleNormal,
-        });
+        roverSim.step(
+          dt,
+          {
+            throttle,
+            steer: roverSteer,
+            boost,
+            handbrake,
+            speedMultiplier: devCfg.roverSpeedMultiplier || 1,
+          },
+          {
+            sampleY: sampleElevSceneY,
+            sampleNormal,
+          }
+        );
         const rs = roverSim.state;
 
         // bumping into crewmates and the historic rovers: push the rover back out and bleed speed
@@ -3974,8 +3990,13 @@ export async function initHud3D(
     rockField.update(px, pz, sampleElevSceneY, Boolean(devCfg.superGraphics));
     dustDevil.update(dt, px, pz, groundY, Boolean(devCfg.dustDevil));
     windDust.setPixelScale(renderer.domElement.height);
-    windDust.update(dt, camera, devCfg.windDust === false ? 0 : 1);
-    lensMat.uniforms.uDust.value = Math.min(1, lensMat.uniforms.uDust.value + step / 650);
+    const dustActive = devCfg.windDust !== false && devCfg.realisticDust !== false;
+    windDust.update(dt, camera, dustActive ? 1 : 0);
+    if (dustActive) {
+      lensMat.uniforms.uDust.value = Math.min(0.65, lensMat.uniforms.uDust.value + step / 800);
+    } else {
+      lensMat.uniforms.uDust.value = 0;
+    }
     const sunUpNow = sunUp(sunState.elevationRad);
     sun.intensity = baseSunIntensity * (sunState.fluxWm2 / 590) * tauDim * weatherDim * sunTransit * sunUpNow;
     sun.castShadow = sunUpNow > 0.01;

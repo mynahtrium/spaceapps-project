@@ -11,6 +11,7 @@ export const QUALITY_LEVELS = Object.freeze(["performance", "balanced", "quality
 export const DEFAULT_DEV_SETTINGS = Object.freeze({
   // graphics quality: "performance" aims at the screen's refresh rate (120 Hz+), see hud3d.js
   quality: "performance",
+  hudTheme: "cyan",
   frameEffect: true,
   frameStrength: 0.2,
   speedMultiplier: 1.0,
@@ -20,6 +21,7 @@ export const DEFAULT_DEV_SETTINGS = Object.freeze({
   experimentalRover: false,
   realisticTextures: false,
   realisticDust: true,
+  windDust: true,
   realisticPhysics: true,
   realisticWeather: true,
   dustTau: 0.5,
@@ -34,6 +36,7 @@ export const FULL_REALISM_PRESET = Object.freeze({
   experimentalRover: true,
   realisticTextures: true,
   realisticDust: true,
+  windDust: true,
   realisticPhysics: true,
   realisticWeather: true,
 });
@@ -47,6 +50,7 @@ function clampNum(v, min, max, fallback) {
 export function normalizeDevSettings(raw = {}) {
   return {
     quality: QUALITY_LEVELS.includes(raw.quality) ? raw.quality : DEFAULT_DEV_SETTINGS.quality,
+    hudTheme: ["cyan", "untitled", "mono"].includes(raw.hudTheme) ? raw.hudTheme : DEFAULT_DEV_SETTINGS.hudTheme,
     frameEffect: raw.frameEffect !== undefined ? Boolean(raw.frameEffect) : DEFAULT_DEV_SETTINGS.frameEffect,
     frameStrength: clampNum(raw.frameStrength, 0, 1.5, DEFAULT_DEV_SETTINGS.frameStrength),
     speedMultiplier: clampNum(raw.speedMultiplier, 0.5, 8.0, DEFAULT_DEV_SETTINGS.speedMultiplier),
@@ -58,6 +62,7 @@ export function normalizeDevSettings(raw = {}) {
     realisticTextures:
       raw.realisticTextures !== undefined ? Boolean(raw.realisticTextures) : DEFAULT_DEV_SETTINGS.realisticTextures,
     realisticDust: raw.realisticDust !== undefined ? Boolean(raw.realisticDust) : DEFAULT_DEV_SETTINGS.realisticDust,
+    windDust: raw.windDust !== undefined ? Boolean(raw.windDust) : DEFAULT_DEV_SETTINGS.windDust,
     realisticPhysics:
       raw.realisticPhysics !== undefined ? Boolean(raw.realisticPhysics) : DEFAULT_DEV_SETTINGS.realisticPhysics,
     realisticWeather:
