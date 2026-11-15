@@ -123,10 +123,13 @@ const TILE_RING = 2; // mirrored copies out to 2 tiles in every direction
 // to ./assets/nasa-3d/z2-spacesuit.glb.
 const SUIT_MODELS = [
   {
+    url: "./assets/nasa-3d/mark-iii-spacesuit.glb",
+    label: "NASA MARK III · H-SUIT MESH · PROCEDURAL GAIT",
+  },
+  {
     url: "./assets/nasa-3d/advanced-crew-escape-suit.glb",
     label: "NASA ACES · LAUNCH/ENTRY MESH · PROCEDURAL GAIT",
   },
-  { url: "./assets/nasa-3d/mark-iii-spacesuit.glb", label: "NASA MARK III · PROCEDURAL GAIT" },
 ];
 
 function loadImage(url) {
